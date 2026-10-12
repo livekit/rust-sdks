@@ -63,6 +63,9 @@ fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend>
         proto::VideoEncoderBackend::EncoderBackendVideotoolbox => {
             Some(VideoEncoderBackend::VideoToolbox)
         }
+        proto::VideoEncoderBackend::EncoderBackendPreEncoded => {
+            Some(VideoEncoderBackend::PreEncoded)
+        }
     }
 }
 
@@ -448,6 +451,7 @@ mod tests {
                 proto::VideoEncoderBackend::EncoderBackendVideotoolbox,
                 VideoEncoderBackend::VideoToolbox,
             ),
+            (proto::VideoEncoderBackend::EncoderBackendPreEncoded, VideoEncoderBackend::PreEncoded),
         ];
 
         for (proto_backend, expected) in cases {

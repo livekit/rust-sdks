@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use futures_util::future::try_join_all;
 use libwebrtc::native::create_random_uuid;
-use livekit::{Room, RoomEvent, RoomOptions};
+use livekit::{rtc_engine::RtcEngine, Room, RoomEvent, RoomOptions};
 use livekit_token::{AccessToken, VideoGrants};
 use std::{env, time::Duration};
 use tokio::{
@@ -126,4 +126,28 @@ pub async fn test_rooms_with_options(
         .context("Not all participants became visible")?;
 
     Ok(rooms)
+}
+
+/// Creates a connected [`RtcEngine`] for testing, bypassing the [`Room`] layer.
+///
+/// Lifecycle assertions about the engine need it to be the sole owner of its
+/// internals. Going through [`Room`] would keep the engine alive through the
+/// room's own ownership edges, masking what is being asserted.
+pub async fn test_engine() -> Result<RtcEngine> {
+    let test_env = TestEnvironment::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+
+    let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
+        .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
+        .with_grants(VideoGrants { room_join: true, room: room_name, ..Default::default() })
+        .with_identity("p0")
+        .with_name("Participant 0")
+        .to_jwt()
+        .context("Failed to generate JWT")?;
+
+    let (engine, _, _) = RtcEngine::connect(&test_env.server_url, &token, Default::default(), None)
+        .await
+        .context("Failed to connect to engine")?;
+
+    Ok(engine)
 }

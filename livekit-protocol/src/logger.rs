@@ -24,9 +24,9 @@ impl Sensitivity {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Sensitivity::Unspecified => "SENSITIVITY_UNSPECIFIED",
-            Sensitivity::Pii => "SENSITIVITY_PII",
-            Sensitivity::Secret => "SENSITIVITY_SECRET",
+            Self::Unspecified => "SENSITIVITY_UNSPECIFIED",
+            Self::Pii => "SENSITIVITY_PII",
+            Self::Secret => "SENSITIVITY_SECRET",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.

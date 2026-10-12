@@ -251,7 +251,16 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
   }
 }
 
-NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {}
+NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {
+  if (cu_context_) {
+    // This ownership model relies on WebRTC releasing encoders before their
+    // owning factory, so the factory lifetime bounds this context reference.
+    RTC_LOG(LS_INFO) << "NvidiaVideoEncoderFactory destroyed; releasing CUDA "
+                        "context.";
+    cu_context_->Shutdown();
+    cu_context_ = nullptr;
+  }
+}
 
 namespace {
 
@@ -283,11 +292,12 @@ std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
       if (!cu_context_) {
-        cu_context_ = livekit_ffi::CudaContext::GetInstance();
-        if (!cu_context_->Initialize()) {
+        auto* ctx = livekit_ffi::CudaContext::GetInstance();
+        if (!ctx->Initialize()) {
           RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
           return nullptr;
         }
+        cu_context_ = ctx;
       }
 
       if (format.name == "H264") {

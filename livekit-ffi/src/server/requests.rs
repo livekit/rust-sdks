@@ -23,6 +23,8 @@ use livekit::{
 };
 use parking_lot::Mutex;
 
+#[cfg(feature = "capture")]
+use super::capture;
 use super::{
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
@@ -520,6 +522,52 @@ unsafe fn on_capture_video_frame(
     Ok(proto::CaptureVideoFrameResponse::default())
 }
 
+/// Push one complete pre-encoded access unit to an encoded video source.
+unsafe fn on_capture_encoded_video_frame(
+    server: &'static FfiServer,
+    mut capture: proto::CaptureEncodedVideoFrameRequest,
+) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(capture.source_handle)?;
+    let metadata = capture.metadata.take();
+    // SAFETY: `livekit_ffi_request` requires all pointers embedded in the
+    // decoded request to remain valid for the duration of the call.
+    let payload = unsafe { capture.buffer.as_slice()? };
+    let accepted = source.capture_encoded_frame(&capture, payload, metadata)?;
+    Ok(proto::CaptureEncodedVideoFrameResponse { accepted })
+}
+
+impl proto::EncodedVideoBufferInfo {
+    /// Views the foreign encoded-video buffer as a byte slice.
+    ///
+    /// # Safety
+    ///
+    /// `data_ptr` must address `data_len` readable bytes for the returned
+    /// slice's lifetime.
+    unsafe fn as_slice(&self) -> FfiResult<&[u8]> {
+        let len = usize::try_from(self.data_len).map_err(|_| {
+            FfiError::InvalidRequest("encoded frame payload length does not fit usize".into())
+        })?;
+        if self.data_ptr == 0 {
+            return Err(FfiError::InvalidRequest(
+                "encoded frame payload pointer must be non-null".into(),
+            ));
+        }
+
+        // SAFETY: The caller guarantees that the pointer addresses `len`
+        // readable bytes for the lifetime of the returned slice.
+        Ok(unsafe { std::slice::from_raw_parts(self.data_ptr as *const u8, len) })
+    }
+}
+
+/// Consume pending keyframe and rate-control feedback for an encoded source.
+fn on_take_encoded_video_source_feedback(
+    server: &'static FfiServer,
+    request: proto::TakeEncodedVideoSourceFeedbackRequest,
+) -> FfiResult<proto::TakeEncodedVideoSourceFeedbackResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(request.source_handle)?;
+    source.take_encoded_feedback()
+}
+
 /// Convert a video frame
 ///
 /// # Safety: The user must ensure that the pointers/len provided are valid
@@ -821,35 +869,20 @@ fn on_get_session_stats(
 }
 
 fn on_new_sox_resampler(
-    server: &'static FfiServer,
+    _server: &'static FfiServer,
     new_soxr: proto::NewSoxResamplerRequest,
 ) -> FfiResult<proto::NewSoxResamplerResponse> {
-    let io_spec = resampler::IOSpec {
-        input_type: new_soxr.input_data_type(),
-        output_type: new_soxr.output_data_type(),
-    };
-
-    let quality_spec = resampler::QualitySpec {
-        quality: new_soxr.quality_recipe(),
-        flags: new_soxr.flags.unwrap_or(0),
-    };
-
-    let runtime_spec = resampler::RuntimeSpec { num_threads: 1 };
-
     match resampler::SoxResampler::new(
         new_soxr.input_rate,
         new_soxr.output_rate,
         new_soxr.num_channels,
-        io_spec,
-        quality_spec,
-        runtime_spec,
+        new_soxr.input_data_type().into(),
+        new_soxr.output_data_type().into(),
+        new_soxr.quality_recipe().into(),
+        new_soxr.flags.unwrap_or(0),
     ) {
         Ok(resampler) => {
-            let resampler = Arc::new(Mutex::new(resampler));
-
-            let handle_id = server.next_id();
-            server.store_handle(handle_id, resampler);
-
+            let handle_id = resampler.ffi_handle_id();
             Ok(proto::NewSoxResamplerResponse {
                 message: Some(proto::new_sox_resampler_response::Message::Resampler(
                     proto::OwnedSoxResampler {
@@ -869,9 +902,8 @@ fn on_push_sox_resampler(
     server: &'static FfiServer,
     push: proto::PushSoxResamplerRequest,
 ) -> FfiResult<proto::PushSoxResamplerResponse> {
-    let resampler = server
-        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(push.resampler_handle)?
-        .clone();
+    let resampler =
+        server.retrieve_handle::<Arc<resampler::SoxResampler>>(push.resampler_handle)?.clone();
 
     let data_ptr = push.data_ptr;
     let data_size = push.size;
@@ -883,8 +915,8 @@ fn on_push_sox_resampler(
         )
     };
 
-    let mut resampler = resampler.lock();
-    match resampler.push(data) {
+    let output = resampler.push_ffi(data);
+    match output {
         Ok(output) => {
             if output.is_empty() {
                 return Ok(proto::PushSoxResamplerResponse {
@@ -910,12 +942,11 @@ fn on_flush_sox_resampler(
     server: &'static FfiServer,
     flush: proto::FlushSoxResamplerRequest,
 ) -> FfiResult<proto::FlushSoxResamplerResponse> {
-    let resampler = server
-        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(flush.resampler_handle)?
-        .clone();
+    let resampler =
+        server.retrieve_handle::<Arc<resampler::SoxResampler>>(flush.resampler_handle)?.clone();
 
-    let mut resampler = resampler.lock();
-    match resampler.flush() {
+    let output = resampler.flush_ffi();
+    match output {
         Ok(output) => Ok(proto::FlushSoxResamplerResponse {
             output_ptr: output.as_ptr() as u64,
             size: (output.len() * std::mem::size_of::<i16>()) as u32,
@@ -1390,6 +1421,12 @@ pub fn handle_request(
         }
         Request::NewVideoSource(req) => on_new_video_source(server, req)?.into(),
         Request::CaptureVideoFrame(req) => unsafe { on_capture_video_frame(server, req)?.into() },
+        Request::CaptureEncodedVideoFrame(req) => unsafe {
+            on_capture_encoded_video_frame(server, req)?.into()
+        },
+        Request::TakeEncodedVideoSourceFeedback(req) => {
+            on_take_encoded_video_source_feedback(server, req)?.into()
+        }
         Request::VideoConvert(req) => unsafe { on_video_convert(server, req)?.into() },
         Request::NewAudioStream(req) => on_new_audio_stream(server, req)?.into(),
         Request::NewAudioSource(req) => on_new_audio_source(server, req)?.into(),
@@ -1481,6 +1518,19 @@ pub fn handle_request(
         }
         Request::StartRecording(req) => platform_audio::on_start_recording(server, req)?.into(),
         Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
+
+        #[cfg(feature = "capture")]
+        Request::NewCaptureSource(req) => capture::on_new_capture_source(server, req)?.into(),
+        #[cfg(feature = "capture")]
+        Request::StartCapture(req) => capture::on_start_capture(server, req)?.into(),
+        #[cfg(feature = "capture")]
+        Request::StopCapture(req) => capture::on_stop_capture(server, req)?.into(),
+        #[cfg(not(feature = "capture"))]
+        Request::NewCaptureSource(_) | Request::StartCapture(_) | Request::StopCapture(_) => {
+            return Err(FfiError::InvalidRequest(
+                "livekit-ffi was built without the 'capture' feature".into(),
+            ));
+        }
     });
 
     Ok(res)

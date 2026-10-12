@@ -137,7 +137,11 @@ async fn test_publish_many_tracks() -> Result<()> {
 #[test_log::test(tokio::test)]
 async fn test_publish_unauthorized() -> Result<()> {
     let (room, _) = test_rooms_with_options([TestRoomOptions {
-        grants: VideoGrants { room_join: true, can_publish_data: false, ..Default::default() },
+        grants: VideoGrants {
+            room_join: true,
+            can_publish_data: Some(false),
+            ..Default::default()
+        },
         ..Default::default()
     }])
     .await?

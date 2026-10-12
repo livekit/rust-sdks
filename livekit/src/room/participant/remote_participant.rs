@@ -21,8 +21,8 @@ use std::{
 
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use livekit_runtime::timeout;
 use parking_lot::Mutex;
+use tokio::time::timeout;
 
 use super::{
     ClientCapability, ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
@@ -128,7 +128,7 @@ impl RemoteParticipant {
                         return publication;
                     }
 
-                    livekit_runtime::sleep(Duration::from_millis(50)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         };
@@ -361,7 +361,7 @@ impl RemoteParticipant {
             move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
                         track_sids: vec![tsid.clone()],
@@ -405,7 +405,7 @@ impl RemoteParticipant {
             let rtc_engine = self.inner.rtc_engine.clone();
             move |publication, enabled| {
                 let rtc_engine = rtc_engine.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let TrackDimension(width, height) = publication.dimension();
                     let update_track_settings = proto::UpdateTrackSettings {
@@ -429,7 +429,7 @@ impl RemoteParticipant {
             let rtc_engine = self.inner.rtc_engine.clone();
             move |publication, dimension| {
                 let rtc_engine = rtc_engine.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let TrackDimension(width, height) = dimension;
                     let enabled = publication.is_enabled();
@@ -454,7 +454,7 @@ impl RemoteParticipant {
             let rtc_engine = self.inner.rtc_engine.clone();
             move |publication, quality| {
                 let rtc_engine = rtc_engine.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let quality: i32 = proto::VideoQuality::from(quality).into();
                     let update_track_settings = proto::UpdateTrackSettings {

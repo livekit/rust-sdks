@@ -22244,6 +22244,106 @@ impl<'de> serde::Deserialize<'de> for DeleteSipTrunkRequest {
         deserializer.deserialize_struct("livekit.DeleteSIPTrunkRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DependencyDescriptorForwarderState {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.ext_last_frame_number != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DependencyDescriptorForwarderState", len)?;
+        if self.ext_last_frame_number != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("extLastFrameNumber", ToString::to_string(&self.ext_last_frame_number).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DependencyDescriptorForwarderState {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ext_last_frame_number",
+            "extLastFrameNumber",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ExtLastFrameNumber,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "extLastFrameNumber" | "ext_last_frame_number" => Ok(GeneratedField::ExtLastFrameNumber),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DependencyDescriptorForwarderState;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DependencyDescriptorForwarderState")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DependencyDescriptorForwarderState, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut ext_last_frame_number__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ExtLastFrameNumber => {
+                            if ext_last_frame_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("extLastFrameNumber"));
+                            }
+                            ext_last_frame_number__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DependencyDescriptorForwarderState {
+                    ext_last_frame_number: ext_last_frame_number__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DependencyDescriptorForwarderState", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DeployAgentRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -46985,6 +47085,9 @@ impl serde::Serialize for RtpForwarderState {
         if !self.sender_report_state.is_empty() {
             len += 1;
         }
+        if self.dependency_descriptor_forwarder.is_some() {
+            len += 1;
+        }
         if self.codec_munger.is_some() {
             len += 1;
         }
@@ -47016,6 +47119,9 @@ impl serde::Serialize for RtpForwarderState {
         if !self.sender_report_state.is_empty() {
             struct_ser.serialize_field("senderReportState", &self.sender_report_state)?;
         }
+        if let Some(v) = self.dependency_descriptor_forwarder.as_ref() {
+            struct_ser.serialize_field("dependencyDescriptorForwarder", v)?;
+        }
         if let Some(v) = self.codec_munger.as_ref() {
             match v {
                 rtp_forwarder_state::CodecMunger::Vp8Munger(v) => {
@@ -47046,6 +47152,8 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
             "rtpMunger",
             "sender_report_state",
             "senderReportState",
+            "dependency_descriptor_forwarder",
+            "dependencyDescriptorForwarder",
             "vp8_munger",
             "vp8Munger",
         ];
@@ -47059,6 +47167,7 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
             DummyStartTimestampOffset,
             RtpMunger,
             SenderReportState,
+            DependencyDescriptorForwarder,
             Vp8Munger,
             __SkipField__,
         }
@@ -47089,6 +47198,7 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
                             "dummyStartTimestampOffset" | "dummy_start_timestamp_offset" => Ok(GeneratedField::DummyStartTimestampOffset),
                             "rtpMunger" | "rtp_munger" => Ok(GeneratedField::RtpMunger),
                             "senderReportState" | "sender_report_state" => Ok(GeneratedField::SenderReportState),
+                            "dependencyDescriptorForwarder" | "dependency_descriptor_forwarder" => Ok(GeneratedField::DependencyDescriptorForwarder),
                             "vp8Munger" | "vp8_munger" => Ok(GeneratedField::Vp8Munger),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -47116,6 +47226,7 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
                 let mut dummy_start_timestamp_offset__ = None;
                 let mut rtp_munger__ = None;
                 let mut sender_report_state__ = None;
+                let mut dependency_descriptor_forwarder__ = None;
                 let mut codec_munger__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -47169,6 +47280,12 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
                             }
                             sender_report_state__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::DependencyDescriptorForwarder => {
+                            if dependency_descriptor_forwarder__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dependencyDescriptorForwarder"));
+                            }
+                            dependency_descriptor_forwarder__ = map_.next_value()?;
+                        }
                         GeneratedField::Vp8Munger => {
                             if codec_munger__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("vp8Munger"));
@@ -47189,6 +47306,7 @@ impl<'de> serde::Deserialize<'de> for RtpForwarderState {
                     dummy_start_timestamp_offset: dummy_start_timestamp_offset__.unwrap_or_default(),
                     rtp_munger: rtp_munger__,
                     sender_report_state: sender_report_state__.unwrap_or_default(),
+                    dependency_descriptor_forwarder: dependency_descriptor_forwarder__,
                     codec_munger: codec_munger__,
                 })
             }

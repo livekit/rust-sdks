@@ -112,6 +112,7 @@ impl Drop for ConnectedRoom {
     }
 }
 
+#[serial_test::parallel]
 #[test]
 #[ignore = "requires a live LiveKit server (LK_TEST_URL / LK_TEST_API_KEY / LK_TEST_API_SECRET) and a C compiler"]
 fn on_load_runs_for_plugin_registered_after_connect() {

@@ -168,6 +168,7 @@ mod tests {
         &FFI_SERVER
     }
 
+    #[serial_test::parallel]
     #[test]
     fn test_new_platform_audio() {
         let req = proto::NewPlatformAudioRequest {};

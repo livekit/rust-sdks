@@ -33,6 +33,7 @@ SPM_VERSION=0.1.0 cargo make --profile release swift-package
 In addition to `cargo-make`:
 
 - Xcode + Command Line Tools (for `xcodebuild`, `lipo`, the iOS/macOS SDKs)
+- [_SwiftFormat_](https://github.com/nicklockwood/SwiftFormat) (`brew install swiftformat`; preinstalled on GitHub macOS runners) to format the generated bindings
 - Rust stable with these Apple targets: `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios`, `aarch64-apple-ios-macabi`, `x86_64-apple-ios-macabi`, `aarch64-apple-darwin`, `x86_64-apple-darwin`
 - Rust nightly + `rust-src` component (cargo-swift falls back to `cargo +nightly -Zbuild-std` for tier-3 Apple targets — currently tvOS and visionOS; not needed for `swift-package-debug`'s default macOS-only build):
 

@@ -62,6 +62,18 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.8.0 (2026-09-24)
+
+### Breaking Changes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
+## 0.7.13 (2026-09-08)
+
+### Features
+
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
 ## 0.7.12 (2026-07-29)
 
 ### Fixes

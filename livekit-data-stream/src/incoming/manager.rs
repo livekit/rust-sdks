@@ -29,7 +29,8 @@ use crate::{
 
 use super::{
     events::{
-        ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamOpened, TrailerReceived,
+        ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamClosed, StreamOpened,
+        TrailerReceived,
     },
     stream_reader::AnyStreamReader,
 };
@@ -184,15 +185,14 @@ impl ManagerInput {
 pub struct Manager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
-    output_tx: UnboundedSender<OutputEvent>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
 }
 
-#[derive(Default)]
 struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
+    output_tx: UnboundedSender<OutputEvent>,
 }
 
 impl Manager {
@@ -204,9 +204,8 @@ impl Manager {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner::default(),
+            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
             input_rx,
-            output_tx,
 
             max_payload_byte_length: max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
@@ -215,8 +214,9 @@ impl Manager {
     }
 
     /// Runs the manager's event loop until the input channel closes (all
-    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit,
-    /// dropping `self` closes every open reader.
+    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit, every
+    /// still-open stream is aborted so its reader errors with [`StreamError::AbnormalEnd`]
+    /// rather than ending cleanly with whatever partial content had arrived.
     pub async fn run(mut self) {
         while let Some(event) = self.input_rx.recv().await {
             match event {
@@ -228,15 +228,20 @@ impl Manager {
                         Packet::Chunk { chunk, encryption_type } => {
                             self.handle_chunk(chunk, participant_identity, encryption_type).await
                         }
-                        Packet::Trailer(trailer) => {
-                            self.handle_trailer(trailer, participant_identity)
+                        Packet::Trailer { trailer, encryption_type } => {
+                            self.handle_trailer(trailer, participant_identity, encryption_type)
                         }
                     }
                 }
                 InputEvent::AbortStreamsFrom(identity) => self.handle_abort(identity),
+                InputEvent::AbortAllStreams => self.handle_abort_all(),
+                InputEvent::QueryOpenStreamCount(respond_to) => {
+                    let _ = respond_to.send(self.inner.open_streams.len());
+                }
                 InputEvent::Shutdown => break,
             }
         }
+        self.handle_abort_all();
     }
 
     /// Handles an incoming header packet.
@@ -287,18 +292,20 @@ impl Manager {
         }
 
         let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info);
-        let _ = self.output_tx.send(
+        let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
                 .into(),
         );
 
         if bytes_total.is_some_and(|total| total > self.max_payload_byte_length as u64) {
             let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+            self.inner.emit_stream_closed(&id, participant_identity, topic);
             return;
         }
 
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
-        // packets will follow, so we never register an open descriptor.
+        // packets will follow, so we never register an open descriptor. Every path below
+        // terminates the stream, so each emits `StreamClosed` (there is no trailer to do it).
         if let Some(content) = inline_content {
             let content = if is_compressed {
                 match inflate_raw(&content, self.max_payload_byte_length).await {
@@ -307,12 +314,14 @@ impl Manager {
                         // Defensive: a conforming sender never sends a compressed stream we
                         // can't read, but drop gracefully if it happens.
                         let _ = chunk_tx.send(Err(error));
+                        self.inner.emit_stream_closed(&id, participant_identity, topic);
                         return;
                     }
                 }
             } else {
                 if content.len() > self.max_payload_byte_length {
                     let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+                    self.inner.emit_stream_closed(&id, participant_identity, topic);
                     return;
                 }
                 content
@@ -328,6 +337,7 @@ impl Manager {
                 let _ = chunk_tx.send(Ok(Bytes::from(content)));
             }
             // Dropping `chunk_tx` closes the reader.
+            self.inner.emit_stream_closed(&id, participant_identity, topic);
             return;
         }
 
@@ -363,7 +373,7 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let id = chunk.stream_id.clone();
-        let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+        let _ = self.inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
             chunk: chunk.clone(),
             participant_identity,
             topic: self.topic_associated_with_stream_id(&id),
@@ -374,8 +384,12 @@ impl Manager {
             return;
         };
 
-        if descriptor.encryption_type != encryption_type.into() {
-            inner.close_stream_with_error(&id, StreamError::EncryptionTypeMismatch);
+        if descriptor.encryption_type != encryption_type {
+            let expected = descriptor.encryption_type;
+            inner.close_stream_with_error(
+                &id,
+                StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
+            );
             return;
         }
 
@@ -440,6 +454,11 @@ impl Manager {
         }
 
         // --- Uncompressed (v1) stream: contiguous chunks, content delivered as-is. ---
+        // Duplicate index (reconnect replay): drop with a warning.
+        if chunk.chunk_index < descriptor.progress.chunk_index {
+            log::warn!("Dropping duplicate chunk {} for stream '{}'", chunk.chunk_index, id);
+            return;
+        }
         if descriptor.progress.chunk_index != chunk.chunk_index {
             inner.close_stream_with_error(&id, StreamError::MissedChunk);
             return;
@@ -463,9 +482,14 @@ impl Manager {
     }
 
     /// Handles an incoming trailer packet.
-    fn handle_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
+    fn handle_trailer(
+        &mut self,
+        trailer: Trailer,
+        participant_identity: ParticipantIdentity,
+        encryption_type: EncryptionType,
+    ) {
         let id = trailer.stream_id.clone();
-        let _ = self.output_tx.send(
+        let _ = self.inner.output_tx.send(
             TrailerReceived {
                 trailer: trailer.clone(),
                 participant_identity,
@@ -478,6 +502,18 @@ impl Manager {
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
+
+        // Checked before the attribute merge: a trailer that arrived under the wrong encryption
+        // must not close the stream cleanly, nor inject its attributes (an unencrypted peer could
+        // otherwise forge a clean close for an encrypted stream).
+        if descriptor.encryption_type != encryption_type {
+            let expected = descriptor.encryption_type;
+            inner.close_stream_with_error(
+                &id,
+                StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
+            );
+            return;
+        }
 
         // Move over any attributes from the trailer into the stream-scoped attribute list.
         {
@@ -518,6 +554,16 @@ impl Manager {
             }
         });
     }
+
+    /// Aborts every open stream, erroring each reader with [`StreamError::AbnormalEnd`]. Unlike
+    /// [`Self::handle_abort`] this isn't scoped to one participant; the host calls it when the
+    /// connection is torn down so no reader hangs waiting for chunks that will never arrive.
+    /// The run loop keeps going, so streams opened after (e.g. a reconnect) are still handled.
+    fn handle_abort_all(&mut self) {
+        self.inner.close_matching_streams_with_error(|_id, _descriptor| {
+            Err(StreamError::AbnormalEnd("Data stream connection closed".to_string()))
+        });
+    }
 }
 
 impl ManagerInner {
@@ -542,12 +588,15 @@ impl ManagerInner {
 
     fn close_stream(&mut self, id: &StreamId) {
         // Dropping the sender closes the channel.
-        self.open_streams.remove(id);
+        if let Some(descriptor) = self.open_streams.remove(id) {
+            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
+        }
     }
 
     fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
+            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
         }
     }
 
@@ -555,13 +604,28 @@ impl ManagerInner {
         &mut self,
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
-        self.open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
+        let Self { open_streams, output_tx } = self;
+        open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
             Ok(_) => true,
             Err(error) => {
                 let _ = descriptor.chunk_tx.send(Err(error));
+                let _ = output_tx.send(OutputEvent::StreamClosed(StreamClosed {
+                    stream_id: id.clone(),
+                    participant_identity: descriptor.sender_identity.clone(),
+                    topic: descriptor.topic.clone(),
+                }));
                 false
             }
         });
+    }
+
+    /// Announces that a stream previously announced via [`StreamOpened`] is terminated.
+    fn emit_stream_closed(&self, id: &StreamId, identity: ParticipantIdentity, topic: String) {
+        let _ = self.output_tx.send(OutputEvent::StreamClosed(StreamClosed {
+            stream_id: id.clone(),
+            participant_identity: identity,
+            topic,
+        }));
     }
 }
 
@@ -699,6 +763,13 @@ mod tests {
             self.input.send(InputEvent::AbortStreamsFrom(identity)).unwrap();
         }
 
+        /// Queries the number of currently open (descriptor-registered) streams.
+        async fn open_stream_count(&self) -> usize {
+            let (respond_to, response) = tokio::sync::oneshot::channel();
+            self.input.send(InputEvent::QueryOpenStreamCount(respond_to)).unwrap();
+            response.await.expect("the manager should answer the query")
+        }
+
         /// Awaits the next opened stream's reader (skipping back-compat chunk/trailer outputs).
         async fn next_opened(&mut self) -> (AnyStreamReader, ParticipantIdentity) {
             loop {
@@ -708,6 +779,22 @@ mod tests {
                         participant_identity,
                     }) => {
                         return (stream_reader, participant_identity);
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        /// Awaits the next closed stream, returning its id, sender identity, and topic.
+        async fn next_closed(&mut self) -> (String, String, String) {
+            loop {
+                match self.output_rx.recv().await.expect("a stream should be closed") {
+                    OutputEvent::StreamClosed(StreamClosed {
+                        stream_id,
+                        participant_identity,
+                        topic,
+                    }) => {
+                        return (stream_id.to_string(), participant_identity.to_string(), topic);
                     }
                     _ => continue,
                 }
@@ -739,7 +826,10 @@ mod tests {
                 chunk: chunk("s1", 0, text.as_bytes().to_vec()),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
         }
 
@@ -755,7 +845,10 @@ mod tests {
                 chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
         }
 
@@ -778,10 +871,10 @@ mod tests {
                 chunk: chunk("s1", 0, text.as_bytes().to_vec()),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer_with_attrs(
-                "s1",
-                attrs(&[("hello", "world"), ("foo", "updated")]),
-            )));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer_with_attrs("s1", attrs(&[("hello", "world"), ("foo", "updated")])),
+                encryption_type: EncryptionType::None,
+            });
             // NOTE: trailer-attribute merging is asserted via the reader info after close.
             let info_attrs = text_info(&reader).attributes().clone();
             assert_eq!(read_text(reader).await.unwrap(), text);
@@ -801,7 +894,10 @@ mod tests {
                 chunk: chunk("s1", 0, vec![b'x']),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
         }
 
@@ -817,7 +913,10 @@ mod tests {
                 chunk: chunk("s1", 0, vec![1, 2, 3, 4, 5]),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
         }
 
@@ -864,7 +963,10 @@ mod tests {
                 chunk: chunk("s1", 0, vec![7u8; 1_000]),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_bytes(reader).await.unwrap().len(), 1_000);
         }
 
@@ -880,7 +982,43 @@ mod tests {
                 chunk: chunk("s1", 0, vec![b'h', b'i']),
                 encryption_type: EncryptionType::Gcm,
             });
-            assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
+            assert!(matches!(
+                read_text(reader).await,
+                Err(StreamError::EncryptionTypeMismatch {
+                    expected: EncryptionType::None,
+                    received: EncryptionType::Gcm,
+                })
+            ));
+        }
+
+        /// A trailer is held to the stream's encryption too: an unencrypted peer must not be
+        /// able to forge a clean close (or inject trailer attributes) for an encrypted stream.
+        #[tokio::test]
+        async fn v1_drops_on_trailer_encryption_type_mismatch() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(2), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::Gcm,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![b'h', b'i']),
+                encryption_type: EncryptionType::Gcm,
+            });
+            let info = text_info(&reader).clone();
+            h.send_packet(Packet::Trailer {
+                trailer: trailer_with_attrs("s1", attrs(&[("forged", "yes")])),
+                encryption_type: EncryptionType::None,
+            });
+            assert!(matches!(
+                read_text(reader).await,
+                Err(StreamError::EncryptionTypeMismatch {
+                    expected: EncryptionType::Gcm,
+                    received: EncryptionType::None,
+                })
+            ));
+            // The forged trailer's attributes must not have been merged.
+            assert_eq!(info.attributes().get("forged"), None);
         }
 
         #[tokio::test]
@@ -903,10 +1041,10 @@ mod tests {
                 chunk: chunk("s1", 0, text.as_bytes().to_vec()),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer_with_attrs(
-                "s1",
-                attrs(&[("hello", "world"), ("foo", "updated")]),
-            )));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer_with_attrs("s1", attrs(&[("hello", "world"), ("foo", "updated")])),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
             // The trailer attributes are merged into the stream's attributes, overriding the header's.
             let merged = info.attributes();
@@ -1072,7 +1210,10 @@ mod tests {
                     encryption_type: EncryptionType::None,
                 });
             }
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
         }
 
@@ -1113,7 +1254,10 @@ mod tests {
             );
             // A different participant disconnecting must not disturb bob's stream.
             h.abort(ParticipantIdentity::from(SENDER));
-            h.send_packet_from(Packet::Trailer(trailer("s1")), "bob");
+            h.send_packet_from(
+                Packet::Trailer { trailer: trailer("s1"), encryption_type: EncryptionType::None },
+                "bob",
+            );
             assert_eq!(read_text(reader).await.unwrap(), "hello");
         }
 
@@ -1202,7 +1346,10 @@ mod tests {
                     encryption_type: EncryptionType::None,
                 });
             }
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(data));
         }
 
@@ -1226,7 +1373,10 @@ mod tests {
                 chunk: chunk("s1", 0, compressed),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             // The receiver counts DECOMPRESSED bytes against totalLength.
             assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
         }
@@ -1251,8 +1401,34 @@ mod tests {
                 chunk: chunk("s1", 0, compressed),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert!(matches!(read_text(reader).await, Err(StreamError::LengthExceeded)));
+        }
+
+        #[tokio::test]
+        async fn v1_duplicate_chunk_dropped() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            for (i, piece) in [b"hello", b"hello", b"world"].iter().enumerate() {
+                // The replayed chunk keeps its original index, so the second "hello" is a duplicate.
+                let index = if i == 0 { 0 } else { i as u64 - 1 };
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", index, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(read_text(reader).await.unwrap(), "helloworld");
         }
 
         #[tokio::test]
@@ -1290,7 +1466,10 @@ mod tests {
                     encryption_type: EncryptionType::None,
                 });
             }
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
         }
 
@@ -1322,7 +1501,10 @@ mod tests {
                 chunk: chunk("s1", 1, compressed[split..].to_vec()),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
         }
 
@@ -1386,7 +1568,10 @@ mod tests {
                 chunk: chunk("s1", 0, compressed),
                 encryption_type: EncryptionType::None,
             });
-            h.send_packet(Packet::Trailer(trailer_with_attrs("s1", attrs(&[("hello", "world")]))));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer_with_attrs("s1", attrs(&[("hello", "world")])),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(read_text(reader).await.unwrap(), text);
             let merged = info.attributes();
             assert_eq!(merged.get("foo"), Some(&"bar".to_string()));
@@ -1453,7 +1638,10 @@ mod tests {
                     encryption_type: EncryptionType::None,
                 });
             }
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
 
             let values = collect_progress(progress).await;
             assert_progress_completes(&values, total);
@@ -1487,7 +1675,10 @@ mod tests {
                     encryption_type: EncryptionType::None,
                 });
             }
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
 
             let values = collect_progress(progress).await;
             assert_progress_completes(&values, total);
@@ -1517,6 +1708,238 @@ mod tests {
         }
     }
 
+    /// The open-stream count reflects descriptor-registered streams, answered in order with the
+    /// events enqueued before the query — tests use it to wait for a header/abort to land.
+    mod open_stream_count {
+        use super::*;
+
+        #[tokio::test]
+        async fn counts_streams_across_their_lifecycle() {
+            let mut h = Harness::new();
+            assert_eq!(h.open_stream_count().await, 0);
+
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.send_packet(Packet::Header {
+                header: text_header("s2", Some(5), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.open_stream_count().await, 2);
+
+            // Keep the readers alive so the streams aren't closed by reader drop.
+            let (reader1, _) = h.next_opened().await;
+            let (reader2, _) = h.next_opened().await;
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.abort(ParticipantIdentity::from(SENDER));
+            assert_eq!(h.open_stream_count().await, 0);
+            drop((reader1, reader2));
+        }
+
+        #[tokio::test]
+        async fn inline_streams_are_never_counted() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(5),
+                    HashMap::new(),
+                    Some(b"hello".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            // The inline stream completes during header handling; no descriptor is registered.
+            assert_eq!(h.open_stream_count().await, 0);
+            assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
+    }
+
+    /// Every opened stream terminates with exactly one `StreamClosed`, whatever the terminal
+    /// path — hosts rely on it to sequence handler invocations for ordered topics.
+    /// Stopping the run loop must error in-flight readers; dropping their chunk senders alone
+    /// would end them cleanly, making truncated content look complete.
+    mod shutdown {
+        use super::*;
+
+        #[tokio::test]
+        async fn shutdown_errors_open_streams() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (text_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            let compressed = deflate_raw(b"hello world").await;
+            h.send_packet(Packet::Header {
+                header: byte_header("s2", Some(11), None, CompressionType::DeflateRaw),
+                encryption_type: EncryptionType::None,
+            });
+            let (byte_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s2", 0, compressed[..compressed.len() / 2].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            h.input.send(InputEvent::Shutdown).unwrap();
+            assert!(matches!(read_text(text_reader).await, Err(StreamError::AbnormalEnd(_))));
+            assert!(matches!(read_bytes(byte_reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn dropping_all_inputs_errors_open_streams() {
+            let Harness { input, mut output_rx } = Harness::new();
+            input
+                .send(InputEvent::PacketReceived(PacketReceived {
+                    packet: Packet::Header {
+                        header: text_header(
+                            "s1",
+                            Some(10),
+                            HashMap::new(),
+                            None,
+                            CompressionType::None,
+                        ),
+                        encryption_type: EncryptionType::None,
+                    },
+                    participant_identity: ParticipantIdentity::from(SENDER),
+                }))
+                .unwrap();
+            let reader = loop {
+                if let OutputEvent::StreamOpened(StreamOpened { stream_reader, .. }) =
+                    output_rx.recv().await.expect("a stream should be opened")
+                {
+                    break stream_reader;
+                }
+            };
+
+            drop(input);
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+    }
+
+    mod stream_closed {
+        use super::*;
+
+        #[tokio::test]
+        async fn trailer_close_emits_stream_closed() {
+            let mut h = Harness::new();
+            let text = "hello world";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, text.as_bytes().to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
+
+        #[tokio::test]
+        async fn inline_stream_emits_stream_closed() {
+            // Inline single-packet streams never receive a trailer, so the closed signal must be
+            // synthesized when the inline payload completes.
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(5),
+                    HashMap::new(),
+                    Some(b"hello".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
+
+        #[tokio::test]
+        async fn error_close_emits_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            // A chunk-index gap closes the stream with `MissedChunk`.
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 5, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
+        }
+
+        #[tokio::test]
+        async fn abort_emits_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.abort(ParticipantIdentity::from(SENDER));
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn trailer_for_unopened_stream_emits_no_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("never-opened"),
+                encryption_type: EncryptionType::None,
+            });
+            // A second, well-formed inline stream: if the orphan trailer had produced a closed
+            // event, it would be observed before this stream's.
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s2",
+                    Some(2),
+                    HashMap::new(),
+                    Some(b"hi".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (closed_id, _, _) = h.next_closed().await;
+            assert_eq!(closed_id, "s2");
+        }
+    }
+
     #[tokio::test]
     async fn empty_chunks_are_ignored() {
         let mut h = Harness::new();
@@ -1541,7 +1964,10 @@ mod tests {
             chunk: chunk("s1", 1, text.as_bytes().to_vec()),
             encryption_type: EncryptionType::None,
         });
-        h.send_packet(Packet::Trailer(trailer("s1")));
+        h.send_packet(Packet::Trailer {
+            trailer: trailer("s1"),
+            encryption_type: EncryptionType::None,
+        });
         assert_eq!(read_text(reader).await.unwrap(), text);
     }
 
@@ -1557,11 +1983,14 @@ mod tests {
             chunk: chunk("s1", 0, b"hello".to_vec()),
             encryption_type: EncryptionType::None,
         });
-        h.send_packet(Packet::Trailer(Trailer {
-            stream_id: StreamId::from("s1"),
-            reason: "cancelled".to_string(),
-            attributes: HashMap::new(),
-        }));
+        h.send_packet(Packet::Trailer {
+            trailer: Trailer {
+                stream_id: StreamId::from("s1"),
+                reason: "cancelled".to_string(),
+                attributes: HashMap::new(),
+            },
+            encryption_type: EncryptionType::None,
+        });
         assert!(
             matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(r)) if r == "cancelled")
         );
@@ -1603,7 +2032,10 @@ mod tests {
             chunk: chunk("att1", 0, vec![1, 2, 3]),
             encryption_type: EncryptionType::None,
         });
-        h.send_packet(Packet::Trailer(trailer("att1")));
+        h.send_packet(Packet::Trailer {
+            trailer: trailer("att1"),
+            encryption_type: EncryptionType::None,
+        });
         assert_eq!(read_bytes(byte_reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
     }
 
@@ -1621,7 +2053,7 @@ mod tests {
                     | OutputEvent::TrailerReceived(TrailerReceived { topic, .. }) => {
                         return topic;
                     }
-                    OutputEvent::StreamOpened(_) => continue,
+                    _ => continue,
                 }
             }
         }
@@ -1644,7 +2076,10 @@ mod tests {
             });
             assert_eq!(next_raw_topic(&mut h).await.as_deref(), Some("lk.rpc_request"));
 
-            h.send_packet(Packet::Trailer(trailer("s1")));
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
             assert_eq!(next_raw_topic(&mut h).await.as_deref(), Some("lk.rpc_request"));
 
             // The stream itself still opens and reads normally; reporting the topic does not

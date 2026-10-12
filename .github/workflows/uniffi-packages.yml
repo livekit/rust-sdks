@@ -9,8 +9,10 @@ name: UniFFI packages
 # release event, which fires only for genuine livekit-uniffi releases (the gate
 # is free). workflow_dispatch allows a manual re-run with an explicit tag.
 #
-# The Dart/Flutter cdylib target is experimental and not published for now; add a
-# `cdylib` job (uniffi-cdylib.yml) back when it ships.
+# The Dart package, and the cdylib release assets its build hook downloads, are
+# handled by uniffi-dart-publish.yml. That workflow is tag-push triggered, as
+# pub.dev requires, and builds the assets itself so publishing can depend on
+# them directly.
 
 on:
   release:
@@ -40,8 +42,12 @@ jobs:
       version: ${{ steps.get-tag.outputs.version }}
     steps:
       - id: get-tag
+        # TAG is bound through env rather than template-expanded into the
+        # script: tag names may contain shell metacharacters (Actions script
+        # injection).
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name }}"
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
           # Strip the "livekit-uniffi/v" prefix to get the package version (e.g. 0.1.6).
           echo "version=${TAG#livekit-uniffi/v}" >> "$GITHUB_OUTPUT"

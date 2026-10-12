@@ -24,7 +24,7 @@
 //! (the integration tests take seconds, so this one won the race) and failed when it was
 //! not. Nothing about ordering or gating fixes that within one binary; a separate binary
 //! does, because the mock is never installed here.
-#![cfg(feature = "native-tokio")]
+#![cfg(feature = "native")]
 
 use std::time::Duration;
 

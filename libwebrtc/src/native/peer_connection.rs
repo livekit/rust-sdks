@@ -33,8 +33,8 @@ use crate::{
     media_stream::MediaStream,
     media_stream_track::MediaStreamTrack,
     peer_connection::{
-        AnswerOptions, IceCandidateError, IceConnectionState, IceGatheringState, OfferOptions,
-        OnConnectionChange, OnDataChannel, OnIceCandidate, OnIceCandidateError,
+        AnswerOptions, BitrateSettings, IceCandidateError, IceConnectionState, IceGatheringState,
+        OfferOptions, OnConnectionChange, OnDataChannel, OnIceCandidate, OnIceCandidateError,
         OnIceConnectionChange, OnIceGatheringChange, OnNegotiationNeeded, OnSignalingChange,
         OnTrack, PeerConnectionState, SignalingState, TrackEvent,
     },
@@ -56,6 +56,21 @@ impl From<OfferOptions> for sys_pc::ffi::RtcOfferAnswerOptions {
             offer_to_receive_audio: options.offer_to_receive_audio as i32,
             offer_to_receive_video: options.offer_to_receive_video as i32,
             ..Default::default()
+        }
+    }
+}
+
+impl From<BitrateSettings> for sys_pc::ffi::BitrateSettings {
+    fn from(value: BitrateSettings) -> Self {
+        // libwebrtc takes an int, so saturate rather than wrap into a different bitrate.
+        let bps = |v: Option<u64>| v.map_or(0, |v| v.min(i32::MAX as u64) as i32);
+        Self {
+            has_min_bitrate_bps: value.min_bitrate_bps.is_some(),
+            min_bitrate_bps: bps(value.min_bitrate_bps),
+            has_start_bitrate_bps: value.start_bitrate_bps.is_some(),
+            start_bitrate_bps: bps(value.start_bitrate_bps),
+            has_max_bitrate_bps: value.max_bitrate_bps.is_some(),
+            max_bitrate_bps: bps(value.max_bitrate_bps),
         }
     }
 }
@@ -192,6 +207,12 @@ impl PeerConnection {
             Ok(_) => Ok(()),
             Err(e) => unsafe { Err(sys_err::ffi::RtcError::from(e.what()).into()) },
         }
+    }
+
+    pub fn set_bitrate(&self, settings: BitrateSettings) -> Result<(), RtcError> {
+        self.sys_handle
+            .set_bitrate(settings.into())
+            .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 
     pub async fn create_offer(
@@ -617,4 +638,45 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
     fn on_remove_track(&self, _receiver: SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
 
     fn on_interesting_usage(&self, _usage_pattern: i32) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        peer_connection::BitrateSettings,
+        peer_connection_factory::{PeerConnectionFactory, RtcConfiguration},
+        RtcErrorType,
+    };
+
+    #[tokio::test]
+    async fn set_bitrate() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+
+        pc.set_bitrate(BitrateSettings { start_bitrate_bps: Some(500_000), ..Default::default() })
+            .expect("a start-only bitrate should be accepted");
+
+        pc.set_bitrate(BitrateSettings { start_bitrate_bps: Some(u64::MAX), ..Default::default() })
+            .expect("a start above i32::MAX should saturate instead of wrapping negative");
+
+        let err = pc
+            .set_bitrate(BitrateSettings {
+                min_bitrate_bps: Some(600_000),
+                start_bitrate_bps: Some(500_000),
+                ..Default::default()
+            })
+            .expect_err("a start below min should be rejected");
+        assert!(
+            err.message.contains("start_bitrate_bps < min_bitrate_bps"),
+            "unexpected error: {err}"
+        );
+
+        pc.close();
+        let err = pc
+            .set_bitrate(BitrateSettings { start_bitrate_bps: Some(500_000), ..Default::default() })
+            .expect_err("a closed connection should reject set_bitrate");
+        assert_eq!(err.error_type, RtcErrorType::InvalidState, "unexpected error: {err}");
+    }
 }

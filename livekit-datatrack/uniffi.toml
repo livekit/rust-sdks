@@ -1,2 +1,8 @@
 [bindings.swift]
 ffi_module_name = "RustLiveKitDataTrack"
+
+[bindings.kotlin]
+# The Kotlin checksum test is off because it fails on ARM devices. uniffi 0.31.2 and 0.32.0 do not
+# mask the upper 16 bits of the checksum. For more info, see the similar comment in the root
+# Cargo.toml.
+omit_checksums = true

@@ -310,5 +310,5 @@ impl From<Trailer> for proto::Trailer {
 pub enum Packet {
     Header { header: Header, encryption_type: EncryptionType },
     Chunk { chunk: Chunk, encryption_type: EncryptionType },
-    Trailer(Trailer),
+    Trailer { trailer: Trailer, encryption_type: EncryptionType },
 }

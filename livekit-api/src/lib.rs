@@ -21,7 +21,7 @@
 #[doc(inline)]
 pub use livekit_token as access_token;
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(feature = "services")]
 pub mod services;
 
 // The signalling client lives in the livekit-signaling crate. Unlike
@@ -39,7 +39,7 @@ pub mod signal_client {
     pub use livekit_signaling::*;
 }
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(feature = "services")]
 mod http_client;
 
 #[cfg(feature = "webhooks")]

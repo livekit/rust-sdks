@@ -14,7 +14,6 @@
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use events::{InputEvent, SetPipelineOptions, SubscribeRequest};
-use livekit_runtime::timeout;
 use std::{
     marker::PhantomData,
     pin::Pin,
@@ -24,6 +23,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::timeout;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
 pub(crate) mod events;

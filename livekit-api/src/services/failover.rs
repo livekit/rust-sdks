@@ -103,15 +103,13 @@ pub(crate) fn pick_next(region_urls: &[String], attempted: &[String]) -> Option<
     None
 }
 
-/// Sleeps for `d` before a retry, so failover backs off between attempts on
-/// either backend (retrying with no delay would risk hammering the server).
-/// `livekit_runtime::sleep` keeps the async path runtime-agnostic (it maps to
-/// `tokio::time::sleep` or the async-std timer depending on the enabled feature).
+/// Sleeps for `d` before a retry, so failover backs off between attempts
+/// (retrying with no delay would risk hammering the server).
 pub(crate) async fn backoff_sleep(d: Duration) {
     if d.is_zero() {
         return;
     }
-    livekit_runtime::sleep(d).await;
+    tokio::time::sleep(d).await;
 }
 
 /// Region discovery (`/settings/regions`) uses a short timeout so a slow or
@@ -176,7 +174,6 @@ fn max_age_from_cache_control(value: Option<&str>) -> Option<Duration> {
     value.and_then(parse_max_age)
 }
 
-#[cfg(feature = "services-tokio")]
 async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
     let mut url = base.clone();
     url.set_path("/settings/regions");
@@ -188,32 +185,6 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
         .send()
         .await
         .map_err(|_| ())?;
-    if !resp.status().is_success() {
-        return Err(());
-    }
-    let max_age = max_age_from_cache_control(
-        resp.headers().get("cache-control").and_then(|v| v.to_str().ok()),
-    );
-    let list: RegionsResponse = resp.json().await.map_err(|_| ())?;
-    Ok((normalize(list), max_age))
-}
-
-#[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
-async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
-    use isahc::config::Configurable;
-    use isahc::AsyncReadResponseExt;
-
-    let mut url = base.clone();
-    url.set_path("/settings/regions");
-
-    let mut builder = isahc::Request::get(url.as_str()).timeout(DISCOVERY_TIMEOUT);
-    // isahc vendors `http` 0.2, so pass name/value as &str/&[u8] to stay agnostic
-    // to the `http` version the workspace `HeaderMap` (1.x) is built from.
-    for (name, value) in forward_headers(headers).iter() {
-        builder = builder.header(name.as_str(), value.as_bytes());
-    }
-    let request = builder.body(()).map_err(|_| ())?;
-    let mut resp = isahc::send_async(request).await.map_err(|_| ())?;
     if !resp.status().is_success() {
         return Err(());
     }

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use livekit_common::EncryptionType;
 use thiserror::Error;
 
 /// Error returned by the packet transport when a data-stream packet fails to send.
@@ -59,8 +60,13 @@ pub enum StreamError {
     #[error("internal error")]
     Internal,
 
-    #[error("encryption type mismatch")]
-    EncryptionTypeMismatch,
+    #[error("encryption type mismatch: expected {expected:?}, received {received:?}")]
+    EncryptionTypeMismatch {
+        /// The encryption type the stream's header declared.
+        expected: EncryptionType,
+        /// The encryption type of the offending chunk.
+        received: EncryptionType,
+    },
 
     #[error("stream header exceeds maximum size")]
     HeaderTooLarge,
