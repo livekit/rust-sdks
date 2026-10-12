@@ -20,6 +20,7 @@ use thiserror::Error;
 
 use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
+pub use crate::public_api::public_api_url;
 pub use livekit_api::LiveKitApi;
 pub use twirp_client::{
     ServerError,

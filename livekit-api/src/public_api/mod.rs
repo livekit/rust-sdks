@@ -38,15 +38,15 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const STAGING_URL: &str = "https://beta-api.staging.livekit.cloud";
 const PRODUCTION_URL: &str = "https://beta-api.livekit.cloud";
 
-/// The Public API base URL of a project URL: LiveKit Cloud projects use the Cloud
-/// Public API, any other host (self-hosted, local) serves it itself.
-pub(crate) fn base_url(host: &str) -> String {
-    let http = if let Some(rest) = host.strip_prefix("wss://") {
+/// The Public API base URL of a project URL (`LIVEKIT_URL`): LiveKit Cloud projects
+/// use the Cloud Public API, any other host (self-hosted) serves it itself.
+pub fn public_api_url(project_url: &str) -> String {
+    let http = if let Some(rest) = project_url.strip_prefix("wss://") {
         format!("https://{rest}")
-    } else if let Some(rest) = host.strip_prefix("ws://") {
+    } else if let Some(rest) = project_url.strip_prefix("ws://") {
         format!("http://{rest}")
     } else {
-        host.to_owned()
+        project_url.to_owned()
     };
     let hostname = url::Url::parse(&http).ok().and_then(|u| u.host_str().map(str::to_owned));
     match hostname.as_deref() {
@@ -96,7 +96,11 @@ impl ClientHooks<Credentials> for Client {
 }
 
 pub(crate) fn client(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Client {
-    Client::new_with_client(&base_url(host), http, Credentials { base, timeout: DEFAULT_TIMEOUT })
+    Client::new_with_client(
+        &public_api_url(host),
+        http,
+        Credentials { base, timeout: DEFAULT_TIMEOUT },
+    )
 }
 
 /// Maps a generated-client error onto the service errors every client returns.
@@ -171,16 +175,19 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use super::base_url;
+    use super::public_api_url;
 
     #[test]
-    fn base_url_from_project_url() {
+    fn public_api_url_from_project_url() {
         let staging = "https://beta-api.staging.livekit.cloud";
-        assert_eq!(base_url("wss://my-app-abc.staging.livekit.cloud"), staging);
-        assert_eq!(base_url("https://my-app-abc.staging.livekit.cloud/"), staging);
-        assert_eq!(base_url("wss://my-app-abc.livekit.cloud"), "https://beta-api.livekit.cloud");
-        assert_eq!(base_url("ws://localhost:7880"), "http://localhost:7880");
-        assert_eq!(base_url("http://127.0.0.1:8080/"), "http://127.0.0.1:8080");
-        assert_eq!(base_url("https://livekit.example.com"), "https://livekit.example.com");
+        assert_eq!(public_api_url("wss://my-app-abc.staging.livekit.cloud"), staging);
+        assert_eq!(public_api_url("https://my-app-abc.staging.livekit.cloud/"), staging);
+        assert_eq!(
+            public_api_url("wss://my-app-abc.livekit.cloud"),
+            "https://beta-api.livekit.cloud"
+        );
+        assert_eq!(public_api_url("ws://localhost:7880"), "http://localhost:7880");
+        assert_eq!(public_api_url("http://127.0.0.1:8080/"), "http://127.0.0.1:8080");
+        assert_eq!(public_api_url("https://livekit.example.com"), "https://livekit.example.com");
     }
 }
