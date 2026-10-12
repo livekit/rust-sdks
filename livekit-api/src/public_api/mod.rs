@@ -71,7 +71,15 @@ impl Credentials {
                 AccessToken::with_api_key(api_key, api_secret)
                     .with_ttl(TOKEN_TTL)
                     .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
-                    .with_agent_thread_grants(AgentThreadGrants { all: true, ..Default::default() })
+                    .with_agent_thread_grants(AgentThreadGrants {
+                        all: true,
+                        list: true,
+                        create: true,
+                        write: true,
+                        read: true,
+                        delete: true,
+                        ..Default::default()
+                    })
                     .to_jwt()?
             }
         };
