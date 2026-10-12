@@ -5,6 +5,8 @@ license.workspace = true
 description = "Client for the LiveKit Cloud Public API, generated from its OpenAPI spec"
 edition.workspace = true
 repository.workspace = true
+# Not released yet: the spec and the client move with the API.
+publish = false
 
 [lib]
 # The generated docs carry the spec's descriptions, whose indented text rustdoc reads as code.

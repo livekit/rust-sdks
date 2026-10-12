@@ -37,4 +37,9 @@ jobs:
             -ignore "soxr-sys/src/**/*" \
             -ignore "livekit-protocol/src/livekit.rs" \
             -ignore "livekit-protocol/src/livekit.serde.rs" \
+            -ignore "livekit-protocol/src/livekit.agent.rs" \
+            -ignore "livekit-protocol/src/livekit.agent.serde.rs" \
+            -ignore "livekit-protocol/src/logger.rs" \
+            -ignore "livekit-protocol/src/logger.serde.rs" \
+            -ignore "livekit-public-api/src/generated.rs" \
              **/*.{rs,cpp,c}
