@@ -197,33 +197,46 @@ impl sys_vt::VideoSink for EncodedTrackObserver {
         };
         let (codec, frame_type, stream_id, sequence) =
             (encoded.codec, encoded.frame_type, encoded.stream_id, encoded.sequence);
+        let keyframe = frame_type == EncodedFrameType::Key;
 
-        let mut gaps = self.gaps.lock();
-        let flushed = queue.take_overflow_flag();
-        let verdict =
-            gaps.observe(stream_id, sequence, frame_type == EncodedFrameType::Key, flushed);
-        let received = ReceivedEncodedFrame {
-            codec,
-            frame_type,
-            width: buffer.width(),
-            height: buffer.height(),
-            rtp_timestamp: frame.timestamp(),
-            ntp_time_ms: ntp_time_from_raw(frame.ntp_time_ms()),
-            timestamp_us: frame.timestamp_us(),
-            sequence,
-            after_gap: verdict.after_gap,
-            buffer,
-        };
-        if verdict.request_keyframe {
-            received.request_keyframe();
-        }
-        drop(gaps);
-        queue.push(received);
+        admit(&queue, &self.gaps, stream_id, sequence, keyframe, |verdict| {
+            let received = ReceivedEncodedFrame {
+                codec,
+                frame_type,
+                width: buffer.width(),
+                height: buffer.height(),
+                rtp_timestamp: frame.timestamp(),
+                ntp_time_ms: ntp_time_from_raw(frame.ntp_time_ms()),
+                timestamp_us: frame.timestamp_us(),
+                sequence,
+                after_gap: verdict.after_gap,
+                buffer,
+            };
+            if verdict.request_keyframe {
+                // Only sets a flag the decoder reads; safe under the queue lock.
+                received.request_keyframe();
+            }
+            received
+        });
     }
 
     fn on_discarded_frame(&self) {}
 
     fn on_constraints_changed(&self, _constraints: sys_vt::ffi::VideoTrackSourceConstraints) {}
+}
+
+/// Queues one frame, judging its place in the reference chain in the same step
+/// that decides whether queuing it flushes the backlog: a frame that flushes
+/// the frames it references is itself after a gap.
+fn admit<T>(
+    queue: &EncodedFrameQueue<T>,
+    gaps: &Mutex<GapTracker>,
+    stream_id: usize,
+    sequence: u64,
+    keyframe: bool,
+    make: impl FnOnce(GapVerdict) -> T,
+) {
+    queue.push_with(|flushed| make(gaps.lock().observe(stream_id, sequence, keyframe, flushed)));
 }
 
 /// What [`GapTracker::observe`] decided for one frame.
@@ -273,7 +286,6 @@ impl GapTracker {
 struct EncodedFrameQueue<T> {
     frames: Mutex<VecDeque<T>>,
     max_pending: Option<usize>,
-    overflowed: AtomicBool,
     closed: AtomicBool,
     waker: Mutex<Option<Waker>>,
 }
@@ -283,13 +295,14 @@ impl<T> EncodedFrameQueue<T> {
         Self {
             frames: Mutex::new(VecDeque::new()),
             max_pending: max_pending.filter(|n| *n > 0),
-            overflowed: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             waker: Mutex::new(None),
         }
     }
 
-    fn push(&self, item: T) {
+    /// Queues the item `make` builds; `make` is told whether queuing it
+    /// flushes the backlog. Nothing is built once the queue is closed.
+    fn push_with(&self, make: impl FnOnce(bool) -> T) {
         if self.closed.load(Ordering::Acquire) {
             return;
         }
@@ -297,20 +310,15 @@ impl<T> EncodedFrameQueue<T> {
         if self.closed.load(Ordering::Acquire) {
             return;
         }
-        if self.max_pending.is_some_and(|n| frames.len() >= n) {
+        let flush = self.max_pending.is_some_and(|n| frames.len() >= n);
+        if flush {
             frames.clear();
-            self.overflowed.store(true, Ordering::Release);
         }
-        frames.push_back(item);
+        frames.push_back(make(flush));
         drop(frames);
         if let Some(waker) = self.waker.lock().take() {
             waker.wake();
         }
-    }
-
-    /// Returns and clears whether the backlog was flushed since the last call.
-    fn take_overflow_flag(&self) -> bool {
-        self.overflowed.swap(false, Ordering::AcqRel)
     }
 
     fn poll_recv(&self, cx: &mut Context) -> Poll<Option<T>> {
@@ -342,7 +350,9 @@ impl<T> EncodedFrameQueue<T> {
 mod tests {
     use std::task::{Context, Poll, Waker};
 
-    use super::{EncodedFrameQueue, GapTracker, GapVerdict};
+    use parking_lot::Mutex;
+
+    use super::{admit, EncodedFrameQueue, GapTracker, GapVerdict};
 
     fn drain<T>(queue: &EncodedFrameQueue<T>) -> Vec<T> {
         let mut cx = Context::from_waker(Waker::noop());
@@ -361,31 +371,28 @@ mod tests {
     fn encoded_queue_never_drops() {
         let queue = EncodedFrameQueue::new(None);
         for i in 0..10_000u64 {
-            queue.push(i);
+            queue.push_with(|flushed| (i, flushed));
         }
-        assert_eq!(drain(&queue), (0..10_000).collect::<Vec<_>>());
-        assert!(!queue.take_overflow_flag());
+        assert_eq!(drain(&queue), (0..10_000).map(|i| (i, false)).collect::<Vec<_>>());
     }
 
     #[test]
     fn overflow_flushes_backlog_and_flags_it() {
         let queue = EncodedFrameQueue::new(Some(4));
-        for i in 0..5u64 {
-            queue.push(i);
+        for i in 0..6u64 {
+            queue.push_with(|flushed| (i, flushed));
         }
         // The fifth push found 4 pending: the backlog is flushed and the new
         // frame kept, never a single frame dropped from the middle.
-        assert!(queue.take_overflow_flag());
-        assert_eq!(drain(&queue), [4]);
-        assert!(!queue.take_overflow_flag());
+        assert_eq!(drain(&queue), [(4, true), (5, false)]);
     }
 
     #[test]
     fn close_clears_buffer_and_rejects_future_pushes() {
         let queue = EncodedFrameQueue::new(None);
-        queue.push(1u64);
+        queue.push_with(|_| 1u64);
         queue.close();
-        queue.push(2u64);
+        queue.push_with(|_| -> u64 { panic!("built after close") });
         let mut cx = Context::from_waker(Waker::noop());
         assert!(matches!(queue.poll_recv(&mut cx), Poll::Ready(None)));
     }
@@ -421,6 +428,30 @@ mod tests {
         // A new decoder whose first frame is a delta cannot be decoded.
         assert_eq!(t.observe(3, 0, false, false), GAP_REQUEST);
         assert_eq!(t.observe(3, 1, true, false), OK);
+    }
+
+    #[test]
+    fn frame_that_flushes_the_backlog_is_after_gap() {
+        let queue = EncodedFrameQueue::new(Some(2));
+        let gaps = Mutex::new(GapTracker::default());
+        for (sequence, key) in [(0, true), (1, false), (2, false)] {
+            admit(&queue, &gaps, 1, sequence, key, |verdict| (sequence, verdict));
+        }
+        // Frame 2 flushed 0 and 1, which it references: it must be flagged and
+        // must request the keyframe itself, not leave it to a later frame.
+        assert_eq!(drain(&queue), [(2, GAP_REQUEST)]);
+        admit(&queue, &gaps, 1, 3, false, |verdict| (3, verdict));
+        assert_eq!(drain(&queue), [(3, GAP_HELD)]);
+    }
+
+    #[test]
+    fn keyframe_that_flushes_the_backlog_is_intact() {
+        let queue = EncodedFrameQueue::new(Some(2));
+        let gaps = Mutex::new(GapTracker::default());
+        for (sequence, key) in [(0, true), (1, false), (2, true), (3, false)] {
+            admit(&queue, &gaps, 1, sequence, key, |verdict| (sequence, verdict));
+        }
+        assert_eq!(drain(&queue), [(2, OK), (3, OK)]);
     }
 
     #[test]
@@ -712,13 +743,18 @@ mod loopback_tests {
         stream.units.iter().cycle().take(count).map(|&unit| Sent { stream, unit }).collect()
     }
 
-    async fn send_paced(lb: &Loopback, sent: &[Sent], interval: Duration) {
+    /// Returns when each frame was actually captured; a loaded scheduler
+    /// delays ticks.
+    async fn send_paced(lb: &Loopback, sent: &[Sent], interval: Duration) -> Vec<Instant> {
         let mut ticker = tokio::time::interval(interval);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut captured = Vec::with_capacity(sent.len());
         for &s in sent {
             ticker.tick().await;
+            captured.push(Instant::now());
             lb.send(s);
         }
+        captured
     }
 
     fn assert_contiguous(frames: &[ReceivedEncodedFrame]) {
@@ -745,21 +781,28 @@ mod loopback_tests {
         };
         lb.start(stream).await;
         let sent = cycle(stream, 3 * stream.units.len());
-        send_paced(&lb, &sent, FRAME_INTERVAL).await;
+        let captured = send_paced(&lb, &sent, FRAME_INTERVAL).await;
         let received = lb.receive(sent.len()).await;
 
         assert_same_units(&sent, &received);
         assert_contiguous(&received);
         // Capture times are aligned to the sender's clock and rounded to
         // milliseconds before becoming RTP timestamps, so single deltas jitter;
-        // their mean is the frame interval.
+        // their mean is the mean capture interval.
         let deltas: Vec<i64> = received
             .windows(2)
             .map(|p| p[1].rtp_timestamp.wrapping_sub(p[0].rtp_timestamp) as i32 as i64)
             .collect();
-        assert!(deltas.iter().all(|d| *d > 0 && *d < 2 * RTP_TICKS_PER_FRAME), "{deltas:?}");
-        let mean = deltas.iter().sum::<i64>() / deltas.len() as i64;
-        assert!((mean - RTP_TICKS_PER_FRAME).abs() < RTP_TICKS_PER_FRAME / 10, "{deltas:?}");
+        let capture_deltas: Vec<i64> = captured
+            .windows(2)
+            .map(|p| (p[1] - p[0]).as_micros() as i64 * RTP_TICKS_PER_FRAME / 33_333)
+            .collect();
+        assert!(deltas.iter().all(|d| *d > 0), "{deltas:?}");
+        let mean = |d: &[i64]| d.iter().sum::<i64>() / d.len() as i64;
+        assert!(
+            (mean(&deltas) - mean(&capture_deltas)).abs() < RTP_TICKS_PER_FRAME / 10,
+            "rtp {deltas:?}\ncapture {capture_deltas:?}"
+        );
     }
 
     #[tokio::test]
