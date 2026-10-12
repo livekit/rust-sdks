@@ -332,6 +332,12 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     info.implementation_name = "LiveKit pre-encoded passthrough";
     info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
     info.is_hardware_accelerated = false;
+    // The pre-encoded source owns rate control: it receives the targets from
+    // SetRates() and must produce every access unit it is handed. Without
+    // this, VideoStreamEncoder keeps its frame dropper enabled and silently
+    // discards delta frames when the stream exceeds the target, which breaks
+    // the reference chain until the next keyframe.
+    info.has_trusted_rate_controller = true;
     info.supports_simulcast = false;
     info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative};
     return info;
