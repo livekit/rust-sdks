@@ -269,6 +269,7 @@ impl SIPClient {
                         krisp_enabled: options.krisp_enabled.unwrap_or(false),
                         max_call_duration: Self::duration_to_proto(options.max_call_duration),
                         ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+                        ringing_timeout_status: Default::default(),
 
                         // TODO: support these attributes
                         include_headers: Default::default(),
