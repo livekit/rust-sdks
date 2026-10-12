@@ -19,6 +19,8 @@ use livekit::data_track::{self as dt, DataTrackSubscribeError, PushFrameErrorRea
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
 
+// TODO: core_modules defines this record identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module.
 /// A frame published on a data track.
 ///
 /// Mirrors [`dt::DataTrackFrame`], whose fields are private behind a builder.
@@ -88,6 +90,8 @@ impl LocalDataTrack {
     }
 }
 
+// TODO: core_modules defines this record identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module.
 /// Track-level options for the incoming-frame pipeline.
 ///
 /// Mirrors [`dt::RemoteDataTrackPipelineOptions`], whose fields are private behind a builder.
@@ -106,6 +110,8 @@ impl From<RemoteDataTrackPipelineOptions> for dt::RemoteDataTrackPipelineOptions
     }
 }
 
+// TODO: core_modules defines this record identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module.
 /// Subscription-level options.
 ///
 /// Mirrors [`dt::DataTrackSubscribeOptions`], whose fields are private behind a builder.
@@ -161,14 +167,13 @@ impl RemoteDataTrack {
     }
 }
 
+// The protobuf path does not hand this out: its `subscribe` returns a handle before the
+// subscription has resolved, so it gets `migration::data_track::DataTrackSubscription`
+// instead and pumps frames out as events.
+//
+// TODO: core_modules defines this object identically; #1438 brings the two into one crate,
+// after which both collapse. Harder than the records: the bridge methods differ.
 /// A stream of frames received from a [`RemoteDataTrack`].
-///
-/// The protobuf path does not hand this out: its `subscribe` returns a handle before the
-/// subscription has resolved, so it gets [`crate::migration::data_track::DataTrackSubscription`]
-/// instead and pumps frames out as events.
-///
-/// TODO: this duplicates `livekit-uniffi`'s `DataTrackStream`; the two collapse once both
-/// FFI surfaces draw their data-track types from one place.
 #[derive(uniffi::Object)]
 pub struct DataTrackStream(Mutex<dt::DataTrackStream>);
 
