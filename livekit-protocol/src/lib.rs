@@ -23,3 +23,8 @@ include!("livekit.rs");
 pub mod agent {
     include!("livekit.agent.rs");
 }
+
+/// The `logger` protobuf package: the `Sensitivity` field annotation enum.
+pub mod logger {
+    include!("logger.rs");
+}

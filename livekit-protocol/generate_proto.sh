@@ -42,4 +42,16 @@ protoc \
     $PROTOCOL/agent/livekit_agent_session.proto \
     $PROTOCOL/agent/livekit_agent_text.proto \
     $PROTOCOL/agent/livekit_agent_thread.proto \
-    $PROTOCOL/agent/livekit_agent_inference.proto
+    $PROTOCOL/agent/livekit_agent_inference.proto \
+    $PROTOCOL/cloud_replay.proto \
+    $PROTOCOL/livekit_agent_dispatch.proto \
+    $PROTOCOL/livekit_agent_simulation.proto \
+    $PROTOCOL/livekit_agent_worker.proto \
+    $PROTOCOL/livekit_cloud_agent.proto \
+    $PROTOCOL/livekit_ingress.proto \
+    $PROTOCOL/livekit_internal.proto \
+    $PROTOCOL/livekit_metrics.proto \
+    $PROTOCOL/livekit_phone_number.proto \
+    $PROTOCOL/livekit_token_source.proto \
+    $PROTOCOL/logger/options.proto \
+    $PROTOCOL/roomrpc/siprpc/roomrpc_sip_v1.proto
