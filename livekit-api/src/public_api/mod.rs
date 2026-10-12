@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Client for the LiveKit Cloud Public API, generated from its OpenAPI spec (`openapi.yaml`,
-//! see `generate.sh`). [`PublicApi`] authenticates every request with a token minted from an
-//! API key and secret and addresses the key's own project.
+//! Client for the LiveKit Cloud Public API, generated from its OpenAPI spec
+//! (`public-api/openapi.yaml`, see `public-api/generate.sh`). [`PublicApi`] authenticates every
+//! request with a token minted from an API key and secret and addresses the key's own project.
+//!
+//! Requires the `services` feature: the client is built on reqwest and tokio.
 //!
 //! ```no_run
-//! # async fn run() -> Result<(), livekit_public_api::Error> {
-//! use livekit_public_api::{types, PublicApi};
+//! # async fn run() -> Result<(), livekit_api::public_api::Error> {
+//! use livekit_api::public_api::{types, PublicApi};
 //!
 //! let api = PublicApi::new("https://api.livekit.cloud", "key", "secret");
 //! let created = api.threads().create(&types::ThreadServiceCreateThreadBody::default()).await?;
@@ -43,6 +45,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub const CURRENT_PROJECT: &str = "p_";
 
 const TOKEN_TTL: Duration = Duration::from_secs(60);
+const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The API key and secret the generated [`Client`] signs each request with.
 #[derive(Clone, Debug)]
@@ -88,7 +91,13 @@ impl PublicApi {
     pub fn new(base_url: &str, api_key: &str, api_secret: &str) -> Self {
         let credentials =
             Credentials { api_key: api_key.to_owned(), api_secret: api_secret.to_owned() };
-        Self { client: Client::new(base_url, credentials), project: CURRENT_PROJECT.to_owned() }
+        let http = crate::http_client::builder()
+            .connect_timeout(TIMEOUT)
+            .timeout(TIMEOUT)
+            .build()
+            .expect("http client");
+        let client = Client::new_with_client(base_url, http, credentials);
+        Self { client, project: CURRENT_PROJECT.to_owned() }
     }
 
     pub fn with_project(mut self, project_id: &str) -> Self {

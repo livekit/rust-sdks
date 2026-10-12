@@ -7686,7 +7686,7 @@ Version: v0*/
 pub struct Client {
     pub(crate) baseurl: String,
     pub(crate) client: reqwest::Client,
-    pub(crate) inner: crate::Credentials,
+    pub(crate) inner: crate::public_api::Credentials,
 }
 impl Client {
     /// Create a new client.
@@ -7694,7 +7694,7 @@ impl Client {
     /// `baseurl` is the base URL provided to the internal
     /// `reqwest::Client`, and should include a scheme and hostname,
     /// as well as port and a path stem if applicable.
-    pub fn new(baseurl: &str, inner: crate::Credentials) -> Self {
+    pub fn new(baseurl: &str, inner: crate::public_api::Credentials) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let client = {
             let dur = ::std::time::Duration::from_secs(15u64);
@@ -7713,12 +7713,12 @@ impl Client {
     pub fn new_with_client(
         baseurl: &str,
         client: reqwest::Client,
-        inner: crate::Credentials,
+        inner: crate::public_api::Credentials,
     ) -> Self {
         Self { baseurl: baseurl.to_string(), client, inner }
     }
 }
-impl ClientInfo<crate::Credentials> for Client {
+impl ClientInfo<crate::public_api::Credentials> for Client {
     fn api_version() -> &'static str {
         "v0"
     }
@@ -7728,11 +7728,11 @@ impl ClientInfo<crate::Credentials> for Client {
     fn client(&self) -> &reqwest::Client {
         &self.client
     }
-    fn inner(&self) -> &crate::Credentials {
+    fn inner(&self) -> &crate::public_api::Credentials {
         &self.inner
     }
 }
-impl ClientHooks<crate::Credentials> for &Client {}
+impl ClientHooks<crate::public_api::Credentials> for &Client {}
 #[allow(clippy::all)]
 impl Client {
     /**GetInvite

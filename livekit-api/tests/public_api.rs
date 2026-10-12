@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_public_api::PublicApi;
-use livekit_token::Claims;
+use livekit_api::access_token::Claims;
+use livekit_api::public_api::PublicApi;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,

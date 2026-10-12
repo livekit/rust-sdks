@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Regenerates src/generated.rs from openapi.yaml with progenitor (see generate/).
+# Regenerates ../src/public_api/generated.rs from openapi.yaml with progenitor (see generate/).
 #
 #   ./generate.sh                         regenerate from the vendored openapi.yaml
 #   ./generate.sh <public-api-server> [ref]  vendor pkg/api/v1/openapi.yaml at ref
@@ -33,5 +33,6 @@ if [ $# -ge 1 ]; then
     } > openapi.yaml
 fi
 
-cargo run --quiet --manifest-path generate/Cargo.toml --target-dir ../target -- "$PWD"
-rustfmt --edition 2021 src/generated.rs
+OUT=../src/public_api/generated.rs
+cargo run --quiet --manifest-path generate/Cargo.toml --target-dir ../../target -- openapi.yaml "$OUT"
+rustfmt --edition 2021 "$OUT"
