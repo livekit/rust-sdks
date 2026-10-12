@@ -62,11 +62,16 @@ pub struct RemoteDataTrack {
     pub(crate) handle_id: OnceLock<FfiHandleId>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl LocalDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
         self.inner.is_published()
+    }
+
+    /// Waits until the track is unpublished, returning immediately if it already is.
+    pub async fn wait_for_unpublish(&self) {
+        self.inner.wait_for_unpublish().await
     }
 
     /// Stops publishing the track.
@@ -127,6 +132,11 @@ impl RemoteDataTrack {
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> String {
         self.inner.publisher_identity().to_string()
+    }
+
+    /// Waits until the track is unpublished, returning immediately if it already is.
+    pub async fn wait_for_unpublish(&self) {
+        self.inner.wait_for_unpublish().await
     }
 
     /// Configures the pipeline handling incoming packets for this track.
