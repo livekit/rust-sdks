@@ -23,6 +23,9 @@ use livekit::data_track::{self as dt, DataTrackSubscribeError};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::{oneshot, Notify};
 
+// The migrating wrappers, not the livekit-datatrack types they hold — those come in
+// above as `dt::`. `migrate_from_ffi!` carries why the wrappers take the plain names, and
+// uniffi::export rejects a qualified self-type, so they cannot be written `ffi::` here.
 use crate::server::data_track::{LocalDataTrack, RemoteDataTrack};
 use crate::server::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
