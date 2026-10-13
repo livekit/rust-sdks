@@ -2,6 +2,7 @@
 livekit-rpc: patch
 livekit: patch
 livekit-ffi: patch
+livekit-capture: patch
 ---
 
 Stop failing an RPC call whose reply arrives just after its recipient leaves the room.
