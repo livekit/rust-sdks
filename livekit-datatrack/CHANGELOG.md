@@ -1,4 +1,13 @@
 # Changelog
+## 0.2.3 (2026-10-12)
+
+### Fixes
+
+#### `livekit-protocol` carries the `livekit.agent` package (`AgentSessionEvent`,
+
+`SessionRequest`, the EOT inference messages), the agent threads messages
+and the agent-db service; the crates that depend on it follow its bump.
+
 ## 0.2.2 (2026-10-07)
 
 ### Fixes

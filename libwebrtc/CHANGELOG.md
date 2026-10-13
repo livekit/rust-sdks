@@ -139,6 +139,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.52 (2026-10-12)
+
+### Features
+
+- Add `PeerConnection::set_bitrate` to set the send bitrate limits of a peer connection.
+
+### Fixes
+
+- Keep pre-encoded video decodable when WebRTC drops frames: the passthrough encoder disables WebRTC's frame dropper, and after a frame is dropped before it, holds delta frames and requests a keyframe until the next keyframe arrives.
+
 ## 0.3.51 (2026-10-07)
 
 ### Fixes

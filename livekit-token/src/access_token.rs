@@ -134,6 +134,100 @@ impl Default for SIPGrants {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentGrants {
+    // create/update/delete Cloud Agents
+    #[serde(skip_serializing_if = "is_default")]
+    pub admin: bool,
+    // manage simulations and scenarios
+    #[serde(skip_serializing_if = "is_default")]
+    pub simulation_admin: bool,
+    // access the project's agent databases
+    #[serde(skip_serializing_if = "is_default")]
+    pub database_admin: bool,
+    // manage the project's agent dispatch queue
+    #[serde(skip_serializing_if = "is_default")]
+    pub dispatch_admin: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentEndpointGrants {
+    // invoke an agent's non-public HTTP endpoints
+    #[serde(skip_serializing_if = "is_default")]
+    pub call: bool,
+    // empty grants every agent in the project
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_name: String,
+    // empty grants every deployment
+    #[serde(skip_serializing_if = "is_default")]
+    pub deployment: String,
+}
+
+impl AgentEndpointGrants {
+    pub fn allows(&self, agent_name: &str, deployment: &str) -> bool {
+        self.call
+            && (self.agent_name.is_empty() || self.agent_name == agent_name)
+            && (self.deployment.is_empty() || self.deployment == deployment)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentThreadGrants {
+    #[serde(skip_serializing_if = "is_default")]
+    pub all: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub scope: String,
+    #[serde(skip_serializing_if = "is_default")]
+    pub thread_ids: Vec<String>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub list: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub create: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub write: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub read: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub delete: bool,
+}
+
+impl AgentThreadGrants {
+    pub fn can_create(&self, scope: &str) -> bool {
+        self.create && self.in_scope(scope)
+    }
+
+    pub fn can_list(&self, scope: &str) -> bool {
+        self.list && self.in_scope(scope)
+    }
+
+    pub fn can_update(&self) -> bool {
+        self.all && self.write
+    }
+
+    pub fn can_read(&self, thread_id: &str) -> bool {
+        self.read && self.includes(thread_id)
+    }
+
+    pub fn can_write(&self, thread_id: &str) -> bool {
+        self.write && self.includes(thread_id)
+    }
+
+    pub fn can_delete(&self, thread_id: &str) -> bool {
+        self.delete && self.includes(thread_id)
+    }
+
+    fn in_scope(&self, scope: &str) -> bool {
+        self.all || (!self.scope.is_empty() && self.scope == scope)
+    }
+
+    fn includes(&self, thread_id: &str) -> bool {
+        !thread_id.is_empty() && (self.all || self.thread_ids.iter().any(|id| id == thread_id))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +246,12 @@ pub struct Claims {
     pub video: VideoGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub sip: SIPGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent: AgentGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_endpoint: AgentEndpointGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_thread: AgentThreadGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub sha256: String, // Used to verify the integrity of the message body
     #[serde(skip_serializing_if = "is_default")]
@@ -202,6 +302,9 @@ impl AccessToken {
                 kind: Default::default(),
                 video: VideoGrants::default(),
                 sip: SIPGrants::default(),
+                agent: AgentGrants::default(),
+                agent_endpoint: AgentEndpointGrants::default(),
+                agent_thread: AgentThreadGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
                 attributes: HashMap::new(),
@@ -234,6 +337,21 @@ impl AccessToken {
 
     pub fn with_sip_grants(mut self, grants: SIPGrants) -> Self {
         self.claims.sip = grants;
+        self
+    }
+
+    pub fn with_agent_grants(mut self, grants: AgentGrants) -> Self {
+        self.claims.agent = grants;
+        self
+    }
+
+    pub fn with_agent_endpoint_grants(mut self, grants: AgentEndpointGrants) -> Self {
+        self.claims.agent_endpoint = grants;
+        self
+    }
+
+    pub fn with_agent_thread_grants(mut self, grants: AgentThreadGrants) -> Self {
+        self.claims.agent_thread = grants;
         self
     }
 
@@ -343,7 +461,10 @@ impl TokenVerifier {
 mod tests {
     use std::time::Duration;
 
-    use super::{AccessToken, Claims, SIPGrants, TokenVerifier, VideoGrants};
+    use super::{
+        AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, SIPGrants,
+        TokenVerifier, VideoGrants,
+    };
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
@@ -535,5 +656,37 @@ mod tests {
         let parsed: Claims = serde_json::from_str(json).unwrap();
         assert_eq!(parsed, claims);
         assert_eq!(serde_json::to_string(&parsed).unwrap(), json);
+    }
+
+    #[test]
+    fn test_agent_grants_claim_names() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
+            .with_agent_endpoint_grants(AgentEndpointGrants {
+                call: true,
+                agent_name: "a".into(),
+                ..Default::default()
+            })
+            .with_agent_thread_grants(AgentThreadGrants {
+                scope: "s".into(),
+                thread_ids: vec!["t".into()],
+                list: true,
+                read: true,
+                ..Default::default()
+            })
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["agent"], serde_json::json!({"databaseAdmin": true}));
+        assert_eq!(p["agentEndpoint"], serde_json::json!({"call": true, "agentName": "a"}));
+        assert_eq!(
+            p["agentThread"],
+            serde_json::json!({"scope": "s", "threadIds": ["t"], "list": true, "read": true})
+        );
+        let claims = Claims::from_unverified(&token).unwrap();
+        assert!(claims.agent_thread.can_list("s") && claims.agent_thread.can_read("t"));
+        assert!(!claims.agent_thread.can_read("u") && !claims.agent_thread.can_create("s"));
+        assert!(claims.agent_endpoint.allows("a", "default"));
     }
 }

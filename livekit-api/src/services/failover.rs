@@ -178,7 +178,7 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
     let mut url = base.clone();
     url.set_path("/settings/regions");
 
-    let resp = reqwest::Client::new()
+    let resp = crate::http_client::client()
         .get(url)
         .headers(forward_headers(headers))
         .timeout(DISCOVERY_TIMEOUT)
