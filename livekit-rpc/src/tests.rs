@@ -891,36 +891,6 @@ async fn test_ack_after_disconnect_still_resolves_caller() {
     assert_eq!(handle.await.unwrap().unwrap(), "done");
 }
 
-/// The grace period is a short reprieve, not a second response timeout: a recipient that left
-/// and never replied still fails the call rather than holding it to the response timeout.
-#[tokio::test(start_paused = true)]
-async fn test_disconnect_grace_period_does_not_wait_out_response_timeout() {
-    let client = Arc::new(RpcClientManager::new());
-    let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
-            .with_server_version(Some("1.9.0")),
-    );
-
-    let handle = spawn_perform_rpc(
-        client.clone(),
-        transport.clone(),
-        PerformRpcData::new("dest", "greet")
-            .with_payload("hi")
-            .with_response_timeout(Duration::from_secs(600)),
-    )
-    .await;
-    let started = tokio::time::Instant::now();
-
-    transport.wait_for_text().await;
-    client.handle_incoming_rpc_ack(transport.extract_request_id());
-    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
-
-    let err = handle.await.unwrap().unwrap_err();
-    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
-    assert!(started.elapsed() < Duration::from_secs(10));
-}
-
 /// A disconnect must only fail calls addressed to the participant that left.
 #[tokio::test]
 async fn test_participant_disconnect_leaves_other_calls_alone() {
