@@ -30,16 +30,70 @@ use tokio::sync::oneshot;
 /// The oldest server version that supports RPC.
 const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
 
+/// How much longer a caller waits for a reply after its recipient is reported gone.
+///
+/// A participant leaving is announced on the signaling connection, while the ack and response
+/// travel on the data channel. Nothing orders those two against each other, so "the recipient
+/// left" is not evidence that its reply is not already on the wire — a recipient that leaves
+/// *because* of the RPC it just answered (`lk.sip.EndCall`, say) reliably produces that order.
+/// Treat the disconnect as a reason to stop waiting soon rather than immediately.
+const DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(2);
+
 /// Generates a random RPC request identifier (UUID v4).
 fn create_random_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// An in-flight request, tagged with who it went to so it can be failed if that participant
-/// leaves before responding.
+/// An in-flight request, tagged with who it went to so the caller can be told if that
+/// participant leaves before replying.
 struct Pending<T> {
     destination_identity: ParticipantIdentity,
     tx: oneshot::Sender<T>,
+    /// Fires once the destination is known to have left the room. Taken when signalled.
+    recipient_gone: Option<oneshot::Sender<()>>,
+}
+
+/// How one leg of a call — the ack, or the response — finished waiting.
+enum Wait<T> {
+    Received(T),
+    Timeout,
+    RecipientGone,
+}
+
+/// Wait for `rx`, giving up `timeout` from now.
+///
+/// `gone` firing does not end the wait: the recipient has left the room, but its reply may
+/// already be in flight, so keep waiting for up to [`DISCONNECT_GRACE_PERIOD`] more — never
+/// past `timeout` — before reporting the disconnect.
+async fn wait_with_disconnect_grace<T>(
+    mut rx: oneshot::Receiver<T>,
+    gone: oneshot::Receiver<()>,
+    timeout: Duration,
+) -> Wait<T> {
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    tokio::select! {
+        biased;
+        // A reply that is already here wins over a disconnect that arrived alongside it.
+        received = &mut rx => {
+            return match received {
+                Ok(value) => Wait::Received(value),
+                // Sender dropped without replying: the call was abandoned on our side.
+                Err(_) => Wait::RecipientGone,
+            };
+        }
+        _ = gone => {}
+        _ = tokio::time::sleep_until(deadline) => return Wait::Timeout,
+    }
+
+    let grace = std::cmp::min(
+        DISCONNECT_GRACE_PERIOD,
+        deadline.saturating_duration_since(tokio::time::Instant::now()),
+    );
+    match tokio::time::timeout(grace, rx).await {
+        Ok(Ok(value)) => Wait::Received(value),
+        Ok(Err(_)) | Err(_) => Wait::RecipientGone,
+    }
 }
 
 /// Manages outgoing RPC calls (caller/client side).
@@ -98,6 +152,10 @@ impl RpcClientManager {
         let id = create_random_uuid();
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
+        // Each leg gets its own disconnect signal so that a disconnect seen while waiting on the
+        // ack is still waiting for us when we move on to the response.
+        let (ack_gone_tx, ack_gone_rx) = oneshot::channel();
+        let (response_gone_tx, response_gone_rx) = oneshot::channel();
         let effective_timeout = std::cmp::max(
             data.response_timeout.saturating_sub(max_round_trip_latency),
             min_effective_timeout,
@@ -111,10 +169,20 @@ impl RpcClientManager {
             let destination = ParticipantIdentity(data.destination_identity.clone());
             pending_acks.insert(
                 id.clone(),
-                Pending { destination_identity: destination.clone(), tx: ack_tx },
+                Pending {
+                    destination_identity: destination.clone(),
+                    tx: ack_tx,
+                    recipient_gone: Some(ack_gone_tx),
+                },
             );
-            pending_responses
-                .insert(id.clone(), Pending { destination_identity: destination, tx: response_tx });
+            pending_responses.insert(
+                id.clone(),
+                Pending {
+                    destination_identity: destination,
+                    tx: response_tx,
+                    recipient_gone: Some(response_gone_tx),
+                },
+            );
         }
 
         let send_result = if use_v2 {
@@ -142,56 +210,47 @@ impl RpcClientManager {
 
         if let Err(e) = send_result {
             // Clean up on failure
-            let mut pending_acks = self.pending_acks.lock();
-            let mut pending_responses = self.pending_responses.lock();
-            pending_acks.remove(&id);
-            pending_responses.remove(&id);
+            self.forget(&id);
             log::error!("Failed to publish RPC request: {}", e);
             return Err(e);
         }
 
-        // Wait for ack timeout
-        match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
-            Err(_) => {
-                let mut pending_acks = self.pending_acks.lock();
-                let mut pending_responses = self.pending_responses.lock();
-                pending_acks.remove(&id);
-                pending_responses.remove(&id);
+        // Wait for the ack
+        match wait_with_disconnect_grace(ack_rx, ack_gone_rx, max_round_trip_latency).await {
+            Wait::Timeout => {
+                self.forget(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
-            Ok(Err(_)) => {
-                // Sender dropped: the recipient disconnected before acknowledging.
-                self.pending_responses.lock().remove(&id);
+            Wait::RecipientGone => {
+                self.forget(&id);
                 return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
             }
-            Ok(Ok(())) => {
+            Wait::Received(()) => {
                 // Ack received, continue to wait for response
             }
         }
 
-        // Wait for response timeout
-        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
-            Err(_) => {
+        // Wait for the response
+        match wait_with_disconnect_grace(response_rx, response_gone_rx, data.response_timeout).await
+        {
+            Wait::Timeout => {
                 self.pending_responses.lock().remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
+                Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
             }
-            Ok(result) => result,
-        };
-
-        match response {
-            Err(_) => {
-                // Channel closed — sender dropped (e.g. disconnect)
+            Wait::RecipientGone => {
+                self.pending_responses.lock().remove(&id);
                 Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
             }
-            Ok(Err(e)) => {
-                // RPC error from remote, forward it
-                Err(e)
-            }
-            Ok(Ok(payload)) => {
-                // Successful response
-                Ok(payload)
-            }
+            // RPC error from remote, forward it
+            Wait::Received(Err(e)) => Err(e),
+            Wait::Received(Ok(payload)) => Ok(payload),
         }
+    }
+
+    /// Stop tracking a call, so a reply that arrives later is ignored rather than delivered.
+    fn forget(&self, id: &str) {
+        self.pending_acks.lock().remove(id);
+        self.pending_responses.lock().remove(id);
     }
 
     /// Publish a v1 RPC request data packet.
@@ -264,33 +323,36 @@ impl RpcClientManager {
         destination_identity: impl Into<ParticipantIdentity>,
         tx: tokio::sync::oneshot::Sender<Result<String, RpcError>>,
     ) {
-        self.pending_responses
-            .lock()
-            .insert(request_id, Pending { destination_identity: destination_identity.into(), tx });
+        self.pending_responses.lock().insert(
+            request_id,
+            Pending { destination_identity: destination_identity.into(), tx, recipient_gone: None },
+        );
     }
 
-    /// Fail every call still waiting on `identity`.
+    /// Tell every call still waiting on `identity` that it has left the room.
     ///
-    /// Without this, a participant that leaves mid-call strands the caller until its response
-    /// timeout expires (15s by default) and reports `ResponseTimeout` rather than
-    /// `RecipientDisconnected`.
+    /// Each affected caller stops waiting shortly afterwards (see [`DISCONNECT_GRACE_PERIOD`])
+    /// with `RecipientDisconnected`. Without this, a participant that leaves mid-call strands
+    /// its caller until the response timeout expires (15s by default), which then reports
+    /// `ResponseTimeout` rather than the disconnect that actually ended the call.
+    ///
+    /// The pending entries deliberately stay registered through the grace period: a reply sent
+    /// just before the recipient left is still in flight on the data channel, and dropping the
+    /// entry now would turn that reply into an "unexpected RPC request" and fail a call that
+    /// in fact succeeded.
     pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
-        self.pending_acks.lock().retain(|_, pending| pending.destination_identity != *identity);
-
-        let stranded: Vec<_> = {
-            let mut pending_responses = self.pending_responses.lock();
-            let ids: Vec<String> = pending_responses
-                .iter()
-                .filter(|(_, pending)| pending.destination_identity == *identity)
-                .map(|(id, _)| id.clone())
-                .collect();
-            ids.into_iter().filter_map(|id| pending_responses.remove(&id)).collect()
-        };
-
-        for pending in stranded {
-            let _ =
-                pending.tx.send(Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)));
+        fn notify<T>(pending: &mut HashMap<String, Pending<T>>, identity: &ParticipantIdentity) {
+            for pending in pending.values_mut() {
+                if pending.destination_identity == *identity {
+                    if let Some(gone) = pending.recipient_gone.take() {
+                        let _ = gone.send(());
+                    }
+                }
+            }
         }
+
+        notify(&mut self.pending_acks.lock(), identity);
+        notify(&mut self.pending_responses.lock(), identity);
     }
 
     /// Fail every in-flight call, whoever it was addressed to. Used when the room closes.
