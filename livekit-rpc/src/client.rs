@@ -49,11 +49,7 @@ fn create_random_uuid() -> String {
 struct Pending<T> {
     destination_identity: ParticipantIdentity,
     tx: oneshot::Sender<T>,
-    /// Held, never sent on: the ack and response entries of one call hold the only two
-    /// senders, and dropping both closes the channel. That closure is the signal, which makes
-    /// it permanent — a disconnect seen while waiting on the ack is still readable when the
-    /// call moves on to the response.
-    participant_disconnected: Option<mpsc::Sender<()>>,
+    participant_disconnected_tx: Option<mpsc::Sender<()>>,
 }
 
 /// How one leg of a call — the ack, or the response — finished waiting.
@@ -71,7 +67,7 @@ enum Wait<T> {
 /// disconnect.
 async fn wait_with_disconnect_grace<T>(
     mut rx: oneshot::Receiver<T>,
-    participant_disconnected: &mut mpsc::Receiver<()>,
+    participant_disconnected_rx: &mut mpsc::Receiver<()>,
     timeout: Duration,
 ) -> Wait<T> {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -87,7 +83,7 @@ async fn wait_with_disconnect_grace<T>(
             };
         }
         // Nothing is ever sent, so this resolves only once every sender has been dropped.
-        _ = participant_disconnected.recv() => {}
+        _ = participant_disconnected_rx.recv() => {}
         _ = tokio::time::sleep_until(deadline) => return Wait::Timeout,
     }
 
@@ -174,7 +170,7 @@ impl RpcClientManager {
                 Pending {
                     destination_identity: destination.clone(),
                     tx: ack_tx,
-                    participant_disconnected: Some(participant_disconnected_tx.clone()),
+                    participant_disconnected_tx: Some(participant_disconnected_tx.clone()),
                 },
             );
             pending_responses.insert(
@@ -182,7 +178,7 @@ impl RpcClientManager {
                 Pending {
                     destination_identity: destination,
                     tx: response_tx,
-                    participant_disconnected: Some(participant_disconnected_tx),
+                    participant_disconnected_tx: Some(participant_disconnected_tx),
                 },
             );
         }
@@ -341,7 +337,7 @@ impl RpcClientManager {
             Pending {
                 destination_identity: destination_identity.into(),
                 tx,
-                participant_disconnected: None,
+                participant_disconnected_tx: None,
             },
         );
     }
@@ -360,13 +356,13 @@ impl RpcClientManager {
     pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
         for pending in self.pending_acks.lock().values_mut() {
             if pending.destination_identity == *identity {
-                drop(pending.participant_disconnected.take());
+                drop(pending.participant_disconnected_tx.take());
             }
         }
 
         for pending in self.pending_responses.lock().values_mut() {
             if pending.destination_identity == *identity {
-                drop(pending.participant_disconnected.take());
+                drop(pending.participant_disconnected_tx.take());
             }
         }
     }
