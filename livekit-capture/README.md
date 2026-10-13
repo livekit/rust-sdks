@@ -54,11 +54,16 @@ let stats = running.stop_and_join().await?;
 Each source lives in its own module under `sources`, behind a Cargo feature
 named `source-<module>`. Each module documents its source.
 
-| Feature            | Source                 | Kind    |
-| ------------------ | ---------------------- | ------- |
-| `source-gstreamer` | `GStreamerVideoSource` | encoded |
-| `source-pattern`   | `PatternVideoSource`   | pixel   |
-| `source-clock`     | `ClockVideoSource`     | pixel   |
+| Feature                    | Source                 | Kind    |
+| -------------------------- | ---------------------- | ------- |
+| `source-gstreamer`         | `GStreamerVideoSource` | encoded |
+| `source-gstreamer-dynamic` | `GStreamerVideoSource` | encoded |
+| `source-pattern`           | `PatternVideoSource`   | pixel   |
+| `source-clock`             | `ClockVideoSource`     | pixel   |
+
+`source-gstreamer-dynamic` loads the GStreamer source at runtime from the
+`livekit-capture-gstreamer` shim library, so GStreamer is needed only once a
+source is created rather than to build or launch.
 
 ## Custom sources
 

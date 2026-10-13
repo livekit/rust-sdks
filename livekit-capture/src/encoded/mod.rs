@@ -22,19 +22,34 @@
 
 use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
 use bytes::Bytes;
+#[cfg(feature = "rtc")]
 use livekit::{
     options::VideoCodec,
-    webrtc::{
-        video_frame::{
-            EncodedFrameType as RtcEncodedFrameType, EncodedVideoCodec as RtcEncodedVideoCodec,
-        },
-        video_source::EncodedRateControl,
+    webrtc::video_frame::{
+        EncodedFrameType as RtcEncodedFrameType, EncodedVideoCodec as RtcEncodedVideoCodec,
     },
 };
 
 pub mod h26x;
+#[cfg(feature = "rtc")]
 mod pump;
+#[cfg(feature = "rtc")]
 pub use pump::EncodedVideoPump;
+
+#[cfg(feature = "rtc")]
+pub use livekit::webrtc::video_source::EncodedRateControl;
+
+/// Encoder rate-control target requested by WebRTC for a pre-encoded source.
+///
+/// Stands in for the `livekit` type when the `rtc` feature is disabled.
+#[cfg(not(feature = "rtc"))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EncodedRateControl {
+    /// Target bitrate in bits per second.
+    pub target_bitrate_bps: u64,
+    /// Target frame rate in frames per second.
+    pub framerate_fps: f64,
+}
 
 /// Source of pre-encoded video access units, such as an encoding pipeline.
 pub trait EncodedVideoSource: Send {
@@ -133,6 +148,7 @@ impl OwnedEncodedAccessUnit {
     }
 }
 
+#[cfg(feature = "rtc")]
 impl From<EncodedVideoCodec> for VideoCodec {
     fn from(value: EncodedVideoCodec) -> Self {
         match value {
@@ -145,6 +161,7 @@ impl From<EncodedVideoCodec> for VideoCodec {
     }
 }
 
+#[cfg(feature = "rtc")]
 impl From<EncodedVideoCodec> for RtcEncodedVideoCodec {
     fn from(value: EncodedVideoCodec) -> Self {
         match value {
@@ -157,6 +174,7 @@ impl From<EncodedVideoCodec> for RtcEncodedVideoCodec {
     }
 }
 
+#[cfg(feature = "rtc")]
 impl From<EncodedFrameType> for RtcEncodedFrameType {
     fn from(value: EncodedFrameType) -> Self {
         match value {

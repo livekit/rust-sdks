@@ -26,6 +26,7 @@
 
 pub mod encoded;
 pub mod error;
+#[cfg(feature = "rtc")]
 pub mod pixel;
 pub mod primitive;
 pub mod pump;

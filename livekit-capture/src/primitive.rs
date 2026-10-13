@@ -79,6 +79,7 @@ impl std::fmt::Display for VideoResolution {
     }
 }
 
+#[cfg(feature = "rtc")]
 impl From<VideoResolution> for livekit::webrtc::video_source::VideoResolution {
     fn from(value: VideoResolution) -> Self {
         Self { width: value.width, height: value.height }

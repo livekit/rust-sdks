@@ -1,0 +1,24 @@
+[package]
+name = "livekit-capture-gstreamer"
+description = "Shim library that lets livekit-capture load its GStreamer source at runtime"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+repository = "https://github.com/livekit/rust-sdks"
+publish = false
+
+# Built on its own (outside the workspace) so that workspace builds never
+# require GStreamer.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Without the default `rtc` feature, so that no part of libwebrtc is linked
+# into the shim alongside the host's copy.
+livekit-capture = { path = "../livekit-capture", default-features = false, features = [
+    "source-gstreamer",
+    "serde",
+] }
+serde_json = "1.0"

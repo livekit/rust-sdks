@@ -13,11 +13,13 @@ bytes = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
-livekit = { workspace = true }
+libloading = { version = "0.9", optional = true }
+livekit = { workspace = true, optional = true }
 log = { workspace = true }
 pollster = { version = "0.4", optional = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
 wgpu = { workspace = true, optional = true }
@@ -27,13 +29,18 @@ yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
-default = []
+default = ["rtc"]
+# Pumps that publish sources to LiveKit. Without it, the crate does not depend
+# on livekit (and libwebrtc).
+rtc = ["dep:livekit"]
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
 
 # Pixel sources
-source-clock = ["dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
-source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
+source-clock = ["rtc", "dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
+source-pattern = ["rtc", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+# Loads the GStreamer source at runtime from the livekit-capture-gstreamer shim
+source-gstreamer-dynamic = ["rtc", "dep:libloading", "dep:serde_json", "serde"]

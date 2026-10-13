@@ -91,6 +91,7 @@ impl PumpStop {
 
 /// Spawns a pump run on a dedicated thread with panic capture and a
 /// completion signal.
+#[cfg_attr(not(feature = "rtc"), allow(dead_code))]
 pub(crate) fn spawn_pump(
     stop: PumpStop,
     run: impl FnOnce() -> Result<PumpStats, PumpError> + Send + 'static,

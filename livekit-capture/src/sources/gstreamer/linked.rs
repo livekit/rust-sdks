@@ -22,18 +22,20 @@ use ::gstreamer_app as gst_app;
 use bytes::Bytes;
 use gst::glib;
 use gst::prelude::*;
+use std::task::Poll;
 use thiserror::Error;
 
+use super::{GStreamerBitrateUnit, GStreamerVideoSourceConfig};
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc, H26xParseError},
-        EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
+        EncodedFrameType, EncodedRateControl, EncodedVideoCodec, EncodedVideoSource,
+        OwnedEncodedAccessUnit,
     },
     error::SourceError,
     primitive::VideoResolution,
     pump::PumpStop,
 };
-use livekit::webrtc::video_source::EncodedRateControl;
 
 /// Encoded sample format expected from a GStreamer appsink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,76 +66,6 @@ impl GStreamerSampleFormat {
             Self::AccessUnit { codec } => codec,
         }
     }
-}
-
-/// Configuration for a GStreamer encoded video source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(deny_unknown_fields)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GStreamerVideoSourceConfig {
-    /// GStreamer launch description for the encoded producer pipeline.
-    ///
-    /// The pipeline must contain `appsink name=lk_appsink`, or leave exactly
-    /// one encoded video source pad unlinked. The source then attaches an
-    /// appsink to that pad.
-    pub pipeline: String,
-
-    /// Codec expected from the pipeline. When omitted, the codec is
-    /// inferred from the pipeline caps.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-    pub codec: Option<EncodedVideoCodec>,
-
-    /// Encoded frame resolution.
-    ///
-    /// When omitted, the resolution is discovered from the first sample, so
-    /// construction waits for the pipeline to produce data. When set,
-    /// construction returns without waiting, and the first sample is
-    /// verified against this value.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-    pub resolution: Option<VideoResolution>,
-
-    /// Forwards WebRTC rate-control targets to an encoder element's bitrate
-    /// property. Without this, the pipeline encodes at a fixed bitrate.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-    pub rate_control: Option<GStreamerRateControlConfig>,
-}
-
-/// Binding from WebRTC rate-control targets to a GStreamer encoder property.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(deny_unknown_fields)
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct GStreamerRateControlConfig {
-    /// Name of the encoder element in the pipeline (for example
-    /// `lk_encoder`).
-    pub element: String,
-
-    /// Bitrate property to set on the element (for example `bitrate` for
-    /// x264enc, or `target-bitrate` for vp8enc/vp9enc).
-    pub property: String,
-
-    /// Unit the property expects.
-    pub unit: GStreamerBitrateUnit,
-}
-
-/// Bitrate unit used by a GStreamer encoder property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum GStreamerBitrateUnit {
-    /// The encoder property expects bits per second.
-    #[cfg_attr(feature = "serde", serde(rename = "bps"))]
-    BitsPerSecond,
-    /// The encoder property expects kilobits per second.
-    #[cfg_attr(feature = "serde", serde(rename = "kbps"))]
-    KilobitsPerSecond,
 }
 
 impl GStreamerBitrateUnit {
@@ -574,6 +506,41 @@ impl GStreamerVideoSource {
             .build();
         let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
     }
+
+    /// Waits up to [`SAMPLE_WAIT`] for the next access unit. `Ready(None)`
+    /// marks the end of the stream.
+    ///
+    /// Used by the shim library behind `source-gstreamer-dynamic`, which
+    /// cannot share the caller's [`PumpStop`].
+    #[doc(hidden)]
+    pub fn poll_access_unit(
+        &mut self,
+    ) -> Result<Poll<Option<OwnedEncodedAccessUnit>>, SourceError> {
+        if let Some(sample) = self.pending_sample.take() {
+            let unit = self.process_sample(&sample).map_err(SourceError::new)?;
+            self.observe_access_unit(&unit);
+            return Ok(Poll::Ready(Some(unit)));
+        }
+
+        self.check_bus().map_err(SourceError::new)?;
+
+        // With `drop=true` the appsink discards the oldest buffers when
+        // full; timestamp jumps reveal those drops, and deltas are discarded
+        // until a fresh keyframe restores the prediction chain (low latency
+        // over loss).
+        match self.appsink.try_pull_sample(SAMPLE_WAIT) {
+            Some(sample) => {
+                let unit = self.process_sample(&sample).map_err(SourceError::new)?;
+                Ok(if self.observe_access_unit(&unit) {
+                    Poll::Ready(Some(unit))
+                } else {
+                    Poll::Pending
+                })
+            }
+            None if self.appsink.is_eos() => Ok(Poll::Ready(None)),
+            None => Ok(Poll::Pending),
+        }
+    }
 }
 
 impl Drop for GStreamerVideoSource {
@@ -620,33 +587,14 @@ impl EncodedVideoSource for GStreamerVideoSource {
         &mut self,
         stop: &PumpStop,
     ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
-        if let Some(sample) = self.pending_sample.take() {
-            let unit = self.process_sample(&sample).map_err(SourceError::new)?;
-            self.observe_access_unit(&unit);
-            return Ok(Some(unit));
-        }
-
         // Bounded waits keep the stop token observed within `SAMPLE_WAIT`
-        // even while the pipeline produces nothing. With `drop=true` the
-        // appsink discards the oldest buffers when full; timestamp jumps
-        // reveal those drops, and deltas are discarded until a fresh
-        // keyframe restores the prediction chain (low latency over loss).
+        // even while the pipeline produces nothing.
         loop {
             if stop.is_stopped() {
                 return Ok(None);
             }
-            self.check_bus().map_err(SourceError::new)?;
-
-            match self.appsink.try_pull_sample(SAMPLE_WAIT) {
-                Some(sample) => {
-                    let unit = self.process_sample(&sample).map_err(SourceError::new)?;
-                    if !self.observe_access_unit(&unit) {
-                        continue;
-                    }
-                    return Ok(Some(unit));
-                }
-                None if self.appsink.is_eos() => return Ok(None),
-                None => {}
+            if let Poll::Ready(unit) = self.poll_access_unit()? {
+                return Ok(unit);
             }
         }
     }

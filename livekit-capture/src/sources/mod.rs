@@ -18,7 +18,7 @@
 #[cfg(feature = "source-clock")]
 pub mod clock;
 
-#[cfg(feature = "source-gstreamer")]
+#[cfg(any(feature = "source-gstreamer", feature = "source-gstreamer-dynamic"))]
 pub mod gstreamer;
 
 #[cfg(feature = "source-pattern")]
