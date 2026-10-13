@@ -37,7 +37,7 @@ const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
 /// left" is not evidence that its reply is not already on the wire — a recipient that leaves
 /// *because* of the RPC it just answered (`lk.sip.EndCall`, say) reliably produces that order.
 /// Treat the disconnect as a reason to stop waiting soon rather than immediately.
-const DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(2);
+const DISCONNECT_GRACE_PERIOD_DURATION: Duration = Duration::from_secs(2);
 
 /// Generates a random RPC request identifier (UUID v4).
 fn create_random_uuid() -> String {
@@ -63,8 +63,8 @@ enum Wait<T> {
 /// Wait for `rx`, giving up `timeout` from now.
 ///
 /// `gone` firing does not end the wait: the recipient has left the room, but its reply may
-/// already be in flight, so keep waiting for up to [`DISCONNECT_GRACE_PERIOD`] more — never
-/// past `timeout` — before reporting the disconnect.
+/// already be in flight, so keep waiting for up to [`DISCONNECT_GRACE_PERIOD_DURATION`] more
+/// — never past `timeout` — before reporting the disconnect.
 async fn wait_with_disconnect_grace<T>(
     mut rx: oneshot::Receiver<T>,
     gone: oneshot::Receiver<()>,
@@ -87,7 +87,7 @@ async fn wait_with_disconnect_grace<T>(
     }
 
     let grace = std::cmp::min(
-        DISCONNECT_GRACE_PERIOD,
+        DISCONNECT_GRACE_PERIOD_DURATION,
         deadline.saturating_duration_since(tokio::time::Instant::now()),
     );
     match tokio::time::timeout(grace, rx).await {
@@ -331,10 +331,10 @@ impl RpcClientManager {
 
     /// Tell every call still waiting on `identity` that it has left the room.
     ///
-    /// Each affected caller stops waiting shortly afterwards (see [`DISCONNECT_GRACE_PERIOD`])
-    /// with `RecipientDisconnected`. Without this, a participant that leaves mid-call strands
-    /// its caller until the response timeout expires (15s by default), which then reports
-    /// `ResponseTimeout` rather than the disconnect that actually ended the call.
+    /// Each affected caller stops waiting shortly afterwards with `RecipientDisconnected` (see
+    /// [`DISCONNECT_GRACE_PERIOD_DURATION`]). Without this, a participant that leaves mid-call
+    /// strands its caller until the response timeout expires (15s by default), which then
+    /// reports `ResponseTimeout` rather than the disconnect that actually ended the call.
     ///
     /// The pending entries deliberately stay registered through the grace period: a reply sent
     /// just before the recipient left is still in flight on the data channel, and dropping the
