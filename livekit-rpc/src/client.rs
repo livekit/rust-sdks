@@ -360,16 +360,17 @@ impl RpcClientManager {
     /// entry now would turn that reply into an "unexpected RPC request" and fail a call that
     /// in fact succeeded.
     pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
-        fn notify<T>(pending: &HashMap<String, Pending<T>>, identity: &ParticipantIdentity) {
-            for pending in pending.values() {
-                if pending.destination_identity == *identity {
-                    let _ = pending.participant_disconnected.send(true);
-                }
+        for pending in self.pending_acks.lock().values() {
+            if pending.destination_identity == *identity {
+                let _ = pending.participant_disconnected.send(true);
             }
         }
 
-        notify(&self.pending_acks.lock(), identity);
-        notify(&self.pending_responses.lock(), identity);
+        for pending in self.pending_responses.lock().values() {
+            if pending.destination_identity == *identity {
+                let _ = pending.participant_disconnected.send(true);
+            }
+        }
     }
 
     /// Fail every in-flight call, whoever it was addressed to. Used when the room closes.
