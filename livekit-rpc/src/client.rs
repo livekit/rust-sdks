@@ -24,9 +24,8 @@ use livekit_protocol as proto;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
 
 /// The oldest server version that supports RPC.
 const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
@@ -50,10 +49,11 @@ fn create_random_uuid() -> String {
 struct Pending<T> {
     destination_identity: ParticipantIdentity,
     tx: oneshot::Sender<T>,
-    /// Latches once the destination is known to have left the room. The ack and response
-    /// entries of one call share a channel, so a disconnect seen while waiting on the ack is
-    /// still waiting for us when the call moves on to the response.
-    participant_disconnected: Arc<watch::Sender<bool>>,
+    /// Held, never sent on: the ack and response entries of one call hold the only two
+    /// senders, and dropping both closes the channel. That closure is the signal, which makes
+    /// it permanent — a disconnect seen while waiting on the ack is still readable when the
+    /// call moves on to the response.
+    participant_disconnected: Option<mpsc::Sender<()>>,
 }
 
 /// How one leg of a call — the ack, or the response — finished waiting.
@@ -65,13 +65,13 @@ enum Wait<T> {
 
 /// Wait for `rx`, giving up `timeout` from now.
 ///
-/// `participant_disconnected` latching does not end the wait: the recipient has left the room,
+/// `participant_disconnected` closing does not end the wait: the recipient has left the room,
 /// but its reply may already be in flight, so keep waiting for up to
 /// [`DISCONNECT_GRACE_PERIOD_DURATION`] more — never past `timeout` — before reporting the
 /// disconnect.
 async fn wait_with_disconnect_grace<T>(
     mut rx: oneshot::Receiver<T>,
-    participant_disconnected: &mut watch::Receiver<bool>,
+    participant_disconnected: &mut mpsc::Receiver<()>,
     timeout: Duration,
 ) -> Wait<T> {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -86,8 +86,8 @@ async fn wait_with_disconnect_grace<T>(
                 Err(_) => Wait::RecipientGone,
             };
         }
-        // An `Err` here means the call is no longer tracked, which the `rx` arm above covers.
-        _ = participant_disconnected.wait_for(|disconnected| *disconnected) => {}
+        // Nothing is ever sent, so this resolves only once every sender has been dropped.
+        _ = participant_disconnected.recv() => {}
         _ = tokio::time::sleep_until(deadline) => return Wait::Timeout,
     }
 
@@ -164,8 +164,7 @@ impl RpcClientManager {
 
         // Register channels BEFORE sending the request to avoid race condition
         // where the response arrives before we've registered the handlers
-        let (participant_disconnected_tx, mut participant_disconnected_rx) = watch::channel(false);
-        let participant_disconnected_tx = Arc::new(participant_disconnected_tx);
+        let (participant_disconnected_tx, mut participant_disconnected_rx) = mpsc::channel(1);
         {
             let mut pending_acks = self.pending_acks.lock();
             let mut pending_responses = self.pending_responses.lock();
@@ -175,7 +174,7 @@ impl RpcClientManager {
                 Pending {
                     destination_identity: destination.clone(),
                     tx: ack_tx,
-                    participant_disconnected: participant_disconnected_tx.clone(),
+                    participant_disconnected: Some(participant_disconnected_tx.clone()),
                 },
             );
             pending_responses.insert(
@@ -183,7 +182,7 @@ impl RpcClientManager {
                 Pending {
                     destination_identity: destination,
                     tx: response_tx,
-                    participant_disconnected: participant_disconnected_tx,
+                    participant_disconnected: Some(participant_disconnected_tx),
                 },
             );
         }
@@ -337,13 +336,12 @@ impl RpcClientManager {
         destination_identity: impl Into<ParticipantIdentity>,
         tx: tokio::sync::oneshot::Sender<Result<String, RpcError>>,
     ) {
-        let (participant_disconnected, _rx) = watch::channel(false);
         self.pending_responses.lock().insert(
             request_id,
             Pending {
                 destination_identity: destination_identity.into(),
                 tx,
-                participant_disconnected: Arc::new(participant_disconnected),
+                participant_disconnected: None,
             },
         );
     }
@@ -360,15 +358,15 @@ impl RpcClientManager {
     /// entry now would turn that reply into an "unexpected RPC request" and fail a call that
     /// in fact succeeded.
     pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
-        for pending in self.pending_acks.lock().values() {
+        for pending in self.pending_acks.lock().values_mut() {
             if pending.destination_identity == *identity {
-                let _ = pending.participant_disconnected.send(true);
+                drop(pending.participant_disconnected.take());
             }
         }
 
-        for pending in self.pending_responses.lock().values() {
+        for pending in self.pending_responses.lock().values_mut() {
             if pending.destination_identity == *identity {
-                let _ = pending.participant_disconnected.send(true);
+                drop(pending.participant_disconnected.take());
             }
         }
     }
