@@ -213,7 +213,7 @@ impl RpcClientManager {
 
         if let Err(e) = send_result {
             // Clean up on failure
-            self.forget(&id);
+            self.clear_in_flight_rpc(&id);
             log::error!("Failed to publish RPC request: {}", e);
             return Err(e);
         }
@@ -227,11 +227,11 @@ impl RpcClientManager {
         .await
         {
             Wait::Timeout => {
-                self.forget(&id);
+                self.clear_in_flight_rpc(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
             Wait::RecipientGone => {
-                self.forget(&id);
+                self.clear_in_flight_rpc(&id);
                 return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
             }
             Wait::Received(()) => {
@@ -262,7 +262,7 @@ impl RpcClientManager {
     }
 
     /// Stop tracking a call, so a reply that arrives later is ignored rather than delivered.
-    fn forget(&self, id: &str) {
+    fn clear_in_flight_rpc(&self, id: &str) {
         self.pending_acks.lock().remove(id);
         self.pending_responses.lock().remove(id);
     }
