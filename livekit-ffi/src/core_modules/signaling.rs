@@ -147,16 +147,12 @@ impl From<signaling::SignalEvent> for SignalEvent {
 
 // MARK: - Errors
 
-/// A signalling operation failed. Structured mirror of [`signaling::SignalError`] so foreign
-/// callers can tell a retryable failure from a terminal one.
+/// A signalling operation failed.
+///
+/// Only the cases a caller can act on differently are broken out; everything else arrives as
+/// [`Other`](Self::Other) carrying the underlying message.
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum SignalError {
-    #[error("failed to parse the url: {reason}")]
-    UrlParse { reason: String },
-
-    #[error("access token has invalid characters")]
-    TokenFormat,
-
     #[error("client error: {status} - {body}")]
     Client { status: u16, body: String },
 
@@ -168,39 +164,18 @@ pub enum SignalError {
     #[error("handshake error: {status}")]
     Handshake { status: u16 },
 
-    #[error("failed to decode messages from server: {reason}")]
-    ProtoParse { reason: String },
-
-    #[error("{reason}")]
-    Timeout { reason: String },
-
-    #[error("failed to send message to the server")]
-    SendFailed,
-
-    #[error("transport connection error: {reason}")]
-    Connection { reason: String },
-
-    #[error("transport closed")]
-    Closed,
-
-    #[error("cannot {reason}")]
-    InvalidState { reason: String },
-
     /// No network transport is registered. Permanent: register one with
     /// [`livekit_net::set_ws_client`] rather than retrying.
     #[error("no network transport registered")]
     TransportNotConfigured,
-
-    #[error("failed to retrieve region info: {reason}")]
-    RegionError { reason: String },
 
     /// The server asked the client to leave during a resume. `disconnect_reason` and `action`
     /// are the numeric values of `livekit.DisconnectReason` and `livekit.LeaveRequest.Action`.
     #[error("server sent leave during reconnect: reason={disconnect_reason}, action={action}")]
     LeaveRequest { disconnect_reason: i32, action: i32 },
 
-    /// A variant added to [`signaling::SignalError`] since this mirror was written, or a panic
-    /// in the task running the operation.
+    /// Everything else: a bad URL or token, a decode failure, a timeout, a dead transport, or a
+    /// panic in the task running the operation.
     #[error("{reason}")]
     Other { reason: String },
 }
@@ -209,29 +184,26 @@ impl From<signaling::SignalError> for SignalError {
     fn from(error: signaling::SignalError) -> Self {
         use signaling::SignalError as E;
         match error {
-            E::UrlParse(reason) => Self::UrlParse { reason },
-            E::TokenFormat => Self::TokenFormat,
             E::Client(status, body) => Self::Client { status: status.as_u16(), body },
             E::Server(status, body) => Self::Server { status: status.as_u16(), body },
             E::Handshake { status } => Self::Handshake { status: status.as_u16() },
-            E::ProtoParse(err) => Self::ProtoParse { reason: err.to_string() },
-            E::Timeout(reason) => Self::Timeout { reason },
-            E::SendError => Self::SendFailed,
-            E::Connection(reason) => Self::Connection { reason },
-            E::Closed => Self::Closed,
-            E::InvalidState(reason) => Self::InvalidState { reason },
             E::TransportNotConfigured => Self::TransportNotConfigured,
-            E::RegionError(reason) => Self::RegionError { reason },
             E::LeaveRequest { reason, action } => {
                 Self::LeaveRequest { disconnect_reason: reason as i32, action: action as i32 }
             }
+            // Catches the variants not broken out above, and is required besides:
             // `signaling::SignalError` is `#[non_exhaustive]`.
             ref other => Self::Other { reason: other.to_string() },
         }
     }
 }
 
-/// A request handed to [`SignalSession::send`] could not be read.
+/// The error a resume returns once the session has been closed.
+fn closed_resume() -> SignalError {
+    SignalError::Other { reason: "cannot resume a closed session".to_string() }
+}
+
+/// A request handed to [`SignalSession::send`] could not be sent.
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum SignalRequestError {
     #[error("failed to decode the signal request: {reason}")]
@@ -239,6 +211,10 @@ pub enum SignalRequestError {
 
     #[error("the signal request carried no message")]
     EmptyRequest,
+
+    /// The session is closed, so the request would have been discarded.
+    #[error("the session is closed")]
+    Closed,
 }
 
 // MARK: - Event queue
@@ -292,8 +268,13 @@ impl SignalSession {
     /// Sends an encoded `livekit.SignalRequest` to the server.
     ///
     /// Session-scoped requests are queued while a resume is in flight and flushed by
-    /// [`set_reconnected`](Self::set_reconnected).
+    /// [`set_reconnected`](Self::set_reconnected). Fails with
+    /// [`SignalRequestError::Closed`] once the session has been closed, because a request
+    /// handed over after that is dropped or queued behind a flush that will never run.
     pub async fn send(&self, request: &[u8]) -> Result<(), SignalRequestError> {
+        if self.shutdown.is_cancelled() {
+            return Err(SignalRequestError::Closed);
+        }
         let request = proto::SignalRequest::decode(request)
             .map_err(|err| SignalRequestError::Decode { reason: err.to_string() })?;
         let Some(message) = request.message else {
@@ -307,13 +288,11 @@ impl SignalSession {
     /// `livekit.ReconnectResponse`.
     ///
     /// Leaves the session reconnecting: call [`set_reconnected`](Self::set_reconnected) once the
-    /// media path is back, or queued requests stay buffered. Fails with
-    /// [`SignalError::InvalidState`] once the session has been closed.
+    /// media path is back, or queued requests stay buffered. Fails once the session has been
+    /// closed.
     pub async fn restart(&self, reason: ReconnectReason) -> Result<Bytes, SignalError> {
         if self.shutdown.is_cancelled() {
-            return Err(SignalError::InvalidState {
-                reason: "resume a closed session".to_string(),
-            });
+            return Err(closed_resume());
         }
         let client = self.client.clone();
         let shutdown = self.shutdown.clone();
@@ -327,9 +306,7 @@ impl SignalSession {
                 // and the resume is reported as refused however late the close arrived.
                 if shutdown.is_cancelled() {
                     client.close().await;
-                    return Err(SignalError::InvalidState {
-                        reason: "resume a closed session".to_string(),
-                    });
+                    return Err(closed_resume());
                 }
                 response.map_err(SignalError::from)
             })
@@ -361,11 +338,6 @@ impl SignalSession {
     /// The last refreshed token, or the initial one if the server has not refreshed it.
     pub fn token(&self) -> String {
         self.client.token()
-    }
-
-    /// The URL the session connected to.
-    pub fn url(&self) -> String {
-        self.client.url()
     }
 
     /// Returns the next request id, for user-initiated requests and their responses.
@@ -444,7 +416,7 @@ pub async fn connect_signal_session(
     let publisher_offer = publisher_offer
         .map(|offer| proto::SessionDescription::decode(offer.as_slice()))
         .transpose()
-        .map_err(|err| SignalError::ProtoParse { reason: err.to_string() })?;
+        .map_err(|err| SignalError::Other { reason: err.to_string() })?;
     let options = options.into();
 
     // `SignalClient::connect` spawns the long-lived signal task, which must land on this crate's
@@ -468,7 +440,6 @@ pub async fn connect_signal_session(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, Once};
 
@@ -536,16 +507,19 @@ mod tests {
     struct MockConn {
         inbound_tx: mpsc::UnboundedSender<Vec<u8>>,
         inbound: tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<u8>>>,
-        sent: Mutex<VecDeque<Vec<u8>>>,
+        sent_tx: mpsc::UnboundedSender<Vec<u8>>,
+        sent: tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<u8>>>,
     }
 
     impl MockConn {
         fn new() -> Self {
             let (inbound_tx, inbound) = mpsc::unbounded_channel();
+            let (sent_tx, sent) = mpsc::unbounded_channel();
             Self {
                 inbound_tx,
                 inbound: tokio::sync::Mutex::new(inbound),
-                sent: Mutex::new(VecDeque::new()),
+                sent_tx,
+                sent: tokio::sync::Mutex::new(sent),
             }
         }
 
@@ -554,30 +528,30 @@ mod tests {
             self.inbound_tx.send(frame).expect("the mock owns the receiver");
         }
 
-        /// Pop the oldest frame the client wrote, waiting briefly for it to arrive.
+        /// Take the oldest frame the client wrote, waiting briefly for it to arrive.
         ///
         /// Pings are skipped: `signal_task`'s interval fires its first tick immediately, so a
         /// `PingReq` reaches the wire before anything a test sends.
         async fn next_sent(&self) -> proto::SignalRequest {
-            for _ in 0..50 {
-                while let Some(frame) = self.sent.lock().unwrap().pop_front() {
-                    let request = proto::SignalRequest::decode(frame.as_slice())
-                        .expect("the client writes encoded SignalRequests");
-                    if !matches!(request.message, Some(proto::signal_request::Message::PingReq(_)))
-                    {
-                        return request;
-                    }
+            let mut sent = self.sent.lock().await;
+            loop {
+                let frame = tokio::time::timeout(Duration::from_secs(1), sent.recv())
+                    .await
+                    .expect("the client sent nothing")
+                    .expect("the mock owns the sender");
+                let request = proto::SignalRequest::decode(frame.as_slice())
+                    .expect("the client writes encoded SignalRequests");
+                if !matches!(request.message, Some(proto::signal_request::Message::PingReq(_))) {
+                    return request;
                 }
-                tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            panic!("the client sent nothing");
         }
     }
 
     #[async_trait::async_trait]
     impl WsConnection for MockConn {
         async fn send(&self, frame: Vec<u8>) -> Result<(), TransportError> {
-            self.sent.lock().unwrap().push_back(frame);
+            self.sent_tx.send(frame).expect("the mock owns the receiver");
             Ok(())
         }
 
@@ -655,15 +629,22 @@ mod tests {
         LATEST_CONN.lock().unwrap().take().expect("a connection was opened")
     }
 
+    /// Wait for `condition` to hold, failing with `what` if it has not within five seconds.
+    ///
+    /// Teardown here is asynchronous — a `Drop` spawns the close — so the state a test asserts
+    /// on arrives shortly after the call that causes it, not during.
+    async fn eventually(mut condition: impl FnMut() -> bool, what: &str) {
+        let polling = async {
+            while !condition() {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), polling).await.expect(what);
+    }
+
     /// Wait for the transport to release `conn`, which is how teardown is observable here.
     async fn assert_released(conn: Arc<MockConn>) {
-        for _ in 0..50 {
-            if Arc::strong_count(&conn) == 1 {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        panic!("the transport was still held {} times over", Arc::strong_count(&conn) - 1);
+        eventually(|| Arc::strong_count(&conn) == 1, "the transport outlived its session").await;
     }
 
     fn options() -> SignalOptions {
@@ -706,7 +687,6 @@ mod tests {
                 proto::JoinResponse::decode(connected.join_response.as_ref()).unwrap(),
                 join_response()
             );
-            assert_eq!(connected.session.url(), URL);
             assert_eq!(connected.session.token(), TOKEN);
 
             let pong = proto::signal_response::Message::PongResp(proto::Pong {
@@ -783,14 +763,8 @@ mod tests {
                     "the event stream outlived the session"
                 );
 
-                // `Drop` closes asynchronously, so give the spawned close a moment to land.
-                for _ in 0..50 {
-                    if client.upgrade().is_none() {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                assert!(client.upgrade().is_none(), "the signal client outlived its session");
+                eventually(|| client.upgrade().is_none(), "the signal client outlived its session")
+                    .await;
                 // The client being gone does not prove the socket is: the read and write tasks
                 // hold it too.
                 assert_released(conn).await;
@@ -848,16 +822,35 @@ mod tests {
 
             connected.session.close().await;
             take_conn();
-            assert!(matches!(
-                connected.session.restart(ReconnectReason::SignalDisconnected).await,
-                Err(SignalError::InvalidState { .. })
-            ));
+
+            let Err(error) = connected.session.restart(ReconnectReason::SignalDisconnected).await
+            else {
+                panic!("a closed session cannot be resumed");
+            };
+            assert!(
+                matches!(&error, SignalError::Other { reason } if reason.contains("closed")),
+                "expected a closed-session error, got {error:?}"
+            );
             // Refused before it reached the transport, not after: a resume that got as far as
             // dialling would have left a connection in the slot.
             assert!(
                 LATEST_CONN.lock().unwrap().is_none(),
                 "a refused resume should not open a transport"
             );
+
+            // `SignalClient::send` returns `()`, so a request handed over after the close is
+            // dropped or queued behind a flush that never runs. Reporting that as success would
+            // tell a host its request is on the wire.
+            let leave = proto::SignalRequest {
+                message: Some(
+                    proto::signal_request::Message::Leave(proto::LeaveRequest::default()),
+                ),
+            }
+            .encode_to_vec();
+            assert!(matches!(
+                connected.session.send(&leave).await,
+                Err(SignalRequestError::Closed)
+            ));
         });
     }
 
@@ -889,16 +882,12 @@ mod tests {
             drop(connected);
             STALL_CLOSE.store(false, Ordering::SeqCst);
 
-            let resumed = 'resumed: {
-                for _ in 0..50 {
-                    if let Some(conn) = LATEST_CONN.lock().unwrap().take() {
-                        break 'resumed conn;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                panic!("the resume never opened a transport");
-            };
-            assert_released(resumed).await;
+            eventually(
+                || LATEST_CONN.lock().unwrap().is_some(),
+                "the resume never opened a transport",
+            )
+            .await;
+            assert_released(take_conn()).await;
             drop(first);
         });
     }
