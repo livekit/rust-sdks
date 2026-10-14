@@ -1,0 +1,22 @@
+# Review run: VP9 SVC with the SLOs from the doc review. Keys left out keep their defaults, which
+# already score audio packet loss and fail a step on a subscription bad for the whole hold or on
+# any video pause.
+
+# one publisher, so every subscriber watches the same video
+publishers = 1
+# capacity run, so skip VP9 decoding in the workers
+null_video_decoder = true
+# subscribers ask for the middle SVC layer, so the SFU keeps selecting layers under load
+tile_height = 360
+
+[video]
+codec = "vp9"
+# one L3T3_KEY SVC encoding, so the SFU selects layers as it does in production
+layered = true
+
+[slo]
+# a window one layer or one frame-rate step down scores below this, so drops in 5% of windows
+# fail the step
+video_score_floor = 65.0
+# one-way delay above 400 ms is unacceptable for conversation (ITU-T G.114)
+delay_ceiling_ms = 400.0
