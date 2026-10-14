@@ -3920,6 +3920,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-signaling",
  "livekit-token",
  "log",
  "once_cell",
