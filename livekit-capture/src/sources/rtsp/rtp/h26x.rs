@@ -110,10 +110,7 @@ fn parse_h264_payload(payload: &[u8]) -> Result<H264Payload<'_>, RtpDepacketizer
 fn parse_h265_payload(payload: &[u8]) -> Result<H265Payload<'_>, RtpDepacketizerError> {
     let malformed = || RtpDepacketizerError::UnsupportedPayload;
     let mut reader = ByteReader::new(payload);
-    let header = [
-        reader.get_u8().ok_or_else(malformed)?,
-        reader.get_u8().ok_or_else(malformed)?,
-    ];
+    let header = [reader.get_u8().ok_or_else(malformed)?, reader.get_u8().ok_or_else(malformed)?];
 
     match (header[0] >> 1) & 0x3f {
         0..=47 => Ok(H265Payload::Nal(payload)),
@@ -364,10 +361,7 @@ mod tests {
 
     #[test]
     fn parses_h265_payloads() {
-        assert_eq!(
-            parse_h265_payload(&[0x26, 0x01, 1]),
-            Ok(H265Payload::Nal(&[0x26, 0x01, 1]))
-        );
+        assert_eq!(parse_h265_payload(&[0x26, 0x01, 1]), Ok(H265Payload::Nal(&[0x26, 0x01, 1])));
         assert_eq!(
             parse_h265_payload(&[0x60, 0x01, 0, 2, 0x40, 0x01]),
             Ok(H265Payload::Aggregation(vec![&[0x40, 0x01][..]]))
@@ -527,8 +521,7 @@ mod tests {
             sps: vec![vec![0x67, 9, 8]],
             pps: vec![vec![0x68, 7]],
         };
-        let mut assembler =
-            assembler_with_parameter_sets(EncodedVideoCodec::H264, parameter_sets);
+        let mut assembler = assembler_with_parameter_sets(EncodedVideoCodec::H264, parameter_sets);
         let idr = rtp_packet(10, 12_000, true, &[0x65, 1, 2]);
         let delta = rtp_packet(11, 15_000, true, &[0x41, 3]);
 
@@ -551,8 +544,7 @@ mod tests {
             sps: vec![vec![0x42, 0x01, 2]],
             pps: vec![vec![0x44, 0x01, 3]],
         };
-        let mut assembler =
-            assembler_with_parameter_sets(EncodedVideoCodec::H265, parameter_sets);
+        let mut assembler = assembler_with_parameter_sets(EncodedVideoCodec::H265, parameter_sets);
         // An IDR-only access unit classifies as a keyframe only once the SDP
         // parameter sets are injected.
         let idr = rtp_packet(10, 12_000, true, &[0x26, 0x01, 1, 2]);
@@ -560,12 +552,15 @@ mod tests {
         let access_unit = push_one(&mut assembler, &idr).unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
         let nals = annex_b_nals(&access_unit);
-        assert_eq!(nals, vec![
-            &[0x40, 0x01, 1][..],
-            &[0x42, 0x01, 2][..],
-            &[0x44, 0x01, 3][..],
-            &[0x26, 0x01, 1, 2][..],
-        ]);
+        assert_eq!(
+            nals,
+            vec![
+                &[0x40, 0x01, 1][..],
+                &[0x42, 0x01, 2][..],
+                &[0x44, 0x01, 3][..],
+                &[0x26, 0x01, 1, 2][..],
+            ]
+        );
     }
 
     #[test]
@@ -575,8 +570,7 @@ mod tests {
             sps: vec![vec![0x67, 99]],
             pps: vec![vec![0x68, 99]],
         };
-        let mut assembler =
-            assembler_with_parameter_sets(EncodedVideoCodec::H264, parameter_sets);
+        let mut assembler = assembler_with_parameter_sets(EncodedVideoCodec::H264, parameter_sets);
         // The stream repeats its own parameter sets in-band.
         let stap = rtp_packet(10, 12_000, false, &[0x18, 0, 2, 0x67, 1, 0, 2, 0x68, 2]);
         let idr = rtp_packet(11, 12_000, true, &[0x65, 3]);

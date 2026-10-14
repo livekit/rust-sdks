@@ -48,10 +48,7 @@ pub(super) fn access_unit_resolution(
 
 /// Extracts the frame dimensions from a raw H.264 or H.265 SPS NAL unit,
 /// such as one carried out-of-band in SDP `sprop` attributes.
-pub(super) fn sps_resolution(
-    codec: EncodedVideoCodec,
-    sps_nal: &[u8],
-) -> Option<VideoResolution> {
+pub(super) fn sps_resolution(codec: EncodedVideoCodec, sps_nal: &[u8]) -> Option<VideoResolution> {
     match codec {
         EncodedVideoCodec::H264 => h264_sps_resolution(&rbsp_from_nal(sps_nal, 1)?),
         EncodedVideoCodec::H265 => h265_sps_resolution(&rbsp_from_nal(sps_nal, 2)?),
@@ -86,8 +83,10 @@ fn h264_sps_resolution(rbsp: &[u8]) -> Option<VideoResolution> {
 
     let mut chroma_format_idc = 1;
     let mut separate_colour_plane = false;
-    if matches!(profile_idc, 100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135)
-    {
+    if matches!(
+        profile_idc,
+        100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135
+    ) {
         chroma_format_idc = reader.read_ue()?;
         if chroma_format_idc == 3 {
             separate_colour_plane = reader.read_flag()?;
@@ -132,8 +131,7 @@ fn h264_sps_resolution(rbsp: &[u8]) -> Option<VideoResolution> {
 
     let frame_height_factor = if frame_mbs_only { 1 } else { 2 };
     let mut width = pic_width_in_mbs.checked_mul(16)?;
-    let mut height =
-        pic_height_in_map_units.checked_mul(16)?.checked_mul(frame_height_factor)?;
+    let mut height = pic_height_in_map_units.checked_mul(16)?.checked_mul(frame_height_factor)?;
 
     if reader.read_flag()? {
         // frame_cropping_flag
@@ -549,13 +547,15 @@ mod tests {
 
     #[test]
     fn strips_emulation_prevention_bytes() {
-        assert_eq!(rbsp_from_nal(&[0x67, 0x01, 0x00, 0x00, 0x03, 0x02], 1), Some(vec![
-            0x01, 0x00, 0x00, 0x02
-        ]));
+        assert_eq!(
+            rbsp_from_nal(&[0x67, 0x01, 0x00, 0x00, 0x03, 0x02], 1),
+            Some(vec![0x01, 0x00, 0x00, 0x02])
+        );
         // The escape only applies after two zero bytes.
-        assert_eq!(rbsp_from_nal(&[0x67, 0x01, 0x00, 0x03, 0x02], 1), Some(vec![
-            0x01, 0x00, 0x03, 0x02
-        ]));
+        assert_eq!(
+            rbsp_from_nal(&[0x67, 0x01, 0x00, 0x03, 0x02], 1),
+            Some(vec![0x01, 0x00, 0x03, 0x02])
+        );
     }
 
     #[test]
