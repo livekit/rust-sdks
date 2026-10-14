@@ -26,9 +26,9 @@ use tokio::{
     time::Instant,
 };
 
-use crate::CHANNEL_CAPACITY;
+use crate::{participant::JOIN_TIMEOUT, CHANNEL_CAPACITY};
 
-const JOIN_BACKSTOP: Duration = Duration::from_secs(60);
+const JOIN_BACKSTOP: Duration = JOIN_TIMEOUT.saturating_add(PIPELINE_SLACK);
 const PIPELINE_SLACK: Duration = Duration::from_secs(2);
 const STOP_DEADLINE: Duration = Duration::from_secs(20);
 

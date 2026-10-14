@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use livekit::RoomOptions;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -45,6 +46,8 @@ pub struct Slo {
     pub video_stall_ceiling: f32,
     pub max_disconnects: u32,
     pub max_missing_subscriptions: u32,
+    pub max_bad_subscriptions: u32,
+    pub max_video_pauses: u32,
     pub video_score_floor: Option<f32>,
     pub delay_ceiling_ms: Option<f32>,
 }
@@ -59,6 +62,8 @@ impl Default for Slo {
             video_stall_ceiling: 0.05,
             max_disconnects: 0,
             max_missing_subscriptions: 0,
+            max_bad_subscriptions: 0,
+            max_video_pauses: 0,
             video_score_floor: None,
             delay_ceiling_ms: None,
         }
@@ -98,6 +103,7 @@ pub struct Settings {
     pub tiles: u32,
     pub tile_height: Option<u32>,
     pub null_video_decoder: bool,
+    pub single_peer_connection: bool,
     pub workers: u16,
     pub join_rate: f32,
     pub settle_s: u32,
@@ -119,6 +125,7 @@ impl Default for Settings {
             tiles: 9,
             tile_height: None,
             null_video_decoder: false,
+            single_peer_connection: RoomOptions::default().single_peer_connection,
             workers: default_workers(),
             join_rate: 5.0,
             settle_s: 10,
@@ -245,8 +252,14 @@ pub struct JoinRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum JoinOutcome {
-    Joined { connect_ms: u32 },
-    Failed { error: String },
+    Joined {
+        connect_ms: u32,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pc_fallback: bool,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -306,6 +319,8 @@ pub struct VideoWindow {
     pub jb_emitted: u64,
     pub nacks: u32,
     pub plis: u32,
+    #[serde(default)]
+    pub pauses: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -324,8 +339,8 @@ pub struct UplinkLayer {
     pub fps: f32,
     pub height: u32,
     pub limitation: Limitation,
-    pub remote_loss: f32,
-    pub rtt_ms: f32,
+    pub remote_loss: Option<f32>,
+    pub rtt_ms: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

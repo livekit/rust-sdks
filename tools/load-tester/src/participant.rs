@@ -33,6 +33,7 @@ use tokio::{
 use crate::WINDOW;
 
 const BASELINE_AFTER_FIRST_FRAME: Duration = Duration::from_millis(250);
+pub const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct Ctx {
     pub settings: Settings,
@@ -70,9 +71,16 @@ struct Uplink {
 
 impl Participant {
     pub async fn run(id: ParticipantId, token: String, ctx: Arc<Ctx>) {
-        let joined = Self::join(id, &token, &ctx).await;
+        let join = timeout(JOIN_TIMEOUT, Self::join(id, &token, &ctx)).await;
+        let joined = join.unwrap_or_else(|_| {
+            Err(anyhow::anyhow!("join did not finish within {}s", JOIN_TIMEOUT.as_secs()))
+        });
         let outcome = match &joined {
-            Ok((_, connect_ms)) => JoinOutcome::Joined { connect_ms: *connect_ms },
+            Ok((participant, connect_ms)) => JoinOutcome::Joined {
+                connect_ms: *connect_ms,
+                pc_fallback: ctx.settings.single_peer_connection
+                    && !participant.room.is_single_peer_connection_active(),
+            },
             Err(e) => JoinOutcome::Failed { error: e.to_string() },
         };
         if ctx.out.send(Record::Join(JoinRecord { at: now_ms(), id, outcome })).await.is_err() {
@@ -86,6 +94,7 @@ impl Participant {
     async fn join(id: ParticipantId, token: &str, ctx: &Arc<Ctx>) -> anyhow::Result<(Self, u32)> {
         let mut options = RoomOptions::default();
         options.dynacast = true;
+        options.single_peer_connection = ctx.settings.single_peer_connection;
         let started = Instant::now();
         let (room, events) = Room::connect(&ctx.settings.url, token, options).await?;
         let connected_at = Instant::now();

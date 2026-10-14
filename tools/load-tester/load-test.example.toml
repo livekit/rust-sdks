@@ -13,6 +13,9 @@ tiles = 9
 # tile_height = 720
 # skip video decoding in workers so one machine holds more subscribers
 null_video_decoder = false
+# true asks for one peer connection for publishing and subscribing, as the SDK defaults, and the
+# SDK falls back to two when the server lacks it. false always uses two
+single_peer_connection = true
 # worker processes, each with its own WebRTC runtime; derived as cores / 4, at least 1
 # workers = 2
 # joins per second
@@ -42,6 +45,11 @@ dtx = true
 max_join_failures = 0
 max_disconnects = 0
 max_missing_subscriptions = 0
+# subscriptions with no good window in the hold. An audio window is good at or above the MOS
+# floor. A video window is good within the stall ceiling and, when set, at or above the video score floor
+max_bad_subscriptions = 0
+# video streams that got no packets for 5 s or more and then resumed, which libwebrtc counts as pauses
+max_video_pauses = 0
 # p95 join and time-to-first-media latency, at most
 join_p95_ms = 5000
 ttff_p95_ms = 3000
@@ -68,8 +76,10 @@ max_udp_drops = 0
 # video_loss_weight, layer_step_penalty, fps_step_penalty and freeze_weight shape only the video
 # score, which judges a step only when slo.video_score_floor is set.
 [scoring]
-# (sfu) per 1% of audio samples concealed
+# per 1% of audio samples concealed, at the SFU's plain-Opus loss weight
 audio_concealment_weight = 8.0
+# (sfu) per 1% of audio packets lost. The SFU uses this weight for plain Opus and half of it for RED
+audio_loss_weight = 8.0
 # (sfu) per 1% of video packets lost
 video_loss_weight = 10.0
 # (sfu) per layer below the one the subscriber asked for

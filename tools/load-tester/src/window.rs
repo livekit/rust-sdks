@@ -149,6 +149,7 @@ struct Sample {
     stall_s: f64,
     nacks: u32,
     plis: u32,
+    pauses: u32,
 }
 
 impl Sample {
@@ -170,6 +171,7 @@ impl Sample {
             stall_s: inbound.total_freeze_duration + inbound.total_pause_duration,
             nacks: inbound.nack_count,
             plis: inbound.pli_count,
+            pauses: inbound.pause_count,
         }
     }
 
@@ -188,6 +190,7 @@ impl Sample {
             || self.stall_s < prev.stall_s
             || self.nacks < prev.nacks
             || self.plis < prev.plis
+            || self.pauses < prev.pauses
     }
 }
 
@@ -269,6 +272,7 @@ impl Media {
                     jb_emitted,
                     nacks: now.nacks - prev.nacks,
                     plis: now.plis - prev.plis,
+                    pauses: now.pauses - prev.pauses,
                 })
             }
         }
@@ -377,8 +381,8 @@ impl UplinkTracker {
                     fps: out.outbound.frames_per_second as f32,
                     height: out.outbound.frame_height,
                     limitation: Limitation::from(out.outbound.quality_limitation_reason),
-                    remote_loss: remote.map_or(0.0, |r| r.fraction_lost as f32),
-                    rtt_ms: remote.map_or(0.0, |r| (r.round_trip_time * 1000.0) as f32),
+                    remote_loss: remote.map(|r| r.fraction_lost as f32),
+                    rtt_ms: remote.map(|r| (r.round_trip_time * 1000.0) as f32),
                 }
             })
             .collect();

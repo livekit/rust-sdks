@@ -5,7 +5,7 @@ use crate::record::{AudioWindow, MediaWindow, VideoWindow, WindowRecord};
 pub use sfu::mos;
 
 mod sfu {
-    pub const AUDIO_CONCEALMENT_WEIGHT: f32 = 8.0;
+    pub const OPUS_LOSS_WEIGHT: f32 = 8.0;
     pub const VIDEO_LOSS_WEIGHT: f32 = 10.0;
     pub const LAYER_STEP_PENALTY: f32 = 35.0;
     pub const DELAY_KNEE_MS: f32 = 160.0;
@@ -26,6 +26,7 @@ const MIN_LIVE_S: f32 = 0.5;
 #[serde(default)]
 pub struct Scoring {
     pub audio_concealment_weight: f32,
+    pub audio_loss_weight: f32,
     pub video_loss_weight: f32,
     pub layer_step_penalty: f32,
     pub fps_step_penalty: f32,
@@ -38,7 +39,8 @@ pub struct Scoring {
 impl Default for Scoring {
     fn default() -> Self {
         Self {
-            audio_concealment_weight: sfu::AUDIO_CONCEALMENT_WEIGHT,
+            audio_concealment_weight: sfu::OPUS_LOSS_WEIGHT,
+            audio_loss_weight: sfu::OPUS_LOSS_WEIGHT,
             video_loss_weight: sfu::VIDEO_LOSS_WEIGHT,
             layer_step_penalty: sfu::LAYER_STEP_PENALTY,
             fps_step_penalty: FPS_STEP_PENALTY,
@@ -128,15 +130,19 @@ impl Scoring {
         if a.samples == 0 {
             return Score::new(0.0, Reason::Concealment);
         }
-        let concealed_pct = pct(a.concealed, a.samples);
-        packet(concealed_pct * self.audio_concealment_weight, delay_penalty, Reason::Concealment)
+        let concealment = pct(a.concealed, a.samples) * self.audio_concealment_weight;
+        let loss = loss_pct(a.packets_lost, a.packets_received) * self.audio_loss_weight;
+        let (penalty, reason) = if loss > concealment {
+            (loss, Reason::Loss)
+        } else {
+            (concealment, Reason::Concealment)
+        };
+        packet(penalty, delay_penalty, reason)
     }
 
     fn video(&self, v: &VideoWindow, delay_penalty: f32, dur_ms: u32) -> Score {
-        let lost = v.packets_lost.max(0) as u64;
-        let loss_pct = pct(lost, v.packets_received + lost);
-
-        let mut worst = packet(loss_pct * self.video_loss_weight, delay_penalty, Reason::Loss);
+        let loss_penalty = loss_pct(v.packets_lost, v.packets_received) * self.video_loss_weight;
+        let mut worst = packet(loss_penalty, delay_penalty, Reason::Loss);
         let mut consider = |s: Score| {
             if s.value < worst.value {
                 worst = s;
@@ -179,6 +185,11 @@ fn halvings(expected: f32, actual: f32) -> f32 {
         return f32::INFINITY;
     }
     (expected / actual).log2().max(0.0)
+}
+
+fn loss_pct(packets_lost: i64, packets_received: u64) -> f32 {
+    let lost = packets_lost.max(0) as u64;
+    pct(lost, packets_received + lost)
 }
 
 fn pct(part: u64, whole: u64) -> f32 {

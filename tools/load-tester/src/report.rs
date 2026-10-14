@@ -106,6 +106,8 @@ pub struct StepReport {
     pub join_failures: u32,
     pub disconnects: u32,
     pub missing_subscriptions: u32,
+    pub bad_subscriptions: u32,
+    pub video_pauses: u32,
     pub join_ms: Option<Rollup>,
     pub ttff_ms: Option<Rollup>,
     pub audio: Option<ScoreRollup>,
@@ -116,9 +118,13 @@ pub struct StepReport {
     pub server_poor: u32,
     pub server_lost: u32,
     pub decoder_mismatches: u32,
+    pub pc_fallbacks: u32,
     pub workers: BTreeMap<u16, WorkerHealth>,
     pub cpu_share: Option<f32>,
     pub cpu_limited_layer_share: Option<f32>,
+    pub bandwidth_limited_layer_share: Option<f32>,
+    pub uplink_loss_pct: Option<Rollup>,
+    pub uplink_rtt_ms: Option<Rollup>,
     pub worker_exits: Vec<WorkerExitRecord>,
     pub verdict: Verdict,
 }
@@ -198,15 +204,18 @@ impl Ledger {
         let mut scores: BTreeMap<ParticipantId, Scores> = BTreeMap::new();
         let mut stalled = Vec::new();
         let mut delays = Vec::new();
-        let mut delivered = BTreeSet::new();
-        let (mut cpu_limited, mut uplink_layers) = (0u32, 0u32);
+        let mut subscriptions: BTreeMap<(ParticipantId, ParticipantId, MediaKind), bool> =
+            BTreeMap::new();
+        let (mut uplink_loss, mut uplink_rtt) = (Vec::new(), Vec::new());
+        let (mut cpu_limited, mut bandwidth_limited, mut uplink_layers) = (0u32, 0u32, 0u32);
 
         for record in &self.pending {
             match record {
                 Record::Join(j) if step.new_ids().contains(&j.id.0) => {
-                    if let JoinOutcome::Joined { connect_ms } = j.outcome {
+                    if let JoinOutcome::Joined { connect_ms, pc_fallback } = j.outcome {
                         joined.insert(j.id);
                         join_ms.push(connect_ms as f32);
+                        report.pc_fallbacks += u32::from(pc_fallback);
                     }
                 }
                 Record::Subscription(s) => {
@@ -228,24 +237,35 @@ impl Ledger {
                     let scored = settings.scoring.score(w);
                     delays.push(score::one_way_delay_ms(w));
                     let of_sub = scores.entry(w.sub).or_default();
-                    match &w.media {
+                    let slo = &settings.slo;
+                    let (kind, good) = match &w.media {
                         MediaWindow::Audio(_) => {
-                            delivered.insert((w.sub, w.publ, MediaKind::Audio));
                             of_sub.audio.push(scored);
+                            (MediaKind::Audio, score::mos(scored.value) >= slo.audio_mos_floor)
                         }
                         MediaWindow::Video(v) => {
-                            delivered.insert((w.sub, w.publ, MediaKind::Video));
                             of_sub.video.push(scored);
-                            stalled.push(score::stalled_share(v, w.dur_ms));
+                            let stall = score::stalled_share(v, w.dur_ms);
+                            stalled.push(stall);
+                            report.video_pauses += v.pauses;
+                            let good = stall <= slo.video_stall_ceiling
+                                && slo.video_score_floor.is_none_or(|floor| scored.value >= floor);
+                            (MediaKind::Video, good)
                         }
-                    }
+                    };
+                    *subscriptions.entry((w.sub, w.publ, kind)).or_default() |= good;
                 }
-                Record::Uplink(u)
-                    if u.kind == MediaKind::Video && step.measures(u.at, u.dur_ms) =>
-                {
-                    uplink_layers += u.layers.len() as u32;
-                    cpu_limited +=
-                        u.layers.iter().filter(|l| l.limitation == Limitation::Cpu).count() as u32;
+                Record::Uplink(u) if step.measures(u.at, u.dur_ms) => {
+                    for layer in &u.layers {
+                        uplink_loss.extend(layer.remote_loss.map(|loss| loss * 100.0));
+                        uplink_rtt.extend(layer.rtt_ms);
+                    }
+                    if u.kind == MediaKind::Video {
+                        let limited = |why| u.layers.iter().filter(|l| l.limitation == why).count();
+                        uplink_layers += u.layers.len() as u32;
+                        cpu_limited += limited(Limitation::Cpu) as u32;
+                        bandwidth_limited += limited(Limitation::Bandwidth) as u32;
+                    }
                 }
                 Record::Health(h) => report.workers.entry(h.worker).or_default().add(h),
                 Record::WorkerExit(w) => report.worker_exits.push(w.clone()),
@@ -257,7 +277,9 @@ impl Ledger {
         for &sub in &self.roster {
             for &publ in self.roster.range(..ParticipantId(settings.publishers)) {
                 for kind in [MediaKind::Audio, MediaKind::Video] {
-                    if settings.wants(sub, publ, kind) && !delivered.contains(&(sub, publ, kind)) {
+                    if settings.wants(sub, publ, kind)
+                        && !subscriptions.contains_key(&(sub, publ, kind))
+                    {
                         report.missing_subscriptions += 1;
                     }
                 }
@@ -276,6 +298,7 @@ impl Ledger {
                 video: ScoreRollup::of(&s.video),
             })
             .collect();
+        report.bad_subscriptions = subscriptions.values().filter(|good| !**good).count() as u32;
         report.join_ms = Rollup::of(&mut join_ms, Tail::High);
         report.ttff_ms = Rollup::of(&mut ttff_ms, Tail::High);
         report.stalled_share = Rollup::of(&mut stalled, Tail::High);
@@ -285,8 +308,11 @@ impl Ledger {
         let cores = self.header.cores.max(1) as f32;
         report.cpu_share = (!report.workers.is_empty())
             .then(|| report.workers.values().map(|w| w.mean_cpu_cores).sum::<f32>() / cores);
-        report.cpu_limited_layer_share =
-            (uplink_layers > 0).then(|| cpu_limited as f32 / uplink_layers as f32);
+        let layer_share = |n: u32| (uplink_layers > 0).then(|| n as f32 / uplink_layers as f32);
+        report.cpu_limited_layer_share = layer_share(cpu_limited);
+        report.bandwidth_limited_layer_share = layer_share(bandwidth_limited);
+        report.uplink_loss_pct = Rollup::of(&mut uplink_loss, Tail::High);
+        report.uplink_rtt_ms = Rollup::of(&mut uplink_rtt, Tail::High);
         report.step = step;
 
         let issues = tester_issues(&report, &settings.limits);
@@ -323,6 +349,18 @@ fn breaches(report: &StepReport, slo: &Slo) -> Vec<String> {
         found.push(format!(
             "{} subscriptions never delivered media > {} allowed",
             report.missing_subscriptions, slo.max_missing_subscriptions
+        ));
+    }
+    if report.bad_subscriptions > slo.max_bad_subscriptions {
+        found.push(format!(
+            "{} subscriptions below the floor for the whole hold > {} allowed",
+            report.bad_subscriptions, slo.max_bad_subscriptions
+        ));
+    }
+    if report.video_pauses > slo.max_video_pauses {
+        found.push(format!(
+            "{} video pauses with no packets for 5s or more > {} allowed",
+            report.video_pauses, slo.max_video_pauses
         ));
     }
     if let Some(tail) = report.join_ms.map(|r| r.tail).filter(|t| *t > slo.join_p95_ms as f32) {
@@ -535,6 +573,24 @@ impl RunReport {
     }
 }
 
+fn uplink_line(step: &StepReport) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(loss) = step.uplink_loss_pct {
+        parts.push(format!("loss p95 {:.1}%", loss.tail));
+    }
+    if let Some(rtt) = step.uplink_rtt_ms {
+        parts.push(format!("RTT p95 {:.0}ms", rtt.tail));
+    }
+    if let Some(share) = step.bandwidth_limited_layer_share {
+        parts.push(format!("{:.0}% of video layers bandwidth-limited", share * 100.0));
+    }
+    if let Some(share) = step.cpu_limited_layer_share {
+        parts.push(format!("{:.0}% CPU-limited", share * 100.0));
+    }
+    (!parts.is_empty())
+        .then(|| format!("Uplink at {}: {}.", step.step.participants, parts.join(", ")))
+}
+
 fn worst_line(step: &StepReport) -> Option<String> {
     let mut worst: Vec<(f32, String)> = Vec::new();
     for p in &step.participants {
@@ -563,7 +619,7 @@ impl fmt::Display for RunReport {
         let s = &self.header.settings;
         writeln!(
             f,
-            "workers {} ({} video decoder)  publishers {} x {} {} {}  tiles {} @ {}p  hold {}s",
+            "workers {} ({} video decoder)  publishers {} x {} {} {}  tiles {} @ {}p  hold {}s  {} peer connection, auto-subscribe",
             s.workers,
             if s.null_video_decoder { "null" } else { "real" },
             s.publishers,
@@ -572,7 +628,8 @@ impl fmt::Display for RunReport {
             s.video.layering(),
             s.tiles,
             s.tile_height(),
-            s.hold_s
+            s.hold_s,
+            if s.single_peer_connection { "single" } else { "dual" },
         )?;
         writeln!(f)?;
         writeln!(f, "{}", step_header())?;
@@ -588,6 +645,9 @@ impl fmt::Display for RunReport {
             if let Some(line) = worst_line(step) {
                 writeln!(f, "{line}")?;
             }
+            if let Some(line) = uplink_line(step) {
+                writeln!(f, "{line}")?;
+            }
             if step.server_poor + step.server_lost > 0 {
                 writeln!(
                     f,
@@ -601,6 +661,13 @@ impl fmt::Display for RunReport {
             writeln!(
                 f,
                 "Warning: {decoder_mismatches} video subscriptions did not run {NULL_DECODER} although it was requested."
+            )?;
+        }
+        let pc_fallbacks: u32 = self.steps.iter().map(|s| s.pc_fallbacks).sum();
+        if pc_fallbacks > 0 {
+            writeln!(
+                f,
+                "Warning: {pc_fallbacks} participants fell back to two peer connections because the server does not support one."
             )?;
         }
         Ok(())
