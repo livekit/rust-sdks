@@ -208,7 +208,8 @@ async fn stream_with_capture_gap(
 
     if layered {
         for publication in [&early, &late] {
-            publication.update_video_dimensions(TrackDimension(MIDDLE_LAYER_SIZE.0, MIDDLE_LAYER_SIZE.1));
+            publication
+                .update_video_dimensions(TrackDimension(MIDDLE_LAYER_SIZE.0, MIDDLE_LAYER_SIZE.1));
         }
         capture_for(&source, DROP_PHASE, &mut frame_index).await;
         for (publication, (_, report)) in [&early, &late].into_iter().zip(&mut reports) {
