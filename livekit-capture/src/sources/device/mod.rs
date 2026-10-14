@@ -396,7 +396,6 @@ pub enum DeviceVideoSourceError {
 
 /// Builds the packet-trailer metadata that device frames are pre-filled
 /// with. A metadata callback set on the pump takes precedence.
-#[allow(dead_code)]
 fn capture_frame_metadata(
     capture_wall_time_us: u64,
 ) -> livekit::webrtc::video_frame::FrameMetadata {
@@ -409,7 +408,6 @@ fn capture_frame_metadata(
 
 /// Validates the platform-neutral parts of a configuration; `supported`
 /// reports whether the backend can deliver a frame format.
-#[allow(dead_code)]
 fn validate_config(
     config: &DeviceVideoSourceConfig,
     supported: fn(DeviceFrameFormat) -> bool,
