@@ -210,7 +210,8 @@ impl Media {
     fn decoder(&self, inbound: &InboundRtpStats) -> Option<String> {
         match self {
             Media::Audio => None,
-            Media::Video { .. } => Some(inbound.inbound.decoder_implementation.clone()),
+            Media::Video { .. } => Some(inbound.inbound.decoder_implementation.clone())
+                .filter(|decoder| !decoder.is_empty()),
         }
     }
 

@@ -222,7 +222,7 @@ impl Ledger {
                     ttff_ms.push(s.ttff_ms as f32);
                     let wrong_decoder = settings.null_video_decoder
                         && s.kind == MediaKind::Video
-                        && s.decoder.as_deref() != Some(NULL_DECODER);
+                        && s.decoder.as_deref().is_some_and(|d| d != NULL_DECODER);
                     report.decoder_mismatches += u32::from(wrong_decoder);
                 }
                 Record::Event(e) => match &e.event {
