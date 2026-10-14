@@ -430,7 +430,7 @@ pub fn access_unit_from_annex_b(
 }
 
 /// Creates an Annex-B access unit from raw NAL units.
-fn access_unit_from_nalus(
+pub(crate) fn access_unit_from_nalus(
     codec: EncodedVideoCodec,
     nal_units: &[&[u8]],
     timestamp_us: i64,
