@@ -35,6 +35,8 @@ const LATE_SUBSCRIBE: Duration = Duration::from_secs(1);
 const FIRST_PHASE: Duration = Duration::from_secs(5);
 const CAPTURE_GAP: Duration = Duration::from_secs(2);
 const RESUME_PHASE: Duration = Duration::from_secs(3);
+const DROP_PHASE: Duration = Duration::from_secs(3);
+const MIDDLE_LAYER_SIZE: (u32, u32) = (WIDTH / 2, HEIGHT / 2);
 const SETTLE: Duration = Duration::from_millis(500);
 const STATS_POLL: Duration = Duration::from_millis(20);
 const DECODE_SLACK_FRAMES: u64 = 2;
@@ -87,6 +89,7 @@ struct DecodeReport {
     decoded: u64,
     sent_size: (u32, u32),
     received_size: (u32, u32),
+    size_after_drop: Option<(u32, u32)>,
     freeze_s: f64,
     pause_s: f64,
 }
@@ -131,6 +134,9 @@ impl DecodeReport {
                 "received {:?} instead of the top layer {:?}",
                 self.received_size, self.sent_size
             ));
+        }
+        if let Some(size) = self.size_after_drop.filter(|size| *size != MIDDLE_LAYER_SIZE) {
+            violations.push(format!("received {size:?} after a drop to {MIDDLE_LAYER_SIZE:?}"));
         }
         if self.freeze_s + self.pause_s < CAPTURE_GAP.as_secs_f64() * 0.75 {
             violations.push(format!(
@@ -199,6 +205,18 @@ async fn stream_with_capture_gap(
         ("early", report(&early, early_top?, captured, sent_size).await?),
         ("late", report(&late, late_top?, captured, sent_size).await?),
     ];
+
+    if layered {
+        for publication in [&early, &late] {
+            publication.update_video_dimensions(TrackDimension(MIDDLE_LAYER_SIZE.0, MIDDLE_LAYER_SIZE.1));
+        }
+        capture_for(&source, DROP_PHASE, &mut frame_index).await;
+        for (publication, (_, report)) in [&early, &late].into_iter().zip(&mut reports) {
+            let stats = subscriber_stats(publication).await?;
+            let inbound = &inbound(&stats).ok_or_else(|| anyhow!("no inbound-rtp stats"))?.inbound;
+            report.size_after_drop = Some((inbound.frame_width, inbound.frame_height));
+        }
+    }
 
     time::sleep(CAPTURE_GAP).await;
     capture_for(&source, RESUME_PHASE, &mut frame_index).await;
@@ -282,6 +300,7 @@ async fn report(
         decoded: u64::from(inbound.frames_decoded),
         sent_size,
         received_size: (inbound.frame_width, inbound.frame_height),
+        size_after_drop: None,
         freeze_s: 0.0,
         pause_s: 0.0,
     })

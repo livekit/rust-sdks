@@ -16,7 +16,10 @@
 
 #pragma once
 
+#include <array>
+
 #include "api/scoped_refptr.h"
+#include "api/video/resolution.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video_codecs/video_decoder.h"
 
@@ -35,8 +38,10 @@ class NullVideoDecoder : public webrtc::VideoDecoder {
  private:
   webrtc::DecodedImageCallback* callback_ = nullptr;
   webrtc::VideoCodecType codec_type_ = webrtc::kVideoCodecGeneric;
-  // Only keyframes carry a size; delta frames reuse the last one seen.
+  // VP8, H264 and VP9 keyframes carry a size, and the frames after them reuse
+  // it.
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer_;
+  std::array<webrtc::Resolution, 4> av1_layer_sizes_;
 };
 
 }  // namespace livekit_ffi

@@ -27,6 +27,7 @@
 #include "modules/video_coding/utility/vp9_uncompressed_header_parser.h"
 
 #if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
+#include "rtc_base/bitstream_reader.h"
 #include "third_party/dav1d/libdav1d/include/dav1d/dav1d.h"
 #endif
 
@@ -54,6 +55,160 @@ class BlackFrameBuffer : public webrtc::VideoFrameBuffer {
   const int width_;
   const int height_;
 };
+
+#if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
+// Follows uncompressed_header() in the AV1 spec up to the frame size.
+std::optional<webrtc::Resolution> ParseAv1FrameSize(
+    const Dav1dSequenceHeader& seq,
+    int temporal_id,
+    int spatial_id,
+    std::span<const uint8_t> header,
+    std::array<webrtc::Resolution, 8>& temporal_unit_refs) {
+  webrtc::BitstreamReader reader(header);
+  if (seq.reduced_still_picture_header || reader.ReadBit()) {
+    return std::nullopt;
+  }
+  const int frame_type = reader.ReadBits(2);
+  const bool show_frame = reader.ReadBit();
+  if (show_frame && seq.decoder_model_info_present &&
+      !seq.equal_picture_interval) {
+    reader.ConsumeBits(seq.frame_presentation_delay_length);
+  }
+  if (!show_frame) {
+    reader.ConsumeBits(1);
+  }
+  const bool intra = frame_type == DAV1D_FRAME_TYPE_KEY ||
+                     frame_type == DAV1D_FRAME_TYPE_INTRA;
+  const bool refresh_all = frame_type == DAV1D_FRAME_TYPE_SWITCH ||
+                           (frame_type == DAV1D_FRAME_TYPE_KEY && show_frame);
+  const bool error_resilient = refresh_all || reader.ReadBit();
+  reader.ConsumeBits(1);
+  const bool screen_content_tools = seq.screen_content_tools == DAV1D_ADAPTIVE
+                                        ? reader.ReadBit()
+                                        : seq.screen_content_tools == DAV1D_ON;
+  if (screen_content_tools && seq.force_integer_mv == DAV1D_ADAPTIVE) {
+    reader.ConsumeBits(1);
+  }
+  if (seq.frame_id_numbers_present) {
+    reader.ConsumeBits(seq.frame_id_n_bits);
+  }
+  const bool size_override =
+      frame_type == DAV1D_FRAME_TYPE_SWITCH || reader.ReadBit();
+  const int order_hint_bits = seq.order_hint ? seq.order_hint_n_bits : 0;
+  reader.ConsumeBits(order_hint_bits);
+  if (!intra && !error_resilient) {
+    reader.ConsumeBits(3);
+  }
+  if (seq.decoder_model_info_present && reader.ReadBit()) {
+    for (int i = 0; i < seq.num_operating_points; ++i) {
+      const auto& op = seq.operating_points[i];
+      if (op.decoder_model_param_present &&
+          (op.idc == 0 || (((op.idc >> temporal_id) & 1) &&
+                           ((op.idc >> (spatial_id + 8)) & 1)))) {
+        reader.ConsumeBits(seq.buffer_removal_delay_length);
+      }
+    }
+  }
+  const int refresh_frame_flags = refresh_all ? 0xff : reader.ReadBits(8);
+  if ((!intra || refresh_frame_flags != 0xff) && error_resilient) {
+    reader.ConsumeBits(8 * order_hint_bits);
+  }
+  std::optional<webrtc::Resolution> size;
+  bool refs_from_order_hints = false;
+  if (!intra) {
+    refs_from_order_hints = seq.order_hint && reader.ReadBit();
+    std::array<int, 7> ref_frame_idx;
+    for (int& idx : ref_frame_idx) {
+      idx = reader.ReadBits(3);
+      if (seq.frame_id_numbers_present) {
+        reader.ConsumeBits(seq.delta_frame_id_n_bits);
+      }
+    }
+    if (size_override && !error_resilient) {
+      for (int idx : ref_frame_idx) {
+        if (reader.ReadBit()) {
+          size = temporal_unit_refs[idx];
+          break;
+        }
+      }
+    }
+  }
+  if (!size && size_override) {
+    size.emplace();
+    size->width = reader.ReadBits(seq.width_n_bits) + 1;
+    size->height = reader.ReadBits(seq.height_n_bits) + 1;
+  } else if (!size) {
+    size = webrtc::Resolution{seq.max_width, seq.max_height};
+  }
+  if (!reader.Ok() || refs_from_order_hints || size->width == 0) {
+    return std::nullopt;
+  }
+  for (int i = 0; i < 8; ++i) {
+    if (refresh_frame_flags & (1 << i)) {
+      temporal_unit_refs[i] = *size;
+    }
+  }
+  return size;
+}
+
+// The SDK does not negotiate the dependency descriptor, so libwebrtc gives AV1
+// frames no size or spatial index. dav1d outputs only the highest spatial
+// layer in each temporal unit.
+std::optional<webrtc::Resolution> Av1FrameSize(
+    const webrtc::EncodedImage& image,
+    std::array<webrtc::Resolution, 4>& layer_sizes) {
+  Dav1dSequenceHeader seq;
+  const bool keyframe =
+      image.IsKey() &&
+      dav1d_parse_sequence_header(&seq, image.data(), image.size()) == 0;
+  std::array<webrtc::Resolution, 8> temporal_unit_refs;
+  int top_layer = -1;
+  webrtc::BitstreamReader reader(
+      std::span<const uint8_t>(image.data(), image.size()));
+  while (reader.Ok() && reader.RemainingBitCount() > 0) {
+    reader.ConsumeBits(1);
+    const int type = reader.ReadBits(4);
+    const bool has_extension = reader.ReadBit();
+    const bool has_size = reader.ReadBit();
+    reader.ConsumeBits(1);
+    int temporal_id = 0;
+    int spatial_id = 0;
+    if (has_extension) {
+      temporal_id = reader.ReadBits(3);
+      spatial_id = reader.ReadBits(2);
+      reader.ConsumeBits(3);
+    }
+    const uint64_t size =
+        has_size ? reader.ReadLeb128() : reader.RemainingBitCount() / 8;
+    if (!reader.Ok() ||
+        size > static_cast<uint64_t>(reader.RemainingBitCount() / 8)) {
+      break;
+    }
+    constexpr int kObuFrameHeader = 3;
+    constexpr int kObuFrame = 6;
+    if (type == kObuFrameHeader || type == kObuFrame) {
+      top_layer = std::max(top_layer, spatial_id);
+      if (keyframe) {
+        const size_t offset = image.size() - reader.RemainingBitCount() / 8;
+        if (const auto layer_size = ParseAv1FrameSize(
+                seq, temporal_id, spatial_id,
+                std::span<const uint8_t>(image.data() + offset, size),
+                temporal_unit_refs)) {
+          layer_sizes[spatial_id] = *layer_size;
+        }
+      }
+    }
+    reader.ConsumeBits(static_cast<int>(size * 8));
+  }
+  if (top_layer >= 0 && layer_sizes[top_layer] != webrtc::Resolution()) {
+    return layer_sizes[top_layer];
+  }
+  if (keyframe) {
+    return webrtc::Resolution{seq.max_width, seq.max_height};
+  }
+  return std::nullopt;
+}
+#endif
 
 }  // namespace
 
@@ -88,13 +243,11 @@ int32_t NullVideoDecoder::Decode(const webrtc::EncodedImage& input_image,
     }
   }
 #if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
-  Dav1dSequenceHeader sequence_header;
-  if (width == 0 && codec_type_ == webrtc::kVideoCodecAV1 &&
-      input_image.IsKey() &&
-      dav1d_parse_sequence_header(&sequence_header, input_image.data(),
-                                  input_image.size()) == 0) {
-    width = sequence_header.max_width;
-    height = sequence_header.max_height;
+  if (codec_type_ == webrtc::kVideoCodecAV1) {
+    if (const auto size = Av1FrameSize(input_image, av1_layer_sizes_)) {
+      width = size->width;
+      height = size->height;
+    }
   }
 #endif
   if (width > 0 && height > 0 &&
@@ -124,6 +277,7 @@ int32_t NullVideoDecoder::RegisterDecodeCompleteCallback(
 int32_t NullVideoDecoder::Release() {
   callback_ = nullptr;
   buffer_ = nullptr;
+  av1_layer_sizes_ = {};
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
