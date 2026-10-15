@@ -330,13 +330,16 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 
 [tasks.swift-xcframework]
 private = true
-install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-# Multi-crate framework fix (`fix/multi-crate-framework`, open upstream as
-# antoniusnaumann/cargo-swift#101) plus `--debug-symbols` (`feature/dsyms`
-# rebased on top, livekit/cargo-swift `blaze/dsyms-on-multi-crate`).
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "c92be034d15129321fb08da0416df4b376930748"]
 script_runner = "@shell"
 script = """
+# Not cargo-make's install_crate: that only probes `cargo-swift --help`, so a
+# cached binary from an older rev passes. `cargo install` compares the recorded
+# source+rev: fast no-op on a match, reinstall on a mismatch.
+# Multi-crate framework fix (`fix/multi-crate-framework`, open upstream as
+# antoniusnaumann/cargo-swift#101) plus `--debug-symbols` (`feature/dsyms`
+# rebased on top, livekit/cargo-swift#4).
+cargo install --git https://github.com/livekit/cargo-swift.git --rev c92be034d15129321fb08da0416df4b376930748 --locked cargo-swift
+
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
 export MACOSX_DEPLOYMENT_TARGET=10.15
 export TVOS_DEPLOYMENT_TARGET=17.0
