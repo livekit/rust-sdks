@@ -36,12 +36,12 @@ use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 use livekit_capture::sources::pattern::PatternVideoSource;
 
 use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
-#[cfg(feature = "capture-device")]
-use crate::conversion::capture::{device_config_from_proto, device_info_to_proto};
 #[cfg(feature = "capture-gstreamer")]
 use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
+#[cfg(feature = "capture-device")]
+use crate::conversion::capture::{device_config_from_proto, device_info_to_proto};
 use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
 
 /// A capture pump of either kind, boxed at the FFI edge.
@@ -315,25 +315,58 @@ pub fn on_stop_capture(
 }
 
 #[cfg(feature = "capture-device")]
+async fn list_capture_devices_message(
+    enumeration: tokio::task::JoinHandle<
+        Result<Vec<device::DeviceInfo>, livekit_capture::error::SourceError>,
+    >,
+) -> proto::list_capture_devices_callback::Message {
+    match enumeration.await {
+        Ok(Ok(devices)) => {
+            proto::list_capture_devices_callback::Message::Devices(proto::CaptureDeviceList {
+                devices: devices.into_iter().map(device_info_to_proto).collect(),
+            })
+        }
+        Ok(Err(err)) => proto::list_capture_devices_callback::Message::Error(err.to_string()),
+        Err(err) => proto::list_capture_devices_callback::Message::Error(format!(
+            "capture device enumeration task failed: {err}"
+        )),
+    }
+}
+
+#[cfg(feature = "capture-device")]
 pub fn on_list_capture_devices(
     server: &'static FfiServer,
     request: proto::ListCaptureDevicesRequest,
 ) -> FfiResult<proto::ListCaptureDevicesResponse> {
     let async_id = server.resolve_async_id(request.request_async_id);
-    server.async_runtime.spawn(async move {
-        let message = match device::devices().await {
-            Ok(devices) => {
-                proto::list_capture_devices_callback::Message::Devices(proto::CaptureDeviceList {
-                    devices: devices.into_iter().map(device_info_to_proto).collect(),
-                })
-            }
-            Err(err) => proto::list_capture_devices_callback::Message::Error(err.to_string()),
-        };
+    let enumeration = server.async_runtime.spawn(device::devices());
+    let handle = server.async_runtime.spawn(async move {
+        let message = list_capture_devices_message(enumeration).await;
         let _ = server.send_event(proto::ffi_event::Message::ListCaptureDevices(
             proto::ListCaptureDevicesCallback { async_id, message: Some(message) },
         ));
     });
+    server.watch_panic(handle);
     Ok(proto::ListCaptureDevicesResponse { async_id })
+}
+
+#[cfg(all(test, feature = "capture-device"))]
+mod device_tests {
+    use super::*;
+
+    async fn panic_during_enumeration(
+    ) -> Result<Vec<device::DeviceInfo>, livekit_capture::error::SourceError> {
+        panic!("enumeration panic");
+    }
+
+    #[test]
+    fn list_capture_devices_returns_error_when_enumeration_panics() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should build");
+        let enumeration = runtime.spawn(panic_during_enumeration());
+        let message = runtime.block_on(list_capture_devices_message(enumeration));
+
+        assert!(matches!(message, proto::list_capture_devices_callback::Message::Error(_)));
+    }
 }
 
 #[cfg(all(test, feature = "capture-pattern"))]
