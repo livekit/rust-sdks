@@ -41,13 +41,21 @@ use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
 #[cfg(feature = "capture-device")]
-use crate::conversion::capture::{device_config_from_proto, device_info_to_proto};
+use crate::conversion::capture::{
+    device_config_from_proto, device_info_to_proto, device_source_info_to_proto,
+};
 use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
 
 /// A capture pump of either kind, boxed at the FFI edge.
 enum CapturePump {
     Pixel(PixelVideoPump<Box<dyn PixelVideoSource>>),
     Encoded(EncodedVideoPump<Box<dyn EncodedVideoSource>>),
+}
+
+/// Capture pump and source-specific information produced during construction.
+struct CreatedCaptureSource {
+    pump: CapturePump,
+    source_info: Option<proto::capture_source_info::SourceInfo>,
 }
 
 impl CapturePump {
@@ -115,14 +123,17 @@ async fn create_capture_source(
     let config =
         request.config.ok_or(FfiError::InvalidRequest("missing capture source config".into()))?;
 
-    let pump = match config {
+    let created = match config {
         #[cfg(feature = "capture-gstreamer")]
         proto::new_capture_source_request::Config::Gstreamer(config) => {
             let source = GStreamerVideoSource::new(gstreamer_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn EncodedVideoSource> = Box::new(source);
-            CapturePump::Encoded(EncodedVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Encoded(EncodedVideoPump::new(source)),
+                source_info: None,
+            }
         }
         #[cfg(feature = "capture-pattern")]
         proto::new_capture_source_request::Config::Pattern(config) => {
@@ -130,15 +141,22 @@ async fn create_capture_source(
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
-            CapturePump::Pixel(PixelVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info: None,
+            }
         }
         #[cfg(feature = "capture-device")]
         proto::new_capture_source_request::Config::Device(config) => {
             let source = DeviceVideoSource::new(device_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source_info = device_source_info_to_proto(source.format());
             let source: Box<dyn PixelVideoSource> = Box::new(source);
-            CapturePump::Pixel(PixelVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info,
+            }
         }
         #[cfg(feature = "capture-clock")]
         proto::new_capture_source_request::Config::Clock(config) => {
@@ -146,7 +164,10 @@ async fn create_capture_source(
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
-            CapturePump::Pixel(PixelVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info: None,
+            }
         }
         #[allow(unreachable_patterns)]
         _ => {
@@ -155,6 +176,7 @@ async fn create_capture_source(
             ))
         }
     };
+    let CreatedCaptureSource { pump, source_info } = created;
 
     let (kind, resolution, codec, publish_options, rtc_source, stop) = match &pump {
         CapturePump::Pixel(pump) => (
@@ -198,6 +220,7 @@ async fn create_capture_source(
             handle: proto::FfiOwnedHandle { id: source_handle_id },
             info: video_source_info,
         },
+        source_info,
     };
 
     let capture_handle_id = server.next_id();

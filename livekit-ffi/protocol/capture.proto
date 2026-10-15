@@ -200,6 +200,12 @@ enum CaptureSourceKind {
   CAPTURE_SOURCE_ENCODED = 1;
 }
 
+// Information specific to a device capture source.
+message DeviceCaptureSourceInfo {
+  // Format negotiated with the capture device.
+  required DeviceFormat format = 1;
+}
+
 message CaptureSourceInfo {
   required CaptureSourceKind kind = 1;
   // Declared or discovered stream resolution.
@@ -213,6 +219,10 @@ message CaptureSourceInfo {
   // RTC video source fed by this capture source; pass its handle to
   // CreateVideoTrackRequest. Owned by the client like any other handle.
   required OwnedVideoSource video_source = 5;
+  // Information specific to the configured source type.
+  oneof source_info {
+    DeviceCaptureSourceInfo device = 6;
+  }
 }
 
 message OwnedCaptureSource {

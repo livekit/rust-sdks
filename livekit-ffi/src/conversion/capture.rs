@@ -159,6 +159,16 @@ fn device_format_to_proto(format: DeviceFormat) -> Option<proto::DeviceFormat> {
     })
 }
 
+/// Maps the negotiated device format into source-specific capture information.
+#[cfg(feature = "capture-device")]
+pub(crate) fn device_source_info_to_proto(
+    format: DeviceFormat,
+) -> Option<proto::capture_source_info::SourceInfo> {
+    device_format_to_proto(format).map(|format| {
+        proto::capture_source_info::SourceInfo::Device(proto::DeviceCaptureSourceInfo { format })
+    })
+}
+
 #[cfg(feature = "capture-device")]
 fn device_format_request_from_proto(
     request: proto::DeviceFormatRequest,
@@ -209,6 +219,29 @@ pub fn device_info_to_proto(info: DeviceInfo) -> proto::CaptureDeviceInfo {
         formats_complete: info.formats_complete,
     }
 }
+
+#[cfg(all(test, feature = "capture-device"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_source_info_to_proto_preserves_negotiated_format() {
+        let format =
+            DeviceFormat::new(VideoResolution::new(1920, 1080), 60, DeviceFrameFormat::Mjpeg);
+
+        assert_eq!(
+            device_source_info_to_proto(format),
+            Some(proto::capture_source_info::SourceInfo::Device(proto::DeviceCaptureSourceInfo {
+                format: proto::DeviceFormat {
+                    resolution: proto::VideoSourceResolution { width: 1920, height: 1080 },
+                    framerate_fps: 60,
+                    frame_format: proto::DeviceFrameFormat::Mjpeg.into(),
+                },
+            },))
+        );
+    }
+}
+
 #[cfg(feature = "capture-gstreamer")]
 pub fn gstreamer_config_from_proto(
     config: proto::GstreamerVideoSourceConfig,

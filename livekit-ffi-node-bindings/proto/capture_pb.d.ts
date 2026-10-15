@@ -726,6 +726,34 @@ export declare class ListCaptureDevicesCallback extends Message<ListCaptureDevic
 }
 
 /**
+ * Information specific to a device capture source.
+ *
+ * @generated from message livekit.proto.DeviceCaptureSourceInfo
+ */
+export declare class DeviceCaptureSourceInfo extends Message<DeviceCaptureSourceInfo> {
+  /**
+   * Format negotiated with the capture device.
+   *
+   * @generated from field: required livekit.proto.DeviceFormat format = 1;
+   */
+  format?: DeviceFormat;
+
+  constructor(data?: PartialMessage<DeviceCaptureSourceInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceCaptureSourceInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceCaptureSourceInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceCaptureSourceInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceCaptureSourceInfo;
+
+  static equals(a: DeviceCaptureSourceInfo | PlainMessage<DeviceCaptureSourceInfo> | undefined, b: DeviceCaptureSourceInfo | PlainMessage<DeviceCaptureSourceInfo> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 export declare class CaptureSourceInfo extends Message<CaptureSourceInfo> {
@@ -764,6 +792,19 @@ export declare class CaptureSourceInfo extends Message<CaptureSourceInfo> {
    * @generated from field: required livekit.proto.OwnedVideoSource video_source = 5;
    */
   videoSource?: OwnedVideoSource;
+
+  /**
+   * Information specific to the configured source type.
+   *
+   * @generated from oneof livekit.proto.CaptureSourceInfo.source_info
+   */
+  sourceInfo: {
+    /**
+     * @generated from field: livekit.proto.DeviceCaptureSourceInfo device = 6;
+     */
+    value: DeviceCaptureSourceInfo;
+    case: "device";
+  } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<CaptureSourceInfo>);
 

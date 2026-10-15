@@ -291,6 +291,18 @@ const ListCaptureDevicesCallback = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Information specific to a device capture source.
+ *
+ * @generated from message livekit.proto.DeviceCaptureSourceInfo
+ */
+const DeviceCaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceCaptureSourceInfo",
+  () => [
+    { no: 1, name: "format", kind: "message", T: DeviceFormat, req: true },
+  ],
+);
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 const CaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
@@ -301,6 +313,7 @@ const CaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 3, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), opt: true },
     { no: 4, name: "recommended_publish_options", kind: "message", T: TrackPublishOptions, req: true },
     { no: 5, name: "video_source", kind: "message", T: OwnedVideoSource, req: true },
+    { no: 6, name: "device", kind: "message", T: DeviceCaptureSourceInfo, oneof: "source_info" },
   ],
 );
 
@@ -459,6 +472,7 @@ exports.CaptureDeviceList = CaptureDeviceList;
 exports.ListCaptureDevicesRequest = ListCaptureDevicesRequest;
 exports.ListCaptureDevicesResponse = ListCaptureDevicesResponse;
 exports.ListCaptureDevicesCallback = ListCaptureDevicesCallback;
+exports.DeviceCaptureSourceInfo = DeviceCaptureSourceInfo;
 exports.CaptureSourceInfo = CaptureSourceInfo;
 exports.OwnedCaptureSource = OwnedCaptureSource;
 exports.NewCaptureSourceRequest = NewCaptureSourceRequest;
