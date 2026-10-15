@@ -53,6 +53,17 @@ bool DeviceExists(const char* path) {
   return stat(path, &st) == 0;
 }
 
+bool IsOrinPlatform() {
+  std::ifstream compatible("/proc/device-tree/compatible",
+                           std::ios::in | std::ios::binary);
+  if (!compatible) {
+    return false;
+  }
+  const std::string contents((std::istreambuf_iterator<char>(compatible)),
+                             std::istreambuf_iterator<char>());
+  return contents.find("nvidia,tegra234") != std::string::npos;
+}
+
 void CopyPlane(uint8_t* dst,
                int dst_stride,
                const uint8_t* src,
@@ -176,22 +187,16 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
            "libraries (libnvbufsurface/libv4l2) could not be loaded.";
     return false;
   }
-  std::unique_ptr<NvVideoEncoder> encoder(
-      NvVideoEncoder::createVideoEncoder("livekit-encoder"));
-  if (!encoder) {
-    return false;
-  }
-  const uint32_t pixfmt = CodecToV4L2PixFmt(codec);
-  if (encoder->setCapturePlaneFormat(pixfmt, 64, 64,
-                                     kMinBitstreamBufferSize) < 0) {
-    const uint32_t fallback_pixfmt = CodecToV4L2FallbackPixFmt(codec);
-    if (fallback_pixfmt == pixfmt ||
-        encoder->setCapturePlaneFormat(fallback_pixfmt, 64, 64,
-                                       kMinBitstreamBufferSize) < 0) {
-      return false;
-    }
-  }
-  return true;
+  // Do not create a temporary NvVideoEncoder here. NvVideoEncoder uses
+  // libv4l2, whose v4l2_close() unloads NVIDIA's nvvideocodec plugin on
+  // JetPack. That unload invalidates GLib thread-local state used by a
+  // subsequently-created nvarguscamerasrc pipeline. Capability discovery must
+  // therefore remain passive; Initialize() performs the authoritative check
+  // when an encoder is actually needed and keeps it alive for the session.
+  //
+  // H.264 and H.265 are supported by every Jetson encoder exposed through
+  // these device nodes. AV1 encoding starts with Orin (Tegra234).
+  return codec != JetsonCodec::kAV1 || IsOrinPlatform();
 }
 
 std::optional<std::string> JetsonMmapiEncoder::FindEncoderDevice() {
