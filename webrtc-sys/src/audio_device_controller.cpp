@@ -52,14 +52,24 @@ rust::String AudioDeviceController::playout_device_guid(uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->PlayoutDeviceName(index, name, guid);
-  return rust::String(guid);
+  if (guid[0] != '\0') {
+    return rust::String(guid);
+  }
+  // Linux PulseAudio/ALSA does not populate device GUIDs in WebRTC.
+  // Synthesize an index-based identifier so callers can distinguish and select devices.
+  return rust::String("index:" + std::to_string(index));
 }
 
 rust::String AudioDeviceController::recording_device_guid(uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->RecordingDeviceName(index, name, guid);
-  return rust::String(guid);
+  if (guid[0] != '\0') {
+    return rust::String(guid);
+  }
+  // Linux PulseAudio/ALSA does not populate device GUIDs in WebRTC.
+  // Synthesize an index-based identifier so callers can distinguish and select devices.
+  return rust::String("index:" + std::to_string(index));
 }
 
 bool AudioDeviceController::set_playout_device(uint16_t index) const {
@@ -72,49 +82,107 @@ bool AudioDeviceController::set_recording_device(uint16_t index) const {
 
 bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->PlayoutDevices();
+  std::string target_guid = std::string(guid.c_str());
 
-  // Try to find a device matching the GUID
+  if (target_guid.empty()) {
+    return false;
+  }
+
+  // Handle synthetic index-based GUIDs (e.g. "index:1")
+  if (target_guid.rfind("index:", 0) == 0) {
+    try {
+      size_t pos = 0;
+      int idx = std::stoi(target_guid.substr(6), &pos);
+      if (pos == target_guid.length() - 6 && idx >= 0 && idx < count) {
+        return adm_proxy_->SetPlayoutDevice(static_cast<uint16_t>(idx)) == 0;
+      }
+    } catch (...) {}
+    return false;
+  }
+
+  // Try to find a device matching the GUID (only match non-empty device GUIDs)
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
     if (adm_proxy_->PlayoutDeviceName(i, name, device_guid) == 0) {
-      if (std::string(guid.c_str()) == std::string(device_guid)) {
+      if (device_guid[0] != '\0' && target_guid == std::string(device_guid)) {
         return adm_proxy_->SetPlayoutDevice(i) == 0;
       }
     }
   }
 
-  // No match found - fall back to default device (index 0).
-  // This handles mobile platforms (iOS/Android) where:
-  // - GUIDs may be empty or not meaningful
-  // - Device selection is a no-op (system handles routing)
+  // Fallback: match by device name if no GUID matched
+  for (int16_t i = 0; i < count; i++) {
+    char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+    char device_guid[webrtc::kAdmMaxGuidSize] = {0};
+    if (adm_proxy_->PlayoutDeviceName(i, name, device_guid) == 0) {
+      if (target_guid == std::string(name)) {
+        return adm_proxy_->SetPlayoutDevice(i) == 0;
+      }
+    }
+  }
+
+#if defined(WEBRTC_IOS) || defined(WEBRTC_ANDROID)
+  // On mobile platforms, device selection is a no-op (system handles routing),
+  // so fall back to default device (index 0).
   if (count > 0) {
     return adm_proxy_->SetPlayoutDevice(0) == 0;
   }
+#endif
+
   return false;
 }
 
 bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->RecordingDevices();
+  std::string target_guid = std::string(guid.c_str());
 
-  // Try to find a device matching the GUID
+  if (target_guid.empty()) {
+    return false;
+  }
+
+  // Handle synthetic index-based GUIDs (e.g. "index:1")
+  if (target_guid.rfind("index:", 0) == 0) {
+    try {
+      size_t pos = 0;
+      int idx = std::stoi(target_guid.substr(6), &pos);
+      if (pos == target_guid.length() - 6 && idx >= 0 && idx < count) {
+        return adm_proxy_->SetRecordingDevice(static_cast<uint16_t>(idx)) == 0;
+      }
+    } catch (...) {}
+    return false;
+  }
+
+  // Try to find a device matching the GUID (only match non-empty device GUIDs)
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
     if (adm_proxy_->RecordingDeviceName(i, name, device_guid) == 0) {
-      if (std::string(guid.c_str()) == std::string(device_guid)) {
+      if (device_guid[0] != '\0' && target_guid == std::string(device_guid)) {
         return adm_proxy_->SetRecordingDevice(i) == 0;
       }
     }
   }
 
-  // No match found - fall back to default device (index 0).
-  // This handles mobile platforms (iOS/Android) where:
-  // - GUIDs may be empty or not meaningful
-  // - Device selection is a no-op (system handles routing)
+  // Fallback: match by device name if no GUID matched
+  for (int16_t i = 0; i < count; i++) {
+    char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+    char device_guid[webrtc::kAdmMaxGuidSize] = {0};
+    if (adm_proxy_->RecordingDeviceName(i, name, device_guid) == 0) {
+      if (target_guid == std::string(name)) {
+        return adm_proxy_->SetRecordingDevice(i) == 0;
+      }
+    }
+  }
+
+#if defined(WEBRTC_IOS) || defined(WEBRTC_ANDROID)
+  // On mobile platforms, device selection is a no-op (system handles routing),
+  // so fall back to default device (index 0).
   if (count > 0) {
     return adm_proxy_->SetRecordingDevice(0) == 0;
   }
+#endif
+
   return false;
 }
 
