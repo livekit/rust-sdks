@@ -28,7 +28,9 @@ use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_rpc::api::{RpcError, RpcErrorCode};
-use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
+use livekit_signaling::{
+    SignalClient, SignalEvent, SignalEvents, NEGOTIATED_DATA_CHANNELS_PROTOCOL,
+};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -81,6 +83,11 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+
+// Fixed SCTP stream IDs used when the data channels are created as negotiated; must match the server.
+const NEGOTIATED_RELIABLE_DC_ID: i32 = 100;
+const NEGOTIATED_LOSSY_DC_ID: i32 = 101;
+const NEGOTIATED_DATA_TRACK_DC_ID: i32 = 102;
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
@@ -543,7 +550,7 @@ impl RtcSession {
                 true,
             );
 
-            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter, true)?;
 
             Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
@@ -593,9 +600,28 @@ impl RtcSession {
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
+        let server_protocol =
+            join_response.server_info.as_ref().map(|info| info.protocol).unwrap_or_default();
+        // Dual peer connection has the server open the channels, so there is nothing to save.
+        let use_negotiated_dcs =
+            single_pc_mode && server_protocol >= NEGOTIATED_DATA_CHANNELS_PROTOCOL as i32;
+        log::debug!(
+            "server protocol {}, negotiated data channels: {}",
+            server_protocol,
+            use_negotiated_dcs
+        );
+
         let sent_publisher_offer;
         let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, dcs)) = early_publisher_pc {
+            if let Some((pub_pc, mut dcs)) = early_publisher_pc {
+                if !use_negotiated_dcs {
+                    // The SCTP section is already in the offer, so in-band channels can be
+                    // opened on it without renegotiation.
+                    dcs.0.close();
+                    dcs.1.close();
+                    dcs.2.close();
+                    dcs = Self::create_data_channels(&pub_pc, &emitter, false)?;
+                }
                 if single_pc_mode {
                     pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
                     sent_publisher_offer = publisher_offer.is_some();
@@ -612,7 +638,7 @@ impl RtcSession {
                     proto::SignalTarget::Publisher,
                     single_pc_mode,
                 );
-                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+                let dcs = Self::create_data_channels(&publisher_pc, &emitter, use_negotiated_dcs)?;
                 (publisher_pc, dcs.0, dcs.1, dcs.2)
             };
 
@@ -743,22 +769,37 @@ impl RtcSession {
     fn create_data_channels(
         publisher_pc: &PeerTransport,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
+        negotiated: bool,
     ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
         let reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
-            DataChannelInit { ordered: true, ..Default::default() },
+            DataChannelInit {
+                ordered: true,
+                negotiated,
+                id: if negotiated { NEGOTIATED_RELIABLE_DC_ID } else { -1 },
+                ..Default::default()
+            },
         )?;
 
-        let lossy_options =
-            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+        let lossy_options = DataChannelInit {
+            ordered: false,
+            max_retransmits: Some(0),
+            negotiated,
+            id: if negotiated { NEGOTIATED_LOSSY_DC_ID } else { -1 },
+            ..Default::default()
+        };
 
         let lossy_dc = publisher_pc
             .peer_connection()
             .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
 
-        let data_track_dc = publisher_pc
-            .peer_connection()
-            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        let data_track_dc = publisher_pc.peer_connection().create_data_channel(
+            DATA_TRACK_DC_LABEL,
+            DataChannelInit {
+                id: if negotiated { NEGOTIATED_DATA_TRACK_DC_ID } else { -1 },
+                ..lossy_options
+            },
+        )?;
         handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
         Ok((reliable_dc, lossy_dc, data_track_dc))
