@@ -22,6 +22,52 @@ include!("livekit.rs");
 /// `include!` or the types exist on disk and are reachable from nowhere.
 pub mod agent {
     include!("livekit.agent.rs");
+
+    /// The newest conversation schema a thread's database can hold (protocol's
+    /// `livekit/agent/thread_schema.go`).
+    pub const THREAD_SCHEMA_VERSION: i64 = 1;
+
+    /// Version 1 of the conversation schema inside a thread's database, one statement per `;`
+    /// (comments hold none).
+    pub const THREAD_SCHEMA_V1: &str =
+        include_str!("../protocol/livekit/agent/thread_schema_v1.sql");
+
+    impl agent_task::Status {
+        /// The status of a `tasks.status` value, an A2A task state: a task not yet finished is
+        /// running, a rejected one failed. `None` for a value that is not a task state.
+        pub fn from_task_state(state: &str) -> Option<Self> {
+            Some(match state {
+                "submitted" | "working" | "input-required" => Self::Running,
+                "completed" => Self::Completed,
+                "failed" | "rejected" => Self::Failed,
+                "canceled" => Self::Canceled,
+                _ => return None,
+            })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_thread_schema_matches_protocol() {
+            let go = include_str!("../protocol/livekit/agent/thread_schema.go");
+            assert!(go.contains(&format!("const ThreadSchemaVersion = {THREAD_SCHEMA_VERSION}")));
+            assert!(THREAD_SCHEMA_V1.contains("CREATE TABLE schema_version"));
+            for state in ["submitted", "working", "input-required"] {
+                assert_eq!(
+                    agent_task::Status::from_task_state(state),
+                    Some(agent_task::Status::Running)
+                );
+            }
+            assert_eq!(
+                agent_task::Status::from_task_state("rejected"),
+                Some(agent_task::Status::Failed)
+            );
+            assert_eq!(agent_task::Status::from_task_state("cancelled"), None);
+        }
+    }
 }
 
 /// The `logger` protobuf package: the `Sensitivity` field annotation enum.
