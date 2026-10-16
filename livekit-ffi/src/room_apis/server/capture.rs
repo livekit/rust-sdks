@@ -62,9 +62,11 @@ impl CapturePump {
 enum CaptureState {
     /// Created but not started.
     Idle(CapturePump),
-    /// Started; the watcher task owns the running pump.
-    Running,
-    /// The capture ended; the terminal event has been dispatched.
+    /// Started; the FFI object owns the running pump until join consumes it.
+    Running(RunningPump),
+    /// A join request consumed the running pump and is awaiting its thread.
+    Joining,
+    /// The capture was joined or failed to start.
     Finished,
 }
 
@@ -79,10 +81,9 @@ impl FfiHandle for FfiCaptureSource {}
 
 impl Drop for FfiCaptureSource {
     fn drop(&mut self) {
-        // Disposing a running capture stops it; the pump thread observes the
-        // signal within one bounded wait and drops the source (stopping the
-        // producer). The watcher task delivers the terminal event, which may
-        // trail the disposal.
+        // Signal in every state, including Joining after ownership moved into
+        // the join request task. In Running, dropping `state` immediately
+        // afterward also drops the owned RunningPump.
         self.stop.stop();
     }
 }
@@ -236,11 +237,11 @@ pub fn on_start_capture(
     let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
 
     let mut state = ffi_capture.state.lock();
-    let pump = match std::mem::replace(&mut *state, CaptureState::Running) {
+    let pump = match std::mem::replace(&mut *state, CaptureState::Finished) {
         CaptureState::Idle(pump) => pump,
         other => {
             let error = match &other {
-                CaptureState::Running => "capture is already started",
+                CaptureState::Running(_) | CaptureState::Joining => "capture is already started",
                 _ => "capture has already finished",
             };
             *state = other;
@@ -257,25 +258,12 @@ pub fn on_start_capture(
             });
         }
     };
-    drop(state);
-    drop(ffi_capture);
-
-    // The watcher owns the running pump and delivers the terminal event
-    // exactly once, whether the capture is stopped, ends, or fails.
-    server.async_runtime.spawn(async move {
-        let result = running.join().await;
-        if let Ok(ffi_capture) = server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
-            *ffi_capture.state.lock() = CaptureState::Finished;
-        }
-        let _ = server.send_event(proto::ffi_event::Message::CaptureSourceEvent(
-            proto::CaptureSourceEvent { capture_handle, message: Some(result.into()) },
-        ));
-    });
+    *state = CaptureState::Running(running);
 
     Ok(proto::StartCaptureResponse { error: None })
 }
 
-impl From<Result<PumpStats, PumpError>> for proto::capture_source_event::Message {
+impl From<Result<PumpStats, PumpError>> for proto::join_capture_callback::Message {
     fn from(result: Result<PumpStats, PumpError>) -> Self {
         match result {
             Ok(stats) => {
@@ -309,19 +297,82 @@ pub fn on_stop_capture(
     Ok(proto::StopCaptureResponse { error: None })
 }
 
+pub fn on_join_capture(
+    server: &'static FfiServer,
+    request: proto::JoinCaptureRequest,
+) -> FfiResult<proto::JoinCaptureResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let capture_handle = request.capture_handle;
+    let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
+
+    let mut state = ffi_capture.state.lock();
+    let running = match std::mem::replace(&mut *state, CaptureState::Finished) {
+        CaptureState::Running(running) => {
+            *state = CaptureState::Joining;
+            running
+        }
+        other => {
+            let error = match &other {
+                CaptureState::Idle(_) => "capture has not been started",
+                CaptureState::Joining => "capture join is already in progress",
+                CaptureState::Finished => "capture has already been joined",
+                CaptureState::Running(_) => unreachable!(),
+            };
+            *state = other;
+            drop(state);
+            drop(ffi_capture);
+            let _ = server.send_event(proto::ffi_event::Message::JoinCapture(
+                proto::JoinCaptureCallback {
+                    async_id,
+                    message: Some(proto::join_capture_callback::Message::Error(
+                        proto::CaptureError { error: error.to_owned() },
+                    )),
+                },
+            ));
+            return Ok(proto::JoinCaptureResponse { async_id });
+        }
+    };
+    drop(state);
+    drop(ffi_capture);
+
+    server.async_runtime.spawn(async move {
+        let result = running.join().await;
+        if let Ok(ffi_capture) = server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
+            *ffi_capture.state.lock() = CaptureState::Finished;
+        }
+        let _ =
+            server.send_event(proto::ffi_event::Message::JoinCapture(proto::JoinCaptureCallback {
+                async_id,
+                message: Some(result.into()),
+            }));
+    });
+
+    Ok(proto::JoinCaptureResponse { async_id })
+}
+
 #[cfg(all(test, feature = "capture-pattern"))]
 mod tests {
     use super::*;
-    use crate::FFI_SERVER;
-    use std::time::Duration;
+    use crate::{server::FfiConfig, FFI_SERVER};
+    use std::{sync::Arc, time::Duration};
 
     fn server() -> &'static FfiServer {
         &FFI_SERVER
     }
 
-    #[serial_test::parallel]
+    #[serial_test::serial]
     #[test]
     fn pattern_capture_lifecycle() {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(move |event| {
+                let _ = event_tx.send(event);
+            }),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
         let request = proto::NewCaptureSourceRequest {
             config: Some(proto::new_capture_source_request::Config::Pattern(
                 proto::PatternVideoSourceConfig {
@@ -341,7 +392,7 @@ mod tests {
         let capture_handle = source.handle.id;
 
         // Stopping before starting is allowed; the pump then exits
-        // immediately once started, and the watcher marks it finished.
+        // immediately once started, and join reports its result.
         let response =
             on_stop_capture(server(), proto::StopCaptureRequest { capture_handle }).unwrap();
         assert_eq!(response.error, None);
@@ -354,20 +405,28 @@ mod tests {
             on_start_capture(server(), proto::StartCaptureRequest { capture_handle }).unwrap();
         assert!(response.error.is_some(), "double start must be rejected");
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            {
-                let ffi_capture =
-                    server().retrieve_handle::<FfiCaptureSource>(capture_handle).unwrap();
-                if matches!(*ffi_capture.state.lock(), CaptureState::Finished) {
-                    break;
-                }
-            }
-            assert!(std::time::Instant::now() < deadline, "capture did not finish");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let response = on_join_capture(
+            server(),
+            proto::JoinCaptureRequest { capture_handle, request_async_id: Some(42) },
+        )
+        .unwrap();
+        assert_eq!(response.async_id, 42);
+
+        let event =
+            event_rx.recv_timeout(Duration::from_secs(5)).expect("capture join did not complete");
+        let callback = match event.message {
+            Some(proto::ffi_event::Message::JoinCapture(callback)) => callback,
+            other => panic!("expected join capture callback, got {other:?}"),
+        };
+        assert_eq!(callback.async_id, 42);
+        let finished = match callback.message {
+            Some(proto::join_capture_callback::Message::Finished(finished)) => finished,
+            other => panic!("expected finished capture result, got {other:?}"),
+        };
+        assert_eq!(finished.exit(), proto::CaptureExit::Stopped);
 
         server().drop_handle(capture_handle);
         server().drop_handle(source.info.video_source.handle.id);
+        *server().config.lock() = None;
     }
 }
