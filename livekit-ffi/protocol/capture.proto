@@ -34,8 +34,9 @@ import "video_frame.proto";
 //    embeds an OwnedVideoSource for the existing CreateVideoTrackRequest and
 //    the recommended TrackPublishOptions for PublishTrackRequest.
 // 2. StartCaptureRequest: starts pumping frames into the RTC source.
-// 3. The capture runs until StopCaptureRequest, end of stream, or an error;
-//    a CaptureSourceEvent is delivered exactly once when it ends.
+// 3. StopCaptureRequest signals the pump to stop without waiting.
+// 4. JoinCaptureRequest consumes the running pump and completes asynchronously
+//    after its thread exits, returning its terminal result.
 
 // Bitrate unit expected by a GStreamer encoder property.
 enum GstreamerBitrateUnit {
@@ -153,11 +154,18 @@ message NewCaptureSourceCallback {
 message StartCaptureRequest { required uint64 capture_handle = 1; }
 message StartCaptureResponse { optional string error = 1; }
 
-// Signal a running capture to stop after the frame in flight. The terminal
-// CaptureSourceEvent follows shortly. Stopping an already-finished capture
-// is a no-op.
+// Signal a running capture to stop after the frame in flight without waiting
+// for its thread to exit. Stopping an already-finished capture is a no-op.
 message StopCaptureRequest { required uint64 capture_handle = 1; }
 message StopCaptureResponse { optional string error = 1; }
+
+// Consume a running capture and wait asynchronously for its pump thread to
+// exit. Like RunningPump::join, this does not signal the pump to stop.
+message JoinCaptureRequest {
+  required uint64 capture_handle = 1;
+  optional uint64 request_async_id = 2;
+}
+message JoinCaptureResponse { required uint64 async_id = 1; }
 
 // Why a capture ended without error.
 enum CaptureExit {
@@ -187,10 +195,9 @@ message CaptureError {
   required CaptureErrorKind kind = 2;
 }
 
-// Delivered exactly once when a started capture ends, regardless of why
-// (stop request, end of stream, or failure).
-message CaptureSourceEvent {
-  required uint64 capture_handle = 1;
+// Completes JoinCaptureRequest with the pump's terminal result.
+message JoinCaptureCallback {
+  required uint64 async_id = 1;
   oneof message {
     CaptureFinished finished = 2;
     CaptureError error = 3;
