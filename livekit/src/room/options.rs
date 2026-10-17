@@ -121,6 +121,10 @@ pub struct TrackPublishOptions {
     pub video_codec: VideoCodec,
     pub dtx: bool,
     pub red: bool,
+    /// Publish the audio track as stereo. The server only signals `stereo=1;maxaveragebitrate=510000`
+    /// to the publisher (and `sprop-stereo=1` to subscribers) when the track carries the
+    /// `TF_STEREO` audio feature, so stereo sources are otherwise downmixed to mono by the encoder.
+    pub stereo: bool,
     pub simulcast: bool,
     /// Custom simulcast layer presets (low, mid). When set, these override the
     /// SDK's built-in defaults which reduce fps on lower layers.
@@ -161,6 +165,7 @@ impl Default for TrackPublishOptions {
             video_codec: VideoCodec::VP8,
             dtx: true,
             red: true,
+            stereo: false,
             simulcast: true,
             simulcast_layers: None,
             source: TrackSource::Unknown,
