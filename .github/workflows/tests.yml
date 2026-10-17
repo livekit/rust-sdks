@@ -171,7 +171,10 @@ jobs:
           RUST_LOG: info
         shell: bash
         run: |
+          # Keep the job failed, but observe later test binaries too. An earlier
+          # data-track failure must not hide native reconnection crash reports.
           cargo test --verbose \
+            --no-fail-fast \
             --target ${{ matrix.target }} \
             --features __lk-e2e-test \
             -- \
