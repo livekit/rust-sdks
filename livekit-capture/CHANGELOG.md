@@ -1,3 +1,9 @@
+## 0.1.6 (2026-10-17)
+
+### Fixes
+
+- Synthesize index-based identifiers on platforms without hardware audio GUIDs and add index-based selection to PlatformAudio.
+
 ## 0.1.5 (2026-10-12)
 
 ### Features
