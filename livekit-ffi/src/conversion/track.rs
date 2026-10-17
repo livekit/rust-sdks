@@ -16,7 +16,7 @@ use livekit::{participant::ParticipantTrackPermission, prelude::*};
 
 use crate::{
     proto,
-    server::room::{FfiPublication, FfiTrack},
+    server::room::{FfiPublication, Track},
 };
 
 impl From<&FfiPublication> for proto::TrackPublicationInfo {
@@ -48,9 +48,9 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
     }
 }
 
-impl From<&FfiTrack> for proto::TrackInfo {
-    fn from(value: &FfiTrack) -> Self {
-        let track = &value.track;
+impl From<&Track> for proto::TrackInfo {
+    fn from(value: &Track) -> Self {
+        let track = &value.inner;
         Self {
             name: track.name(),
             stream_state: proto::StreamState::from(track.stream_state()).into(),
