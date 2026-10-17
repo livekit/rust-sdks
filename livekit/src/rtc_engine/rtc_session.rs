@@ -2536,14 +2536,26 @@ impl SessionInner {
 
     async fn execute_negotiation_with_retry(self: &Arc<Self>) {
         loop {
+            // A closed session has no publisher left to negotiate.
+            if self.closed.load(Ordering::Acquire) {
+                *self.negotiation_queue.state.lock() = NegotiationState::Idle;
+                break;
+            }
+
             log::debug!("negotiating the publisher (fast mode)");
 
             self.negotiation_queue.waiting_for_answer.store(true, Ordering::Release);
 
             if let Err(err) = self.publisher_pc.create_and_send_offer(OfferOptions::default()).await
             {
-                log::error!("failed to negotiate the publisher: {:?}", err);
                 self.negotiation_queue.waiting_for_answer.store(false, Ordering::Release);
+                // Closing the session closes the publisher under an offer in progress.
+                if self.closed.load(Ordering::Acquire) {
+                    log::debug!("publisher negotiation stopped by close: {:?}", err);
+                    *self.negotiation_queue.state.lock() = NegotiationState::Idle;
+                    break;
+                }
+                log::error!("failed to negotiate the publisher: {:?}", err);
             } else {
                 log::debug!("offer sent, waiting for answer...");
 
@@ -2586,11 +2598,18 @@ impl SessionInner {
             let session = self.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
+                if session.closed.load(Ordering::Acquire) {
+                    return;
+                }
                 log::debug!("negotiating the publisher (debounced)");
                 if let Err(err) =
                     session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
                 {
-                    log::error!("failed to negotiate the publisher: {:?}", err);
+                    if session.closed.load(Ordering::Acquire) {
+                        log::debug!("publisher negotiation stopped by close: {:?}", err);
+                    } else {
+                        log::error!("failed to negotiate the publisher: {:?}", err);
+                    }
                 }
             }));
         }
