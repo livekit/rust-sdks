@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.84 (2026-10-17)
+
+### Fixes
+
+- Synthesize index-based identifiers on platforms without hardware audio GUIDs and add index-based selection to PlatformAudio.
+
 ## 0.12.83 (2026-10-12)
 
 ### Features
