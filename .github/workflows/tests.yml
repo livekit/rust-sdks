@@ -166,6 +166,7 @@ jobs:
             # TODO: Remove once this is enabled by default.
             enable_participant_data_blob: true
       - name: Test
+        id: tests
         env:
           RUST_LOG: info
         shell: bash
@@ -193,3 +194,16 @@ jobs:
         run: |
           cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi
           cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi,native
+
+      # Preserve the failing test and collect only this native test process's
+      # OS crash reports, never a process-memory core or unrelated host logs.
+      - name: Upload macOS reconnection crash reports
+        if: ${{ failure() && runner.os == 'macOS' && steps.tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reconnection-crash-reports-${{ matrix.target }}
+          path: |
+            ~/Library/Logs/DiagnosticReports/reconnection_test*.ips
+            ~/Library/Logs/DiagnosticReports/reconnection_test*.crash
+          if-no-files-found: warn
+          retention-days: 7
