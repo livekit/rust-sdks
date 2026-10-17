@@ -25,15 +25,14 @@ use std::{
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::prelude::DisconnectReason;
-use livekit::webrtc::{
-    native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
-};
+use livekit::webrtc::{native::apm::AudioProcessingModule, prelude::*};
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
 pub mod audio_plugin;
+pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 #[cfg(feature = "capture")]
@@ -77,9 +76,7 @@ pub struct FfiDataBuffer {
 }
 
 impl FfiHandle for FfiDataBuffer {}
-impl FfiHandle for Arc<Mutex<AudioResampler>> {}
 impl FfiHandle for Arc<Mutex<AudioProcessingModule>> {}
-impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
