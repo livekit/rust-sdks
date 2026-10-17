@@ -50,11 +50,11 @@ pub enum PublishTimingStage {
 /// Stage reached by a native remote video frame in the subscribe pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubscribeTimingStage {
-    /// WebRTC produced an encoded frame after RTP depacketization.
+    /// The frame's first RTP packet reached the receiver's network interface.
     WebrtcReceive,
-    /// The encoded frame was handed to WebRTC's decoder.
+    /// WebRTC started decoding after frame assembly and jitter-buffer scheduling.
     DecoderUpload,
-    /// WebRTC produced a decoded frame for the native video sink.
+    /// WebRTC finished decoding the frame.
     DecoderOutput,
 }
 
@@ -236,12 +236,34 @@ impl PacketTrailerHandler {
         capture_timestamp_us: u64,
         frame_id: u32,
     ) {
-        let stage = match stage {
-            SubscribeTimingStage::WebrtcReceive => sys_pt::VideoSubscribeTimingStage::WebrtcReceive,
-            SubscribeTimingStage::DecoderUpload => sys_pt::VideoSubscribeTimingStage::DecoderUpload,
-            SubscribeTimingStage::DecoderOutput => sys_pt::VideoSubscribeTimingStage::DecoderOutput,
-        };
-        self.sys_handle.emit_subscribe_timing(stage, capture_timestamp_us, frame_id);
+        self.sys_handle.emit_subscribe_timing(
+            sys_subscribe_timing_stage(stage),
+            capture_timestamp_us,
+            frame_id,
+        );
+    }
+
+    pub(crate) fn emit_subscribe_timing_at(
+        &self,
+        stage: SubscribeTimingStage,
+        capture_timestamp_us: u64,
+        frame_id: u32,
+        timestamp_us: u64,
+    ) {
+        self.sys_handle.emit_subscribe_timing_at(
+            sys_subscribe_timing_stage(stage),
+            capture_timestamp_us,
+            frame_id,
+            timestamp_us,
+        );
+    }
+}
+
+fn sys_subscribe_timing_stage(stage: SubscribeTimingStage) -> sys_pt::VideoSubscribeTimingStage {
+    match stage {
+        SubscribeTimingStage::WebrtcReceive => sys_pt::VideoSubscribeTimingStage::WebrtcReceive,
+        SubscribeTimingStage::DecoderUpload => sys_pt::VideoSubscribeTimingStage::DecoderUpload,
+        SubscribeTimingStage::DecoderOutput => sys_pt::VideoSubscribeTimingStage::DecoderOutput,
     }
 }
 

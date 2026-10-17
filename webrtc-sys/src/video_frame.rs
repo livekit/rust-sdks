@@ -43,6 +43,10 @@ pub mod ffi {
         fn timestamp_us(self: &VideoFrame) -> i64;
         fn ntp_time_ms(self: &VideoFrame) -> i64;
         fn timestamp(self: &VideoFrame) -> u32;
+        /// Actual decoder processing start, as Unix microseconds, or 0 when unavailable.
+        fn decode_start_timestamp_us(self: &VideoFrame) -> u64;
+        /// Actual decoder processing finish, as Unix microseconds, or 0 when unavailable.
+        fn decode_finish_timestamp_us(self: &VideoFrame) -> u64;
         fn rotation(self: &VideoFrame) -> VideoRotation;
         unsafe fn video_frame_buffer(self: &VideoFrame) -> UniquePtr<VideoFrameBuffer>;
 
