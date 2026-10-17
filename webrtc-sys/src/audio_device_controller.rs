@@ -49,6 +49,9 @@ pub mod ffi {
         fn start_playout(self: &AudioDeviceController) -> bool;
         fn playout_is_initialized(self: &AudioDeviceController) -> bool;
 
+        fn set_mute_mode(self: &AudioDeviceController, mode: i32) -> bool;
+        fn mute_mode(self: &AudioDeviceController) -> i32;
+
         fn builtin_aec_is_available(self: &AudioDeviceController) -> bool;
         fn builtin_agc_is_available(self: &AudioDeviceController) -> bool;
         fn builtin_ns_is_available(self: &AudioDeviceController) -> bool;
@@ -115,5 +118,26 @@ mod tests {
 
         assert!(audio.platform_adm_ref_count() >= 0);
         let _ = audio.is_platform_adm_active();
+
+        // Mute mode is only supported by the Apple AudioEngine ADM
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        {
+            // VoiceProcessing (0) is the default
+            assert_eq!(audio.mute_mode(), 0);
+            assert!(audio.set_mute_mode(1));
+            assert_eq!(audio.mute_mode(), 1);
+            assert!(audio.set_mute_mode(2));
+            assert_eq!(audio.mute_mode(), 2);
+            assert!(audio.set_mute_mode(0));
+            assert_eq!(audio.mute_mode(), 0);
+            // Out of range values are rejected
+            assert!(!audio.set_mute_mode(3));
+            assert!(!audio.set_mute_mode(-1));
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            assert_eq!(audio.mute_mode(), -1);
+            assert!(!audio.set_mute_mode(0));
+        }
     }
 }
