@@ -80,6 +80,17 @@ impl PeerConnectionFactory {
         Self { sys_handle }
     }
 
+    /// Creates a [`PeerConnectionFactory`] whose received video is handled by
+    /// `backend`.
+    pub fn with_video_decoder_backend(
+        backend: crate::peer_connection_factory::VideoDecoderBackend,
+    ) -> Self {
+        ensure_log_sink();
+        let sys_handle =
+            sys_pcf::ffi::create_peer_connection_factory_with_video_decoder_backend(backend.into());
+        Self { sys_handle }
+    }
+
     #[cfg(test)]
     pub(crate) fn zero_playout_delay_enabled(&self) -> bool {
         self.sys_handle.zero_playout_delay_enabled()
@@ -347,6 +358,28 @@ impl PeerConnectionFactory {
     }
 }
 
+impl From<crate::peer_connection_factory::VideoDecoderBackend>
+    for sys_rtc::ffi::VideoDecoderBackend
+{
+    fn from(value: crate::peer_connection_factory::VideoDecoderBackend) -> Self {
+        match value {
+            crate::peer_connection_factory::VideoDecoderBackend::Auto => Self::Auto,
+            crate::peer_connection_factory::VideoDecoderBackend::PassThrough => Self::PassThrough,
+        }
+    }
+}
+
+impl From<sys_rtc::ffi::VideoDecoderBackend>
+    for crate::peer_connection_factory::VideoDecoderBackend
+{
+    fn from(value: sys_rtc::ffi::VideoDecoderBackend) -> Self {
+        match value {
+            sys_rtc::ffi::VideoDecoderBackend::PassThrough => Self::PassThrough,
+            _ => Self::Auto,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,5 +405,54 @@ mod tests {
         factory.set_adm_recording_enabled(!initial_recording);
         assert_eq!(factory.adm_recording_enabled(), !initial_recording);
         factory.set_adm_recording_enabled(initial_recording);
+    }
+
+    /// A pass-through factory turns libwebrtc's pre-render smoothing off: its
+    /// render queue drops decoded frames, and with a pass-through decoder each
+    /// of those is a lost access unit.
+    #[tokio::test]
+    async fn passthrough_factory_defaults_smoothing_off() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let factory =
+            crate::peer_connection_factory::PeerConnectionFactory::with_video_decoder_backend(
+                crate::peer_connection_factory::VideoDecoderBackend::PassThrough,
+            );
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        assert!(!pc.handle.sys_handle.prerenderer_smoothing());
+        pc.close();
+    }
+
+    /// An explicit setting wins over the factory default, and the default
+    /// factory keeps libwebrtc's default (on).
+    #[tokio::test]
+    async fn explicit_smoothing_override_wins() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let factory =
+            crate::peer_connection_factory::PeerConnectionFactory::with_video_decoder_backend(
+                crate::peer_connection_factory::VideoDecoderBackend::PassThrough,
+            );
+        let mut config = RtcConfiguration::default();
+        config.prerenderer_smoothing = Some(true);
+        let pc = factory.create_peer_connection(config).unwrap();
+        assert!(pc.handle.sys_handle.prerenderer_smoothing());
+        pc.close();
+
+        let factory = crate::peer_connection_factory::PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        assert!(pc.handle.sys_handle.prerenderer_smoothing());
+        pc.close();
+    }
+
+    #[test]
+    fn video_decoder_backend_maps_to_native_enum() {
+        use crate::peer_connection_factory::VideoDecoderBackend;
+        let cases = [
+            (VideoDecoderBackend::Auto, sys_rtc::ffi::VideoDecoderBackend::Auto),
+            (VideoDecoderBackend::PassThrough, sys_rtc::ffi::VideoDecoderBackend::PassThrough),
+        ];
+        for (backend, expected) in cases {
+            assert_eq!(sys_rtc::ffi::VideoDecoderBackend::from(backend), expected);
+            assert_eq!(VideoDecoderBackend::from(expected), backend);
+        }
     }
 }

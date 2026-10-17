@@ -155,8 +155,19 @@ PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     bool zero_playout_delay,
     bool enable_warp)
+    : PeerConnectionFactory(std::move(rtc_runtime),
+                            zero_playout_delay,
+                            enable_warp,
+                            VideoDecoderBackend::Auto) {}
+
+PeerConnectionFactory::PeerConnectionFactory(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    bool zero_playout_delay,
+    bool enable_warp,
+    VideoDecoderBackend video_decoder_backend)
     : rtc_runtime_(rtc_runtime),
-      env_(CreateEnvironment(zero_playout_delay, enable_warp)) {
+      env_(CreateEnvironment(zero_playout_delay, enable_warp)),
+      video_decoder_backend_(video_decoder_backend) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -189,7 +200,8 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.video_encoder_factory =
       std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
   dependencies.video_decoder_factory =
-      std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>());
+      std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>(
+          video_decoder_backend_));
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
@@ -219,7 +231,18 @@ std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
   std::shared_ptr<PeerConnection> pc = std::make_shared<PeerConnection>(
       rtc_runtime_, peer_factory_, std::move(observer));
 
-  if (!pc->Initialize(to_native_rtc_configuration(config))) {
+  webrtc::PeerConnectionInterface::RTCConfiguration rtc_config =
+      to_native_rtc_configuration(config);
+  // libwebrtc's pre-render queue drops decoded frames it considers stale or
+  // superseded. With pass-through decoding each of those is an access unit
+  // the application never receives, which breaks its reference chain, so the
+  // queue is off unless explicitly requested.
+  if (video_decoder_backend_ == VideoDecoderBackend::PassThrough &&
+      config.prerenderer_smoothing == PrerendererSmoothing::Default) {
+    rtc_config.set_prerenderer_smoothing(false);
+  }
+
+  if (!pc->Initialize(rtc_config)) {
     throw std::runtime_error(serialize_error(to_error(webrtc::RTCError(
         webrtc::RTCErrorType::INTERNAL_ERROR, "failed to initialize pc"))));
   }
@@ -292,6 +315,13 @@ std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_zero_playout_delay() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), true);
+}
+
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_video_decoder_backend(
+    VideoDecoderBackend backend) {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), false,
+                                                 false, backend);
 }
 
 std::shared_ptr<PeerConnectionFactory>

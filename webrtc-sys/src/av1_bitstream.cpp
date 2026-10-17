@@ -278,6 +278,177 @@ std::vector<ObuSpan> ParseObus(const uint8_t* data, size_t len) {
   return result;
 }
 
+namespace {
+
+// MSB-first bit reader over an OBU payload.
+class BitReader {
+ public:
+  BitReader(const uint8_t* data, size_t len) : data_(data), len_(len) {}
+
+  bool Read(int bits, uint64_t* value) {
+    uint64_t v = 0;
+    for (int i = 0; i < bits; ++i) {
+      if (pos_ >= len_ * 8) {
+        return false;
+      }
+      v = (v << 1) | ((data_[pos_ / 8] >> (7 - pos_ % 8)) & 1);
+      ++pos_;
+    }
+    *value = v;
+    return true;
+  }
+
+  bool Skip(int bits) {
+    uint64_t ignored;
+    return Read(bits, &ignored);
+  }
+
+  // uvlc() from the AV1 spec 4.10.3.
+  bool SkipUvlc() {
+    int leading_zeros = 0;
+    uint64_t bit = 0;
+    while (true) {
+      if (!Read(1, &bit)) {
+        return false;
+      }
+      if (bit) {
+        break;
+      }
+      if (++leading_zeros >= 32) {
+        return false;
+      }
+    }
+    return Skip(leading_zeros);
+  }
+
+ private:
+  const uint8_t* data_;
+  size_t len_;
+  size_t pos_ = 0;
+};
+
+// sequence_header_obu() up to max_frame_height_minus_1 (AV1 spec 5.5.1).
+bool ReadSequenceHeaderFrameSize(BitReader& r, int* width, int* height) {
+  uint64_t reduced_still_picture_header = 0;
+  if (!r.Skip(3) || !r.Skip(1) || !r.Read(1, &reduced_still_picture_header)) {
+    return false;  // seq_profile, still_picture
+  }
+  if (reduced_still_picture_header) {
+    if (!r.Skip(5)) {
+      return false;  // seq_level_idx[0]
+    }
+  } else {
+    uint64_t timing_info_present = 0;
+    uint64_t decoder_model_info_present = 0;
+    uint64_t buffer_delay_length_minus_1 = 0;
+    if (!r.Read(1, &timing_info_present)) {
+      return false;
+    }
+    if (timing_info_present) {
+      uint64_t equal_picture_interval = 0;
+      // num_units_in_display_tick, time_scale
+      if (!r.Skip(32) || !r.Skip(32) || !r.Read(1, &equal_picture_interval)) {
+        return false;
+      }
+      if (equal_picture_interval && !r.SkipUvlc()) {
+        return false;  // num_ticks_per_picture_minus_1
+      }
+      if (!r.Read(1, &decoder_model_info_present)) {
+        return false;
+      }
+      if (decoder_model_info_present) {
+        // buffer_delay_length_minus_1, num_units_in_decoding_tick,
+        // buffer_removal_time_length_minus_1,
+        // frame_presentation_time_length_minus_1
+        if (!r.Read(5, &buffer_delay_length_minus_1) || !r.Skip(32) ||
+            !r.Skip(5) || !r.Skip(5)) {
+          return false;
+        }
+      }
+    }
+    uint64_t initial_display_delay_present = 0;
+    uint64_t operating_points_cnt_minus_1 = 0;
+    if (!r.Read(1, &initial_display_delay_present) ||
+        !r.Read(5, &operating_points_cnt_minus_1)) {
+      return false;
+    }
+    for (uint64_t i = 0; i <= operating_points_cnt_minus_1; ++i) {
+      uint64_t seq_level_idx = 0;
+      if (!r.Skip(12) || !r.Read(5, &seq_level_idx)) {
+        return false;  // operating_point_idc, seq_level_idx
+      }
+      if (seq_level_idx > 7 && !r.Skip(1)) {
+        return false;  // seq_tier
+      }
+      if (decoder_model_info_present) {
+        uint64_t decoder_model_present = 0;
+        if (!r.Read(1, &decoder_model_present)) {
+          return false;
+        }
+        if (decoder_model_present) {
+          const int n = static_cast<int>(buffer_delay_length_minus_1) + 1;
+          // decoder_buffer_delay, encoder_buffer_delay, low_delay_mode_flag
+          if (!r.Skip(n) || !r.Skip(n) || !r.Skip(1)) {
+            return false;
+          }
+        }
+      }
+      if (initial_display_delay_present) {
+        uint64_t present_for_op = 0;
+        if (!r.Read(1, &present_for_op)) {
+          return false;
+        }
+        if (present_for_op && !r.Skip(4)) {
+          return false;  // initial_display_delay_minus_1
+        }
+      }
+    }
+  }
+  uint64_t width_bits_minus_1 = 0;
+  uint64_t height_bits_minus_1 = 0;
+  uint64_t max_width_minus_1 = 0;
+  uint64_t max_height_minus_1 = 0;
+  if (!r.Read(4, &width_bits_minus_1) || !r.Read(4, &height_bits_minus_1) ||
+      !r.Read(static_cast<int>(width_bits_minus_1) + 1, &max_width_minus_1) ||
+      !r.Read(static_cast<int>(height_bits_minus_1) + 1, &max_height_minus_1)) {
+    return false;
+  }
+  *width = static_cast<int>(max_width_minus_1) + 1;
+  *height = static_cast<int>(max_height_minus_1) + 1;
+  return true;
+}
+
+}  // namespace
+
+bool ParseSequenceHeaderFrameSize(const uint8_t* data,
+                                  size_t len,
+                                  int* width,
+                                  int* height) {
+  for (const ObuSpan& obu : ParseObus(data, len)) {
+    if (obu.type != kObuTypeSequenceHeader) {
+      continue;
+    }
+    size_t offset = obu.offset;
+    const size_t end = obu.offset + obu.total_size;
+    const uint8_t header = data[offset++];
+    if (ObuHasExtension(header)) {
+      ++offset;
+    }
+    if (obu.has_size_field) {
+      uint64_t ignored = 0;
+      if (!ReadLeb128(data, end, &offset, &ignored)) {
+        return false;
+      }
+    }
+    if (offset > end) {
+      return false;
+    }
+    BitReader reader(data + offset, end - offset);
+    return ReadSequenceHeaderFrameSize(reader, width, height);
+  }
+  return false;
+}
+
 bool HasSequenceHeaderObu(const uint8_t* data, size_t len) {
   for (const ObuSpan& obu : ParseObus(data, len)) {
     if (obu.type == kObuTypeSequenceHeader) {

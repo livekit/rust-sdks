@@ -57,6 +57,12 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 
   rtc_config.enable_sctp_snap = config.enable_sctp_snap;
 
+  if (config.prerenderer_smoothing == PrerendererSmoothing::Enabled) {
+    rtc_config.set_prerenderer_smoothing(true);
+  } else if (config.prerenderer_smoothing == PrerendererSmoothing::Disabled) {
+    rtc_config.set_prerenderer_smoothing(false);
+  }
+
   return rtc_config;
 }
 
@@ -356,6 +362,10 @@ IceGatheringState PeerConnection::ice_gathering_state() const {
 IceConnectionState PeerConnection::ice_connection_state() const {
   return static_cast<IceConnectionState>(
       peer_connection_->ice_connection_state());
+}
+
+bool PeerConnection::prerenderer_smoothing() const {
+  return peer_connection_->GetConfiguration().prerenderer_smoothing();
 }
 
 void PeerConnection::close() const {
