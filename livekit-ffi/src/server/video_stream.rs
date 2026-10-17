@@ -13,316 +13,214 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use livekit::{
-    prelude::Track,
-    webrtc::{
-        prelude::*,
-        video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
-    },
+use livekit::webrtc::{
+    prelude::*,
+    video_frame::{self as rtc, FrameMetadata, VideoRotation},
+    video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
 };
-use tokio::sync::{broadcast, mpsc, oneshot};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Mutex;
 
-use super::{colorcvt, room::FfiTrack, FfiHandle};
-use crate::server::utils;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::video_frame::FrameMetadata;
+use super::{colorcvt, room::FfiTrack};
+use crate::{proto, FfiHandleId};
 
-pub struct FfiVideoStream {
-    pub handle_id: FfiHandleId,
-    pub stream_type: proto::VideoStreamType,
-
-    #[allow(dead_code)]
-    self_dropped_tx: oneshot::Sender<()>, // Close the stream on drop
+/// Capture-side metadata travelling with a frame.
+#[uniffi::remote(Record)]
+pub struct FrameMetadata {
+    pub user_timestamp: Option<u64>,
+    pub frame_id: Option<u32>,
+    pub user_data: Option<Vec<u8>>,
 }
 
-impl FfiHandle for FfiVideoStream {}
-
-fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
-    metadata.map(|metadata| proto::FrameMetadata {
-        user_timestamp: metadata.user_timestamp,
-        frame_id: metadata.frame_id,
-        user_data: metadata.user_data,
-    })
+/// Clockwise rotation to apply to a frame before display.
+#[uniffi::remote(Enum)]
+pub enum VideoRotation {
+    VideoRotation0 = 0,
+    VideoRotation90 = 90,
+    VideoRotation180 = 180,
+    VideoRotation270 = 270,
 }
 
-impl FfiVideoStream {
-    /// Setup a new VideoStream and forward the frame data to the client/the foreign
-    /// language.
-    ///
-    /// When FFIVideoStream is dropped (When the corresponding handle_id is dropped), the task
-    /// is being closed.
-    ///
-    /// It is possible that the client receives a VideoFrame after the task is closed. The client
-    /// musts ignore it.
-    pub fn from_track(
-        server: &'static server::FfiServer,
-        new_stream: proto::NewVideoStreamRequest,
-    ) -> FfiResult<proto::OwnedVideoStream> {
-        let ffi_track = server.retrieve_handle::<FfiTrack>(new_stream.track_handle)?.clone();
-        let rtc_track = ffi_track.track.rtc_track();
+/// Pixel layout of a [`VideoBuffer`].
+///
+/// Mirrors [`proto::VideoBufferType`], not the libwebrtc enum of the same name: these are
+/// the formats `colorcvt` can deliver, so `Native` is absent.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum VideoBufferType {
+    Rgba,
+    Abgr,
+    Argb,
+    Bgra,
+    Rgb24,
+    I420,
+    I420a,
+    I422,
+    I444,
+    I010,
+    Nv12,
+}
 
-        let MediaStreamTrack::Video(rtc_track) = rtc_track else {
-            return Err(FfiError::InvalidRequest("not a video track".into()));
-        };
+/// One plane of a [`VideoBuffer`], as a range of the bytes the buffer owns.
+///
+/// This is the shape difference the migration forces: the protobuf path describes a plane
+/// with a raw pointer, because the pixels stay in the handle map and only their address
+/// crosses. A uniffi buffer carries the pixels, so a plane is an offset into them.
+#[derive(uniffi::Record)]
+pub struct VideoBufferComponent {
+    pub offset: u64,
+    pub stride: u32,
+    pub size: u32,
+}
 
-        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
-        let stream_type = new_stream.r#type();
-        let handle_id = server.next_id();
-        let stream = match stream_type {
-            #[cfg(not(target_arch = "wasm32"))]
-            proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self { handle_id, self_dropped_tx, stream_type };
-                let options = NativeVideoStreamOptions {
-                    queue_size_frames: new_stream
-                        .queue_size_frames
-                        .map(|capacity| capacity as usize),
-                };
-                let handle = server.async_runtime.spawn(Self::native_video_stream_task(
-                    server,
-                    handle_id,
-                    new_stream.format.and_then(|_| Some(new_stream.format())),
-                    new_stream.normalize_stride.unwrap_or(true),
-                    NativeVideoStream::with_options(rtc_track, options),
-                    self_dropped_rx,
-                    server.watch_handle_dropped(new_stream.track_handle),
-                    true,
-                ));
-                server.watch_panic(handle);
-                Ok::<FfiVideoStream, FfiError>(video_stream)
-            }
-            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
-        }?;
+/// Pixel data, and the layout describing it.
+///
+/// A record, so uniffi copies every frame's pixels across the boundary — ~3MB per 1080p
+/// I420 frame, where the protobuf path passes a pointer. Nothing is copied on the Rust
+/// side (`colorcvt` already allocated the box), so this is the boundary's own memcpy.
+///
+/// TODO: make this an object holding the bytes, with plane accessors, if a profile of a
+/// real video call says the copy matters.
+#[derive(uniffi::Record)]
+pub struct VideoBuffer {
+    pub r#type: VideoBufferType,
+    pub width: u32,
+    pub height: u32,
+    /// Row length in bytes. Packed formats only; planar formats carry a stride per plane.
+    pub stride: Option<u32>,
+    /// Empty for packed formats.
+    pub components: Vec<VideoBufferComponent>,
+    pub data: Vec<u8>,
+}
 
-        // Store the new video stream and return the info
-        let info = proto::VideoStreamInfo::from(&stream);
-        server.store_handle(stream.handle_id, stream);
-
-        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info })
+impl VideoBuffer {
+    /// Adopts a buffer `colorcvt` produced, rebasing the pointers it wrote into `data` as
+    /// offsets into it.
+    pub(crate) fn from_ffi(data: Box<[u8]>, info: proto::VideoBufferInfo) -> Self {
+        let base = data.as_ptr() as u64;
+        Self {
+            r#type: info.r#type().into(),
+            width: info.width,
+            height: info.height,
+            stride: info.stride,
+            components: info
+                .components
+                .iter()
+                .map(|component| VideoBufferComponent {
+                    offset: component.data_ptr - base,
+                    stride: component.stride,
+                    size: component.size,
+                })
+                .collect(),
+            data: data.into_vec(),
+        }
     }
+}
 
-    pub fn from_participant(
-        server: &'static server::FfiServer,
-        request: proto::VideoStreamFromParticipantRequest,
-    ) -> FfiResult<proto::OwnedVideoStream> {
-        let (self_dropped_tx, self_dropped_rx) = oneshot::channel();
-        let stream_type = request.r#type();
-        let handle_id = server.next_id();
-        let dst_type = request.format.and_then(|_| Some(request.format()));
-        let stream = match stream_type {
-            #[cfg(not(target_arch = "wasm32"))]
-            proto::VideoStreamType::VideoStreamNative => {
-                let video_stream = Self { handle_id, self_dropped_tx, stream_type };
-                let handle = server.async_runtime.spawn(Self::participant_video_stream_task(
-                    server,
-                    request,
-                    handle_id,
-                    dst_type,
-                    self_dropped_rx,
-                ));
-                server.watch_panic(handle);
-                Ok::<FfiVideoStream, FfiError>(video_stream)
-            }
-            _ => return Err(FfiError::InvalidRequest("unsupported video stream type".into())),
-        }?;
-        let info = proto::VideoStreamInfo::from(&stream);
-        server.store_handle(stream.handle_id, stream);
+/// A decoded frame, and the buffer holding its pixels.
+#[derive(uniffi::Record)]
+pub struct VideoFrame {
+    /// When the frame was captured, in microseconds.
+    pub timestamp_us: i64,
+    pub rotation: VideoRotation,
+    pub metadata: Option<FrameMetadata>,
+    pub buffer: VideoBuffer,
+}
 
-        Ok(proto::OwnedVideoStream { handle: proto::FfiOwnedHandle { id: handle_id }, info: info })
-    }
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum VideoStreamError {
+    #[error("{0}")]
+    InvalidTrack(String),
+}
 
-    async fn native_video_stream_task(
-        server: &'static server::FfiServer,
-        stream_handle: FfiHandleId,
-        dst_type: Option<proto::VideoBufferType>,
+/// FFI wrapper around [`NativeVideoStream`].
+#[derive(uniffi::Object)]
+pub struct VideoStream {
+    /// Absent on a participant-sourced stream, whose track — and so whose underlying
+    /// stream — is replaced as the participant republishes. Those still run on the
+    /// protobuf path; see [`VideoStream::from_participant`].
+    inner: Mutex<Option<NativeVideoStream>>,
+    dst_type: Option<VideoBufferType>,
+    normalize_stride: bool,
+    /// Reached by [`crate::migration::video_stream`], which is where the rest of the
+    /// protobuf path lives. Goes when that file does.
+    pub(crate) handle_id: OnceLock<FfiHandleId>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl VideoStream {
+    /// Opens a stream over a video track the FFI side owns.
+    ///
+    /// The track arrives as a handle id rather than an object because `Track` has not
+    /// migrated yet. An inbound handle is the cheap direction: it costs one untyped
+    /// parameter, re-signed when `Track` lands.
+    #[uniffi::constructor]
+    pub fn from_track_handle(
+        track_handle: FfiHandleId,
+        format: Option<VideoBufferType>,
         normalize_stride: bool,
-        mut native_stream: NativeVideoStream,
-        mut self_dropped_rx: oneshot::Receiver<()>,
-        mut handle_dropped_rx: oneshot::Receiver<()>,
-        send_eos: bool,
-    ) {
-        loop {
-            tokio::select! {
-                _ = &mut self_dropped_rx => {
-                    break;
-                }
-                _ = &mut handle_dropped_rx => {
-                    break;
-                }
-                frame = native_stream.next() => {
-                    let Some(frame) = frame else {
-                        break;
-                    };
+        queue_size_frames: Option<u32>,
+    ) -> Result<Arc<Self>, VideoStreamError> {
+        let ffi_track = crate::FFI_SERVER
+            .retrieve_handle::<FfiTrack>(track_handle)
+            .map_err(|err| VideoStreamError::InvalidTrack(err.to_string()))?
+            .clone();
 
-                    let metadata = frame_metadata_to_proto(frame.frame_metadata);
-                    let timestamp_us = frame.timestamp_us;
-                    let rotation = proto::VideoRotation::from(frame.rotation).into();
-                    let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
-                        log::error!("video stream failed to convert video frame to {:?}", dst_type);
-                        continue;
-                    };
-
-                    let handle_id = server.next_id();
-                    server.store_handle(handle_id, buffer);
-
-
-                    if let Err(err) = server.send_event(
-                        proto::VideoStreamEvent {
-                            stream_handle,
-                            message: Some(proto::video_stream_event::Message::FrameReceived(
-                                proto::VideoFrameReceived {
-                                    timestamp_us,
-                                    rotation,
-                                    buffer: proto::OwnedVideoBuffer {
-                                        handle: proto::FfiOwnedHandle {
-                                            id: handle_id,
-                                        },
-                                        info,
-                                    },
-                                    metadata,
-                                }
-                            )),
-                        }.into()
-                    ) {
-                        server.drop_handle(handle_id);
-                        log::warn!("failed to send video frame: {}", err);
-                    }
-                }
-            }
-        }
-
-        if send_eos {
-            if let Err(err) = server.send_event(
-                proto::VideoStreamEvent {
-                    stream_handle,
-                    message: Some(proto::video_stream_event::Message::Eos(
-                        proto::VideoStreamEos {},
-                    )),
-                }
-                .into(),
-            ) {
-                log::warn!("failed to send video EOS: {}", err);
-            }
-        }
-    }
-
-    async fn participant_video_stream_task(
-        server: &'static server::FfiServer,
-        request: proto::VideoStreamFromParticipantRequest,
-        stream_handle: FfiHandleId,
-        dst_type: Option<proto::VideoBufferType>,
-        mut close_rx: oneshot::Receiver<()>,
-    ) {
-        let ffi_participant =
-            utils::ffi_participant_from_handle(server, request.participant_handle);
-        let ffi_participant = match ffi_participant {
-            Ok(ffi_participant) => ffi_participant,
-            Err(err) => {
-                log::error!("failed to get participant: {}", err);
-                return;
-            }
+        let MediaStreamTrack::Video(rtc_track) = ffi_track.track.rtc_track() else {
+            return Err(VideoStreamError::InvalidTrack("not a video track".into()));
         };
 
-        let track_source = request.track_source();
-        let normalize_stride = request.normalize_stride.unwrap_or(true);
-        let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
-        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
-        let (track_finished_tx, track_finished_rx) = broadcast::channel::<Track>(1);
-        server.async_runtime.spawn(utils::track_changed_trigger(
-            ffi_participant,
-            track_source.into(),
-            track_tx,
-            track_finished_tx.clone(),
-        ));
-        // track_tx is no longer held, so the track_rx will be closed when track_changed_trigger is done
+        let options = NativeVideoStreamOptions {
+            queue_size_frames: queue_size_frames.map(|capacity| capacity as usize),
+        };
+        Ok(Arc::new(Self::over(
+            Some(NativeVideoStream::with_options(rtc_track, options)),
+            format.map(Into::into),
+            normalize_stride,
+        )))
+    }
 
+    /// The next frame, or `None` once the track has ended.
+    ///
+    /// Frames that fail colour conversion are skipped rather than ending the stream.
+    /// Participant-sourced streams always yield `None`: they have not migrated.
+    ///
+    /// One puller at a time, by the mutex. A stream the protobuf path is pumping will
+    /// interleave its frames with a foreign caller's: the handle round-trip is for passing
+    /// the object across the seam, not for switching how it is consumed mid-flight.
+    pub async fn next(&self) -> Option<VideoFrame> {
+        let mut inner = self.inner.lock().await;
+        let stream = inner.as_mut()?;
         loop {
-            let track = track_rx.recv().await;
-            if let Some(track) = track {
-                let rtc_track = track.rtc_track();
-                let MediaStreamTrack::Video(rtc_track) = rtc_track else {
-                    continue;
-                };
-                let (c_tx, c_rx) = oneshot::channel::<()>();
-                let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
-                let (done_tx, mut done_rx) = oneshot::channel::<()>();
-                let options = NativeVideoStreamOptions { queue_size_frames };
-
-                let mut track_finished_rx = track_finished_tx.subscribe();
-                server.async_runtime.spawn(async move {
-                    tokio::select! {
-                            t = track_finished_rx.recv() => {
-                            let Ok(t) = t else {
-                                return
-                            };
-                            if t.sid() == track.sid() {
-                                handle_dropped_tx.send(()).ok();
-                                return
-                            }
-                        }
-                    }
-                });
-
-                server.async_runtime.spawn(async move {
-                    Self::native_video_stream_task(
-                        server,
-                        stream_handle,
-                        dst_type,
-                        normalize_stride,
-                        NativeVideoStream::with_options(rtc_track, options),
-                        c_rx,
-                        handle_dropped_rx,
-                        false,
-                    )
-                    .await;
-                    let _ = done_tx.send(());
-                });
-                tokio::select! {
-                    _ = &mut close_rx => {
-                        let _ = c_tx.send(());
-                        return
-                    }
-                    _ = &mut done_rx => {
-                        continue
-                    }
-                }
-            } else {
-                // when tracks are done (i.e. the participant leaves the room), we are done
-                break;
+            let frame = stream.next().await?;
+            if let Some(frame) = self.convert(frame) {
+                return Some(frame);
             }
-        }
-        if let Err(err) = server.send_event(
-            proto::VideoStreamEvent {
-                stream_handle,
-                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
-            }
-            .into(),
-        ) {
-            log::warn!("failed to send video EOS: {}", err);
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::frame_metadata_to_proto;
-    use livekit::webrtc::video_frame::FrameMetadata;
-
-    #[test]
-    fn missing_frame_metadata_stays_missing() {
-        assert!(frame_metadata_to_proto(None).is_none());
+impl VideoStream {
+    pub(crate) fn over(
+        stream: Option<NativeVideoStream>,
+        dst_type: Option<VideoBufferType>,
+        normalize_stride: bool,
+    ) -> Self {
+        Self { inner: Mutex::new(stream), dst_type, normalize_stride, handle_id: OnceLock::new() }
     }
 
-    #[test]
-    fn frame_metadata_optionality_is_preserved() {
-        let metadata = frame_metadata_to_proto(Some(FrameMetadata {
-            user_timestamp: Some(123),
-            frame_id: None,
-            user_data: Some(vec![1, 2, 3]),
-        }))
-        .unwrap();
-
-        assert_eq!(metadata.user_timestamp, Some(123));
-        assert_eq!(metadata.frame_id, None);
-        assert_eq!(metadata.user_data, Some(vec![1, 2, 3]));
+    fn convert(&self, frame: rtc::VideoFrame<rtc::BoxVideoBuffer>) -> Option<VideoFrame> {
+        let dst_type = self.dst_type.map(Into::into);
+        match colorcvt::to_video_buffer_info(frame.buffer, dst_type, self.normalize_stride) {
+            Ok((data, info)) => Some(VideoFrame {
+                timestamp_us: frame.timestamp_us,
+                rotation: frame.rotation,
+                metadata: frame.frame_metadata,
+                buffer: VideoBuffer::from_ffi(data, info),
+            }),
+            Err(_) => {
+                log::error!("video stream failed to convert video frame to {:?}", self.dst_type);
+                None
+            }
+        }
     }
 }
