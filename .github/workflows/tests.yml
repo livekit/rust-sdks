@@ -15,20 +15,7 @@
 name: Tests
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    # Skip the test matrix for changes that can't possibly affect Rust
-    # compilation/tests (docs, changesets, license/notice, dependabot config).
-    # Source-only changes still trigger normally.
-    paths-ignore:
-      - "**/*.md"
-      - ".changeset/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "renovate.json"
-      - ".vscode/**"
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
