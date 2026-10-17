@@ -39,7 +39,7 @@ use tokio::{
     time::{interval, sleep, Instant},
 };
 
-use crate::signal_stream::SignalStream;
+use crate::signal_stream::{SignalStream, SignalWrite};
 use livekit_net::HttpClientExt;
 
 mod region_url_provider;
@@ -308,6 +308,38 @@ impl SignalState {
     }
 }
 
+/// Retain both the request and any admitted write until its result is observed.
+struct QueuedSignal {
+    signal: proto::signal_request::Message,
+    write: Option<SignalWrite>,
+}
+
+impl From<proto::signal_request::Message> for QueuedSignal {
+    fn from(signal: proto::signal_request::Message) -> Self {
+        Self { signal, write: None }
+    }
+}
+
+impl QueuedSignal {
+    /// Settle an admitted write before removing or replaying the request.
+    async fn send(&mut self, stream: &SignalStream) -> SignalResult<()> {
+        loop {
+            if let Some(write) = self.write.as_mut() {
+                let same_stream = write.belongs_to(stream);
+                let result = write.complete().await;
+                self.write = None;
+                if same_stream || result.is_ok() {
+                    return result;
+                }
+                // Only an unsuccessful old-stream attempt may be retried here.
+                // A successful write is not replayed, even after reconnecting.
+            } else {
+                self.write = Some(stream.begin_send(self.signal.clone()).await?);
+            }
+        }
+    }
+}
+
 struct SignalInner {
     // The write lock is held across reconnects to avoid transportless gaps
     state: AsyncRwLock<SignalState>,
@@ -315,7 +347,7 @@ struct SignalInner {
     /// Session-scoped signals held while no confirmed transport can carry them. Always taken
     /// under `state`, so the lock order is fixed, and held across a drain so a concurrent
     /// sender cannot slip a newer signal between two held ones.
-    queue: AsyncMutex<VecDeque<proto::signal_request::Message>>,
+    queue: AsyncMutex<VecDeque<QueuedSignal>>,
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
@@ -764,7 +796,7 @@ impl SignalInner {
             SignalState::Connected(stream) => {
                 if !is_pass_through(&signal) {
                     let mut queue = self.queue.lock().await;
-                    queue.push_back(signal);
+                    queue.push_back(signal.into());
                     Self::flush_pending(&mut queue, stream).await;
                     return;
                 }
@@ -793,7 +825,7 @@ impl SignalInner {
         if is_pass_through(&signal) {
             log::warn!("dropping pass-through signal: {why}");
         } else {
-            self.queue.lock().await.push_back(signal);
+            self.queue.lock().await.push_back(signal.into());
         }
     }
 
@@ -805,12 +837,9 @@ impl SignalInner {
     }
 
     /// Remove only acknowledged writes, retaining the unsent FIFO on failure or cancellation.
-    async fn flush_pending(
-        queue: &mut VecDeque<proto::signal_request::Message>,
-        stream: &SignalStream,
-    ) {
-        while let Some(signal) = queue.front() {
-            if let Err(err) = stream.send(signal.clone()).await {
+    async fn flush_pending(queue: &mut VecDeque<QueuedSignal>, stream: &SignalStream) {
+        while let Some(signal) = queue.front_mut() {
+            if let Err(err) = signal.send(stream).await {
                 log::error!("failed to send queued signal; retaining unsent requests: {}", err);
                 break;
             }
@@ -1403,7 +1432,7 @@ mod tests {
             .lock()
             .await
             .iter()
-            .filter_map(|signal| match signal {
+            .filter_map(|queued| match &queued.signal {
                 proto::signal_request::Message::Mute(m) => Some(m.sid.clone()),
                 _ => None,
             })
@@ -1662,6 +1691,126 @@ mod tests {
         assert_eq!(Arc::strong_count(&recovered_conn), 1, "the recovered writer must be joined");
     }
 
+    /// Hold the first external write until the test explicitly permits it to succeed.
+    struct DelayedWriteConn {
+        attempts: Mutex<Vec<String>>,
+        started: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+        completed: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl livekit_net::WsConnection for DelayedWriteConn {
+        async fn send(&self, frame: Vec<u8>) -> Result<(), livekit_net::TransportError> {
+            let request = proto::SignalRequest::decode(frame.as_slice())
+                .expect("the signal stream must encode a valid request");
+            let Some(proto::signal_request::Message::Mute(request)) = request.message else {
+                return Ok(());
+            };
+            let first = {
+                let mut attempts = self.attempts.lock();
+                let first = attempts.is_empty();
+                attempts.push(request.sid);
+                first
+            };
+            if first {
+                self.started.notify_one();
+                self.release.notified().await;
+                self.completed.notify_one();
+            }
+            Ok(())
+        }
+
+        async fn recv(&self) -> Result<Option<Vec<u8>>, livekit_net::TransportError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) {}
+    }
+
+    #[tokio::test]
+    async fn cancelled_write_that_succeeds_is_not_replayed_on_the_same_connection() {
+        let conn = Arc::new(DelayedWriteConn {
+            attempts: Mutex::new(Vec::new()),
+            started: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+            completed: tokio::sync::Notify::new(),
+        });
+        let (stream, _events) = SignalStream::spawn(conn.clone());
+        let inner = make_stub_inner();
+        *inner.state.write().await = SignalState::Connected(stream);
+        let sending = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.send(mute("track-a")).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), conn.started.notified())
+            .await
+            .expect("the first external write must start before cancelling its caller");
+        sending.abort();
+        assert!(sending.await.expect_err("send task must be cancelled").is_cancelled());
+        conn.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), conn.completed.notified())
+            .await
+            .expect("the original writer must finish successfully before the next send");
+
+        inner.send(mute("track-b")).await;
+        let queued = queued_sids(&inner).await;
+        inner.close(true).await;
+
+        assert_eq!(
+            *conn.attempts.lock(),
+            vec!["track-a", "track-b"],
+            "caller cancellation must not duplicate an acknowledged write on the same socket"
+        );
+        assert!(queued.is_empty());
+        assert_eq!(Arc::strong_count(&conn), 1, "the stream must release its reader and writer");
+    }
+
+    #[tokio::test]
+    async fn cancelled_write_that_succeeds_is_not_replayed_after_reconnect() {
+        let conn = Arc::new(DelayedWriteConn {
+            attempts: Mutex::new(Vec::new()),
+            started: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+            completed: tokio::sync::Notify::new(),
+        });
+        let (stream, _events) = SignalStream::spawn(conn.clone());
+        let inner = make_stub_inner();
+        *inner.state.write().await = SignalState::Connected(stream);
+        let sending = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.send(mute("track-a")).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), conn.started.notified())
+            .await
+            .expect("the first external write must start before cancelling its caller");
+        sending.abort();
+        assert!(sending.await.expect_err("send task must be cancelled").is_cancelled());
+        conn.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), conn.completed.notified())
+            .await
+            .expect("the original writer must finish successfully before reconnecting");
+        inner.transport_failed().await;
+
+        let recovered_conn = Arc::new(RecordingConn { sent: Mutex::new(Vec::new()) });
+        let (stream, _events) = SignalStream::spawn(recovered_conn.clone());
+        *inner.state.write().await = SignalState::Reconnecting(Some(stream));
+        inner.set_reconnected().await;
+        inner.send(mute("track-b")).await;
+        let queued = queued_sids(&inner).await;
+        inner.close(true).await;
+
+        assert_eq!(*conn.attempts.lock(), vec!["track-a"]);
+        assert_eq!(
+            sent_sids(&recovered_conn),
+            vec!["track-b"],
+            "a successful old-stream acknowledgement must prevent replay after reconnecting"
+        );
+        assert!(queued.is_empty());
+        assert_eq!(Arc::strong_count(&conn), 1, "the original writer must be joined");
+        assert_eq!(Arc::strong_count(&recovered_conn), 1, "the recovered writer must be joined");
+    }
+
     /// Held signals are older than anything a concurrent sender has, so they must all reach
     /// the wire before it. The read lock is shared, so only the queue lock can enforce that.
     #[tokio::test]
@@ -1670,7 +1819,7 @@ mod tests {
         let (stream, _events) = SignalStream::spawn(conn.clone());
         let inner = make_stub_inner();
         *inner.state.write().await = SignalState::Connected(stream);
-        inner.queue.lock().await.extend([mute("held-1"), mute("held-2")]);
+        inner.queue.lock().await.extend([mute("held-1"), mute("held-2")].map(QueuedSignal::from));
 
         let a = tokio::spawn({
             let inner = inner.clone();
