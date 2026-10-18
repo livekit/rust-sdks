@@ -617,7 +617,7 @@ impl RtcSession {
             if let Some((pub_pc, mut dcs)) = early_publisher_pc {
                 if !use_negotiated_dcs {
                     // The SCTP section is already in the offer, so in-band channels can be
-                    // opened on it without renegotiation.
+                    // opened on it without sdp renegotiation.
                     dcs.0.close();
                     dcs.1.close();
                     dcs.2.close();
