@@ -550,6 +550,7 @@ impl RtcSession {
                 true,
             );
 
+            // always try to open negotiated data channels and close them if we know the server doesn't support it after receiving the join response
             let dcs = Self::create_data_channels(&publisher_pc, &emitter, true)?;
 
             Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
