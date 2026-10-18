@@ -22,6 +22,27 @@ include!("livekit.rs");
 /// `include!` or the types exist on disk and are reachable from nowhere.
 pub mod agent {
     include!("livekit.agent.rs");
+
+    /// The newest conversation schema a thread's database can hold (protocol's
+    /// `livekit/agent/thread_schema.go`).
+    pub const THREAD_SCHEMA_VERSION: i64 = 1;
+
+    /// Version 1 of the conversation schema inside a thread's database, one statement per `;`
+    /// (comments hold none).
+    pub const THREAD_SCHEMA_V1: &str =
+        include_str!("../protocol/livekit/agent/thread_schema_v1.sql");
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_thread_schema_matches_protocol() {
+            let go = include_str!("../protocol/livekit/agent/thread_schema.go");
+            assert!(go.contains(&format!("const ThreadSchemaVersion = {THREAD_SCHEMA_VERSION}")));
+            assert!(THREAD_SCHEMA_V1.contains("CREATE TABLE schema_version"));
+        }
+    }
 }
 
 /// The `logger` protobuf package: the `Sensitivity` field annotation enum.
