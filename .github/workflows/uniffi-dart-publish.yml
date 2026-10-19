@@ -4,13 +4,16 @@ name: UniFFI Dart package
 # livekit-ffi release, together with the native libraries it loads.
 #
 # This is a separate workflow from uniffi-packages.yml because pub.dev's
-# automated publishing only accepts workflows triggered by a tag push matching
-# the tag pattern configured on the package (livekit-ffi/v{{version}});
-# a release-event-triggered workflow is rejected. livekit-ffi uses knope's
-# draft-release flow, so the tag is created by ffi-builds.yml with the
-# livekit-repo-writer App rather than by knope-bot; App-created events do
-# trigger workflows here, GITHUB_TOKEN-created ones do not (see the note in
-# uniffi-packages.yml / #1256).
+# automated publishing accepts a run only when its OIDC token says the ref is
+# a *tag* matching the pattern configured on the package
+# (livekit-ffi/v{{version}}); a release-event-triggered workflow is rejected.
+#
+# livekit-ffi uses knope's draft-release flow, and the tag ffi-builds.yml
+# creates with GITHUB_TOKEN emits no push event (#1256). So the normal trigger
+# is ffi-builds.yml dispatching this workflow with `--ref <tag>` once the
+# release is published: workflow_dispatch is exempt from GitHub's recursion
+# guard, and dispatching at the tag still gives the run refType "tag". The
+# push trigger below stays for a tag pushed by hand.
 #
 # The package's hook/build.dart downloads build-<triple>.zip assets from the
 # GitHub release at consumer build time, so a pub.dev version whose assets are
@@ -19,21 +22,30 @@ name: UniFFI Dart package
 # same run, and the publish job depends on it, so the package can only be
 # published once every asset is on the release.
 #
-# Publishing is enabled. A tag push runs the whole pipeline and publishes to
-# pub.dev through OIDC (dart-lang/setup-dart exchanges the job token). pub.dev
-# accepts that token only because automated publishing is configured on the
-# package for livekit/rust-sdks with tag pattern `livekit-ffi/v{{version}}`;
-# if that setting is removed the publish step fails and nothing else changes.
-# The package was created by a manual first publish of 0.1.10 (pub.dev only
-# automates existing packages). NOTE: the configured tag pattern must be
-# updated to `livekit-ffi/v{{version}}` on pub.dev before the first release
-# after the livekit-uniffi merge, or the publish step will be rejected.
+# Publishing is enabled. The run publishes to pub.dev through OIDC
+# (dart-lang/setup-dart exchanges the job token), and pub.dev accepts that
+# token only if all of the following hold on the package's automated-publishing
+# settings. Every one of them has to be set up before the first release:
+#
+#   - the package `livekit_ffi` exists. pub.dev only automates packages that
+#     already exist, so it needs one manual publish first -- this is a new
+#     package, not a rename of `livekit_uniffi`, whose settings do not carry
+#     over
+#   - repository `livekit/rust-sdks`, tag pattern `livekit-ffi/v{{version}}`
+#   - "Enable publishing from `workflow_dispatch` events" is checked, since
+#     that is how ffi-builds.yml starts this run
+#   - "Require GitHub Actions environment" is checked, with `pub.dev` as the
+#     name, matching the `environment:` on the publish job below
+#
+# The environment is the real guard: give it a deployment-tag rule for
+# `livekit-ffi/v*` in the repository settings, and GitHub refuses to mint a
+# token carrying that environment for a run on any other ref. That is enforced
+# server-side, so editing this file cannot get around it.
 #
 # Recovery: if a run fails, fix the cause and re-run the failed jobs, or
 # dispatch this workflow with the tag. A dispatch rebuilds and re-attaches the
-# assets (with --clobber) and re-validates the package, but never publishes,
-# since the publish step only runs for push events. Set dry_run to skip the
-# asset upload when only exercising the workflow.
+# assets (with --clobber), re-validates, and publishes -- so set dry_run when
+# only exercising the workflow.
 
 on:
   push:
@@ -51,9 +63,9 @@ on:
 
 env:
   # Set to "false" to pause publishing while keeping asset uploads and
-  # validation. Real publishing also requires a tag-push trigger: publishing
-  # from workflow_dispatch is left disabled on pub.dev, and the publish step
-  # below only runs for push events, so dispatch runs stop at the dry run.
+  # validation. This is a convenience switch only -- what actually constrains
+  # publishing is the pub.dev configuration and the `pub.dev` environment
+  # described above, both of which GitHub and pub.dev enforce server-side.
   PUBLISH_ENABLED: "true"
 
 permissions:
@@ -122,6 +134,11 @@ jobs:
     name: Build & publish Dart package
     needs: [resolve-tag, cdylib]
     runs-on: ubuntu-latest
+    # Names the environment in the OIDC token so pub.dev's "Require GitHub
+    # Actions environment" check passes, and subjects the job to the
+    # environment's deployment-tag rule. Configure that rule to allow only
+    # `livekit-ffi/v*`; see the note at the top of this file.
+    environment: pub.dev
     permissions:
       contents: read
       # Exchanged for a temporary pub.dev token by dart-lang/setup-dart.
@@ -198,6 +215,6 @@ jobs:
           dart pub publish --dry-run
 
       - name: Publish to pub.dev
-        if: ${{ env.PUBLISH_ENABLED == 'true' && github.event_name == 'push' }}
+        if: ${{ env.PUBLISH_ENABLED == 'true' && !inputs.dry_run }}
         working-directory: ${{ runner.temp }}/livekit_uniffi
         run: dart pub publish --force

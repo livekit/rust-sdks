@@ -355,6 +355,10 @@ jobs:
     needs: [get-tag, build]
     permissions:
       contents: write
+      # Only for the `gh workflow run` dispatches in the last step. Scoped to
+      # this job rather than the workflow: it also grants cancelling and
+      # re-running workflows and deleting runs, artifacts and caches.
+      actions: write
     if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
@@ -373,25 +377,8 @@ jobs:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
         run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/*
 
-      # This is here because pub.dev's automated publishing *requires* a
-      # tag-push-triggered workflow as part of its trusted publishing
-      # configuration. If the default github actions worker were to publish the
-      # tag, then github prevents that from triggering other workflows to
-      # prevent workflow recursion. So this "breaks the cycle" and allows the
-      # downstream workflow to be triggered to satisfy pub.dev.
-      - name: Generate Repo Writer GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          app-id: ${{ vars.REPO_WRITER_GH_APP_ID }}
-          private-key: ${{ secrets.REPO_WRITER_GH_APP_PRIVATE_KEY }}
-          owner: livekit
-          repositories: |
-            rust-sdks
-
       - name: Create release tag
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ needs.get-tag.outputs.tag_name }}
           SHA: ${{ github.sha }}
         run: |
@@ -409,19 +396,42 @@ jobs:
 
           existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
           if [ -n "$existing" ]; then
-            # Do not fail: the assets are already uploaded, and failing here
-            # would strand the release as a draft. No push event was emitted,
-            # so the downstream publishes need a manual dispatch.
+            # A re-run. Carry on rather than failing: the tag is only needed as
+            # the ref to publish and dispatch against, and it already exists.
             echo "::warning::tag ${TAG} already exists at ${existing}; not re-creating it."
-            echo "::warning::uniffi-packages.yml and uniffi-dart-publish.yml did NOT run; dispatch them with this tag if the packages still need publishing."
-            exit 0
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${TAG}" \
+              -f sha="${SHA}"
           fi
-
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${TAG}" \
-            -f sha="${SHA}"
 
       - name: Publish release
         env:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
         run: gh release edit "$TAG" --draft=false
+
+      # A ref created with GITHUB_TOKEN emits no push event -- GitHub's guard
+      # against recursive workflow runs -- so the UniFFI package publishes
+      # cannot be tag-push triggered from here. `workflow_dispatch` is the
+      # documented exception to that guard: it "always creates workflow runs",
+      # GITHUB_TOKEN included.
+      #
+      # Dispatching *against the tag* is what keeps pub.dev happy. The run then
+      # carries `ref: refs/tags/<tag>`, so its OIDC token has refType "tag",
+      # which pub.dev's trusted publishing requires alongside the tag matching
+      # the pattern configured on the package (see the eventName / refType
+      # checks in dart-lang/pub-dev, app/lib/package/backend.dart).
+      #
+      # Last step on purpose: the release is already published by now, so if a
+      # dispatch fails the FFI artifacts are unaffected and only the UniFFI
+      # packages need the manual re-dispatch the failure tells you to do.
+      - name: Dispatch the UniFFI package publishes
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          for workflow in uniffi-packages.yml uniffi-dart-publish.yml; do
+            echo "dispatching ${workflow} at ${TAG}"
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" \
+              --ref "$TAG" -f tag_name="$TAG"
+          done
