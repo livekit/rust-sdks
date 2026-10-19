@@ -403,6 +403,35 @@ pub(crate) fn video_quality_from_i32_or_default(quality: i32) -> proto::VideoQua
     proto::VideoQuality::try_from(quality).unwrap_or(DEFAULT_VIDEO_QUALITY)
 }
 
+/// Backend whose codecs a sender configured with `backend` can negotiate.
+///
+/// A pre-encoded sender can only forward its own frames, while any other sender
+/// falls back to whichever real encoder on the host produces the codec.
+pub(crate) fn codec_source_backend(backend: VideoEncoderBackend) -> VideoEncoderBackend {
+    if backend == VideoEncoderBackend::PreEncoded {
+        VideoEncoderBackend::PreEncoded
+    } else {
+        VideoEncoderBackend::Auto
+    }
+}
+
+/// Codec a video sender should negotiate for `requested`, given the SDP codec
+/// names its [`codec_source_backend`] can produce.
+///
+/// A raw sender falls back to VP8, which every host encodes in software, rather
+/// than negotiate a codec it cannot encode. Returns `None` for a pre-encoded
+/// sender whose codec cannot be forwarded, since it cannot transcode.
+pub(crate) fn select_video_codec(
+    requested: VideoCodec,
+    backend: VideoEncoderBackend,
+    producible: &[String],
+) -> Option<VideoCodec> {
+    if producible.iter().any(|codec| codec.eq_ignore_ascii_case(requested.as_str())) {
+        return Some(requested);
+    }
+    (backend != VideoEncoderBackend::PreEncoded).then_some(VideoCodec::VP8)
+}
+
 pub fn video_layers_from_encodings(
     width: u32,
     height: u32,
@@ -556,14 +585,78 @@ pub mod screenshare {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_default_degradation_preference, DegradationPreference, TrackPublishOptions,
-        VideoEncoderBackend,
+        codec_source_backend, get_default_degradation_preference, select_video_codec,
+        DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoderBackend,
     };
     use crate::prelude::TrackSource;
+
+    fn codecs(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
 
     #[test]
     fn track_publish_options_default_encoder_is_auto() {
         assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn only_pre_encoded_senders_negotiate_pass_through_codecs() {
+        assert_eq!(
+            codec_source_backend(VideoEncoderBackend::PreEncoded),
+            VideoEncoderBackend::PreEncoded
+        );
+        for backend in [
+            VideoEncoderBackend::Auto,
+            VideoEncoderBackend::Software,
+            VideoEncoderBackend::Hardware,
+            VideoEncoderBackend::Nvenc,
+        ] {
+            assert_eq!(codec_source_backend(backend), VideoEncoderBackend::Auto);
+        }
+    }
+
+    #[test]
+    fn producible_codec_is_kept() {
+        let host = codecs(&["VP8", "H264", "H265"]);
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
+            Some(VideoCodec::H265)
+        );
+        // SDP names are case-insensitive.
+        assert_eq!(
+            select_video_codec(VideoCodec::H264, VideoEncoderBackend::Auto, &codecs(&["h264"])),
+            Some(VideoCodec::H264)
+        );
+    }
+
+    #[test]
+    fn raw_sender_falls_back_to_vp8_without_an_encoder() {
+        let host = codecs(&["VP8", "VP9", "AV1"]);
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
+            Some(VideoCodec::VP8)
+        );
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Hardware, &host),
+            Some(VideoCodec::VP8)
+        );
+    }
+
+    #[test]
+    fn pre_encoded_sender_never_switches_codec() {
+        let pass_through = codecs(&["VP8", "VP9", "AV1", "H264", "H265"]);
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::PreEncoded, &pass_through),
+            Some(VideoCodec::H265)
+        );
+        assert_eq!(
+            select_video_codec(
+                VideoCodec::H265,
+                VideoEncoderBackend::PreEncoded,
+                &codecs(&["VP8"])
+            ),
+            None
+        );
     }
 
     #[test]

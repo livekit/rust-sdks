@@ -64,6 +64,29 @@ fn needs_video_sender_transformer(
     !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
 }
 
+/// Codec a video track published with `options` can actually produce on this host.
+fn negotiable_video_codec(options: &TrackPublishOptions) -> RoomResult<options::VideoCodec> {
+    let requested = options.video_codec;
+    let producible = LkRuntime::instance()
+        .pc_factory()
+        .video_encoder_codecs(options::codec_source_backend(options.video_encoder));
+    let Some(codec) = options::select_video_codec(requested, options.video_encoder, &producible)
+    else {
+        return Err(RoomError::Internal(format!(
+            "pre-encoded video publishing cannot forward codec {}",
+            requested.as_str()
+        )));
+    };
+    if codec != requested {
+        log::warn!(
+            "no video encoder on this host can produce {}; publishing {} instead",
+            requested.as_str(),
+            codec.as_str()
+        );
+    }
+    Ok(codec)
+}
+
 #[derive(Default)]
 struct LocalEvents {
     local_track_published: Mutex<Option<LocalTrackPublishedHandler>>,
@@ -376,9 +399,16 @@ impl LocalParticipant {
     async fn publish_track_with_video_send_encodings(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
         video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
+        if let LocalTrack::Video(_) = &track {
+            // Settle the codec before announcing the track, so the server,
+            // the encodings, and a later republish all use the codec this
+            // sender will actually produce.
+            options.video_codec = negotiable_video_codec(&options)?;
+        }
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
