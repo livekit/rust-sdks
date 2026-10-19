@@ -1583,6 +1583,9 @@ impl RoomSession {
 
         let publish_data_tracks =
             dt::local::publish_responses_for_sync_state(self.local_dt_input.query_tracks().await);
+        let data_subscription = dt::remote::subscription_update_for_sync_state(
+            self.remote_dt_input.query_subscribed().await,
+        );
 
         let sync_state = proto::SyncState {
             answer: answer.map(|a| proto::SessionDescription {
@@ -1607,7 +1610,7 @@ impl RoomSession {
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
             publish_data_tracks,
-            data_subscription: None,
+            data_subscription: Some(data_subscription),
         };
 
         log::debug!("sending sync state {:?}", sync_state);
