@@ -1,4 +1,4 @@
-# LiveKit UniFFI — Android library
+# LiveKit FFI — Android library
 
 Gradle Android library module that packages UniFFI Kotlin bindings and native `liblivekit_uniffi.so` binaries into an **AAR**.
 
