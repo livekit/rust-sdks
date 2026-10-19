@@ -330,12 +330,16 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 
 [tasks.swift-xcframework]
 private = true
-install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-# Multi-crate framework fix, on the fork's `fix/multi-crate-framework` branch
-# (open upstream as antoniusnaumann/cargo-swift#101).
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "439269c4ff5097bcca7a0a7588f1adebd95edc06"]
 script_runner = "@shell"
 script = """
+# Not cargo-make's install_crate: that only probes `cargo-swift --help`, so a
+# cached binary from an older rev passes. `cargo install` compares the recorded
+# source+rev: fast no-op on a match, reinstall on a mismatch.
+# Multi-crate framework fix (`fix/multi-crate-framework`, open upstream as
+# antoniusnaumann/cargo-swift#101) plus `--debug-symbols` (`feature/dsyms`
+# rebased on top, livekit/cargo-swift#4).
+cargo install --git https://github.com/livekit/cargo-swift.git --rev c92be034d15129321fb08da0416df4b376930748 --locked cargo-swift
+
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
 export MACOSX_DEPLOYMENT_TARGET=10.15
 export TVOS_DEPLOYMENT_TARGET=17.0
@@ -355,7 +359,8 @@ $platform_flags \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG}
+${SWIFT_RELEASE_FLAG} \
+${SWIFT_DSYMS_FLAG}
 """
 
 # Format the generated bindings with swiftformat's default rules. UniFFI's
