@@ -31,6 +31,7 @@ namespace livekit_ffi {
 class PeerConnectionFactory;
 class AudioDeviceController;
 class PeerConnectionObserverWrapper;
+class VideoEncoderFactory;
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
@@ -73,6 +74,11 @@ class PeerConnectionFactory {
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
+  // SDP codec names (VP8, VP9, AV1, H264, H265) that `backend` can produce
+  // with this factory's video encoders.
+  rust::Vec<rust::String> video_encoder_backend_codecs(
+      VideoEncoderBackend backend) const;
+
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
   std::shared_ptr<AudioDeviceController> audio_device() const;
   bool zero_playout_delay_enabled() const;
@@ -86,6 +92,9 @@ class PeerConnectionFactory {
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
   std::shared_ptr<AudioDeviceController> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
+  // Not owned: the media engine inside peer_factory_ owns it, so it lives as
+  // long as peer_factory_ does.
+  const VideoEncoderFactory* video_encoder_factory_ = nullptr;
   webrtc::Environment env_;
 };
 
