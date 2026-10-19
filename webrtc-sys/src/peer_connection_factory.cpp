@@ -186,8 +186,10 @@ PeerConnectionFactory::PeerConnectionFactory(
 
   dependencies.adm = adm_proxy_;
 
-  dependencies.video_encoder_factory =
-      std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
+  auto video_encoder_factory =
+      std::make_unique<livekit_ffi::VideoEncoderFactory>();
+  video_encoder_factory_ = video_encoder_factory.get();
+  dependencies.video_encoder_factory = std::move(video_encoder_factory);
   dependencies.video_decoder_factory =
       std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>());
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
@@ -274,6 +276,18 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
       static_cast<webrtc::MediaType>(type)));
+}
+
+rust::Vec<rust::String> PeerConnectionFactory::video_encoder_backend_codecs(
+    VideoEncoderBackend backend) const {
+  rust::Vec<rust::String> codecs;
+  if (!peer_factory_) {
+    return codecs;
+  }
+  for (const auto& codec : video_encoder_factory_->BackendCodecs(backend)) {
+    codecs.push_back(codec);
+  }
+  return codecs;
 }
 
 std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() const {
