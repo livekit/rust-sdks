@@ -21,6 +21,6 @@ uuid = { version = "1", features = ["v4"] }
 [dev-dependencies]
 # Enables `TextStreamReader::new_for_test`, used by the mock transport in `src/tests.rs`.
 livekit-data-stream = { workspace = true, features = ["test-utils"] }
-tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time", "test-util"] }
 bytes = { workspace = true }
 chrono = { workspace = true }
