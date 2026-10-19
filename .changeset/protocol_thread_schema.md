@@ -10,7 +10,6 @@ livekit-ffi: patch
 livekit-rpc: patch
 livekit-signaling: patch
 livekit-token: patch
-livekit-uniffi: patch
 ---
 
 `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
