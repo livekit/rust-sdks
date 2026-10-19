@@ -28,6 +28,8 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSource;
+#[cfg(feature = "capture-device")]
+use livekit_capture::sources::device::{self, DeviceVideoSource};
 #[cfg(feature = "capture-gstreamer")]
 use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 #[cfg(feature = "capture-pattern")]
@@ -38,12 +40,22 @@ use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
 use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
+#[cfg(feature = "capture-device")]
+use crate::conversion::capture::{
+    device_config_from_proto, device_info_to_proto, device_source_info_to_proto,
+};
 use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
 
 /// A capture pump of either kind, boxed at the FFI edge.
 enum CapturePump {
     Pixel(PixelVideoPump<Box<dyn PixelVideoSource>>),
     Encoded(EncodedVideoPump<Box<dyn EncodedVideoSource>>),
+}
+
+/// Capture pump and source-specific information produced during construction.
+struct CreatedCaptureSource {
+    pump: CapturePump,
+    source_info: Option<proto::capture_source_info::SourceInfo>,
 }
 
 impl CapturePump {
@@ -111,14 +123,17 @@ async fn create_capture_source(
     let config =
         request.config.ok_or(FfiError::InvalidRequest("missing capture source config".into()))?;
 
-    let pump = match config {
+    let created = match config {
         #[cfg(feature = "capture-gstreamer")]
         proto::new_capture_source_request::Config::Gstreamer(config) => {
             let source = GStreamerVideoSource::new(gstreamer_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn EncodedVideoSource> = Box::new(source);
-            CapturePump::Encoded(EncodedVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Encoded(EncodedVideoPump::new(source)),
+                source_info: None,
+            }
         }
         #[cfg(feature = "capture-pattern")]
         proto::new_capture_source_request::Config::Pattern(config) => {
@@ -126,7 +141,22 @@ async fn create_capture_source(
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
-            CapturePump::Pixel(PixelVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info: None,
+            }
+        }
+        #[cfg(feature = "capture-device")]
+        proto::new_capture_source_request::Config::Device(config) => {
+            let source = DeviceVideoSource::new(device_config_from_proto(config)?)
+                .await
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source_info = device_source_info_to_proto(source.format());
+            let source: Box<dyn PixelVideoSource> = Box::new(source);
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info,
+            }
         }
         #[cfg(feature = "capture-clock")]
         proto::new_capture_source_request::Config::Clock(config) => {
@@ -134,7 +164,10 @@ async fn create_capture_source(
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
-            CapturePump::Pixel(PixelVideoPump::new(source))
+            CreatedCaptureSource {
+                pump: CapturePump::Pixel(PixelVideoPump::new(source)),
+                source_info: None,
+            }
         }
         #[allow(unreachable_patterns)]
         _ => {
@@ -143,6 +176,7 @@ async fn create_capture_source(
             ))
         }
     };
+    let CreatedCaptureSource { pump, source_info } = created;
 
     let (kind, resolution, codec, publish_options, rtc_source, stop) = match &pump {
         CapturePump::Pixel(pump) => (
@@ -186,6 +220,7 @@ async fn create_capture_source(
             handle: proto::FfiOwnedHandle { id: source_handle_id },
             info: video_source_info,
         },
+        source_info,
     };
 
     let capture_handle_id = server.next_id();
@@ -300,6 +335,61 @@ pub fn on_stop_capture(
     let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(request.capture_handle)?;
     ffi_capture.stop.stop();
     Ok(proto::StopCaptureResponse { error: None })
+}
+
+#[cfg(feature = "capture-device")]
+async fn list_capture_devices_message(
+    enumeration: tokio::task::JoinHandle<
+        Result<Vec<device::DeviceInfo>, livekit_capture::error::SourceError>,
+    >,
+) -> proto::list_capture_devices_callback::Message {
+    match enumeration.await {
+        Ok(Ok(devices)) => {
+            proto::list_capture_devices_callback::Message::Devices(proto::CaptureDeviceList {
+                devices: devices.into_iter().map(device_info_to_proto).collect(),
+            })
+        }
+        Ok(Err(err)) => proto::list_capture_devices_callback::Message::Error(err.to_string()),
+        Err(err) => proto::list_capture_devices_callback::Message::Error(format!(
+            "capture device enumeration task failed: {err}"
+        )),
+    }
+}
+
+#[cfg(feature = "capture-device")]
+pub fn on_list_capture_devices(
+    server: &'static FfiServer,
+    request: proto::ListCaptureDevicesRequest,
+) -> FfiResult<proto::ListCaptureDevicesResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let enumeration = server.async_runtime.spawn(device::devices());
+    let handle = server.async_runtime.spawn(async move {
+        let message = list_capture_devices_message(enumeration).await;
+        let _ = server.send_event(proto::ffi_event::Message::ListCaptureDevices(
+            proto::ListCaptureDevicesCallback { async_id, message: Some(message) },
+        ));
+    });
+    server.watch_panic(handle);
+    Ok(proto::ListCaptureDevicesResponse { async_id })
+}
+
+#[cfg(all(test, feature = "capture-device"))]
+mod device_tests {
+    use super::*;
+
+    async fn panic_during_enumeration(
+    ) -> Result<Vec<device::DeviceInfo>, livekit_capture::error::SourceError> {
+        panic!("enumeration panic");
+    }
+
+    #[test]
+    fn list_capture_devices_returns_error_when_enumeration_panics() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should build");
+        let enumeration = runtime.spawn(panic_during_enumeration());
+        let message = runtime.block_on(list_capture_devices_message(enumeration));
+
+        assert!(matches!(message, proto::list_capture_devices_callback::Message::Error(_)));
+    }
 }
 
 #[cfg(all(test, feature = "capture-pattern"))]
