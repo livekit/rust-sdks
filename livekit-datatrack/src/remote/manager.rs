@@ -111,6 +111,7 @@ impl Manager {
                 }
                 InputEvent::SfuSubscriberHandles(event) => self.on_sfu_subscriber_handles(event),
                 InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
+                InputEvent::QuerySubscribed(event) => self.on_query_subscribed(event),
                 InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
                 InputEvent::ResendSubscriptionUpdates => {
                     self.on_resend_subscription_updates().await
@@ -407,17 +408,26 @@ impl Manager {
             .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
     }
 
+    fn on_query_subscribed(&self, event: QuerySubscribed) {
+        _ = event.result_tx.send(self.subscribed_sids().collect());
+    }
+
     async fn on_resend_subscription_updates(&self) {
         let update_events =
-            self.descriptors.iter().filter_map(|(sid, descriptor)| match descriptor.subscription {
-                SubscriptionState::None => None,
-                SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
-                    Some(SfuUpdateSubscription { sid: sid.clone(), subscribe: true })
-                }
-            });
+            self.subscribed_sids().map(|sid| SfuUpdateSubscription { sid, subscribe: true });
         for event in update_events {
             _ = self.event_out_tx.send(event.into()).await;
         }
+    }
+
+    /// SIDs of all tracks with a pending or active subscription.
+    fn subscribed_sids(&self) -> impl Iterator<Item = DataTrackSid> + '_ {
+        self.descriptors.iter().filter_map(|(sid, descriptor)| match descriptor.subscription {
+            SubscriptionState::None => None,
+            SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
+                Some(sid.clone())
+            }
+        })
     }
 
     /// Performs cleanup before the task ends.
@@ -563,6 +573,18 @@ impl ManagerInput {
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
         Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
+    }
+
+    /// Get the SIDs of all tracks with a pending or active subscription.
+    pub async fn query_subscribed(&self) -> Vec<DataTrackSid> {
+        let (result_tx, result_rx) = oneshot::channel();
+
+        let event = QuerySubscribed { result_tx };
+        if self.event_in_tx.send(event.into()).await.is_err() {
+            return vec![];
+        }
+
+        result_rx.await.unwrap_or_default()
     }
 }
 
@@ -1303,6 +1325,42 @@ mod tests {
         let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
         assert!(!event.subscribe);
         assert_eq!(event.sid, track_sid);
+    }
+
+    #[tokio::test]
+    async fn test_query_subscribed() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        tokio::spawn(manager.run());
+
+        let mut subscribed_info: DataTrackInfo = Faker.fake();
+        subscribed_info.uses_e2ee = false;
+        let subscribed_sid = subscribed_info.sid();
+
+        let mut unsubscribed_info: DataTrackInfo = Faker.fake();
+        unsubscribed_info.uses_e2ee = false;
+
+        // Simulate tracks published
+        let event = SfuPublicationUpdates {
+            updates: HashMap::from([("id".into(), vec![subscribed_info, unsubscribed_info])]),
+        };
+        input.send(event.into()).unwrap();
+        expect_event!(output, OutputEvent::TrackPublished);
+        expect_event!(output, OutputEvent::TrackPublished);
+
+        assert!(input.query_subscribed().await.is_empty());
+
+        // Subscribe to one track (enters Pending state)
+        let (result_tx, _result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: subscribed_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+        expect_event!(output, OutputEvent::SfuUpdateSubscription);
+
+        assert_eq!(input.query_subscribed().await, vec![subscribed_sid]);
     }
 
     /// Should depacketize multiple interleaved partial frames when
