@@ -14,7 +14,7 @@ uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional
 
 [features]
 # Exposes this crate's shared FFI type registrations. Enabled transitively by
-# livekit-uniffi so every component borrows one converter per type.
+# livekit-ffi so every component borrows one converter per type.
 uniffi = ["dep:uniffi", "dep:bytes"]
 
 # How CI checks this crate's features, read by
