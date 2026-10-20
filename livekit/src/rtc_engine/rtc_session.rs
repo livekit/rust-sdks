@@ -83,6 +83,12 @@ pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
+/// How long to wait before reporting a publisher data channel close as unexpected. The server
+/// closes the channels from the remote side as it tears a session down, and that close can be
+/// observed before the `Leave` explaining it has been read off the signalling socket -- the two
+/// travel over different transports and are not ordered against each other. Waiting lets the
+/// teardown the close belongs to arrive first.
+pub const DATA_CHANNEL_CLOSE_GRACE_PERIOD: Duration = Duration::from_secs(1);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
@@ -515,6 +521,7 @@ struct SessionHandle {
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
     dt_sender_task: JoinHandle<()>,
+    dc_close_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -690,26 +697,19 @@ impl RtcSession {
             pc_state_notify: Notify::new(),
         });
 
-        // Log when a publisher data channel closes without the engine or peer
-        // connection tearing it down
+        // Report when a publisher data channel closes without the engine or peer connection
+        // tearing it down. The callback only records the close; `dc_close_task` decides whether
+        // it was expected, once the teardown that would explain it has had time to arrive.
+        let (dc_close_tx, dc_close_rx) = mpsc::unbounded_channel();
         for (dc, label) in [
             (&inner.reliable_dc, RELIABLE_DC_LABEL),
             (&inner.lossy_dc, LOSSY_DC_LABEL),
             (&inner.data_track_dc, DATA_TRACK_DC_LABEL),
         ] {
-            let weak_inner = Arc::downgrade(&inner);
+            let dc_close_tx = dc_close_tx.clone();
             dc.on_state_change(Some(Box::new(move |state| {
-                if state != DataChannelState::Closed {
-                    return;
-                }
-                let Some(inner) = weak_inner.upgrade() else {
-                    return;
-                };
-                if !inner.closed.load(Ordering::Acquire)
-                    && !inner.disconnecting.load(Ordering::Acquire)
-                    && inner.publisher_pc.is_connected()
-                {
-                    log::error!("publisher data channel '{}' closed unexpectedly", label);
+                if state == DataChannelState::Closed {
+                    let _ = dc_close_tx.send(label);
                 }
             })));
         }
@@ -719,6 +719,8 @@ impl RtcSession {
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
         let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
         let dt_sender_task = tokio::spawn(dt_sender.run());
+        let dc_close_task =
+            tokio::spawn(inner.clone().dc_close_task(dc_close_rx, close_rx.clone()));
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -726,6 +728,7 @@ impl RtcSession {
             rtc_task,
             dc_task,
             dt_sender_task,
+            dc_close_task,
         }));
 
         // If we already sent the publisher offer with the JoinRequest, skip initial
@@ -833,6 +836,7 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
             let _ = handle.dt_sender_task.await;
+            let _ = handle.dc_close_task.await;
         }
 
         // Close the PeerConnections after the task
@@ -1292,6 +1296,61 @@ impl SessionInner {
         }
 
         log::debug!("closing data_channel_task");
+    }
+
+    /// Reports a publisher data channel that closed while the session was healthy.
+    ///
+    /// A close is only unexpected if nothing explains it: not a local `close()`, not a server
+    /// `Leave{Disconnect}`, and not a publisher peer connection that already went down. Those
+    /// three signals reach this session over transports that are not ordered against the SCTP
+    /// close itself, so the check runs once the grace period has passed rather than the moment
+    /// the state change fires. A close arriving in that window ends this task, which is how a
+    /// local teardown is ruled out.
+    async fn dc_close_task(
+        self: Arc<Self>,
+        mut dc_close_rx: mpsc::UnboundedReceiver<&'static str>,
+        mut close_rx: watch::Receiver<bool>,
+    ) {
+        loop {
+            let label = tokio::select! {
+                label = dc_close_rx.recv() => {
+                    let Some(label) = label else {
+                        break;
+                    };
+                    label
+                },
+                _ = close_rx.changed() => break,
+            };
+
+            // A local `close()` ends this task, so waiting it out is itself one of the three
+            // ways a close turns out to be expected.
+            let closing = tokio::select! {
+                _ = tokio::time::sleep(DATA_CHANNEL_CLOSE_GRACE_PERIOD) => false,
+                _ = close_rx.changed() => true,
+            };
+
+            let expected = closing
+                || self.closed.load(Ordering::Acquire)
+                || self.disconnecting.load(Ordering::Acquire)
+                || !self.publisher_pc.is_connected();
+
+            if expected {
+                log::debug!("publisher data channel '{}' closed during teardown", label);
+            } else {
+                log::error!("publisher data channel '{}' closed unexpectedly", label);
+            }
+
+            if closing {
+                break;
+            }
+        }
+
+        // Whatever the teardown closed while this task was busy belongs to that teardown.
+        while let Ok(label) = dc_close_rx.try_recv() {
+            log::debug!("publisher data channel '{}' closed during teardown", label);
+        }
+
+        log::debug!("closing dc_close_task");
     }
 
     fn _send_until_threshold(
