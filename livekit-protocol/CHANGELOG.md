@@ -62,6 +62,15 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.8.2 (2026-10-20)
+
+### Fixes
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
 ## 0.8.1 (2026-10-12)
 
 ### Fixes

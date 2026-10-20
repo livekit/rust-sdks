@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.52"
+version = "0.3.53"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bytes",
  "chrono",
@@ -3844,7 +3844,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-common"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bytes",
  "livekit-protocol",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-compression",
  "bmrng",
@@ -3875,7 +3875,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.83"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3937,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-net"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -3956,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -3973,7 +3973,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-rpc"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bytes",
  "chrono",
@@ -3990,7 +3990,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4014,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-token"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "hmac",
  "jsonwebtoken",
@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-token-source"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -8633,7 +8633,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.49"
+version = "0.3.50"
 dependencies = [
  "cc",
  "cxx",
@@ -8646,7 +8646,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "fs2",
