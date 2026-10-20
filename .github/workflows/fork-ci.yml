@@ -1,5 +1,6 @@
-# CI for the Livenalt patch branches of this fork (livenalt/patches and the
-# upstream/* branches that carry the same patches for the upstream PRs).
+# CI for the Livenalt patch branch of this fork (livenalt/patches). The
+# upstream/* branches carry the same patches for the upstream PRs and are
+# covered by upstream's own CI once those PRs exist.
 #
 # This workflow NEVER downloads or builds libwebrtc. DOCS_RS=1 makes
 # webrtc-sys's build.rs return before it fetches the prebuilt libwebrtc or
@@ -15,7 +16,7 @@ name: Fork CI
 
 on:
   push:
-    branches: ["livenalt/**", "upstream/**"]
+    branches: ["livenalt/**"]
   pull_request:
     branches: ["livenalt/**"]
   workflow_dispatch:
@@ -60,7 +61,11 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo test -p libwebrtc --test stats_names --locked
+      # Windows only: the lib test binary is loaded with eager symbol binding on
+      # Linux, which rejects the missing native symbols before main runs. The
+      # integration test above links lazily enough to run on both.
       - name: Content hint enum mapping
+        if: runner.os == 'Windows'
         shell: bash
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
