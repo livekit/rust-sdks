@@ -22,8 +22,9 @@ use libwebrtc::{
     video_track::ContentHint,
 };
 
-#[test]
-fn content_hint_can_be_set_on_a_video_track() {
+// `NativeVideoSource` spawns onto the ambient Tokio runtime.
+#[tokio::test]
+async fn content_hint_can_be_set_on_a_video_track() {
     let factory = PeerConnectionFactory::default();
     let source = NativeVideoSource::new(VideoResolution { width: 1280, height: 720 }, true);
     let track = factory.create_video_track("content-hint-test", source);
