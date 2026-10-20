@@ -57,6 +57,12 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.20 (2026-10-20)
+
+### Fixes
+
+- Update `zip` to 9.0.4, as older releases have security issues and were temporarily yanked ([zip-rs/zip2#1075](https://github.com/zip-rs/zip2/issues/1075)).
+
 ## 0.3.19 (2026-08-25)
 
 ### Fixes

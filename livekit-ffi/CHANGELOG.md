@@ -316,6 +316,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.13.0 (2026-10-20)
+
+### Breaking Changes
+
+#### Merge `livekit-uniffi` into `livekit-ffi`.
+
+There is now one crate, one version and one release tag. The `livekit-uniffi`
+crate, its changelog and its `livekit-uniffi/v*` tags are gone; its history is
+preserved in git.
+
+The crate carries two mutually exclusive surfaces, selected by feature:
+
+- `room-apis` (default) is the existing protobuf / C-ABI surface, with
+  `livekit` and libwebrtc. Everything that built `livekit-ffi` before builds it
+  unchanged.
+- `core-modules` is the former `livekit-uniffi` surface — access tokens, log
+  forwarding, data tracks, data streams v2 — and depends on none of `livekit`,
+  `libwebrtc`, `soxr-sys` or `imgproc`. What previously built `livekit-uniffi`
+  now builds `-p livekit-ffi --no-default-features --features core-modules`.
+
+`[package.metadata.platform-features]` in `livekit-ffi/Cargo.toml` records
+which surface each downstream package build gets, and CI resolves its build
+flags from it.
+
+The merge itself requires no downstream SDK changes: the UniFFI namespace is
+pinned per surface and every published package name is preserved. The one
+difference is the native library the crate builds, `liblivekit_uniffi` →
+`liblivekit_ffi`, which is loaded by name from the generated bindings and the
+Dart build hook and needs no consumer change. The package renames are a
+separate change, released alongside this one.
+
+The UniFFI node package (`@livekit/uniffi`) is not built for now and will be
+reintroduced separately; node bindings ship from `livekit-ffi-node-bindings`.
+
+### Features
+
+#### Rename the published UniFFI packages to an FFI identity.
+
+Following the `livekit-uniffi` merge, the packages built from
+`livekit-ffi/core-modules` are named after the crate that now produces them. No
+compatibility aliases are published.
+
+| | was | now |
+|---|---|---|
+| Swift package / product | `LiveKitUniFFI` | `LiveKitFFI` |
+| Swift FFI module | `RustLiveKitUniFFI` | `RustLiveKitFFI` |
+| Maven artifact | `io.livekit:livekit-uniffi-android` | `io.livekit:livekit-ffi-android` |
+| Kotlin package | `io.livekit.uniffi` | `io.livekit.ffi` |
+| pub.dev package | `livekit_uniffi` | `livekit_ffi` |
+| UniFFI namespace | `livekit_uniffi` | `livekit_ffi` |
+
+**Breaking for the Swift, Android and Flutter SDKs.** Imports, dependency
+coordinates and the generated module names all change together.
+
+The Swift xcframework continues to be hosted at
+`livekit/livekit-uniffi-xcframework`; only the package and product names inside
+it change. Versions continue from the merged crate, so no published version
+goes backwards within a name.
+
+### Fixes
+
+- Outgoing data stream chunk and trailer packets now carry the stream's destination identities. Before, only the header was targeted, so the content of a stream sent to specific participants was delivered to everyone in the room.
+- Stop the Node bindings' `FfiHandle` finalizer from throwing when garbage collection runs after `livekitDispose()`, and treat handles already released by shutdown as disposed.
+- Synthesize index-based identifiers on platforms without hardware audio GUIDs and add index-based selection to PlatformAudio.
+- Prefix every ffmpeg symbol bundled in the linux `libwebrtc.a` with `LK_`, so an application that also links its own FFmpeg, shared or static, no longer calls libwebrtc's copy or fails to link.
+- Embed per-slice `.dSYM` bundles in the Swift `RustLiveKitFFI.xcframework` again so Xcode archives and crash symbolication can resolve Rust frames (livekit/client-sdk-swift#1149).
+- Update `zip` to 9.0.4, as older releases have security issues and were temporarily yanked ([zip-rs/zip2#1075](https://github.com/zip-rs/zip2/issues/1075)).
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+#### Stop failing an RPC call whose reply arrives just after its recipient leaves the room.
+
+Purging a call's pending ack and response the instant its recipient disconnects assumed that
+"participant left" implies "no reply is coming". It does not: the disconnect is announced on the
+signalling connection while the ack and response travel on the data channel, and nothing orders
+the two. A recipient that leaves *because of* the RPC it just answered — `lk.sip.EndCall`, where
+the SIP participant drops out of the room as soon as it has ended the call — produces that order
+routinely, so the reply was discarded ("Response received for unexpected RPC request") and the
+caller was handed `RecipientDisconnected` for a call that in fact succeeded.
+
+A disconnect now shortens the wait instead of ending it: the pending entries stay registered for
+up to 2 more seconds, so a reply already in flight still resolves the caller, and a recipient that
+really did leave without replying still fails fast rather than running out the 15s response
+timeout.
+
 ## 0.12.83 (2026-10-12)
 
 ### Features
