@@ -1,0 +1,67 @@
+# CI for the Livenalt patch branches of this fork (livenalt/patches and the
+# upstream/* branches that carry the same patches for the upstream PRs).
+#
+# This workflow NEVER downloads or builds libwebrtc. DOCS_RS=1 makes
+# webrtc-sys's build.rs return before it fetches the prebuilt libwebrtc or
+# compiles the C++ shim, so everything here is `cargo check` of the Rust sources
+# plus the tests that only exercise Rust code (serde stats parsing, enum
+# mapping). Tests that need the native library (tests/content_hint.rs) are
+# compiled here but run by hand on a machine with libwebrtc.
+#
+# Because the native symbols are absent, test binaries are linked with
+# unresolved symbols tolerated; that is safe only for tests that never reach
+# the FFI, which is why the test steps below name their tests explicitly.
+name: Fork CI
+
+on:
+  push:
+    branches: ["livenalt/**", "upstream/**"]
+  pull_request:
+    branches: ["livenalt/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCS_RS: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rustflags: "-C link-arg=-Wl,--unresolved-symbols=ignore-all"
+          - os: windows-2022
+            rustflags: "-C link-arg=/FORCE:UNRESOLVED"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        shell: bash
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        shell: bash
+        run: cargo fmt -p libwebrtc -- --check
+      - name: Check libwebrtc and its tests
+        shell: bash
+        run: cargo check -p libwebrtc -p webrtc-sys --tests --locked
+      - name: Stats fields (totalFreezesDuration, scalabilityMode)
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo test -p libwebrtc --test stats_names --locked
+      - name: Content hint enum mapping
+        shell: bash
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo test -p libwebrtc --lib content_hint_round_trips --locked
