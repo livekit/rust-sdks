@@ -31,8 +31,8 @@ env:
   CARGO_TERM_COLOR: always
   HOSTING_REPO: livekit/livekit-uniffi-xcframework
   # SPM_NAME must match the value in livekit-ffi/Makefile.toml [env].
-  SPM_NAME: LiveKitUniFFI
-  OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitUniFFI
+  SPM_NAME: LiveKitFFI
+  OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitFFI
 
 jobs:
   build-and-publish:
