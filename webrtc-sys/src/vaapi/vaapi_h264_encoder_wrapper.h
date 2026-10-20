@@ -17,6 +17,9 @@ using VaapiDisplay = livekit_ffi::VaapiDisplayWin32;
 using VaapiDisplay = livekit_ffi::VaapiDisplayDrm ;
 #endif
 #define SURFACE_NUM 16 /* 16 surfaces for reference */
+/* Parameter/packed-header buffers created for a single frame: at most
+ * sequence + rate control + picture + slice + 3 packed headers (2 each). */
+#define MAX_FRAME_BUFFERS 16
 
 typedef struct {
   // one of: VAProfileH264ConstrainedBaseline, VAProfileH264Main,
@@ -74,6 +77,11 @@ typedef struct {
 
   uint8_t* encoded_buffer;
   VA264Config config;
+
+  // Buffers passed to vaRenderPicture() for the frame being encoded. The
+  // application owns them and must destroy them once the frame is submitted.
+  VABufferID frame_buffers[MAX_FRAME_BUFFERS];
+  int num_frame_buffers;
 } VA264Context;
 
 namespace livekit_ffi {
