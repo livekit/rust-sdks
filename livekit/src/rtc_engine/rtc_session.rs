@@ -528,7 +528,6 @@ struct SessionHandle {
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
     dt_sender_task: JoinHandle<()>,
-    dc_close_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -729,8 +728,13 @@ impl RtcSession {
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
         let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
         let dt_sender_task = tokio::spawn(dt_sender.run());
-        let dc_close_task =
-            tokio::spawn(SessionInner::dc_close_task(Arc::downgrade(&inner), dc_close_rx));
+        // Not tracked in `SessionHandle`: nothing depends on it finishing, it holds only a
+        // `Weak`, and it stops itself on `close_rx`.
+        tokio::spawn(SessionInner::dc_close_task(
+            Arc::downgrade(&inner),
+            dc_close_rx,
+            close_rx.clone(),
+        ));
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -738,7 +742,6 @@ impl RtcSession {
             rtc_task,
             dc_task,
             dt_sender_task,
-            dc_close_task,
         }));
 
         // If we already sent the publisher offer with the JoinRequest, skip initial
@@ -846,9 +849,6 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
             let _ = handle.dt_sender_task.await;
-            // Nothing to drain: a close this teardown caused is explained by it, and awaiting
-            // the task would mean waiting out a grace period for an answer we already have.
-            handle.dc_close_task.abort();
         }
 
         // Close the PeerConnections after the task
@@ -1322,17 +1322,25 @@ impl SessionInner {
     /// Three things explain a close: a local [`RtcSession::close`], a server
     /// `Leave{Disconnect}`, and a publisher peer connection that already went down. None of
     /// them is ordered against the close itself, which arrives over SCTP, so each close is
-    /// judged after its own grace period rather than when the state change fires.
+    /// judged after its own grace period rather than when the state change fires. The
+    /// deadline runs from when the channel closed, not from when this task reaches it, so a
+    /// close queued behind another is not granted extra grace.
     ///
-    /// The deadline is measured from when the channel closed, not from when this task reaches
-    /// it, so a close queued behind another is not granted extra grace.
-    /// [`RtcSession::close`] aborts this task, so a local teardown never reaches the check.
+    /// Shutdown ends the task wherever it has got to, rather than the caller stopping it:
+    /// `close()` signals `close_tx` and then waits on the other session tasks for as long as
+    /// they take, and `closed` is not set until after that. Anything pending here belongs to
+    /// the shutdown that is already underway, and reporting it would be noise.
     async fn dc_close_task(
         inner: Weak<SessionInner>,
         mut dc_close_rx: mpsc::UnboundedReceiver<(&'static str, Instant)>,
+        mut close_rx: watch::Receiver<bool>,
     ) {
         while let Some((label, closed_at)) = dc_close_rx.recv().await {
-            tokio::time::sleep_until((closed_at + DATA_CHANNEL_CLOSE_GRACE_PERIOD).into()).await;
+            let deadline = closed_at + DATA_CHANNEL_CLOSE_GRACE_PERIOD;
+            tokio::select! {
+                _ = tokio::time::sleep_until(deadline.into()) => {},
+                _ = close_rx.changed() => return,
+            }
             let Some(inner) = inner.upgrade() else {
                 return;
             };
@@ -2873,7 +2881,35 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{
+        parse_sdp_max_message_size, recovery_decision, SessionInner, DEFAULT_MAX_MESSAGE_SIZE,
+    };
+    use std::{
+        sync::Weak,
+        time::{Duration, Instant},
+    };
+    use tokio::sync::{mpsc, watch};
+
+    /// Shutdown must end `dc_close_task` where it stands, not leave it waiting out a grace
+    /// period it will then report against: `close()` signals `close_tx` and only then waits
+    /// on the other session tasks, for as long as they take, with `closed` still unset.
+    ///
+    /// A close is queued with its deadline a full grace period away, so a task that ignored
+    /// the shutdown would still be sleeping when this gives up on it.
+    #[tokio::test]
+    async fn dc_close_task_ends_on_shutdown_without_waiting_out_the_deadline() {
+        let (dc_close_tx, dc_close_rx) = mpsc::unbounded_channel();
+        let (close_tx, close_rx) = watch::channel(false);
+        dc_close_tx.send(("_reliable", Instant::now())).unwrap();
+
+        let task = tokio::spawn(SessionInner::dc_close_task(Weak::new(), dc_close_rx, close_rx));
+        close_tx.send(true).unwrap();
+
+        tokio::time::timeout(Duration::from_millis(500), task)
+            .await
+            .expect("shutdown left the task waiting out the grace period")
+            .unwrap();
+    }
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
