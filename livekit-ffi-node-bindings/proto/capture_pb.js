@@ -237,9 +237,8 @@ const StartCaptureResponse = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
- * Signal a running capture to stop after the frame in flight. The terminal
- * CaptureSourceEvent follows shortly. Stopping an already-finished capture
- * is a no-op.
+ * Signal a running capture to stop after the frame in flight without waiting
+ * for its thread to exit. Stopping an already-finished capture is a no-op.
  *
  * @generated from message livekit.proto.StopCaptureRequest
  */
@@ -257,6 +256,30 @@ const StopCaptureResponse = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.StopCaptureResponse",
   () => [
     { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Consume a running capture and wait asynchronously for its pump thread to
+ * exit. Like RunningPump::join, this does not signal the pump to stop.
+ *
+ * @generated from message livekit.proto.JoinCaptureRequest
+ */
+const JoinCaptureRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.JoinCaptureRequest",
+  () => [
+    { no: 1, name: "capture_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.JoinCaptureResponse
+ */
+const JoinCaptureResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.JoinCaptureResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
   ],
 );
 
@@ -283,15 +306,14 @@ const CaptureError = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
- * Delivered exactly once when a started capture ends, regardless of why
- * (stop request, end of stream, or failure).
+ * Completes JoinCaptureRequest with the pump's terminal result.
  *
- * @generated from message livekit.proto.CaptureSourceEvent
+ * @generated from message livekit.proto.JoinCaptureCallback
  */
-const CaptureSourceEvent = /*@__PURE__*/ proto2.makeMessageType(
-  "livekit.proto.CaptureSourceEvent",
+const JoinCaptureCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.JoinCaptureCallback",
   () => [
-    { no: 1, name: "capture_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "finished", kind: "message", T: CaptureFinished, oneof: "message" },
     { no: 3, name: "error", kind: "message", T: CaptureError, oneof: "message" },
   ],
@@ -316,6 +338,8 @@ exports.StartCaptureRequest = StartCaptureRequest;
 exports.StartCaptureResponse = StartCaptureResponse;
 exports.StopCaptureRequest = StopCaptureRequest;
 exports.StopCaptureResponse = StopCaptureResponse;
+exports.JoinCaptureRequest = JoinCaptureRequest;
+exports.JoinCaptureResponse = JoinCaptureResponse;
 exports.CaptureFinished = CaptureFinished;
 exports.CaptureError = CaptureError;
-exports.CaptureSourceEvent = CaptureSourceEvent;
+exports.JoinCaptureCallback = JoinCaptureCallback;

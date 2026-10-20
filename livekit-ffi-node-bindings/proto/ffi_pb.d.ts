@@ -28,7 +28,7 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
-import type { CaptureSourceEvent, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
+import type { JoinCaptureCallback, JoinCaptureRequest, JoinCaptureResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -646,6 +646,12 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: StopCaptureRequest;
     case: "stopCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.JoinCaptureRequest join_capture = 92;
+     */
+    value: JoinCaptureRequest;
+    case: "joinCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1242,6 +1248,12 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: StopCaptureResponse;
     case: "stopCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.JoinCaptureResponse join_capture = 92;
+     */
+    value: JoinCaptureResponse;
+    case: "joinCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1560,10 +1572,10 @@ export declare class FfiEvent extends Message<FfiEvent> {
     case: "newCaptureSource";
   } | {
     /**
-     * @generated from field: livekit.proto.CaptureSourceEvent capture_source_event = 48;
+     * @generated from field: livekit.proto.JoinCaptureCallback join_capture = 49;
      */
-    value: CaptureSourceEvent;
-    case: "captureSourceEvent";
+    value: JoinCaptureCallback;
+    case: "joinCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
