@@ -992,7 +992,7 @@ impl EngineInner {
                     let _ = rx.await;
                 }
 
-                log::error!("restarting connection... attempt: {}", i);
+                log::info!("restarting connection... attempt: {}", i);
                 match self
                     .try_restart_connection(
                         &url,
@@ -1038,7 +1038,7 @@ impl EngineInner {
                     let _ = rx.await;
                 }
 
-                log::error!("resuming connection... attempt: {}", i);
+                log::info!("resuming connection... attempt: {}", i);
                 match self.try_resume_connection().await {
                     Ok(()) => {
                         let (tx, rx) = oneshot::channel();
