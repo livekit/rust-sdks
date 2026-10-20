@@ -83,9 +83,11 @@ generate_jetson_implibs() {
   cp "${workdir}/multimedia/${nvidia_lib_dir_rel}/libnvv4l2.so" "${workdir}/libv4l2.so"
   cp "${workdir}/multimedia-utils/${nvidia_lib_dir_rel}/libnvbufsurface.so.1.0.0" \
     "${workdir}/libnvbufsurface.so"
+  cp "${workdir}/multimedia/${nvidia_lib_dir_rel}/libnvbufsurftransform.so.1.0.0" \
+    "${workdir}/libnvbufsurftransform.so"
 
   mkdir -p jetson/aarch64-linux-gnu
-  for lib in libv4l2 libnvbufsurface; do
+  for lib in libv4l2 libnvbufsurface libnvbufsurftransform; do
     python3 "$(pwd)/Implib.so/implib-gen.py" "${workdir}/${lib}.so" \
       --target aarch64 \
       --dlopen-callback lk_jetson_dlopen \

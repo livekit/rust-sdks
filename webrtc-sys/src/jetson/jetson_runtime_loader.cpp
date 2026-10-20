@@ -87,3 +87,10 @@ extern "C" int lk_jetson_runtime_libs_available(void) {
   }();
   return available ? 1 : 0;
 }
+
+extern "C" int lk_jetson_decoder_runtime_libs_available(void) {
+  static const bool available =
+      lk_jetson_runtime_libs_available() != 0 &&
+      LoadWithFallbacks("libnvbufsurftransform.so.1.0.0") != nullptr;
+  return available ? 1 : 0;
+}
