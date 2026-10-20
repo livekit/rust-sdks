@@ -56,8 +56,18 @@ use {
     tokio::time::{self, timeout},
 };
 
-/// Longer than `rtc_session::DATA_CHANNEL_CLOSE_GRACE_PERIOD`, so a report the fix is meant to
-/// suppress has already been emitted by the time the assertion runs. The constant is private.
+/// How long the server's `Leave` is held, forcing the data channel close to be seen first.
+///
+/// This has to land inside `rtc_session::DATA_CHANNEL_CLOSE_GRACE_PERIOD` (1s, private), and
+/// that is what makes the test discriminating. Before the fix the close is classified the
+/// moment it arrives, when nothing has explained it yet, so it is reported. After the fix it
+/// is classified at its deadline, by which time the held `Leave` has landed and explains it.
+/// A delay longer than the grace period would be reported by both, correctly: a close that
+/// stays unexplained for a full second is what the ERROR is for.
+const LEAVE_DELAY: Duration = Duration::from_millis(500);
+
+/// Longer than the grace period, so a report the fix is meant to suppress has already been
+/// emitted by the time the assertion runs.
 const PAST_GRACE_PERIOD: Duration = Duration::from_secs(3);
 
 static RECORDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -124,6 +134,12 @@ async fn test_server_teardown_does_not_report_unexpected_data_channel_close() ->
         .await?;
     assert!(publication.track().is_some());
 
+    // Whether the data channel close or the `Leave` explaining it is seen first is a race, and
+    // on a local server the `Leave` usually wins -- which is the order that never had a bug.
+    // Holding the `Leave` pins the losing order, so this test fails without the fix every run
+    // instead of only when the timing happens to go the wrong way.
+    room.delay_leave_processing(LEAVE_DELAY);
+
     let http_url = server_url.replacen("ws", "http", 1);
     RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
 
@@ -149,10 +165,11 @@ async fn test_server_teardown_does_not_report_unexpected_data_channel_close() ->
         ));
     }
 
-    // The close still has to be seen -- an assertion that passes because no channel ever closed
-    // would not be guarding anything.
+    // The channels still have to have closed -- an assertion that passes because nothing ever
+    // closed would not be guarding anything.
+    // The leading quote keeps this off libwebrtc's own "New state: closed" lines.
     assert!(
-        !logged("closed during teardown").is_empty(),
+        !logged("' state: closed").is_empty(),
         "no publisher data channel closed, so this run proves nothing about how closes are reported"
     );
 

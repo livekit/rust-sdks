@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
-        Arc,
+        Arc, Weak,
     },
     time::{Duration, Instant},
 };
@@ -449,6 +449,13 @@ struct SessionInner {
     #[cfg(feature = "__lk-e2e-test")]
     drop_disconnected_updates: AtomicBool,
 
+    /// Test-only: hold a server `Leave` for this many milliseconds before acting on it. The
+    /// server closes the publisher data channels as it tears the session down, and whether
+    /// that close or the `Leave` explaining it is seen first is a race. Delaying the `Leave`
+    /// pins the losing order, the one that made an expected close look unexpected.
+    #[cfg(feature = "__lk-e2e-test")]
+    delay_leave_processing_ms: AtomicU64,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -678,6 +685,8 @@ impl RtcSession {
             resume_seen_identities: Mutex::new(None),
             #[cfg(feature = "__lk-e2e-test")]
             drop_disconnected_updates: Default::default(),
+            #[cfg(feature = "__lk-e2e-test")]
+            delay_leave_processing_ms: Default::default(),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -698,8 +707,8 @@ impl RtcSession {
         });
 
         // Report when a publisher data channel closes without the engine or peer connection
-        // tearing it down. The callback only records the close; `dc_close_task` decides whether
-        // it was expected, once the teardown that would explain it has had time to arrive.
+        // tearing it down. The callback times the close and hands it off, as the other WebRTC
+        // callbacks do; `dc_close_task` decides whether anything explains it.
         let (dc_close_tx, dc_close_rx) = mpsc::unbounded_channel();
         for (dc, label) in [
             (&inner.reliable_dc, RELIABLE_DC_LABEL),
@@ -709,7 +718,8 @@ impl RtcSession {
             let dc_close_tx = dc_close_tx.clone();
             dc.on_state_change(Some(Box::new(move |state| {
                 if state == DataChannelState::Closed {
-                    let _ = dc_close_tx.send(label);
+                    log::debug!("publisher data channel '{}' state: closed", label);
+                    let _ = dc_close_tx.send((label, Instant::now()));
                 }
             })));
         }
@@ -720,7 +730,7 @@ impl RtcSession {
         let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
         let dt_sender_task = tokio::spawn(dt_sender.run());
         let dc_close_task =
-            tokio::spawn(inner.clone().dc_close_task(dc_close_rx, close_rx.clone()));
+            tokio::spawn(SessionInner::dc_close_task(Arc::downgrade(&inner), dc_close_rx));
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -836,7 +846,9 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
             let _ = handle.dt_sender_task.await;
-            let _ = handle.dc_close_task.await;
+            // Nothing to drain: a close this teardown caused is explained by it, and awaiting
+            // the task would mean waiting out a grace period for an answer we already have.
+            handle.dc_close_task.abort();
         }
 
         // Close the PeerConnections after the task
@@ -880,6 +892,13 @@ impl RtcSession {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.drop_disconnected_updates.store(enabled, Ordering::Release);
+    }
+
+    /// Test-only: hold a server `Leave` before acting on it, so the publisher data channels
+    /// are seen closing first.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn delay_leave_processing(&self, delay: Duration) {
+        self.inner.delay_leave_processing_ms.store(delay.as_millis() as u64, Ordering::Release);
     }
 
     /// Test-only: the publisher transport's current connection state, so tests can assert
@@ -1298,59 +1317,32 @@ impl SessionInner {
         log::debug!("closing data_channel_task");
     }
 
-    /// Reports a publisher data channel that closed while the session was healthy.
+    /// Reports a publisher data channel that closed with nothing to explain it.
     ///
-    /// A close is only unexpected if nothing explains it: not a local `close()`, not a server
-    /// `Leave{Disconnect}`, and not a publisher peer connection that already went down. Those
-    /// three signals reach this session over transports that are not ordered against the SCTP
-    /// close itself, so the check runs once the grace period has passed rather than the moment
-    /// the state change fires. A close arriving in that window ends this task, which is how a
-    /// local teardown is ruled out.
+    /// Three things explain a close: a local [`RtcSession::close`], a server
+    /// `Leave{Disconnect}`, and a publisher peer connection that already went down. None of
+    /// them is ordered against the close itself, which arrives over SCTP, so each close is
+    /// judged after its own grace period rather than when the state change fires.
+    ///
+    /// The deadline is measured from when the channel closed, not from when this task reaches
+    /// it, so a close queued behind another is not granted extra grace.
+    /// [`RtcSession::close`] aborts this task, so a local teardown never reaches the check.
     async fn dc_close_task(
-        self: Arc<Self>,
-        mut dc_close_rx: mpsc::UnboundedReceiver<&'static str>,
-        mut close_rx: watch::Receiver<bool>,
+        inner: Weak<SessionInner>,
+        mut dc_close_rx: mpsc::UnboundedReceiver<(&'static str, Instant)>,
     ) {
-        loop {
-            let label = tokio::select! {
-                label = dc_close_rx.recv() => {
-                    let Some(label) = label else {
-                        break;
-                    };
-                    label
-                },
-                _ = close_rx.changed() => break,
+        while let Some((label, closed_at)) = dc_close_rx.recv().await {
+            tokio::time::sleep_until((closed_at + DATA_CHANNEL_CLOSE_GRACE_PERIOD).into()).await;
+            let Some(inner) = inner.upgrade() else {
+                return;
             };
-
-            // A local `close()` ends this task, so waiting it out is itself one of the three
-            // ways a close turns out to be expected.
-            let closing = tokio::select! {
-                _ = tokio::time::sleep(DATA_CHANNEL_CLOSE_GRACE_PERIOD) => false,
-                _ = close_rx.changed() => true,
-            };
-
-            let expected = closing
-                || self.closed.load(Ordering::Acquire)
-                || self.disconnecting.load(Ordering::Acquire)
-                || !self.publisher_pc.is_connected();
-
-            if expected {
-                log::debug!("publisher data channel '{}' closed during teardown", label);
-            } else {
+            if !inner.closed.load(Ordering::Acquire)
+                && !inner.disconnecting.load(Ordering::Acquire)
+                && inner.publisher_pc.is_connected()
+            {
                 log::error!("publisher data channel '{}' closed unexpectedly", label);
             }
-
-            if closing {
-                break;
-            }
         }
-
-        // Whatever the teardown closed while this task was busy belongs to that teardown.
-        while let Ok(label) = dc_close_rx.try_recv() {
-            log::debug!("publisher data channel '{}' closed during teardown", label);
-        }
-
-        log::debug!("closing dc_close_task");
     }
 
     fn _send_until_threshold(
@@ -1526,6 +1518,13 @@ impl SessionInner {
             }
             proto::signal_response::Message::Leave(leave) => {
                 log::debug!("received leave request: {:?}", leave);
+                #[cfg(feature = "__lk-e2e-test")]
+                {
+                    let delay = self.delay_leave_processing_ms.load(Ordering::Acquire);
+                    if delay > 0 {
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                    }
+                }
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),

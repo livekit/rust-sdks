@@ -914,6 +914,14 @@ impl Room {
         self.inner.rtc_engine.drop_disconnected_updates(enabled);
     }
 
+    /// Test-only: hold a server `Leave` before acting on it. Whether a teardown's data
+    /// channel close or the `Leave` explaining it arrives first is a race; this pins the
+    /// order in which the close is seen first.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn delay_leave_processing(&self, delay: std::time::Duration) {
+        self.inner.rtc_engine.delay_leave_processing(delay);
+    }
+
     /// Test-only: the publisher transport's current connection state. Lets a test assert
     /// that teardown really closed the transport, rather than inferring it from room-level
     /// state that can reach `Disconnected` while the transport is still open.

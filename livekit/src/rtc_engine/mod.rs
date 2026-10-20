@@ -484,6 +484,13 @@ impl RtcEngine {
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.session().drop_disconnected_updates(enabled);
     }
+
+    /// Test-only: hold a server `Leave` on the current session before acting on it, so the
+    /// publisher data channels are seen closing first.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn delay_leave_processing(&self, delay: Duration) {
+        self.session().delay_leave_processing(delay);
+    }
 }
 
 impl EngineInner {
