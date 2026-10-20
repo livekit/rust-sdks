@@ -125,7 +125,8 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 ///
 /// Dropping the handle signals the pump to stop, so an endless source does
 /// not keep capturing. The drop does not wait for the thread to exit; use
-/// [`RunningPump::stop_and_join`] to observe the outcome.
+/// [`RunningPump::stop_and_join`] or
+/// [`RunningPump::stop_and_join_blocking`] to observe the outcome.
 #[derive(Debug)]
 pub struct RunningPump {
     stop: PumpStop,
@@ -142,6 +143,13 @@ impl Drop for RunningPump {
 }
 
 impl RunningPump {
+    fn join_thread(
+        &mut self,
+    ) -> Result<Result<PumpStats, PumpError>, Box<dyn Any + Send + 'static>> {
+        let thread = self.thread.take().expect("pump thread is joined at most once");
+        thread.join()
+    }
+
     /// Returns a cancellation handle for the pump.
     pub fn stop_handle(&self) -> PumpStop {
         self.stop.clone()
@@ -166,13 +174,22 @@ impl RunningPump {
         // An error means the sender dropped, which also implies the pump
         // thread is done; either way the join below returns promptly.
         let _ = self.finished.wait_for(|finished| *finished).await;
-        let thread = self.thread.take().expect("pump thread is joined at most once");
-        thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
+        self.join_thread().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
     /// Signals the pump to stop and waits for it to exit.
     pub async fn stop_and_join(self) -> Result<PumpStats, PumpError> {
         self.stop();
         self.join().await
+    }
+
+    /// Signals the pump to stop and blocks until its thread exits.
+    ///
+    /// Prefer [`RunningPump::stop_and_join`] in asynchronous code. This
+    /// variant is intended for synchronous resource destructors that must not
+    /// leave the capture thread running after they return.
+    pub fn stop_and_join_blocking(mut self) -> Result<PumpStats, PumpError> {
+        self.stop();
+        self.join_thread().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 }

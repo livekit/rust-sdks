@@ -82,9 +82,16 @@ impl FfiHandle for FfiCaptureSource {}
 impl Drop for FfiCaptureSource {
     fn drop(&mut self) {
         // Signal in every state, including Joining after ownership moved into
-        // the join request task. In Running, dropping `state` immediately
-        // afterward also drops the owned RunningPump.
+        // the join request task.
         self.stop.stop();
+        if let CaptureState::Running(running) =
+            std::mem::replace(self.state.get_mut(), CaptureState::Finished)
+        {
+            // FFI handle disposal is synchronous. Do not detach the pump
+            // thread: the runtime and native capture resources may be torn
+            // down as soon as this destructor returns.
+            let _ = running.stop_and_join_blocking();
+        }
     }
 }
 
@@ -350,16 +357,90 @@ pub fn on_join_capture(
     Ok(proto::JoinCaptureResponse { async_id })
 }
 
-#[cfg(all(test, feature = "capture-pattern"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{server::FfiConfig, FFI_SERVER};
-    use std::{sync::Arc, time::Duration};
+    use livekit::webrtc::video_frame::BoxVideoFrame;
+    use livekit_capture::{error::SourceError, primitive::VideoResolution};
+    use std::{
+        sync::{mpsc, Arc},
+        time::Duration,
+    };
 
     fn server() -> &'static FfiServer {
         &FFI_SERVER
     }
 
+    struct DropObservedSource {
+        entered: Option<mpsc::Sender<()>>,
+        dropped: mpsc::Sender<()>,
+    }
+
+    impl Drop for DropObservedSource {
+        fn drop(&mut self) {
+            let _ = self.dropped.send(());
+        }
+    }
+
+    impl PixelVideoSource for DropObservedSource {
+        fn resolution(&self) -> VideoResolution {
+            VideoResolution { width: 64, height: 36 }
+        }
+
+        fn next_frame(&mut self, stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            while !stop.is_stopped() {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            // Make a detached-thread regression deterministic: disposal must
+            // wait through source cleanup before returning.
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(None)
+        }
+    }
+
+    #[serial_test::serial]
+    #[test]
+    fn server_dispose_waits_for_running_capture_cleanup() {
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(|_| {}),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (dropped_tx, dropped_rx) = mpsc::channel();
+        let pump = server().async_runtime.block_on(async {
+            let source: Box<dyn PixelVideoSource> =
+                Box::new(DropObservedSource { entered: Some(entered_tx), dropped: dropped_tx });
+            PixelVideoPump::new(source)
+        });
+        let capture_handle = server().next_id();
+        server().store_handle(
+            capture_handle,
+            FfiCaptureSource {
+                handle_id: capture_handle,
+                stop: pump.stop_handle(),
+                state: Mutex::new(CaptureState::Idle(CapturePump::Pixel(pump))),
+            },
+        );
+
+        let response =
+            on_start_capture(server(), proto::StartCaptureRequest { capture_handle }).unwrap();
+        assert_eq!(response.error, None);
+        entered_rx.recv_timeout(Duration::from_secs(5)).expect("capture pump did not start");
+
+        server().async_runtime.block_on(server().dispose());
+        dropped_rx
+            .try_recv()
+            .expect("FFI server disposal returned before the capture source was cleaned up");
+    }
+
+    #[cfg(feature = "capture-pattern")]
     #[serial_test::serial]
     #[test]
     fn pattern_capture_lifecycle() {
