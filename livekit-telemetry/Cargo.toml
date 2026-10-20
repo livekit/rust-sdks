@@ -1,0 +1,25 @@
+[package]
+name = "livekit-telemetry"
+description = "Client telemetry core for LiveKit: buffers events on-device and exports them as OTLP"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+log = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+# OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
+# livekit-protocol so a single prost is linked.
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
+
+[features]
+uniffi = ["dep:uniffi"]
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
