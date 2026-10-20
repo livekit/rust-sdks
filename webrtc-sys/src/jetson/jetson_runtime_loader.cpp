@@ -72,8 +72,18 @@ extern "C" void* lk_jetson_dlopen(const char* lib_name) {
 }
 
 extern "C" int lk_jetson_runtime_libs_available(void) {
-  static const bool available =
-      LoadWithFallbacks("libnvbufsurface.so.1.0.0") != nullptr &&
-      LoadWithFallbacks("libv4l2.so.0") != nullptr;
+  static const bool available = [] {
+    // libnvbufsurftransform's unload destructor calls pthread_key_delete(0)
+    // on a key it never created (seen on L4T R36.4.7). The V4L2 codec plugin
+    // loads and unloads it around every encoder/decoder device, so each close
+    // deletes whatever pthread key 0 belongs to. When that is WebRTC's
+    // ThreadManager key, Thread::IsCurrent() turns false on every thread and
+    // the next BlockingCall a thread makes to itself never returns. Holding
+    // our own reference before the first device is opened keeps the library
+    // loaded, so the destructor does not run until process exit.
+    LoadWithFallbacks("libnvbufsurftransform.so.1.0.0");
+    return LoadWithFallbacks("libnvbufsurface.so.1.0.0") != nullptr &&
+           LoadWithFallbacks("libv4l2.so.0") != nullptr;
+  }();
   return available ? 1 : 0;
 }
