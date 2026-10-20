@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.13.1 (2026-10-20)
+
+### Fixes
+
+- Update `rustls-webpki` to 0.103.16 and `webpki-roots`/`webpki-root-certs` to 1.0.10 in prebuilt FFI binaries, which stop trusting the compromised eMudhra intermediate CAs.
+
 ## 0.13.0 (2026-10-20)
 
 ### Breaking Changes

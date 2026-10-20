@@ -58,9 +58,9 @@ libwebrtc = { version = "0.3.53", path = "libwebrtc" }
 livekit = { version = "0.9.6", path = "livekit" }
 livekit-api = { version = "0.9.1", path = "livekit-api" }
 livekit-capture = { version = "0.1.6", path = "livekit-capture" }
-livekit-ffi = { version = "0.13.0", path = "livekit-ffi" }
+livekit-ffi = { version = "0.13.1", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.2.4", path = "livekit-datatrack" }
-livekit-telemetry = { version = "0.1.0", path = "livekit-telemetry" }
+livekit-telemetry = { version = "0.1.1", path = "livekit-telemetry" }
 livekit-signaling = { version = "0.1.7", path = "livekit-signaling" }
 livekit-token = { version = "0.3.1", path = "livekit-token" }
 livekit-token-source = { version = "0.1.4", path = "livekit-token-source" }

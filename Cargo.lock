@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4014,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-telemetry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "log",
  "opentelemetry-proto",
