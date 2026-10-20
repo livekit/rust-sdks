@@ -22,6 +22,26 @@ use crate::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::packet_trailer::PacketTrailerHandler;
 
+/// What a video track carries, as a hint to the encoder about whether to favour resolution or
+/// frame rate when bandwidth runs short.
+///
+/// Mirrors [`MediaStreamTrack.contentHint`](https://www.w3.org/TR/mst-content-hint/) for video:
+/// [`Detailed`](Self::Detailed) and [`Text`](Self::Text) keep resolution, [`Fluid`](Self::Fluid)
+/// keeps frame rate. The hint only has an effect once the track is attached to a sender.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ContentHint {
+    /// No hint; libwebrtc decides from the video source.
+    #[default]
+    None,
+    /// Motion video: prefer frame rate over resolution.
+    Fluid,
+    /// Fine detail such as a diagram: prefer resolution over frame rate.
+    Detailed,
+    /// Text on a screen: prefer resolution over frame rate.
+    Text,
+}
+
 #[derive(Clone)]
 pub struct RtcVideoTrack {
     pub(crate) handle: imp_vt::RtcVideoTrack,
@@ -44,6 +64,18 @@ impl RtcVideoTrack {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
         self.handle.packet_trailer_handler()
+    }
+
+    /// Returns the content hint set on this track.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn content_hint(&self) -> ContentHint {
+        self.handle.content_hint()
+    }
+
+    /// Sets the content hint, which the encoder uses once the track is sent.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_content_hint(&self, hint: ContentHint) {
+        self.handle.set_content_hint(hint);
     }
 }
 
