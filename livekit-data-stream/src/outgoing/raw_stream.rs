@@ -35,6 +35,9 @@ pub(crate) struct RawStreamOpenOptions {
 
 pub(crate) struct RawStream {
     id: String,
+    /// Recipients of the stream; stamped on every packet, since the server routes each
+    /// packet on its own and an empty list broadcasts it to the whole room.
+    destination_identities: Vec<String>,
     sender_identity: Option<ParticipantIdentity>,
     progress: StreamProgress,
     is_closed: bool,
@@ -47,6 +50,8 @@ impl RawStream {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
 
+        let destination_identities =
+            options.destination_identities.iter().map(|id| id.0.clone()).collect();
         let mut packet =
             Self::create_header_packet(options.header.into(), options.destination_identities);
         if let Some(sender_identity) = options.sender_identity.as_ref() {
@@ -56,6 +61,7 @@ impl RawStream {
 
         Ok(Self {
             id,
+            destination_identities,
             sender_identity: options.sender_identity,
             progress: StreamProgress { bytes_total, ..Default::default() },
             is_closed: false,
@@ -68,7 +74,12 @@ impl RawStream {
     }
 
     pub(crate) async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
-        let mut packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
+        let mut packet = Self::create_chunk_packet(
+            &self.id,
+            self.progress.chunk_index,
+            bytes,
+            &self.destination_identities,
+        );
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
@@ -161,7 +172,8 @@ impl RawStream {
         if self.is_closed {
             Err(StreamError::AlreadyClosed)?
         }
-        let mut packet = Self::create_trailer_packet(&self.id, reason, attributes);
+        let mut packet =
+            Self::create_trailer_packet(&self.id, reason, attributes, &self.destination_identities);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
@@ -207,6 +219,7 @@ impl RawStream {
         id: &str,
         chunk_index: u64,
         content: &[u8],
+        destination_identities: &[String],
     ) -> proto::DataPacket {
         let chunk = proto::data_stream::Chunk {
             stream_id: id.to_string(),
@@ -217,6 +230,7 @@ impl RawStream {
         proto::DataPacket {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
+            destination_identities: destination_identities.to_vec(),
             value: Some(livekit_protocol::data_packet::Value::StreamChunk(chunk)),
             ..Default::default()
         }
@@ -226,6 +240,7 @@ impl RawStream {
         id: &str,
         reason: Option<&str>,
         attributes: Option<HashMap<String, String>>,
+        destination_identities: &[String],
     ) -> proto::DataPacket {
         let trailer = proto::data_stream::Trailer {
             stream_id: id.to_string(),
@@ -236,6 +251,7 @@ impl RawStream {
         proto::DataPacket {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
+            destination_identities: destination_identities.to_vec(),
             value: Some(livekit_protocol::data_packet::Value::StreamTrailer(trailer)),
             ..Default::default()
         }
@@ -248,7 +264,8 @@ impl Drop for RawStream {
         if self.is_closed {
             return;
         }
-        let mut packet = Self::create_trailer_packet(&self.id, None, None);
+        let mut packet =
+            Self::create_trailer_packet(&self.id, None, None, &self.destination_identities);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }

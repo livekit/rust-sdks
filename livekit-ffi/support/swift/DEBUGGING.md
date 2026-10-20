@@ -1,12 +1,12 @@
 ---
 name: uniffi-swift-debug
-description: Debug Rust code (livekit-uniffi) through Swift consumers with full Rust stack traces in lldb/Xcode. Use when Rust frames are missing from Xcode/lldb backtraces, when setting breakpoints in .rs files from a Swift app, when building a local debug LiveKitUniFFI xcframework, when linking client-sdk-swift to a local rust-sdks checkout, or when creating debug workspaces or headless lldb test rigs for the UniFFI boundary.
+description: Debug Rust code (livekit-ffi) through Swift consumers with full Rust stack traces in lldb/Xcode. Use when Rust frames are missing from Xcode/lldb backtraces, when setting breakpoints in .rs files from a Swift app, when building a local debug LiveKitFFI xcframework, when linking client-sdk-swift to a local rust-sdks checkout, or when creating debug workspaces or headless lldb test rigs for the UniFFI boundary.
 ---
 
 # Debugging Rust through Swift (UniFFI)
 
 The published `livekit-uniffi-xcframework` is a release build with `strip = "symbols"`
-(see `livekit-uniffi/Cargo.toml`), so lldb has nothing to symbolicate: Xcode shows only
+(see `livekit-ffi/Cargo.toml`), so lldb has nothing to symbolicate: Xcode shows only
 the generated UniFFI Swift glue and bare addresses for Rust. **A locally built debug
 xcframework has full DWARF** — lldb then shows mixed Swift/Rust backtraces, Rust source
 listings, stepping, and variables (`frame variable` prints Rust values).
@@ -16,7 +16,7 @@ keep the rust-sdks checkout/target dir around, and rebuild the xcframework after
 Rust change. Quick check that a build is debuggable: `nm -a <binary> | grep -c ' OSO '`
 (> 0 means DWARF refs present; a stripped release build has 0 and ~1k symbols vs ~14k).
 The binary lives inside the xcframework at
-`RustLiveKitUniFFI.xcframework/macos-arm64_x86_64/RustLiveKitUniFFI.framework/RustLiveKitUniFFI`
+`RustLiveKitFFI.xcframework/macos-arm64_x86_64/RustLiveKitFFI.framework/RustLiveKitFFI`
 (platform dir varies, e.g. `ios-arm64`).
 
 ## Repo layout, placeholders, and worktrees
@@ -56,7 +56,7 @@ copy involved is a git worktree:
 ## Recipe 1 — build a local debug xcframework
 
 ```sh
-cd <rust-sdks>/livekit-uniffi
+cd <rust-sdks>/livekit-ffi
 cargo make swift-package-debug                            # macOS only — fastest
 SPM_PLATFORMS="macos ios" cargo make swift-package-debug  # + iOS sim/device
 ```
@@ -67,8 +67,8 @@ dev-profile `swift-package` task. cargo-make installs `cargo-swift`/`tera` pins
 automatically on first run. For all Apple platforms instead: `cargo make swift-package`
 (needs nightly + rust-src for tvOS/visionOS — slow).
 
-Output: `<rust-sdks>/livekit-uniffi/packages/swift/LiveKitUniFFI/` — an SPM package
-wrapping the debug `RustLiveKitUniFFI.xcframework`.
+Output: `<rust-sdks>/livekit-ffi/packages/swift/LiveKitFFI/` — an SPM package
+wrapping the debug `RustLiveKitFFI.xcframework`.
 
 ## Recipe 2 — point client-sdk-swift at the local package
 
@@ -88,7 +88,7 @@ In `<client-sdk-swift>`, replace the released dependency in **both** `Package.sw
 // before:
 .package(url: "https://github.com/livekit/livekit-uniffi-xcframework.git", exact: "X.Y.Z"),
 // after — absolute path to Recipe 1 output:
-.package(name: "livekit-uniffi-xcframework", path: "<rust-sdks>/livekit-uniffi/packages/swift/LiveKitUniFFI"),
+.package(name: "livekit-uniffi-xcframework", path: "<rust-sdks>/livekit-ffi/packages/swift/LiveKitFFI"),
 ```
 
 Keep the `name:` parameter — `.product(..., package: "livekit-uniffi-xcframework")`
@@ -135,7 +135,7 @@ let token = "\(header).\(payload).c2lnbmF0dXJl"
 
 let response = TokenSourceResponse(serverURL: URL(string: "wss://example.livekit.cloud")!,
                                    participantToken: token)
-// Swift app → LiveKit SDK → UniFFI glue → Rust (livekit-uniffi → livekit-api → jsonwebtoken)
+// Swift app → LiveKit SDK → UniFFI glue → Rust (livekit-ffi → livekit-api → jsonwebtoken)
 print("dispatchesAgent: \(response.dispatchesAgent())")
 ```
 
@@ -157,8 +157,8 @@ lldb --batch -s lldb-demo.txt ./.build/debug/lk-uniffi-debug-sample
 ```
 
 Success looks like frames spanning `livekit_api::access_token::Claims::from_unverified`
-→ `livekit_uniffi::access_token::token_claims_from_unverified` → `uniffi_core` rustcalls
-→ generated `livekit_uniffi.swift` → `TokenSource.swift` → `main.swift`, each with
+→ `livekit_ffi::access_token::token_claims_from_unverified` → `uniffi_core` rustcalls
+→ generated `livekit_ffi.swift` → `TokenSource.swift` → `main.swift`, each with
 file:line. If Rust frames show as bare addresses, the dylib is stripped — redo Recipe 1
 and confirm the worktree manifests point at it (`swift package resolve` output).
 
@@ -167,12 +167,12 @@ the bindings (e.g. token parsing, not `tokenGenerate`). To debug the rest, skip
 Recipe 2 and depend on the Recipe 1 package directly:
 
 ```swift
-dependencies: [.package(path: "<rust-sdks>/livekit-uniffi/packages/swift/LiveKitUniFFI")],
-// target dependency: .product(name: "LiveKitUniFFI", package: "LiveKitUniFFI")
+dependencies: [.package(path: "<rust-sdks>/livekit-ffi/packages/swift/LiveKitFFI")],
+// target dependency: .product(name: "LiveKitFFI", package: "LiveKitFFI")
 ```
 
-then `import LiveKitUniFFI` and call the generated glue (see the public API in the
-package's `Sources/LiveKitUniFFI/livekit_uniffi.swift`) — same boundary, same
+then `import LiveKitFFI` and call the generated glue (see the public API in the
+package's `Sources/LiveKitFFI/livekit_ffi.swift`) — same boundary, same
 backtraces, smaller dependency graph.
 
 ## Recipe 4 — Xcode debug workspace
@@ -186,7 +186,7 @@ client-sdk-swift worktree (folder reference = local package override, same patte
 <?xml version="1.0" encoding="UTF-8"?>
 <Workspace version = "1.0">
    <FileRef location = "absolute:<sample package dir>"></FileRef>   <!-- or the app .xcodeproj -->
-   <FileRef location = "absolute:<rust-sdks>/livekit-uniffi/src"></FileRef>
+   <FileRef location = "absolute:<rust-sdks>/livekit-ffi/src"></FileRef>
    <FileRef location = "absolute:<rust-sdks>/livekit-api/src"></FileRef>
 </Workspace>
 ```
@@ -203,7 +203,7 @@ Caveats:
   a symlink — `ln -s <client-sdk-swift worktree> <somewhere>/client-sdk-swift` — and
   pointing the FileRef at the symlink. Verify headlessly before opening Xcode:
   `xcodebuild -resolvePackageDependencies -workspace <ws> -scheme <any listed scheme>`
-  should resolve `LiveKit` to the local path and `LiveKitUniFFI` to the Recipe 1 output.
+  should resolve `LiveKit` to the local path and `LiveKitFFI` to the Recipe 1 output.
 - Xcode refuses to open the same SPM package in two workspaces — close other windows.
 - Rust folder refs must point at the **same `<rust-sdks>`** that built the
   xcframework; file:line breakpoints match DWARF paths absolutely.
@@ -223,7 +223,7 @@ object ID — grep `project.pbxproj` for `PBXNativeTarget "<App>"`), `BuildableN
 (`container:` + absolute path to the `.xcodeproj`). Then:
 
 ```sh
-# package graph: LiveKit → local working copy, LiveKitUniFFI → Recipe 1 output
+# package graph: LiveKit → local working copy, LiveKitFFI → Recipe 1 output
 xcodebuild -resolvePackageDependencies -workspace <ws> -scheme <App>
 # compile/link check without the user's signing identity:
 xcodebuild build -workspace <ws> -scheme <App> -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO
@@ -262,13 +262,13 @@ Restart Xcode. Undo: `lsregister -u ~/Applications/RustSourceUTI.app && rm -rf ~
 
 Symbolic-name breakpoints survive Rust edits; file:line breakpoints may drift — look
 up current lines with grep rather than hardcoding. Basename matching also binds in
-**every** file with that name — both livekit-uniffi and livekit-api have an
+**every** file with that name — both livekit-ffi and livekit-api have an
 `access_token.rs`, so expect resolved locations (and stops) in each.
 
 ## What you can do with this skill
 
 Agentic (headless — Claude does it end-to-end and reports the backtrace):
-- "Verify my Rust change in livekit-uniffi is actually hit when the Swift SDK parses a
+- "Verify my Rust change in livekit-ffi is actually hit when the Swift SDK parses a
   token" → Recipes 1–3, breakpoint on the changed fn, report `bt` + variables.
 - "Why does `tokenClaimsFromUnverified` throw for this token?" → Recipe 3 with the
   user's token string, step through `Claims::from_unverified`, inspect Rust state.

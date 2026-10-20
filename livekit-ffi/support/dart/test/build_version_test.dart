@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:livekit_uniffi/livekit_uniffi.dart';
+import 'package:livekit_ffi/livekit_ffi.dart';
 
 void main() {
   // Smoke test for the whole FFI path: the build hook resolves the native
