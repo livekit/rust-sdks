@@ -175,6 +175,12 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
                              uint64_t user_timestamp,
                              uint32_t frame_id) const;
 
+  /// Emit a receiver-side subscribe timing event at a supplied Unix timestamp.
+  void emit_subscribe_timing_at(VideoSubscribeTimingStage stage,
+                                uint64_t user_timestamp,
+                                uint32_t frame_id,
+                                uint64_t timestamp_us) const;
+
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
@@ -302,6 +308,12 @@ class PacketTrailerHandler {
   void emit_subscribe_timing(VideoSubscribeTimingStage stage,
                              uint64_t user_timestamp,
                              uint32_t frame_id) const;
+
+  /// Emit a receiver-side subscribe timing event at a supplied Unix timestamp.
+  void emit_subscribe_timing_at(VideoSubscribeTimingStage stage,
+                                uint64_t user_timestamp,
+                                uint32_t frame_id,
+                                uint64_t timestamp_us) const;
 
   /// Access the underlying transformer for chaining.
   webrtc::scoped_refptr<PacketTrailerTransformer> transformer() const;

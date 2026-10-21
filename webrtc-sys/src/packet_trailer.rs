@@ -121,6 +121,15 @@ pub mod ffi {
             frame_id: u32,
         );
 
+        /// Emit a receiver-side subscribe timing event at a supplied Unix timestamp.
+        fn emit_subscribe_timing_at(
+            self: &PacketTrailerHandler,
+            stage: VideoSubscribeTimingStage,
+            user_timestamp: u64,
+            frame_id: u32,
+            timestamp_us: u64,
+        );
+
         /// Create a new packet trailer handler for a sender.
         fn new_packet_trailer_sender(
             peer_factory: SharedPtr<PeerConnectionFactory>,
