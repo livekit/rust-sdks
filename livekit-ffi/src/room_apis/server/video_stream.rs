@@ -128,8 +128,10 @@ pub struct VideoFrame {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum VideoStreamError {
-    #[error("{0}")]
-    InvalidTrack(String),
+    #[error("no track behind that handle")]
+    InvalidTrackHandle,
+    #[error("not a video track")]
+    NotVideoTrack,
 }
 
 /// FFI wrapper around [`NativeVideoStream`].
@@ -162,17 +164,17 @@ impl VideoStream {
     ) -> Result<Arc<Self>, VideoStreamError> {
         let ffi_track = crate::FFI_SERVER
             .retrieve_handle::<FfiTrack>(track_handle)
-            .map_err(|err| VideoStreamError::InvalidTrack(err.to_string()))?
+            .map_err(|_| VideoStreamError::InvalidTrackHandle)?
             .clone();
 
         let MediaStreamTrack::Video(rtc_track) = ffi_track.track.rtc_track() else {
-            return Err(VideoStreamError::InvalidTrack("not a video track".into()));
+            return Err(VideoStreamError::NotVideoTrack);
         };
 
         let options = NativeVideoStreamOptions {
             queue_size_frames: queue_size_frames.map(|capacity| capacity as usize),
         };
-        Ok(Arc::new(Self::over(
+        Ok(Arc::new(Self::new(
             Some(NativeVideoStream::with_options(rtc_track, options)),
             format.map(Into::into),
             normalize_stride,
@@ -182,7 +184,8 @@ impl VideoStream {
     /// The next frame, or `None` once the track has ended.
     ///
     /// Frames that fail colour conversion are skipped rather than ending the stream.
-    /// Participant-sourced streams always yield `None`: they have not migrated.
+    /// A participant-sourced stream yields `None` at once: the protobuf path drives it
+    /// entirely, so one reached through `from_ffi_handle_id` has no frames to give here.
     ///
     /// One puller at a time, by the mutex. A stream the protobuf path is pumping will
     /// interleave its frames with a foreign caller's: the handle round-trip is for passing
@@ -200,7 +203,7 @@ impl VideoStream {
 }
 
 impl VideoStream {
-    pub(crate) fn over(
+    pub(crate) fn new(
         stream: Option<NativeVideoStream>,
         dst_type: Option<VideoBufferType>,
         normalize_stride: bool,
