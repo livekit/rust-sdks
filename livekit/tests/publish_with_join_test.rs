@@ -34,7 +34,7 @@ use livekit::{
     },
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, TrackSource},
-    E2eeOptions, InitialTrack, Room, RoomEvent, RoomOptions, SimulateScenario,
+    E2eeOptions, InitialTrack, Room, RoomError, RoomEvent, RoomOptions, SimulateScenario,
 };
 use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
@@ -365,4 +365,29 @@ async fn test_publish_with_join_failure_closes_room() -> Result<()> {
     .map_err(|_| anyhow!("participant left behind after the failed connect"))?;
 
     wait_released(released).await
+}
+
+/// Listing a track twice is rejected before connecting, as publishing it twice would be.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_rejects_duplicate_track() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+
+    let (track, _) = single_audio_track();
+    let mut options = RoomOptions::default();
+    options.publish_tracks = vec![track.clone(), track];
+    match Room::connect(&server.url, &token, options).await {
+        Err(RoomError::Internal(_)) => {}
+        Err(err) => bail!("unexpected error: {err}"),
+        Ok(_) => bail!("connect accepted a duplicate join-time track"),
+    }
+
+    let http_url = server.url.replacen("ws", "http", 1);
+    let rooms = RoomClient::with_api_key(&http_url, &server.key, &server.secret);
+    assert!(
+        rooms.list_participants(&room_name).await.unwrap_or_default().is_empty(),
+        "nothing should reach the server"
+    );
+    Ok(())
 }

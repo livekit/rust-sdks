@@ -490,7 +490,8 @@ pub struct RoomOptions {
     /// trips of publishing after [`Room::connect`] returns. Otherwise, with end-to-end
     /// encryption enabled, or if the server does not support it, they are published normally
     /// before `connect` returns. If any of them
-    /// fails to publish, the room is closed and `connect` returns the error.
+    /// fails to publish, the room is closed and `connect` returns the error. Each track may be
+    /// listed only once.
     pub publish_tracks: Vec<InitialTrack>,
 }
 
@@ -631,6 +632,13 @@ impl Room {
                 PrePublishTrack { track, options, encodings, request }
             })
             .collect();
+        // Requests and their responses are matched by track cid.
+        let mut cids = HashSet::new();
+        if !pre_publish_tracks.iter().all(|pt| cids.insert(pt.request.cid.as_str())) {
+            return Err(RoomError::Internal(
+                "publish_tracks contains the same track more than once".into(),
+            ));
+        }
 
         // A join-time sender can send media as soon as the connection is up, before the E2EE
         // frame cryptor (which needs the identity from the join response) is attached. Encrypted

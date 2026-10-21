@@ -1,6 +1,8 @@
 ---
 livekit: minor
 livekit-signaling: minor
+livekit-api: patch
+livekit-capture: patch
 livekit-ffi: patch
 ---
 
