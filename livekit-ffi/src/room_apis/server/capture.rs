@@ -64,16 +64,13 @@ enum CaptureState {
     Idle(CapturePump),
     /// Started; the FFI object owns the running pump until join consumes it.
     Running(RunningPump),
-    /// A join request consumed the running pump and is awaiting its thread.
-    Joining,
     /// The capture was joined or failed to start.
     Finished,
 }
 
 pub struct FfiCaptureSource {
     pub handle_id: FfiHandleId,
-    /// Cancellation handle, usable in every state.
-    stop: PumpStop,
+    pump_stop: PumpStop,
     state: Mutex<CaptureState>,
 }
 
@@ -81,17 +78,7 @@ impl FfiHandle for FfiCaptureSource {}
 
 impl Drop for FfiCaptureSource {
     fn drop(&mut self) {
-        // Signal in every state, including Joining after ownership moved into
-        // the join request task.
-        self.stop.stop();
-        if let CaptureState::Running(running) =
-            std::mem::replace(self.state.get_mut(), CaptureState::Finished)
-        {
-            // FFI handle disposal is synchronous. Do not detach the pump
-            // thread: the runtime and native capture resources may be torn
-            // down as soon as this destructor returns.
-            let _ = running.stop_and_join_blocking();
-        }
+        self.pump_stop.stop();
     }
 }
 
@@ -248,7 +235,7 @@ pub fn on_start_capture(
         CaptureState::Idle(pump) => pump,
         other => {
             let error = match &other {
-                CaptureState::Running(_) | CaptureState::Joining => "capture is already started",
+                CaptureState::Running(_) => "capture is already started",
                 _ => "capture has already finished",
             };
             *state = other;
@@ -308,45 +295,21 @@ pub fn on_join_capture(
     server: &'static FfiServer,
     request: proto::JoinCaptureRequest,
 ) -> FfiResult<proto::JoinCaptureResponse> {
-    let async_id = server.resolve_async_id(request.request_async_id);
-    let capture_handle = request.capture_handle;
-    let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
-
-    let mut state = ffi_capture.state.lock();
-    let running = match std::mem::replace(&mut *state, CaptureState::Finished) {
-        CaptureState::Running(running) => {
-            *state = CaptureState::Joining;
-            running
-        }
-        other => {
-            let error = match &other {
-                CaptureState::Idle(_) => "capture has not been started",
-                CaptureState::Joining => "capture join is already in progress",
-                CaptureState::Finished => "capture has already been joined",
-                CaptureState::Running(_) => unreachable!(),
-            };
-            *state = other;
-            drop(state);
-            drop(ffi_capture);
-            let _ = server.send_event(proto::ffi_event::Message::JoinCapture(
-                proto::JoinCaptureCallback {
-                    async_id,
-                    message: Some(proto::join_capture_callback::Message::Error(
-                        proto::CaptureError { error: error.to_owned() },
-                    )),
-                },
-            ));
-            return Ok(proto::JoinCaptureResponse { async_id });
+    let running = {
+        let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(request.capture_handle)?;
+        let mut state = ffi_capture.state.lock();
+        match std::mem::replace(&mut *state, CaptureState::Finished) {
+            CaptureState::Running(running) => running,
+            other => {
+                *state = other;
+                return Err(FfiError::InvalidRequest("capture is not running".into()));
+            }
         }
     };
-    drop(state);
-    drop(ffi_capture);
 
+    let async_id = server.resolve_async_id(request.request_async_id);
     server.async_runtime.spawn(async move {
         let result = running.join().await;
-        if let Ok(ffi_capture) = server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
-            *ffi_capture.state.lock() = CaptureState::Finished;
-        }
         let _ =
             server.send_event(proto::ffi_event::Message::JoinCapture(proto::JoinCaptureCallback {
                 async_id,
