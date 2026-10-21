@@ -261,7 +261,7 @@ const StopCaptureResponse = /*@__PURE__*/ proto2.makeMessageType(
 
 /**
  * Consume a running capture and wait asynchronously for its pump thread to
- * exit. Like RunningPump::join, this does not signal the pump to stop.
+ * exit. This does not signal the capture to stop.
  *
  * @generated from message livekit.proto.JoinCaptureRequest
  */

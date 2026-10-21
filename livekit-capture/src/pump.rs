@@ -29,11 +29,16 @@ use std::{
         Arc,
     },
     thread,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 
+/// How long dropping a [`RunningPump`] waits for its thread to exit.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Error returned by a pump run.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum PumpError {
     /// The capture source failed or violated its contract.
     #[error("capture source failed: {0}")]
@@ -123,10 +128,10 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 /// A stop takes effect between frames: a source that is blocked on its next
 /// frame completes that wait before the pump observes the signal.
 ///
-/// Dropping the handle signals the pump to stop, so an endless source does
-/// not keep capturing. The drop does not wait for the thread to exit; use
-/// [`RunningPump::stop_and_join`] or
-/// [`RunningPump::stop_and_join_blocking`] to observe the outcome.
+/// Dropping the handle signals the pump to stop and blocks until its thread
+/// exits, so the source is released by the time the drop returns. A thread
+/// that does not exit within 5 seconds is detached. In asynchronous code,
+/// prefer [`RunningPump::stop_and_join`], which waits without blocking.
 #[derive(Debug)]
 pub struct RunningPump {
     stop: PumpStop,
@@ -139,17 +144,22 @@ pub struct RunningPump {
 impl Drop for RunningPump {
     fn drop(&mut self) {
         self.stop.stop();
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+        while !thread.is_finished() {
+            if Instant::now() >= deadline {
+                log::error!("pump thread did not exit within {SHUTDOWN_TIMEOUT:?}; detaching it");
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let _ = thread.join();
     }
 }
 
 impl RunningPump {
-    fn join_thread(
-        &mut self,
-    ) -> Result<Result<PumpStats, PumpError>, Box<dyn Any + Send + 'static>> {
-        let thread = self.thread.take().expect("pump thread is joined at most once");
-        thread.join()
-    }
-
     /// Returns a cancellation handle for the pump.
     pub fn stop_handle(&self) -> PumpStop {
         self.stop.clone()
@@ -169,27 +179,21 @@ impl RunningPump {
     ///
     /// Safe to hold across long waits — for example in a `select!` that
     /// supervises every running pump. Panics on the pump thread are
-    /// reported as [`PumpError::Panicked`].
+    /// reported as [`PumpError::Panicked`]. Cancelling the wait signals the
+    /// pump to stop without blocking.
     pub async fn join(mut self) -> Result<PumpStats, PumpError> {
+        // Taken before awaiting so a cancelled join detaches the thread
+        // instead of blocking in `Drop`.
+        let thread = self.thread.take().expect("pump thread is joined at most once");
         // An error means the sender dropped, which also implies the pump
         // thread is done; either way the join below returns promptly.
         let _ = self.finished.wait_for(|finished| *finished).await;
-        self.join_thread().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
+        thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
     /// Signals the pump to stop and waits for it to exit.
     pub async fn stop_and_join(self) -> Result<PumpStats, PumpError> {
         self.stop();
         self.join().await
-    }
-
-    /// Signals the pump to stop and blocks until its thread exits.
-    ///
-    /// Prefer [`RunningPump::stop_and_join`] in asynchronous code. This
-    /// variant is intended for synchronous resource destructors that must not
-    /// leave the capture thread running after they return.
-    pub fn stop_and_join_blocking(mut self) -> Result<PumpStats, PumpError> {
-        self.stop();
-        self.join_thread().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 }

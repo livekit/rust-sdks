@@ -612,7 +612,7 @@ export declare class StopCaptureResponse extends Message<StopCaptureResponse> {
 
 /**
  * Consume a running capture and wait asynchronously for its pump thread to
- * exit. Like RunningPump::join, this does not signal the pump to stop.
+ * exit. This does not signal the capture to stop.
  *
  * @generated from message livekit.proto.JoinCaptureRequest
  */
