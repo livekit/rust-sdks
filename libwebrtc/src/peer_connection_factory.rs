@@ -118,11 +118,12 @@ impl PeerConnectionFactory {
     /// SDP codec names (`VP8`, `VP9`, `AV1`, `H264`, `H265`) that `backend` can
     /// produce with this factory's video encoders.
     ///
-    /// For [`VideoEncoderBackend::Auto`] this is every codec a real encoder on
-    /// this host produces, which is also what a sender falls back to when its
-    /// requested backend is unavailable. For [`VideoEncoderBackend::PreEncoded`]
-    /// it is every codec the pass-through can forward, whether or not a local
-    /// encoder exists for it.
+    /// For [`VideoEncoderBackend::Auto`] this is every codec advertised by this
+    /// factory's software and hardware encoders, excluding the pre-encoded
+    /// pass-through backend. These encoders also provide the fallback when a
+    /// sender's requested backend is unavailable. For
+    /// [`VideoEncoderBackend::PreEncoded`] it is every codec the pass-through can
+    /// forward, whether or not a local encoder exists for it.
     ///
     /// ```
     /// use libwebrtc::{peer_connection_factory::PeerConnectionFactory, rtp_sender::VideoEncoderBackend};
