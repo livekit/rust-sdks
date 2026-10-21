@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 /// A single open WebSocket connection. Control frames (ping/pong, close handshake)
 /// are the implementation's own responsibility; only binary application frames cross here.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait WsConnection: Send + Sync + 'static {
     /// Send one binary application frame.
@@ -31,12 +32,14 @@ pub trait WsConnection: Send + Sync + 'static {
 ///
 /// A record wrapper, not a bare `Arc<dyn WsConnection>`: uniffi 0.31 cannot
 /// lift a trait object returned from an async `with_foreign` method.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct WsConnectResult {
     pub connection: Arc<dyn WsConnection>,
 }
 
 /// A host- or Rust-provided WebSocket transport. Opens the LiveKit signalling
 /// WebSocket; knows nothing about LiveKit/protobuf.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait WsClient: Send + Sync {
     /// Open a WebSocket. `url` is the full ws(s):// URL including query string.
@@ -51,6 +54,7 @@ pub trait WsClient: Send + Sync {
 }
 
 /// The HTTP method for an [`HttpClient::request`].
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpMethod {
     Get,
@@ -64,6 +68,7 @@ pub enum HttpMethod {
 /// Implementors provide the single [`request`](HttpClient::request) primitive;
 /// [`HttpClientExt`] layers `get`/`post` on top, so adding verbs never widens the
 /// implementation (or, for foreign impls, the FFI) surface.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait HttpClient: Send + Sync {
     /// Perform one HTTP request, sending `body` if present.

@@ -86,10 +86,7 @@ async fn run_interactive_chat(
                         }
 
                         // Send the message
-                        let options = StreamTextOptions {
-                            topic: "lk.chat".to_string(),
-                            ..Default::default()
-                        };
+                        let options = StreamTextOptions::new_with_topic("lk.chat");
 
                         match room.local_participant().send_text(&input, options).await {
                             Ok(_) => {

@@ -335,8 +335,7 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
                   : VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetColorSpace(input_frame.color_space());
 
-  std::vector<H264::NaluIndex> nalu_indices =
-      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
+  std::vector<H264::NaluIndex> nalu_indices = H264::FindNaluIndices(packet);
   for (uint32_t i = 0; i < nalu_indices.size(); i++) {
     const H264::NaluType nalu_type =
         H264::ParseNaluType(packet[nalu_indices[i].payload_start_offset]);

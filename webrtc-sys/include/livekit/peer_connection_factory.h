@@ -47,6 +47,9 @@ class PeerConnectionFactory {
   explicit PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime);
   PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
                         bool zero_playout_delay);
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        bool zero_playout_delay,
+                        bool enable_warp);
   ~PeerConnectionFactory();
 
   std::shared_ptr<PeerConnection> create_peer_connection(
@@ -75,6 +78,10 @@ class PeerConnectionFactory {
   bool zero_playout_delay_enabled() const;
 
  private:
+  // Declaration order matters: rtc_runtime_ must be declared before
+  // adm_proxy_/audio_device_ so it is destroyed last. Releasing the proxy
+  // does a BlockingCall onto the runtime's worker thread, which must still
+  // be running at that point.
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
   std::shared_ptr<AudioDeviceController> audio_device_;
@@ -85,4 +92,7 @@ class PeerConnectionFactory {
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_zero_playout_delay();
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_options(bool zero_playout_delay,
+                                            bool enable_warp);
 }  // namespace livekit_ffi

@@ -1,15 +1,16 @@
-This directory can contain a checkout of WebRTC. The build scripts
-here will install dependencies, checkout the version that LiveKit
-currently uses, apply some patches to it, and build it. For example to
-do a Linux debug build on x64:
+This directory can contain a checkout of WebRTC from https://github.com/webrtc-sdk/webrtc. 
+The build scripts here will install dependencies, checkout the version that LiveKit
+currently uses, apply some patches to it, and build it. The currently used version is pinned in 
+`.gclient`. For example, the build command to do a Linux debug build on x64 is:
 
 ```sh
 $ ./build-linux.sh --arch x64 --profile release
 ```
 
 After running this, `linux-x64-debug/lib/libwebrtc.a` should
-exist. This can be rerun to rebuild it, but will complain about
-patches not applying as they have already been applied.
+exist. This can be rerun to rebuild it. Patches that are already applied
+are skipped, but a patch that neither applies nor is already applied stops
+the build, so a stale patch cannot produce a library that silently lacks it.
 
 If something goes wrong it may be helpful to consult the [WebRTC native
 development documentation](https://webrtc.googlesource.com/src/+/main/docs/native-code/development/).

@@ -15,6 +15,7 @@
 use std::fmt;
 
 /// A single HTTP/WebSocket request header.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone)]
 pub struct Header {
     pub name: String,
@@ -22,6 +23,7 @@ pub struct Header {
 }
 
 /// The result of an HTTP request performed by the transport.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status: u16,
@@ -31,6 +33,7 @@ pub struct HttpResponse {
 }
 
 /// Errors a transport implementation may return. Mapped onto `SignalError` by the caller.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 #[derive(Debug, Clone)]
 pub enum TransportError {
     Timeout,

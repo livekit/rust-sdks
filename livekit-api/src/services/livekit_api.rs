@@ -16,17 +16,19 @@ use std::time::Duration;
 
 use super::agent_dispatch::AgentDispatchClient;
 use super::connector::ConnectorClient;
+use super::databases::DatabaseClient;
 use super::egress::EgressClient;
 use super::ingress::IngressClient;
 use super::room::RoomClient;
 use super::sip::SIPClient;
+use super::threads::ThreadClient;
 use super::{ServiceBase, ServiceResult};
-use crate::get_env_keys;
 use crate::http_client;
+use livekit_token::get_env_keys;
 
 /// A single entry point to every LiveKit server API, exposing each service
 /// through an accessor (`room()`, `egress()`, `ingress()`, `sip()`,
-/// `agent_dispatch()`, `connector()`).
+/// `agent_dispatch()`, `connector()`, `threads()`, `databases()`).
 ///
 /// Construct it with an API key and secret ([`with_api_key`](Self::with_api_key),
 /// or [`new`](Self::new) to read them from the environment) for backend use, or
@@ -40,13 +42,15 @@ pub struct LiveKitApi {
     sip: SIPClient,
     agent_dispatch: AgentDispatchClient,
     connector: ConnectorClient,
+    threads: ThreadClient,
+    databases: DatabaseClient,
 }
 
 impl LiveKitApi {
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
         // One HTTP client shared across every service, so they reuse a single
         // connection pool instead of each opening its own.
-        let http = http_client::Client::new();
+        let http = http_client::client();
         let base = || ServiceBase::with_api_key(api_key, api_secret);
         Self {
             room: RoomClient::build(host, base(), http.clone()),
@@ -54,7 +58,9 @@ impl LiveKitApi {
             ingress: IngressClient::build(host, base(), http.clone()),
             sip: SIPClient::build(host, base(), http.clone()),
             agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
-            connector: ConnectorClient::build(host, base(), http),
+            connector: ConnectorClient::build(host, base(), http.clone()),
+            threads: ThreadClient::build(host, base(), http.clone()),
+            databases: DatabaseClient::build(host, base(), http),
         }
     }
 
@@ -69,7 +75,7 @@ impl LiveKitApi {
     /// The token's grants must cover the calls made through this client.
     pub fn with_token(host: &str, token: &str) -> Self {
         // One HTTP client shared across every service (see `with_api_key`).
-        let http = http_client::Client::new();
+        let http = http_client::client();
         let base = || ServiceBase::with_token(token);
         Self {
             room: RoomClient::build(host, base(), http.clone()),
@@ -77,7 +83,9 @@ impl LiveKitApi {
             ingress: IngressClient::build(host, base(), http.clone()),
             sip: SIPClient::build(host, base(), http.clone()),
             agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
-            connector: ConnectorClient::build(host, base(), http),
+            connector: ConnectorClient::build(host, base(), http.clone()),
+            threads: ThreadClient::build(host, base(), http.clone()),
+            databases: DatabaseClient::build(host, base(), http),
         }
     }
 
@@ -101,6 +109,8 @@ impl LiveKitApi {
         self.sip = self.sip.with_request_timeout(timeout);
         self.agent_dispatch = self.agent_dispatch.with_request_timeout(timeout);
         self.connector = self.connector.with_request_timeout(timeout);
+        self.threads = self.threads.with_request_timeout(timeout);
+        self.databases = self.databases.with_request_timeout(timeout);
         self
     }
 
@@ -145,5 +155,13 @@ impl LiveKitApi {
 
     pub fn connector(&self) -> &ConnectorClient {
         &self.connector
+    }
+
+    pub fn threads(&self) -> &ThreadClient {
+        &self.threads
+    }
+
+    pub fn databases(&self) -> &DatabaseClient {
+        &self.databases
     }
 }

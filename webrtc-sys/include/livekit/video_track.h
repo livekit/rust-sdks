@@ -126,6 +126,8 @@ class VideoTrackSource {
         std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
         std::make_shared<livekit::EncodedRateControlState>();
+    // Numbers encoded frames in delivery order; guarded by `mutex_`.
+    uint64_t encoded_sequence_number_ = 0;
     bool is_screencast_;
   };
 
@@ -137,16 +139,6 @@ class VideoTrackSource {
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame,
                          const FrameMetadata& frame_metadata)
       const;  // frames pushed from Rust (+interior mutability)
-
-  // Single-call DmaBuf capture: creates the DmaBufVideoFrameBuffer and
-  // VideoFrame internally, avoiding multiple FFI round-trips and heap
-  // allocations on the hot path.
-  bool capture_dmabuf_frame(int dmabuf_fd,
-                            int width,
-                            int height,
-                            int pixel_format,
-                            int64_t timestamp_us,
-                            const FrameMetadata& frame_metadata) const;
 
   bool capture_encoded_frame(int width,
                              int height,
@@ -171,6 +163,13 @@ class VideoTrackSource {
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
     const VideoResolution& resolution, bool is_screencast);
+
+#ifdef LIVEKIT_TEST
+// Captures encoded frames from several threads at once and returns the
+// sequence numbers in the order a sink received them.
+rust::Vec<uint64_t> encoded_capture_order_for_test(uint32_t threads,
+                                                   uint32_t frames_per_thread);
+#endif
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

@@ -121,7 +121,7 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
 }  // namespace
 
 std::optional<PacketTrailerMetadata> ParseTrailerPayload(
-    webrtc::ArrayView<const uint8_t> trailer) {
+    std::span<const uint8_t> trailer) {
   if (trailer.size() < kTrailerEnvelopeSize) {
     return std::nullopt;
   }
@@ -245,7 +245,7 @@ void PacketTrailerTransformer::TransformSend(
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
                              meta_to_embed.frame_id, meta_to_embed.user_data,
                              is_av1);
-    frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
+    frame->SetData(std::span<const uint8_t>(new_data));
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -352,7 +352,7 @@ void PacketTrailerTransformer::TransformReceive(
     }
 
     // Update frame with stripped data
-    frame->SetData(webrtc::ArrayView<const uint8_t>(stripped_data));
+    frame->SetData(std::span<const uint8_t>(stripped_data));
   }
   uint64_t receive_timestamp_us =
       subscribe_timing_enabled() ? CurrentUnixTimeMicros() : 0;
@@ -384,7 +384,7 @@ void PacketTrailerTransformer::TransformReceive(
 }
 
 std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
-    webrtc::ArrayView<const uint8_t> data,
+    std::span<const uint8_t> data,
     uint64_t user_timestamp,
     uint32_t frame_id,
     const std::vector<uint8_t>& user_data,
@@ -410,7 +410,7 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
 }
 
 std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
-    webrtc::ArrayView<const uint8_t> data,
+    std::span<const uint8_t> data,
     std::vector<uint8_t>& out_data,
     bool is_av1) {
   if (is_av1) {
@@ -439,7 +439,7 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
   // Walk the TLV region: everything from trailer_start up to the envelope.
   const uint8_t* trailer_start = data.data() + data.size() - trailer_len;
   auto meta = ParseTrailerPayload(
-      webrtc::ArrayView<const uint8_t>(trailer_start, trailer_len));
+      std::span<const uint8_t>(trailer_start, trailer_len));
   if (!meta.has_value()) {
     out_data.assign(data.begin(), data.end());
     return std::nullopt;

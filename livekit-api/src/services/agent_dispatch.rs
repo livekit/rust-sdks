@@ -13,12 +13,9 @@
 // limitations under the License.
 
 use super::{twirp_client::TwirpClient, ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::{
-    access_token::{AccessTokenError, VideoGrants},
-    get_env_keys,
-};
 use http::header::HeaderMap;
 use livekit_protocol as proto;
+use livekit_token::{get_env_keys, AccessTokenError, VideoGrants};
 
 const SVC: &str = "AgentDispatchService";
 
@@ -34,13 +31,13 @@ impl AgentDispatchClient {
         Self::build(
             host,
             ServiceBase::with_api_key(api_key, api_secret),
-            crate::http_client::Client::new(),
+            crate::http_client::client(),
         )
     }
 
     /// Authenticates with a pre-signed token, sent verbatim on every request.
     pub fn with_token(host: &str, token: &str) -> Self {
-        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::client())
     }
 
     /// Builds the client from an already-constructed HTTP client so the unified

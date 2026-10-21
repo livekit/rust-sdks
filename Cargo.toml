@@ -4,15 +4,21 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
+    "livekit-region",
     "livekit-common",
     "livekit-data-stream",
+    "livekit-rpc",
     "livekit-ffi",
-    "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-telemetry",
+    "livekit-token",
+    "livekit-token-source",
     "livekit-ffi-node-bindings",
+    "livekit-capture",
     "livekit-net",
-    "livekit-runtime",
+    "livekit-signaling",
     "livekit-wakeword",
+    "tools/bindgens",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -35,7 +41,7 @@ members = [
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",
-    "examples/send_bytes",
+    "examples/token_source",
     "examples/webhooks",
 ]
 
@@ -47,27 +53,31 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
-imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.42", path = "libwebrtc" }
-livekit = { version = "0.7.53", path = "livekit" }
-livekit-api = { version = "0.5.6", path = "livekit-api" }
-livekit-ffi = { version = "0.12.71", path = "livekit-ffi" }
-livekit-datatrack = { version = "0.1.11", path = "livekit-datatrack" }
-livekit-common = { version = "0.1.0", path = "livekit-common" }
-livekit-data-stream = { version = "0.1.0", path = "livekit-data-stream" }
-livekit-net = { version = "0.1.0", path = "livekit-net" }
-livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
-# default-features off so each consumer selects its runtime explicitly
-# (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`
-# feature is forced on everywhere and collides with `async`/`dispatcher` builds.
-livekit-runtime = { version = "0.4.0", path = "livekit-runtime", default-features = false }
+imgproc = { version = "0.3.20", path = "imgproc" }
+libwebrtc = { version = "0.3.53", path = "libwebrtc" }
+livekit = { version = "0.9.6", path = "livekit" }
+livekit-api = { version = "0.9.1", path = "livekit-api" }
+livekit-capture = { version = "0.1.6", path = "livekit-capture" }
+livekit-ffi = { version = "0.13.1", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.2.4", path = "livekit-datatrack" }
+livekit-telemetry = { version = "0.1.1", path = "livekit-telemetry" }
+livekit-signaling = { version = "0.1.7", path = "livekit-signaling" }
+livekit-token = { version = "0.3.1", path = "livekit-token" }
+livekit-token-source = { version = "0.1.4", path = "livekit-token-source" }
+livekit-common = { version = "0.1.6", path = "livekit-common" }
+livekit-data-stream = { version = "0.1.9", path = "livekit-data-stream" }
+livekit-net = { version = "0.1.4", path = "livekit-net" }
+livekit-protocol = { version = "0.8.2", path = "livekit-protocol" }
+livekit-region = { version = "0.1.1", path = "livekit-region" }
+livekit-rpc = { version = "0.1.5", path = "livekit-rpc" }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.39", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
-yuv-sys = { version = "0.3.14", path = "yuv-sys" }
+webrtc-sys = { version = "0.3.50", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.20", path = "webrtc-sys/build" }
+yuv-sys = { version = "0.3.15", path = "yuv-sys" }
 
 anyhow = "1.0"
 bytes = "1.10"
+chrono = "0.4.38"
 clap = "4.5"
 console-subscriber = "0.1"
 env_logger = "0.11"
@@ -82,11 +92,21 @@ prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
 rand = "0.9"
+schemars = "1.2"
 serde = "1"
 serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
+# Test on a 64-bit ARM device before you change this version.
+#
+# The Kotlin bindings from uniffi 0.31.2 and 0.32.0 compare each checksum incorrectly on 64-bit
+# ARM. Every affected method then fails. See https://github.com/mozilla/uniffi-rs/pull/2897, which
+# introduced the defect. Version 0.31.1 has a related defect on 32-bit ARM, and it also does not
+# build here, because uniffi-dart requires 0.31.2 or later. mozilla/uniffi-rs#2935 corrects both
+# defects, but no release (as of mid august 2026) contains that change.
+#
+# For this reason, livekit-ffi sets `omit_checksums` for Kotlin. See livekit-ffi/uniffi.toml.
 uniffi = "0.31"
 
 # For examples
@@ -98,6 +118,10 @@ wgpu = "29.0"
 winit = "0.30.13"
 hound = "3.5"
 cc = { version = "1.0", features = ["parallel"] }
+
+[profile.dev]
+debug = "line-tables-only"
+# Set to `true` instead for enhanced debugging at the cost of slower builds.
 
 [profile.release]
 opt-level = "z"

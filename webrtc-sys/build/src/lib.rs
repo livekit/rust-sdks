@@ -28,7 +28,7 @@ use regex::Regex;
 use reqwest::StatusCode;
 
 pub const SCRATH_PATH: &str = "livekit_webrtc";
-pub const WEBRTC_TAG: &str = "webrtc-51ef663";
+pub const WEBRTC_TAG: &str = "webrtc-89d790b";
 pub const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 pub fn target_os() -> String {
@@ -209,8 +209,22 @@ pub fn download_webrtc() -> Result<()> {
         return Ok(());
     }
 
-    let mut resp = reqwest::blocking::get(download_url())
-        .context("Failed to send HTTP request to download WebRTC")?;
+    let mut resp = reqwest::blocking::get(download_url());
+    for attempt in 1..3 {
+        let transient = match &resp {
+            Ok(resp) => {
+                resp.status().is_server_error() || resp.status() == StatusCode::TOO_MANY_REQUESTS
+            }
+            Err(_) => true,
+        };
+        if !transient {
+            break;
+        }
+        println!("cargo:warning=webrtc download attempt {} failed, retrying in 5s...", attempt);
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        resp = reqwest::blocking::get(download_url());
+    }
+    let mut resp = resp.context("Failed to send HTTP request to download WebRTC")?;
     if resp.status() != StatusCode::OK {
         return Err(anyhow!("failed to download webrtc: {}", resp.status()));
     }

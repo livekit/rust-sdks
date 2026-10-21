@@ -66,6 +66,20 @@ impl PeerConnectionFactory {
         Self { sys_handle }
     }
 
+    /// Creates a [`PeerConnectionFactory`] with the given runtime options.
+    /// `zero_playout_delay` enables the WebRTC-ForcePlayoutDelay field trial;
+    /// `enable_warp` enables WARP (SPED via the WebRTC-IceHandshakeDtls field
+    /// trial; SNAP is carried on the RtcConfiguration, not a field trial). The
+    /// two are independent and may be combined.
+    pub fn with_options(zero_playout_delay: bool, enable_warp: bool) -> Self {
+        ensure_log_sink();
+        let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_options(
+            zero_playout_delay,
+            enable_warp,
+        );
+        Self { sys_handle }
+    }
+
     #[cfg(test)]
     pub(crate) fn zero_playout_delay_enabled(&self) -> bool {
         self.sys_handle.zero_playout_delay_enabled()

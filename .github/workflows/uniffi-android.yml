@@ -1,6 +1,7 @@
 name: UniFFI Android package
 
-# Builds livekit-uniffi as an Android AAR and publishes it to Maven Central.
+# Builds livekit-ffi/core-modules as an Android AAR and publishes
+# it to Maven Central.
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
 # release has been resolved. Not triggered directly.
@@ -13,7 +14,7 @@ on:
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in publish logs for traceability
+        description: Source release tag (e.g., livekit-ffi/v0.13.0) — surfaced in publish logs for traceability
         required: true
         type: string
       dry_run:
@@ -24,35 +25,37 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  ANDROID_DIR: livekit-uniffi/support/android
+  ANDROID_DIR: livekit-ffi/support/android
 
 jobs:
   build-and-publish:
     name: Build & publish Android AAR
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          # Build the tagged source, not the dispatch ref (which defaults to main).
+          ref: ${{ inputs.tag_name }}
           submodules: recursive
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           cache: false
           rustflags: ""
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Install Common Deps for UniFFI Tasks
         uses: ./.github/actions/uniffi-deps
 
-      - uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287 # v5.3.0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: 17
 
       - name: Build Android package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         run: cargo make --profile release android-package
 
       - name: Publish to Maven Central

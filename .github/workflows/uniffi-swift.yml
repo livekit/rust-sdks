@@ -1,7 +1,8 @@
 name: UniFFI Swift package
 
-# Builds livekit-uniffi as a Swift xcframework and publishes it to the
-# livekit-uniffi-xcframework hosting repo (draft release + PR).
+# Builds livekit-ffi/core-modules as a Swift xcframework and
+# publishes it to the livekit-uniffi-xcframework hosting repo
+# (draft release + PR).
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
 # release has been resolved. Not triggered directly.
@@ -14,7 +15,7 @@ on:
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in PR/release bodies for traceability
+        description: Source release tag (e.g., livekit-ffi/v0.13.0) — surfaced in PR/release bodies for traceability
         required: true
         type: string
       dry_run:
@@ -29,9 +30,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   HOSTING_REPO: livekit/livekit-uniffi-xcframework
-  # SPM_NAME must match the value in livekit-uniffi/Makefile.toml [env].
-  SPM_NAME: LiveKitUniFFI
-  OUTPUT_DIR: livekit-uniffi/packages/swift/LiveKitUniFFI
+  # SPM_NAME must match the value in livekit-ffi/Makefile.toml [env].
+  SPM_NAME: LiveKitFFI
+  OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitFFI
 
 jobs:
   build-and-publish:
@@ -40,8 +41,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          # Build the tagged source, not the dispatch ref (which defaults to main).
+          ref: ${{ inputs.tag_name }}
           submodules: recursive
 
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
@@ -49,12 +52,12 @@ jobs:
           xcode-version: latest-stable
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           cache: false
           rustflags: ""
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Install Common Deps for UniFFI Tasks
         uses: ./.github/actions/uniffi-deps
@@ -75,7 +78,7 @@ jobs:
             aarch64-apple-visionos-sim
 
       - name: Build Swift package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         env:
           SPM_VERSION: ${{ inputs.version }}
           SPM_HOSTING_REPO: ${{ env.HOSTING_REPO }}
@@ -83,7 +86,7 @@ jobs:
 
       - name: Publish to hosting repo
         if: ${{ !inputs.dry_run }}
-        uses: livekit/publish-xcframework-action@200ee4984ef1b68068c0b3c4e87e798988730c90 # main @ fix: abort on missing source files (#3)
+        uses: livekit/publish-xcframework-action@a1bc3de909f9c0a2b7f92172a95d6dd35cb20b1a # main @ feat: allow path patterns as file sources (#5)
         with:
           xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ env.SPM_NAME }}.xcframework.zip
           version: ${{ inputs.version }}
@@ -94,7 +97,9 @@ jobs:
             ${{ env.OUTPUT_DIR }}/${{ env.SPM_NAME }}.podspec:${{ env.SPM_NAME }}.podspec
             ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
             ${{ env.OUTPUT_DIR }}/PrivacyInfo.xcprivacy:PrivacyInfo.xcprivacy
-            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift:Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift
+            # UniFFI emits one source per component, so match rather than list them:
+            # adding a component must not require a workflow change.
+            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/*.swift:Sources/${{ env.SPM_NAME }}/
           token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
           pr-body: |
             Source tag: `${{ inputs.tag_name }}`

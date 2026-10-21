@@ -24,6 +24,16 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Trusted publishing cannot create a new crate (see release.yml). This check
+  # runs on the release PR, which is the last gate before publication.
+  check-crates-published:
+    name: Check crates exist on crates.io
+    if: github.head_ref == 'knope/release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: .github/scripts/check_crates_published.sh
+
   check-changeset:
     name: Check for changeset
     runs-on: ubuntu-latest
@@ -123,6 +133,46 @@ jobs:
             )
             upsert_comment "$COMMENT_BODY" || true
             echo "::error::Changeset front matter contains bump lines knope would ignore (quoted package names). See the PR comment for fixes."
+            exit 1
+          fi
+
+          # --- Gate: knope.toml must stay in sync with the workspace ---
+          # A publishable crate missing from knope.toml silently escapes changeset
+          # enforcement and is never released; a knope entry with no matching crate
+          # is dangling config. Either is a release-pipeline bug, so fail hard until
+          # the config is reconciled. This runs before the "no versioned packages"
+          # early-out below because a brand-new unmanaged crate maps to no knope
+          # package and would otherwise slip through as "nothing affected".
+          NUM_UNMANAGED=$(echo "$DETECTION" | jq '.unmanaged | length')
+          NUM_STALE=$(echo "$DETECTION" | jq '.stale | length')
+          if [ "$NUM_UNMANAGED" != "0" ] || [ "$NUM_STALE" != "0" ]; then
+            COMMENT_BODY=$(
+              echo "$COMMENT_MARKER"
+              echo "### knope.toml is out of sync with the workspace"
+              echo ""
+              if [ "$NUM_UNMANAGED" != "0" ]; then
+                UNMANAGED_LIST=$(echo "$DETECTION" | jq -r '.unmanaged[] | "- `\(.)`"')
+                echo "These publishable crates are **not** managed by knope, so they would never get a changeset requirement or a release:"
+                echo ""
+                echo "$UNMANAGED_LIST"
+                echo ""
+                echo "Fix each one by **either**:"
+                echo "- adding a \`[packages.<name>]\` block to \`knope.toml\` (if it should be released), **or**"
+                echo "- setting \`publish = false\` in its \`Cargo.toml\` (if it should not)."
+                echo ""
+              fi
+              if [ "$NUM_STALE" != "0" ]; then
+                STALE_LIST=$(echo "$DETECTION" | jq -r '.stale[] | "- `\(.)`"')
+                echo "These \`knope.toml\` packages have no matching workspace crate (renamed or removed?):"
+                echo ""
+                echo "$STALE_LIST"
+                echo ""
+                echo "Remove the stale \`[packages.<name>]\` block(s) from \`knope.toml\`."
+                echo ""
+              fi
+            )
+            upsert_comment "$COMMENT_BODY" || echo "::warning::Could not post PR comment (this can happen for fork PRs with limited permissions)"
+            echo "::error::knope.toml is out of sync with the workspace (unmanaged: ${NUM_UNMANAGED}, stale: ${NUM_STALE}). See the PR comment for details."
             exit 1
           fi
 

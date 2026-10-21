@@ -35,14 +35,14 @@ use super::failover::FailoverConfig;
 use super::sip::CreateSIPParticipantOptions;
 use super::twirp_client::{ServerError, ServerResult, TwirpClient};
 use super::{LiveKitApi, ServiceError, SipCallError, LIVEKIT_PACKAGE};
-use crate::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 
 fn base_url() -> String {
     std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned())
 }
 
 async fn reachable(base: &str) -> bool {
-    reqwest::Client::new()
+    crate::http_client::client()
         .get(format!("{base}/settings/regions"))
         .send()
         .await
@@ -359,6 +359,47 @@ async fn egress_smoke() {
         )
         .await
         .expect("start_track_egress");
+    egress
+        .start_egress(proto::StartEgressRequest {
+            room_name: "test-room".to_owned(),
+            source: Some(proto::start_egress_request::Source::Web(proto::WebSource {
+                url: "https://example.com/scene".to_owned(),
+                ..Default::default()
+            })),
+            outputs: vec![proto::Output {
+                config: Some(proto::output::Config::File(proto::FileOutput {
+                    file_type: proto::EncodedFileType::Mp4 as i32,
+                    filepath: "unified.mp4".to_owned(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .await
+        .expect("start_egress");
+    egress
+        .start_egress(proto::StartEgressRequest {
+            room_name: "test-room".to_owned(),
+            source: Some(proto::start_egress_request::Source::Media(proto::MediaSource {
+                video: Some(proto::media_source::Video::VideoTrackId("TR_video1".to_owned())),
+                ..Default::default()
+            })),
+            encoding: Some(proto::start_egress_request::Encoding::Preset(
+                proto::EncodingOptionsPreset::Passthrough as i32,
+            )),
+            outputs: vec![proto::Output {
+                config: Some(proto::output::Config::File(proto::FileOutput {
+                    file_type: proto::EncodedFileType::Mp4 as i32,
+                    filepath: "passthrough.mp4".to_owned(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .await
+        .expect("start_egress passthrough");
     egress.update_layout("EG_abc123", "speaker").await.expect("update_layout");
     egress
         .update_stream("EG_abc123", vec!["rtmps://b.example.com/live/key".to_owned()], vec![])
@@ -689,7 +730,7 @@ async fn sip_busy() {
     skip_if_offline!(base);
     let err = sip_error(r#"{"code":486,"status":"Busy Here"}"#).await;
     let e = SipCallError::from_error(&err).expect("should decode a SipCallError");
-    assert_eq!(e.code(), "resource_exhausted");
+    assert_eq!(e.code(), "failed_precondition");
     assert_eq!(e.sip_status_code(), Some(486));
     assert_eq!(e.sip_status(), Some("Busy Here"));
     let s = e.to_string();

@@ -108,6 +108,14 @@ impl Manager {
     }
 
     async fn on_publish_request(&mut self, event: PublishRequest) {
+        if let Err(error) = crate::schema::validate_schema(
+            event.options.frame_encoding.as_ref(),
+            event.options.schema.as_ref().map(|id| id.encoding()),
+        ) {
+            _ = event.result_tx.send(Err(PublishError::InvalidSchema(error)));
+            return;
+        }
+
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -123,7 +131,7 @@ impl Manager {
         let (result_tx, result_rx) = oneshot::channel();
         self.descriptors.insert(handle, Descriptor::Pending(result_tx));
 
-        livekit_runtime::spawn(Self::forward_publish_result(
+        tokio::spawn(Self::forward_publish_result(
             handle,
             result_rx,
             event.result_tx,
@@ -134,6 +142,8 @@ impl Manager {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
+            schema: event.options.schema,
+            frame_encoding: event.options.frame_encoding,
         };
         _ = self.event_out_tx.send(event.into()).await;
     }
@@ -246,7 +256,7 @@ impl Manager {
             event_in_tx: self.event_in_tx.clone(),
             event_out_tx: self.event_out_tx.clone(),
         };
-        let task_handle = livekit_runtime::spawn(track_task.run());
+        let task_handle = tokio::spawn(track_task.run());
 
         self.descriptors.insert(
             info.pub_handle,
@@ -286,6 +296,8 @@ impl Manager {
                         handle: info.pub_handle,
                         name: info.name.clone(),
                         uses_e2ee: info.uses_e2ee,
+                        schema: info.schema.clone(),
+                        frame_encoding: info.frame_encoding.clone(),
                     };
                     _ = state_tx.send(PublishState::Republishing);
                     _ = self.event_out_tx.send(event.into()).await;
@@ -304,7 +316,7 @@ impl Manager {
                 }
                 Descriptor::Active { state_tx, task_handle, .. } => {
                     _ = state_tx.send(PublishState::Unpublished);
-                    task_handle.await;
+                    let _ = task_handle.await;
                 }
             }
         }
@@ -314,7 +326,10 @@ impl Manager {
     const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
-    const EVENT_BUFFER_COUNT: usize = 16;
+    ///
+    /// Must exceed a burst of track lifecycle events. A full channel blocks
+    /// the manager and can deadlock room disconnect.
+    const EVENT_BUFFER_COUNT: usize = 512;
 }
 
 /// Task for an individual published data track.
@@ -385,7 +400,7 @@ enum Descriptor {
     Active {
         info: Arc<DataTrackInfo>,
         state_tx: watch::Sender<PublishState>,
-        task_handle: livekit_runtime::JoinHandle<()>,
+        task_handle: tokio::task::JoinHandle<()>,
     },
 }
 
@@ -489,8 +504,8 @@ mod tests {
     use bytes::Bytes;
     use fake::{Fake, Faker};
     use futures_util::StreamExt;
-    use livekit_runtime::{sleep, timeout};
     use std::sync::RwLock;
+    use tokio::time::{sleep, timeout};
 
     #[derive(Debug)]
     struct PrefixingEncryptor;
@@ -509,10 +524,10 @@ mod tests {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager.run());
+        let join_handle = tokio::spawn(manager.run());
         _ = input.send(InputEvent::Shutdown);
 
-        timeout(Duration::from_secs(1), join_handle).await.unwrap();
+        timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -526,7 +541,7 @@ mod tests {
 
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_name_clone = track_name.clone();
         let handle_events = async {
@@ -543,6 +558,8 @@ mod tests {
                             pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
+                            schema: None,
+                            frame_encoding: None,
                         };
                         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
                         _ = input.send(event.into());
@@ -583,7 +600,7 @@ mod tests {
     async fn test_publish_sfu_error() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
@@ -602,7 +619,7 @@ mod tests {
     async fn test_publish_cancelled() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
@@ -622,6 +639,8 @@ mod tests {
             pub_handle: handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -635,7 +654,7 @@ mod tests {
     async fn test_publish_with_e2ee() {
         let options = ManagerOptions { encryption_provider: Some(Arc::new(PrefixingEncryptor)) };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("secure"), result_tx };
@@ -652,6 +671,8 @@ mod tests {
             pub_handle: event.handle,
             name: "secure".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -673,7 +694,7 @@ mod tests {
     async fn test_republish_tracks() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Publish a track through the full flow
         let track_name: String = Faker.fake();
@@ -692,6 +713,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -717,6 +740,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -731,7 +756,7 @@ mod tests {
     async fn test_query_published() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Publish two tracks
         let mut tracks = Vec::new();
@@ -746,6 +771,8 @@ mod tests {
                 pub_handle: event.handle,
                 name: name.into(),
                 uses_e2ee: false,
+                schema: None,
+                frame_encoding: None,
             };
             let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
             input.send(event.into()).unwrap();
@@ -765,7 +792,7 @@ mod tests {
     async fn test_shutdown_with_pending_and_active() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Pending publication (no SFU response sent)
         let (result_tx, pending_rx) = oneshot::channel();
@@ -785,6 +812,8 @@ mod tests {
             pub_handle: event.handle,
             name: "active".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();

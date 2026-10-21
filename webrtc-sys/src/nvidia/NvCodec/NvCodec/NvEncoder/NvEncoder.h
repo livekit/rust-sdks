@@ -116,8 +116,8 @@ class NvEncoder {
 
   /**
    *  @brief  Dynamically updates the encode bitrate and framerate on the live
-   *  session. Returns false if the encoder is not initialized or reconfigure
-   *  fails.
+   *  session. Returns false if the encoder is not initialized and throws
+   *  NVENCException if reconfiguration fails.
    */
   bool SetRates(uint32_t frameRate, uint32_t averageBitrate);
 

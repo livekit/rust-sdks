@@ -31,7 +31,7 @@ required-features = ["desktop"]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 tokio-stream = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-livekit-api = { workspace = true }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 yuv-sys = { workspace = true, features = ["jpeg"] }
 futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -45,7 +45,7 @@ wgpu = { workspace = true }
 winit = { workspace = true, features = [ "android-native-activity" ] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 anyhow = { workspace = true }
-chrono = "0.4"
+chrono = { workspace = true }
 bytemuck = { version = "1.16", features = ["derive"] }
 
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["output-threaded"] }

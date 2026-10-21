@@ -332,6 +332,60 @@ async fn test_dynacast() -> Result<()> {
     Ok(())
 }
 
+/// Verifies that layers paused by dynacast stay paused after a publisher renegotiation.
+///
+/// The SFU answer drops the SDP pause markers, so applying it re-enables the paused layers.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_dynacast_layers_stay_paused_after_renegotiation() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+
+    let mut rooms = test_rooms_with_options([pub_options, TestRoomOptions::default()]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params.clone());
+    solid_track.publish(VideoCodec::VP8, true).await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+    let pub_video_track = publisher_video_track(&pub_room)?;
+
+    let only_low = |layers: &[PublishingLayer]| {
+        layers.len() > 1
+            && layers
+                .iter()
+                .all(|layer| layer.active == (layer.quality == PublishingLayerQuality::Low))
+    };
+
+    sub_publication.set_video_quality(VideoQuality::Low);
+    wait_for_layers(&pub_video_track, "after LOW request", Duration::from_secs(30), only_low)
+        .await?;
+
+    // Publishing a second track renegotiates the publisher peer connection.
+    let mut second_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    second_track.publish(VideoCodec::VP8, false).await?;
+    time::sleep(Duration::from_secs(3)).await;
+
+    let layers = pub_video_track.publishing_layers();
+    assert!(only_low(&layers), "expected only Low active after renegotiation, got {:?}", layers);
+
+    Ok(())
+}
+
 /// Verifies dynacast with a publisher that does not provide RTP send encodings.
 ///
 /// WebRTC creates a single default encoding without a RID in this case. The SFU

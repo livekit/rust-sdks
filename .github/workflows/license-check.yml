@@ -18,7 +18,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check License Headers
         shell: bash
         run: |
@@ -37,4 +37,9 @@ jobs:
             -ignore "soxr-sys/src/**/*" \
             -ignore "livekit-protocol/src/livekit.rs" \
             -ignore "livekit-protocol/src/livekit.serde.rs" \
+            -ignore "livekit-protocol/src/livekit.agent.rs" \
+            -ignore "livekit-protocol/src/livekit.agent.serde.rs" \
+            -ignore "livekit-protocol/src/logger.rs" \
+            -ignore "livekit-protocol/src/logger.serde.rs" \
+            -ignore "livekit-api/src/public_api/generated.rs" \
              **/*.{rs,cpp,c}
