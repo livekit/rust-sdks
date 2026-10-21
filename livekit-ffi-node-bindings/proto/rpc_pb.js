@@ -48,6 +48,7 @@ const PerformRpcRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 4, name: "payload", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 5, name: "response_timeout_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 6, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 7, name: "max_round_trip_latency_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 

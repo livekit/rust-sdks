@@ -7,7 +7,7 @@ index 9348e15c3c..f34db7ff98 100644
    }
    if (is_linux || is_chromeos || is_android || current_os == "aix") {
 -    if (!is_clang) {
-+    if (!is_clang && (current_cpu == "x86" || current_cpu == "x64")) {
++    if (!is_clang && (current_cpu == "x86" || current_cpu == "x64" || current_cpu == "arm" || current_cpu == "arm64")) {
        dav1d_copts += [ "-D_GNU_SOURCE" ]
      }
    }

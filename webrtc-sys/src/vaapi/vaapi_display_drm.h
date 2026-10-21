@@ -11,14 +11,14 @@ class VaapiDisplayDrm {
  public:
   VaapiDisplayDrm() = default;
   VaapiDisplayDrm(const VaapiDisplayDrm&) = delete;
-  ~VaapiDisplayDrm() = default;
+  ~VaapiDisplayDrm();
 
   // Initialize the VAAPI display
   bool Open();
 
   // Check if the VAAPI display is open
   bool isOpen() const;
-  
+
   // Close the VAAPI display
   void Close();
 
@@ -26,8 +26,8 @@ class VaapiDisplayDrm {
   VADisplay display() const { return va_display_; }
 
  private:
-  VADisplay va_display_;
-  int drm_fd_;
+  VADisplay va_display_ = nullptr;
+  int drm_fd_ = -1;
 };
 
 }  // namespace livekit_ffi

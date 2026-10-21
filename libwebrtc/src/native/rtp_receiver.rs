@@ -17,8 +17,12 @@ use tokio::sync::oneshot;
 use webrtc_sys::rtp_receiver as sys_rr;
 
 use crate::{
-    imp::media_stream_track::new_media_stream_track, media_stream_track::MediaStreamTrack,
-    rtp_parameters::RtpParameters, stats::RtcStats, RtcError, RtcErrorType,
+    imp::{media_stream as imp_ms, media_stream_track::new_media_stream_track},
+    media_stream::MediaStream,
+    media_stream_track::MediaStreamTrack,
+    rtp_parameters::RtpParameters,
+    stats::RtcStats,
+    RtcError, RtcErrorType,
 };
 
 #[derive(Clone)]
@@ -34,6 +38,18 @@ impl RtpReceiver {
         }
 
         Some(new_media_stream_track(track_handle))
+    }
+
+    pub fn stream_ids(&self) -> Vec<String> {
+        self.sys_handle.stream_ids()
+    }
+
+    pub fn streams(&self) -> Vec<MediaStream> {
+        self.sys_handle
+            .streams()
+            .into_iter()
+            .map(|s| MediaStream { handle: imp_ms::MediaStream { sys_handle: s.ptr } })
+            .collect()
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {

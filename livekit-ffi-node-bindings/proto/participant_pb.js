@@ -64,6 +64,7 @@ const ParticipantKindDetail = /*@__PURE__*/ proto2.makeEnum(
     {no: 2, name: "PARTICIPANT_KIND_DETAIL_CONNECTOR_WHATSAPP", localName: "CONNECTOR_WHATSAPP"},
     {no: 3, name: "PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO", localName: "CONNECTOR_TWILIO"},
     {no: 4, name: "PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP", localName: "BRIDGE_RTSP"},
+    {no: 5, name: "PARTICIPANT_KIND_DETAIL_SIMULATION", localName: "SIMULATION"},
   ],
 );
 
@@ -110,6 +111,7 @@ const ParticipantInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "joined_at", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
     { no: 10, name: "kind_details", kind: "enum", T: proto2.getEnumType(ParticipantKindDetail), repeated: true },
     { no: 11, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
+    { no: 12, name: "client_protocol", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
   ],
 );
 

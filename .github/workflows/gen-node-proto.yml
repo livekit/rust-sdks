@@ -5,11 +5,11 @@ on:
     branches:
       - main
     paths:
-      - livekit-ffi/**
+      # Only the protos this job regenerates from. livekit-ffi/** would now fire
+      # on every core-modules change too, and this job auto-commits.
+      - livekit-ffi/protocol/**
       - livekit-ffi-node-bindings/**
-      - Cargo.lock
-      - Cargo.toml
-      - .github/**
+      - .github/workflows/gen-node-proto.yml
   workflow_dispatch:
   workflow_call:
 
@@ -31,10 +31,11 @@ jobs:
       run:
         working-directory: ${{ env.PACKAGE_DIR }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
@@ -47,7 +48,7 @@ jobs:
           package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: pnpm

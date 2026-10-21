@@ -21,8 +21,8 @@ pub use crate::{
     media_stream::MediaStream,
     media_stream_track::{MediaStreamTrack, RtcTrackState},
     peer_connection::{
-        AnswerOptions, IceConnectionState, IceGatheringState, OfferOptions, PeerConnection,
-        PeerConnectionState, SignalingState,
+        AnswerOptions, BitrateSettings, IceConnectionState, IceGatheringState, OfferOptions,
+        PeerConnection, PeerConnectionState, SignalingState,
     },
     peer_connection_factory::{
         ContinualGatheringPolicy, IceServer, IceTransportsType, PeerConnectionFactory,
@@ -30,7 +30,7 @@ pub use crate::{
     },
     rtp_parameters::*,
     rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
+    rtp_sender::{RtpSender, VideoEncoderBackend},
     rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit},
     session_description::{SdpType, SessionDescription},
     video_frame::{

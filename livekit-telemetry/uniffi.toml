@@ -1,0 +1,7 @@
+[bindings.swift]
+ffi_module_name = "RustLiveKitTelemetry"
+
+[bindings.kotlin]
+# The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; see
+# livekit-uniffi/uniffi.toml for the full explanation.
+omit_checksums = true

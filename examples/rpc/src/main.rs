@@ -153,12 +153,10 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
 
                 match math_genius_room
                     .local_participant()
-                    .perform_rpc(PerformRpcData {
-                        destination_identity: data.caller_identity.to_string(),
-                        method: "provide-intermediate".to_string(),
-                        payload: json!({"original": number}).to_string(),
-                        ..Default::default()
-                    })
+                    .perform_rpc(
+                        PerformRpcData::new(data.caller_identity.clone(), "provide-intermediate")
+                            .with_payload(json!({"original": number}).to_string()),
+                    )
                     .await
                 {
                     Ok(intermediate_response) => {
@@ -189,12 +187,7 @@ async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Letting the greeter know that I've arrived", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData {
-            destination_identity: "greeter".to_string(),
-            method: "arrival".to_string(),
-            payload: "Hello".to_string(),
-            ..Default::default()
-        })
+        .perform_rpc(PerformRpcData::new("greeter", "arrival").with_payload("Hello"))
         .await
     {
         Ok(response) => {
@@ -209,12 +202,10 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
     println!("[{}] What's the square root of 16?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData {
-            destination_identity: "math-genius".to_string(),
-            method: "square-root".to_string(),
-            payload: json!({"number": 16}).to_string(),
-            ..Default::default()
-        })
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "square-root")
+                .with_payload(json!({"number": 16}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -232,12 +223,10 @@ async fn perform_quantum_hypergeometric_series(
     println!("[{}] What's the quantum hypergeometric series of 42?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData {
-            destination_identity: "math-genius".to_string(),
-            method: "quantum-hypergeometric-series".to_string(),
-            payload: json!({"number": 42}).to_string(),
-            ..Default::default()
-        })
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "quantum-hypergeometric-series")
+                .with_payload(json!({"number": 42}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -259,12 +248,10 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Let's try dividing 5 by 0", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData {
-            destination_identity: "math-genius".to_string(),
-            method: "divide".to_string(),
-            payload: json!({"dividend": 5, "divisor": 0}).to_string(),
-            ..Default::default()
-        })
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "divide")
+                .with_payload(json!({"dividend": 5, "divisor": 0}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -299,12 +286,10 @@ async fn perform_nested_calculation(room: &Arc<Room>) -> Result<(), Box<dyn std:
     println!("[{}] Starting nested calculation with value 5", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData {
-            destination_identity: "math-genius".to_string(),
-            method: "nested-calculation".to_string(),
-            payload: json!({"number": 5.0}).to_string(),
-            ..Default::default()
-        })
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "nested-calculation")
+                .with_payload(json!({"number": 5.0}).to_string()),
+        )
         .await
     {
         Ok(response) => {

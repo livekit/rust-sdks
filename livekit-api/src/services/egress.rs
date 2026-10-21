@@ -15,7 +15,8 @@
 use livekit_protocol as proto;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
+use crate::services::twirp_client::TwirpClient;
+use livekit_token::{get_env_keys, VideoGrants};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum AudioMixing {
@@ -84,17 +85,20 @@ pub enum TrackEgressOutput {
     WebSocket(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum EgressListFilter {
+    #[default]
     All,
     Egress(String),
     Room(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EgressListOptions {
     pub filter: EgressListFilter,
     pub active: bool,
+    /// Pagination token, e.g. from a previous response's `next_page_token`.
+    pub page_token: Option<proto::TokenPagination>,
 }
 
 const SVC: &str = "Egress";
@@ -106,16 +110,50 @@ pub struct EgressClient {
 }
 
 impl EgressClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            base: ServiceBase::with_api_key(api_key, api_secret),
-            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
-        }
+        Self::build(
+            host,
+            ServiceBase::with_api_key(api_key, api_secret),
+            crate::http_client::client(),
+        )
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::client())
+    }
+
+    /// Builds the client from an already-constructed HTTP client so the unified
+    /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
+    pub(crate) fn build(host: &str, base: ServiceBase, client: crate::http_client::Client) -> Self {
+        Self { base, client: TwirpClient::with_client(host, LIVEKIT_PACKAGE, None, client) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
+    }
+
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
     }
 
     pub async fn start_room_composite_egress(
@@ -280,6 +318,25 @@ impl EgressClient {
             .map_err(Into::into)
     }
 
+    /// Starts an egress using the unified v2 [`StartEgressRequest`](proto::StartEgressRequest),
+    /// which supersedes the per-source `start_*_egress` helpers. Calls the
+    /// `Egress.StartEgress` RPC and returns the created [`EgressInfo`](proto::EgressInfo).
+    pub async fn start_egress(
+        &self,
+        request: proto::StartEgressRequest,
+    ) -> ServiceResult<proto::EgressInfo> {
+        self.client
+            .request(
+                SVC,
+                "StartEgress",
+                request,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn update_layout(
         &self,
         egress_id: &str,
@@ -340,7 +397,12 @@ impl EgressClient {
             .request(
                 SVC,
                 "ListEgress",
-                proto::ListEgressRequest { room_name, egress_id, active: options.active },
+                proto::ListEgressRequest {
+                    room_name,
+                    egress_id,
+                    active: options.active,
+                    page_token: options.page_token,
+                },
                 self.base
                     .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )

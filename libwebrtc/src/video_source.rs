@@ -20,6 +20,15 @@ pub struct VideoResolution {
     pub height: u32,
 }
 
+/// Encoder rate-control target requested by WebRTC for a pre-encoded source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EncodedRateControl {
+    /// Target bitrate in bits per second.
+    pub target_bitrate_bps: u64,
+    /// Target frame rate in frames per second.
+    pub framerate_fps: f64,
+}
+
 impl Default for VideoResolution {
     // Default to 720p
     fn default() -> Self {
@@ -49,7 +58,12 @@ pub mod native {
 
     use super::*;
     use crate::native::packet_trailer::PacketTrailerHandler;
-    use crate::video_frame::{VideoBuffer, VideoFrame};
+    #[cfg(target_os = "linux")]
+    use crate::video_frame::{
+        native::{DmaBufPixelFormat, NativeBuffer},
+        FrameMetadata, VideoRotation,
+    };
+    use crate::video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {
@@ -73,8 +87,90 @@ pub mod native {
             Self { handle: vs_imp::NativeVideoSource::new(resolution, is_screencast) }
         }
 
-        pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
+        /// Creates a source for pre-encoded access units: no raw black-frame
+        /// keepalive is injected before the first capture.
+        pub fn new_encoded(resolution: VideoResolution) -> Self {
+            Self { handle: vs_imp::NativeVideoSource::new_encoded(resolution) }
+        }
+
+        pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) -> bool {
             self.handle.capture_frame(frame)
+        }
+
+        /// Captures a Jetson DMA-buffer backed video frame.
+        ///
+        /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+        #[cfg(target_os = "linux")]
+        #[deprecated(
+            note = "wrap the fd with `NativeBuffer::from_dmabuf` and use `capture_frame` instead"
+        )]
+        #[allow(deprecated)]
+        pub fn capture_dmabuf_frame(
+            &self,
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            timestamp_us: i64,
+        ) -> bool {
+            self.capture_dmabuf_frame_with_metadata(
+                dmabuf_fd,
+                width,
+                height,
+                pixel_format,
+                timestamp_us,
+                None,
+            )
+        }
+
+        /// Captures a Jetson DMA-buffer backed video frame with packet trailer metadata.
+        ///
+        /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+        #[cfg(target_os = "linux")]
+        #[deprecated(
+            note = "wrap the fd with `NativeBuffer::from_dmabuf` and use `capture_frame` instead"
+        )]
+        pub fn capture_dmabuf_frame_with_metadata(
+            &self,
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            timestamp_us: i64,
+            frame_metadata: Option<FrameMetadata>,
+        ) -> bool {
+            let pixel_format = if pixel_format == 0 {
+                DmaBufPixelFormat::NV12
+            } else {
+                DmaBufPixelFormat::YUV420M
+            };
+            self.handle.capture_frame(&VideoFrame {
+                rotation: VideoRotation::VideoRotation0,
+                timestamp_us,
+                frame_metadata,
+                buffer: NativeBuffer::from_dmabuf(
+                    dmabuf_fd,
+                    VideoResolution { width, height },
+                    pixel_format,
+                ),
+            })
+        }
+
+        /// Captures one pre-encoded video access unit.
+        pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
+            self.handle.capture_encoded_frame(frame)
+        }
+
+        /// Returns and clears the pending keyframe request raised by the
+        /// pass-through encoder (PLI/FIR or reconfiguration).
+        pub fn take_keyframe_request(&self) -> bool {
+            self.handle.take_keyframe_request()
+        }
+
+        /// Returns and clears the pending rate-control target raised by the
+        /// pass-through encoder.
+        pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+            self.handle.take_rate_control_request()
         }
 
         /// Set the packet trailer handler used by this source.

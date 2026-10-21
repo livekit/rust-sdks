@@ -33,6 +33,7 @@ message ParticipantInfo {
   required int64 joined_at = 9;
   repeated ParticipantKindDetail kind_details = 10;
   optional ParticipantPermission permission = 11;
+  required int32 client_protocol = 12;
 }
 
 message OwnedParticipant {
@@ -63,6 +64,7 @@ enum ParticipantKindDetail {
   PARTICIPANT_KIND_DETAIL_CONNECTOR_WHATSAPP = 2;
   PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO = 3;
   PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP = 4;
+  PARTICIPANT_KIND_DETAIL_SIMULATION = 5;
 }
 
 enum DisconnectReason {

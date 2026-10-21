@@ -115,6 +115,11 @@ export declare enum ParticipantKindDetail {
    * @generated from enum value: PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP = 4;
    */
   BRIDGE_RTSP = 4,
+
+  /**
+   * @generated from enum value: PARTICIPANT_KIND_DETAIL_SIMULATION = 5;
+   */
+  SIMULATION = 5,
 }
 
 /**
@@ -293,6 +298,11 @@ export declare class ParticipantInfo extends Message<ParticipantInfo> {
    * @generated from field: optional livekit.proto.ParticipantPermission permission = 11;
    */
   permission?: ParticipantPermission;
+
+  /**
+   * @generated from field: required int32 client_protocol = 12;
+   */
+  clientProtocol?: number;
 
   constructor(data?: PartialMessage<ParticipantInfo>);
 

@@ -52,22 +52,21 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
-            e2e-testing: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            e2e-testing: true
-
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
           submodules: true
 
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update nightly
-          rustup target add ${{ matrix.target }} --toolchain nightly
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
 
       - name: Install Protoc
         uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
@@ -75,13 +74,22 @@ jobs:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Ubuntu 24 ships clang 18; webrtc-sys needs 21+ for libwebrtc's hermetic
+      # libc++. Must run before the sccache step, which wraps whatever CC/CXX
+      # this sets. (The previous default here was the host `cc`/`c++`, i.e. GCC,
+      # which webrtc-sys/build.rs now rejects outright: GCC silently ignores
+      # libc++'s trivial_abi annotations and miscompiles unique_ptr returns.)
+      - name: Install clang for webrtc-sys
+        if: ${{ runner.os == 'Linux' }}
+        run: .github/scripts/install-clang.sh
+
       # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
       # in `webrtc-sys`. The Mozilla action installs the binary; the probe
       # step below only enables wrapping if the GHA cache backend is reachable
       # (it occasionally returns transient HTTP 400s that crash sccache
       # startup — we want builds to continue, not fail, in that case).
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
       - name: Enable sccache wrapping (probe first)
         shell: bash
@@ -95,9 +103,11 @@ jobs:
             # All three matrix targets in tests.yml are host targets (no
             # cross-compile), so wrapping CC/CXX is safe. Skip on Windows:
             # MSVC `cl` setup needs more care.
+            # On Linux CC/CXX already point at the clang installed above; keep
+            # that compiler and just prepend the wrapper.
             if [ "${{ runner.os }}" != "Windows" ]; then
-              echo "CC=sccache cc"  >> "$GITHUB_ENV"
-              echo "CXX=sccache c++" >> "$GITHUB_ENV"
+              echo "CC=sccache ${CC:-cc}"   >> "$GITHUB_ENV"
+              echo "CXX=sccache ${CXX:-c++}" >> "$GITHUB_ENV"
             fi
             echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
           else
@@ -148,64 +158,52 @@ jobs:
             libxcomposite-dev \
             libglib2.0-dev
 
-      # Use the official install script for latest. If it fails (typically
-      # because GitHub's unauthenticated API rate-limit fires and the script
-      # can't resolve the latest tag → `Invalid version:`), fall back to a
-      # pinned release downloaded directly from GitHub releases. The fallback
-      # version is bumped manually here when needed; e2e tests don't need
-      # bleeding-edge server features.
-      - name: Install LiveKit server
-        if: ${{ matrix.e2e-testing }}
+      - name: Run LiveKit dev server
+        uses: livekit/dev-server-action@61e2b4dcb170dd3591e0c9b0db3c3fe5db93b500
+        with:
+          github-token: ${{ github.token }}
+          config: |
+            # TODO: Remove once this is enabled by default.
+            enable_participant_data_blob: true
+      - name: Test
         env:
-          LIVEKIT_FALLBACK_VERSION: v1.11.0
+          RUST_LOG: info
+        shell: bash
         run: |
-          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            brew install livekit
-            exit 0
-          fi
+          cargo test --verbose \
+            --target ${{ matrix.target }} \
+            --features __lk-e2e-test \
+            -- \
+            --nocapture \
+            --test-threads=1
 
-          # Linux: try the install script first. errexit is suppressed inside
-          # an `if` condition, so a failed install just falls through to the
-          # fallback path instead of aborting.
-          if curl -sSL https://get.livekit.io | bash; then
-            echo "Installed livekit-server via install.livekit.io"
-            exit 0
-          fi
+      - name: Test transport seam (livekit-net / livekit-signaling)
+        shell: bash
+        run: |
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
 
-          echo "::warning::install.livekit.io failed (likely API rate-limit); falling back to ${LIVEKIT_FALLBACK_VERSION}"
-          mkdir -p ~/.local/bin
-          case "${{ runner.arch }}" in
-            X64)   asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_amd64.tar.gz" ;;
-            ARM64) asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_arm64.tar.gz" ;;
-            *) echo "::error::no livekit-server linux asset for arch ${{ runner.arch }}"; exit 1 ;;
-          esac
-          url="https://github.com/livekit/livekit/releases/download/${LIVEKIT_FALLBACK_VERSION}/${asset}"
-          curl --fail --silent --show-error --location --retry 3 --output /tmp/livekit.tar.gz "$url"
-          tar -xzf /tmp/livekit.tar.gz -C /tmp
-          mv /tmp/livekit-server ~/.local/bin/
-          rm /tmp/livekit.tar.gz
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # These live behind livekit-ffi's non-default `core-modules` feature, so a
+      # workspace-wide `cargo test` does not reach them. Before the
+      # livekit-uniffi merge they ran as part of that crate.
+      - name: Test core modules (data streams v2 / data tracks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still passes its tests. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi \
+            --no-default-features --features core-modules
 
-      - name: Run LiveKit server
-        if: ${{ matrix.e2e-testing }}
-        env:
-          # TODO: once data tracks is enabled by default in a subsequent SFU release, remove this.
-          LIVEKIT_CONFIG: "enable_data_tracks: true"
-        run: livekit-server --dev &
+      - name: Test RPC seam (livekit-rpc)
+        shell: bash
+        run: |
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-rpc
 
-      # Unit tests run in dev profile to keep CI compile time low. E2E tests
-      # run in release: their timing windows (ICE handshake, reconnect, ping
-      # timeout) are sensitive to real-clock runtime, and dev-profile WebRTC
-      # adds enough overhead under load to push close to test timeouts.
-      # sccache absorbs most of the extra release-profile compile cost.
-      - name: Test (no E2E)
-        if: ${{ !matrix.e2e-testing }}
-        env:
-          RUST_LOG: info
-        run: cargo +nightly test --verbose --target ${{ matrix.target }} -- --nocapture
-
-      - name: Test (with E2E)
-        if: ${{ matrix.e2e-testing }}
-        env:
-          RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
+      - name: Build livekit-net uniffi feature (foreign transport bindings)
+        shell: bash
+        run: |
+          cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi
+          cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi,native

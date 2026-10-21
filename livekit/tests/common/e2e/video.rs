@@ -63,6 +63,25 @@ impl SolidColorTrack {
     }
 
     pub async fn publish(&mut self, codec: VideoCodec, simulcast: bool) -> RoomResult<()> {
+        self.publish_with_options(TrackPublishOptions {
+            video_codec: codec,
+            simulcast,
+            ..Default::default()
+        })
+        .await
+    }
+
+    #[cfg(feature = "__lk-e2e-test")]
+    pub async fn publish_without_video_send_encodings(
+        &mut self,
+        codec: VideoCodec,
+    ) -> RoomResult<()> {
+        let options =
+            TrackPublishOptions { video_codec: codec, simulcast: false, ..Default::default() };
+        self.publish_with_options_without_video_send_encodings(options).await
+    }
+
+    async fn publish_with_options(&mut self, options: TrackPublishOptions) -> RoomResult<()> {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalVideoTrack::create_video_track(
             "solid-color-track",
@@ -72,10 +91,28 @@ impl SolidColorTrack {
             tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
         self.room
             .local_participant()
-            .publish_track(
-                LocalTrack::Video(track.clone()),
-                TrackPublishOptions { video_codec: codec, simulcast, ..Default::default() },
-            )
+            .publish_track(LocalTrack::Video(track.clone()), options)
+            .await?;
+        let handle = TrackHandle { close_tx, track, task };
+        self.handle = Some(handle);
+        Ok(())
+    }
+
+    #[cfg(feature = "__lk-e2e-test")]
+    async fn publish_with_options_without_video_send_encodings(
+        &mut self,
+        options: TrackPublishOptions,
+    ) -> RoomResult<()> {
+        let (close_tx, close_rx) = oneshot::channel();
+        let track = LocalVideoTrack::create_video_track(
+            "solid-color-track",
+            RtcVideoSource::Native(self.rtc_source.clone()),
+        );
+        let task =
+            tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
+        self.room
+            .local_participant()
+            .publish_track_without_video_send_encodings(LocalTrack::Video(track.clone()), options)
             .await?;
         let handle = TrackHandle { close_tx, track, task };
         self.handle = Some(handle);

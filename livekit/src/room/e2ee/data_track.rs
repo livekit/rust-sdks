@@ -37,7 +37,7 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
         let encrypted = self
             .manager
             .encrypt_data(payload.into(), &self.sender_identity, key_index)
-            .map_err(|_| dt::EncryptionError)?;
+            .map_err(|e| dt::EncryptionError::Failed { reason: e.to_string() })?;
 
         debug_assert_eq!(
             encrypted.key_index as u32,
@@ -46,8 +46,12 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
             );
 
         let payload = encrypted.data.into();
-        let iv = encrypted.iv.try_into().map_err(|_| dt::EncryptionError)?;
-        let key_index = encrypted.key_index.try_into().map_err(|_| dt::EncryptionError)?;
+        let iv = encrypted.iv.try_into().map_err(|iv: Vec<u8>| dt::EncryptionError::Failed {
+            reason: format!("unexpected IV length: {}", iv.len()),
+        })?;
+        let key_index = encrypted.key_index.try_into().map_err(|e| {
+            dt::EncryptionError::Failed { reason: format!("key index out of range: {e}") }
+        })?;
 
         Ok(dt::EncryptedPayload { payload, iv, key_index })
     }
@@ -69,7 +73,7 @@ impl dt::DecryptionProvider for DataTrackDecryptionProvider {
     fn decrypt(
         &self,
         payload: dt::EncryptedPayload,
-        sender_identity: &str,
+        sender_identity: String,
     ) -> Result<bytes::Bytes, dt::DecryptionError> {
         let decrypted = self
             .manager
@@ -77,9 +81,11 @@ impl dt::DecryptionProvider for DataTrackDecryptionProvider {
                 payload.payload.into(),
                 payload.iv.to_vec(),
                 payload.key_index as u32,
-                sender_identity,
+                &sender_identity,
             )
-            .ok_or_else(|| dt::DecryptionError)?;
+            .ok_or_else(|| dt::DecryptionError::Failed {
+                reason: "the E2EE manager could not decrypt the payload".to_owned(),
+            })?;
         Ok(Bytes::from(decrypted))
     }
 }

@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
       - name: "Resolve tag"
         run: |
           MANUAL_TAG="${{ inputs.tag_name }}"
@@ -145,13 +145,16 @@ jobs:
     name: Build (${{ matrix.target }}${{ github.event_name == 'workflow_dispatch' && format(' [{0}]', github.event.inputs.build_profile) || '' }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
           submodules: true
 
-      - name: Install Rust toolchain.
-        run: |
-          rustup target add ${{ matrix.target }}
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
 
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -200,6 +203,15 @@ jobs:
           cd livekit-ffi
           cargo rustc --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
+      - name: Strip iOS release archive
+        if: ${{ matrix.platform == 'ios' }}
+        run: |
+          if [ "$CARGO_RUST_PROFILE" = "release" ]; then
+            archive="target/${{ matrix.target }}/$CARGO_PROFILE_DIR/${{ matrix.dylib }}"
+            xcrun strip -S "$archive"
+            xcrun ranlib "$archive"
+          fi
+
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
         run: |
@@ -213,12 +225,15 @@ jobs:
           docker run --rm -e CARGO_RUST_PROFILE="$CARGO_RUST_PROFILE" -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
-            yum install llvm llvm-libs lld -y; \
-            yum install clang -y; \
+            yum install clang clang-devel lld -y; \
             yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
-            clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel libgbm-devel libXdamage-devel libXrandr-devel libXfixes-devel libXcomposite-devel -y; \
+            clang --version; \
+            clang++ --version; \
+            export LIBCLANG_PATH=/usr/lib64; \
+            export CC=clang; \
+            export CXX=clang++; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
@@ -241,6 +256,70 @@ jobs:
           cat livekit-ffi/WEBRTC_LICENSE.md >> TEMP_LICENSE.md
           mv TEMP_LICENSE.md "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/LICENSE.md"
         shell: bash
+
+      # UniFFI's library-mode bindgen reads UNIFFI_META_* symbols out of a
+      # compiled cdylib. The Python it emits is platform-independent (the
+      # generated loader picks .dylib/.so/.dll at import time and looks next to
+      # the .py file), so generate it once here instead of paying for a separate
+      # full livekit-ffi build.
+      #
+      # This has to run on a macOS entry. The release profile sets
+      # `strip = "symbols"`, which removes the metadata on Linux while macOS
+      # strips less aggressively -- see the note on `bindgen-dart` in
+      # livekit-ffi/Makefile.toml. Do not move this to ffi-linux-x86_64 for
+      # symmetry; bindgen would silently emit an empty module.
+      - name: Generate Python bindings (UniFFI)
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        run: |
+          set -euo pipefail
+          cargo run -p bindgens --bin uniffi-bindgen -- generate \
+            --language python \
+            --library "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/${{ matrix.dylib }}" \
+            --out-dir python-bindings
+
+          # Bindgen emits a near-empty module rather than failing when it finds
+          # no metadata, so assert on the output instead of the exit code.
+          test -s python-bindings/livekit_ffi.py
+          grep -q 'def build_version' python-bindings/livekit_ffi.py
+
+      - name: Zip Python bindings
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        run: |
+          set -euo pipefail
+          cp "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/LICENSE.md" python-bindings/
+          cat > python-bindings/README.md <<'MARKDOWN'
+          # livekit-ffi Python bindings
+
+          UniFFI-generated Python bindings for the `livekit-ffi` build in this
+          release. This is an experimental prototype; expect it to be replaced by
+          a published PyPI package.
+
+          ## Usage
+
+          1. Download the native library for your platform from this same
+             release: `ffi-<platform>-<arch>.zip` (for example
+             `ffi-macos-arm64.zip`, `ffi-linux-x86_64.zip`,
+             `ffi-windows-x86_64.zip`).
+          2. Extract it and put the library -- `liblivekit_ffi.dylib` on macOS,
+             `liblivekit_ffi.so` on Linux, `livekit_ffi.dll` on Windows -- in the
+             same directory as the `.py` file(s) from this archive.
+          3. Import it:
+
+                 import livekit_ffi
+                 print(livekit_ffi.build_version())
+
+          The bindings and the native library must come from the same release;
+          mixing versions is not supported.
+          MARKDOWN
+          cd python-bindings
+          zip "${{ github.workspace }}/ffi-python-bindings.zip" ./*.py LICENSE.md README.md
+
+      - name: Upload Python bindings artifact
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffi-builds-python
+          path: ffi-python-bindings.zip
 
       # zip the files
       - name: Zip artifact (Unix)
@@ -276,11 +355,15 @@ jobs:
     needs: [get-tag, build]
     permissions:
       contents: write
+      # Only for the `gh workflow run` dispatches in the last step. Scoped to
+      # this job rather than the workflow: it also grants cancelling and
+      # re-running workflows and deleting runs, artifacts and caches.
+      actions: write
     if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
 
       - name: Download artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -289,7 +372,66 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Upload artifacts and publish release
+      - name: Upload artifacts
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/*
+
+      - name: Create release tag
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+          SHA: ${{ github.sha }}
         run: |
-          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/*
-          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false
+          set -euo pipefail
+
+          # This workflow runs on every push to main and adopts whatever draft
+          # release it finds, which may be several commits old. Tagging a commit
+          # whose Cargo.toml says a different version would publish mismatched
+          # packages, and uniffi-dart-publish.yml would reject it later anyway.
+          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
+            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at ${SHA}"
+            exit 1
+          fi
+
+          existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            # A re-run. Carry on rather than failing: the tag is only needed as
+            # the ref to publish and dispatch against, and it already exists.
+            echo "::warning::tag ${TAG} already exists at ${existing}; not re-creating it."
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${TAG}" \
+              -f sha="${SHA}"
+          fi
+
+      - name: Publish release
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: gh release edit "$TAG" --draft=false
+
+      # A ref created with GITHUB_TOKEN emits no push event -- GitHub's guard
+      # against recursive workflow runs -- so the UniFFI package publishes
+      # cannot be tag-push triggered from here. `workflow_dispatch` is the
+      # documented exception to that guard: it "always creates workflow runs",
+      # GITHUB_TOKEN included.
+      #
+      # Dispatching *against the tag* is what keeps pub.dev happy. The run then
+      # carries `ref: refs/tags/<tag>`, so its OIDC token has refType "tag",
+      # which pub.dev's trusted publishing requires alongside the tag matching
+      # the pattern configured on the package (see the eventName / refType
+      # checks in dart-lang/pub-dev, app/lib/package/backend.dart).
+      #
+      # Last step on purpose: the release is already published by now, so if a
+      # dispatch fails the FFI artifacts are unaffected and only the UniFFI
+      # packages need the manual re-dispatch the failure tells you to do.
+      - name: Dispatch the UniFFI package publishes
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          for workflow in uniffi-packages.yml uniffi-dart-publish.yml; do
+            echo "dispatching ${workflow} at ${TAG}"
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" \
+              --ref "$TAG" -f tag_name="$TAG"
+          done

@@ -23,39 +23,46 @@ use std::{
 };
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
-    ParticipantTrackPermission,
+    ClientCapability, ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ParticipantState, ParticipantTrackPermission,
 };
 use crate::{
-    data_stream::{
+    data_stream::api::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
-    data_track::{self, DataTrack, DataTrackOptions, Local},
+    data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
     rtc_engine::lk_runtime::LkRuntime,
-    rtc_engine::{EngineError, RtcEngine},
+    rtc_engine::{EngineError, EngineResult, RtcEngine},
     ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
 };
+use bytes::Bytes;
 use chrono::Utc;
 use libwebrtc::{
     native::{create_random_uuid, packet_trailer},
     rtp_parameters::RtpEncodingParameters,
     video_source::RtcVideoSource,
 };
-use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
-use livekit_runtime::timeout;
+use livekit_signaling::SignalError;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
+use tokio::time::timeout;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
+
+fn needs_video_sender_transformer(
+    options: &TrackPublishOptions,
+    has_publish_timing_subscribers: bool,
+) -> bool {
+    !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
+}
 
 #[derive(Default)]
 struct LocalEvents {
@@ -103,6 +110,7 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
+        capabilities: Vec<ClientCapability>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -118,6 +126,7 @@ impl LocalParticipant {
                 joined_at,
                 permission,
                 client_protocol,
+                capabilities,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -274,10 +283,101 @@ impl LocalParticipant {
     }
 
     /// Publishes a media track.
+    ///
+    /// # Examples
+    ///
+    /// Publish an audio track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::TrackPublishOptions,
+    /// #   webrtc::{prelude::*, audio_source::native::NativeAudioSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the audio source
+    /// let source = NativeAudioSource::new(
+    ///     AudioSourceOptions::default(),
+    ///     48_000, // Sample rate (hz)
+    ///     1,      // Number of channels
+    ///     1000,   // Buffer duration (ms)
+    /// );
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalAudioTrack::create_audio_track(
+    ///     "microphone", // Track name
+    ///     RtcAudioSource::Native(source.clone()),
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Microphone,
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Audio(track), options)
+    /// 	.await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a video track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::{TrackPublishOptions, VideoCodec},
+    /// #   webrtc::video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the video source
+    /// let resolution = VideoResolution { width: 1920, height: 1080 };
+    /// let source = NativeVideoSource::new(resolution, false);
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalVideoTrack::create_video_track(
+    ///     "camera", // Track name
+    ///     RtcVideoSource::Native(source)
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Camera,
+    ///     video_codec: VideoCodec::H264,
+    ///     simulcast: true, // Optionally enable simulcast for supported codecs
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Video(track), options)
+    ///     .await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_track(
         &self,
         track: LocalTrack,
         options: TrackPublishOptions,
+    ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, None).await
+    }
+
+    /// Publishes a track without providing video send encodings to WebRTC.
+    #[doc(hidden)]
+    #[cfg(feature = "__lk-e2e-test")]
+    pub async fn publish_track_without_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+    ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, Some(Vec::new())).await
+    }
+
+    async fn publish_track_with_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
@@ -299,7 +399,7 @@ impl LocalParticipant {
         }
 
         req.packet_trailer_features =
-            options.packet_trailer_features.to_proto().into_iter().map(|f| f as i32).collect();
+            options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
         let mut encodings = Vec::default();
         match &track {
@@ -310,7 +410,8 @@ impl LocalParticipant {
                 req.width = resolution.width;
                 req.height = resolution.height;
 
-                encodings = compute_video_encodings(req.width, req.height, &options);
+                encodings = video_send_encodings
+                    .unwrap_or_else(|| compute_video_encodings(req.width, req.height, &options));
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
 
                 // Populate simulcast_codecs so the server knows this track has
@@ -355,14 +456,42 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        if !options.packet_trailer_features.is_empty() {
-            if let LocalTrack::Video(video_track) = &track {
-                log::info!("packet_trailer enabled for local video track {}", publication.sid(),);
+        // Set degradation preference for video tracks
+        if let LocalTrack::Video(video_track) = &track {
+            let resolution = video_track.rtc_source().video_resolution();
+            let degradation_pref =
+                options::get_default_degradation_preference(&options, resolution.height);
+            if let Some(sender) = track.transceiver().map(|t| t.sender()) {
+                let mut params = sender.parameters();
+                params.set_degradation_preference(degradation_pref);
+                if let Err(e) = sender.set_parameters(params) {
+                    log::warn!("Failed to set degradation preference: {:?}", e);
+                } else {
+                    log::debug!(
+                        "Set degradation preference to {:?} for video track (height={})",
+                        degradation_pref,
+                        resolution.height
+                    );
+                }
+            }
+        }
+
+        if let LocalTrack::Video(video_track) = &track {
+            let has_timing_subscribers = video_track.has_publish_timing_subscribers();
+            if needs_video_sender_transformer(&options, has_timing_subscribers) {
+                let trailers_enabled = !options.frame_metadata_features.is_empty();
+                log::info!(
+                    "sender frame transformer enabled for local video track {} (packet_trailer={}, publish_timing={})",
+                    publication.sid(),
+                    trailers_enabled,
+                    has_timing_subscribers,
+                );
                 let sender = track.transceiver().unwrap().sender();
                 let handler = packet_trailer::create_sender_handler(
                     LkRuntime::instance().pc_factory(),
                     &sender,
                 );
+                handler.set_enabled(trailers_enabled);
                 video_track.set_packet_trailer_handler(handler.clone());
 
                 #[cfg(not(target_arch = "wasm32"))]
@@ -536,9 +665,14 @@ impl LocalParticipant {
         let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
-            let sender = track.transceiver().unwrap().sender();
+            let remove_result = {
+                let sender = track.transceiver().unwrap().sender();
+                self.inner.rtc_engine.remove_track(sender)
+            };
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            // The peer connection may already be closed after a server-initiated
+            // disconnect. Always release the local publication/track graph even
+            // when removing its sender is no longer possible.
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =
@@ -548,7 +682,11 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
-            self.inner.rtc_engine.publisher_negotiation_needed();
+            if remove_result.is_ok() {
+                self.inner.rtc_engine.publisher_negotiation_needed();
+            }
+
+            remove_result?;
 
             Ok(publication)
         } else {
@@ -779,7 +917,7 @@ impl LocalParticipant {
         let session = self.session().ok_or_else(|| {
             RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
         })?;
-        let transport = crate::room::rpc::SessionTransport(session.clone());
+        let transport = crate::room::rpc_transport::SessionTransport(session.clone());
         session.rpc_client.perform_rpc(data, &transport).await
     }
 
@@ -824,7 +962,8 @@ impl LocalParticipant {
         text: &str,
         options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_text(text, options, session.as_ref()).await
     }
 
     /// Send a file on disk to participants in the room.
@@ -844,7 +983,8 @@ impl LocalParticipant {
         path: impl AsRef<Path>,
         options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_file(path, options, session.as_ref()).await
     }
 
     /// Send an in-memory blob of bytes to participants in the room.
@@ -861,7 +1001,8 @@ impl LocalParticipant {
         data: impl AsRef<[u8]>,
         options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_bytes(data, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_bytes(data, options, session.as_ref()).await
     }
 
     /// Stream text incrementally to participants in the room.
@@ -901,5 +1042,179 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+
+    /// Stores the definition of a data track schema.
+    ///
+    /// Called by a publisher to make a schema available to subscribers, who can
+    /// later look up its definition via [`get_schema`](Self::get_schema). Define a
+    /// schema before publishing any data track that references it, so that
+    /// subscribers can resolve the schema by its ID.
+    ///
+    /// A schema can only be defined once. Attempting to redefine an existing
+    /// schema returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema; the same ID is provided when publishing a
+    ///   data track that uses it.
+    /// * `definition` - The schema definition, stored as-is. It is neither parsed
+    ///   nor validated against its [encoding](DataTrackSchemaId::encoding), so
+    ///   the caller is responsible for ensuring it is well-formed.
+    ///
+    pub async fn define_schema(&self, id: DataTrackSchemaId, definition: String) -> RoomResult<()> {
+        self.store_data_blob(id.into(), definition.into()).await
+    }
+
+    /// Retrieves the definition for a data track schema.
+    ///
+    /// Called by a subscriber that wants to inspect the schema a participant
+    /// [defined](Self::define_schema) for a data track it is publishing. Returns
+    /// an error if the participant has not defined a schema with this ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema to retrieve.
+    /// * `participant` - Identity of the participant that defined the schema.
+    ///
+    pub async fn get_schema(
+        &self,
+        id: DataTrackSchemaId,
+        participant: ParticipantIdentity,
+    ) -> RoomResult<String> {
+        let contents = self
+            .get_data_blob(id.into(), participant)
+            .await
+            .map_err(|err| RoomError::Internal(format!("failed to fetch schema: {err}")))?;
+
+        let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
+            RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
+        })?;
+        Ok(definition)
+    }
+
+    // TODO: unify request/response logic, timeout behavior across SDK.
+    const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// Stores an arbitrary blob of data on the server, keyed by `key`.
+    async fn store_data_blob(&self, key: proto::DataBlobKey, contents: Bytes) -> RoomResult<()> {
+        let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
+
+        let session = self.inner.rtc_engine.session();
+        let request_id = session.signal_client().next_request_id();
+
+        // Success is reported via `StoreDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let store_ok_response = session.store_data_blob_response(request_id);
+        let store_error_response = session.get_response(request_id);
+
+        let request = proto::StoreDataBlobRequest { blob: Some(blob), request_id };
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::StoreDataBlobRequest(request))
+            .await;
+
+        timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                _ = store_ok_response => Ok(()),
+                error = store_error_response => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| RoomError::Internal("store data blob timed out".into()))?
+        .map_err(|error| {
+            RoomError::Internal(format!(
+                "store data blob request failed ({:?}): {}",
+                error.reason(),
+                error.message
+            ))
+        })
+    }
+
+    /// Retrieves a blob of data previously stored by `participant` under `key`.
+    async fn get_data_blob(
+        &self,
+        key: proto::DataBlobKey,
+        participant: ParticipantIdentity,
+    ) -> EngineResult<Bytes> {
+        let session = self.inner.rtc_engine.session();
+        let request_id = session.signal_client().next_request_id();
+
+        // Success is reported via `GetDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let get_ok_response = session.get_data_blob_response(request_id);
+        let get_error_response = session.get_response(request_id);
+
+        let request = proto::GetDataBlobRequest {
+            key: Some(key),
+            participant_identity: participant.0,
+            request_id,
+        };
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::GetDataBlobRequest(request))
+            .await;
+
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                response = get_ok_response => Ok(response),
+                error = get_error_response => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| EngineError::Signal(SignalError::Timeout("get data blob timed out".into())))?;
+
+        match response {
+            Ok(response) => {
+                let blob = response.blob.ok_or_else(|| {
+                    EngineError::Internal("get data blob response is malformed".into())
+                })?;
+                Ok(blob.contents.into())
+            }
+            Err(error) => Err(EngineError::Internal(
+                format!("get data blob request failed ({:?}): {}", error.reason(), error.message)
+                    .into(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::FrameMetadataFeatures;
+
+    #[test]
+    fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, true));
+    }
+
+    #[test]
+    fn frame_metadata_features_request_video_sender_transformer_without_timing_subscribers() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures {
+                user_timestamp: true,
+                frame_id: false,
+                user_data: false,
+            },
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, false));
+    }
+
+    #[test]
+    fn video_sender_transformer_is_skipped_without_timing_or_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(!needs_video_sender_transformer(&options, false));
     }
 }

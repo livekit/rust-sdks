@@ -16,7 +16,8 @@ use livekit_protocol as proto;
 use std::collections::HashMap;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
+use crate::services::twirp_client::TwirpClient;
+use livekit_token::{get_env_keys, VideoGrants};
 use rand::Rng;
 
 const SVC: &str = "RoomService";
@@ -40,6 +41,12 @@ pub struct UpdateParticipantOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct RemoveParticipantOptions {
+    /// Revoke all tokens issued to this participant before this Unix timestamp (ms).
+    pub revoke_token_ts: i64,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct SendDataOptions {
     pub kind: proto::data_packet::Kind,
     #[deprecated(note = "Use destination_identities instead")]
@@ -55,16 +62,50 @@ pub struct RoomClient {
 }
 
 impl RoomClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            base: ServiceBase::with_api_key(api_key, api_secret),
-            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
-        }
+        Self::build(
+            host,
+            ServiceBase::with_api_key(api_key, api_secret),
+            crate::http_client::client(),
+        )
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::client())
+    }
+
+    /// Builds the client from an already-constructed HTTP client so the unified
+    /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
+    pub(crate) fn build(host: &str, base: ServiceBase, client: crate::http_client::Client) -> Self {
+        Self { base, client: TwirpClient::with_client(host, LIVEKIT_PACKAGE, None, client) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
+    }
+
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
     }
 
     pub async fn create_room(
@@ -206,6 +247,7 @@ impl RoomClient {
                 proto::RoomParticipantIdentity {
                     room: room.to_owned(),
                     identity: identity.to_owned(),
+                    ..Default::default()
                 },
                 self.base.auth_header(
                     VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
@@ -217,6 +259,16 @@ impl RoomClient {
     }
 
     pub async fn remove_participant(&self, room: &str, identity: &str) -> ServiceResult<()> {
+        self.remove_participant_with_options(room, identity, RemoveParticipantOptions::default())
+            .await
+    }
+
+    pub async fn remove_participant_with_options(
+        &self,
+        room: &str,
+        identity: &str,
+        options: RemoveParticipantOptions,
+    ) -> ServiceResult<()> {
         self.client
             .request(
                 SVC,
@@ -224,6 +276,7 @@ impl RoomClient {
                 proto::RoomParticipantIdentity {
                     room: room.to_owned(),
                     identity: identity.to_owned(),
+                    revoke_token_ts: options.revoke_token_ts,
                 },
                 self.base.auth_header(
                     VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
@@ -380,8 +433,10 @@ impl RoomClient {
         data: Vec<u8>,
         options: SendDataOptions,
     ) -> ServiceResult<()> {
-        let mut rng = rand::rng();
-        let nonce: Vec<u8> = (0..16).map(|_| rng.random::<u8>()).collect();
+        let nonce: Vec<u8> = {
+            let mut rng = rand::rng();
+            (0..16).map(|_| rng.random::<u8>()).collect()
+        };
         #[allow(deprecated)]
         self.client
             .request(

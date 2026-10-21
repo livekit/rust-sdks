@@ -7,6 +7,280 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.9.1 (2026-10-20)
+
+### Fixes
+
+#### Merge `livekit-uniffi` into `livekit-ffi`.
+
+There is now one crate, one version and one release tag. The `livekit-uniffi`
+crate, its changelog and its `livekit-uniffi/v*` tags are gone; its history is
+preserved in git.
+
+The crate carries two mutually exclusive surfaces, selected by feature:
+
+- `room-apis` (default) is the existing protobuf / C-ABI surface, with
+  `livekit` and libwebrtc. Everything that built `livekit-ffi` before builds it
+  unchanged.
+- `core-modules` is the former `livekit-uniffi` surface — access tokens, log
+  forwarding, data tracks, data streams v2 — and depends on none of `livekit`,
+  `libwebrtc`, `soxr-sys` or `imgproc`. What previously built `livekit-uniffi`
+  now builds `-p livekit-ffi --no-default-features --features core-modules`.
+
+`[package.metadata.platform-features]` in `livekit-ffi/Cargo.toml` records
+which surface each downstream package build gets, and CI resolves its build
+flags from it.
+
+The merge itself requires no downstream SDK changes: the UniFFI namespace is
+pinned per surface and every published package name is preserved. The one
+difference is the native library the crate builds, `liblivekit_uniffi` →
+`liblivekit_ffi`, which is loaded by name from the generated bindings and the
+Dart build hook and needs no consumer change. The package renames are a
+separate change, released alongside this one.
+
+The UniFFI node package (`@livekit/uniffi`) is not built for now and will be
+reintroduced separately; node bindings ship from `livekit-ffi-node-bindings`.
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+## 0.9.0 (2026-10-12)
+
+### Breaking Changes
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
+### Fixes
+
+- Public API tokens minted from an API key and secret now grant every thread action (list, create, read, write, delete) across the project. Before, they carried only `all`, so creating or reading a thread was refused.
+
+#### `livekit-api` gains `ThreadClient` and `DatabaseClient` services (`LiveKitApi::threads()` and
+
+`LiveKitApi::databases()`) for agent threads and databases, built on a client generated from
+the LiveKit Cloud Public API spec. reqwest moves to 0.13; with rustls its TLS config is built
+on ring with the same webpki or native roots as before.
+
+## 0.8.2 (2026-10-07)
+
+### Fixes
+
+- RoomClient::send_data now returns a Send future by dropping its RNG before awaiting.
+- Never wait on the peer when closing a signal stream: a half-open socket (no FIN/RST) left the reader parked in `recv()` forever, so the resume never dialled and `Room::close` hung. `SignalStream::close` now aborts the parked reader and bounds the writer's Close flush.
+
+## 0.8.1 (2026-09-24)
+
+### Fixes
+
+- refactor(signaling): explicit signal lifecycle state machine - #1402 (@lukasIO)
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
+## 0.8.0 (2026-09-22)
+
+### Breaking Changes
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
+### Fixes
+
+#### Report the reconnect reason to the server when resuming.
+
+Resumes previously sent no reason, so server-side telemetry could not attribute why Rust
+clients reconnect — every resume looked like `RR_UNKNOWN`. The engine now records what caused
+the episode (signal disconnected, publisher failed, subscriber failed) and reports it on each
+resume attempt. The v0 signalling path was also missing the `reconnect_reason` query parameter
+entirely, so it would not have been reported even if a reason had been supplied.
+
+## 0.7.1 (2026-09-09)
+
+### Fixes
+
+- log warning if signal messages get dropped during reconnect - #1391 (@lukasIO)
+
+## 0.7.0 (2026-09-08)
+
+### Breaking Changes
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+- Update sip_busy test GRPc code: failed_precondition -> failed_precondition
+
+#### Moves the internal region-discovery cache into a new `livekit-region` crate. No
+
+public API or behaviour change.
+
+#### Moves the signalling client into a new `livekit-signaling` crate. livekit-api
+
+re-exports it under the historical `livekit_api::signal_client` path, now marked
+deprecated: it is internal SDK API, and dependents should use livekit-signaling
+directly. livekit-api no longer depends on livekit-net.
+
+Also drops two dependencies that were declared but never used: `scopeguard` and
+`bytes`.
+
+## 0.6.4 (2026-08-25)
+
+### Fixes
+
+- differentiate signal connection errors correctly from timeouts - #1234 (@lukasIO)
+- fix(uniffi): register the Bytes custom type once, in livekit-common - #1343 (@pblazej)
+
+#### Moves access-token generation and verification into a new `livekit-token` crate.
+
+`livekit_api::access_token::*` continues to resolve to the same types via a
+re-export, so no consumer changes are needed.
+
+Also fixes the `services-tokio` and `services-async` features, which used the
+access-token types without declaring the `access-token` feature. Building with
+`--no-default-features --features services-tokio` previously failed to compile.
+
+## 0.6.3 (2026-08-10)
+
+### Features
+
+- Add `other_sdks` field to propagate additional SDK metadata to the server.
+
+## 0.6.2 (2026-08-03)
+
+### Features
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+
+## 0.6.1 (2026-07-29)
+
+### Fixes
+
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.6.0 (2026-07-27)
+
+### Breaking Changes
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+
+The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
+
+**Breaking (`livekit-api`, and `livekit` via `EngineError::Signal`):**
+
+- `SignalError::WsError` is removed — `tungstenite` is no longer part of the public API. A failed WebSocket handshake now surfaces its HTTP status as `SignalError::Client`/`Server`; transport connection and close failures surface as the new `SignalError::Connection(String)` / `SignalError::Closed` variants (previously all collapsed into `Timeout`).
+- `SignalError` is now `#[non_exhaustive]`, and gains a `SignalError::TransportNotConfigured` variant — returned when no transport is registered (host/foreign builds must call `livekit_net::set_ws_client` / `set_http_client` before connecting). This is a permanent configuration error; callers must not retry.
+- The signalling WebSocket/HTTP/TLS crates are no longer transitive dependencies of `livekit-api`; TLS features delegate to `livekit-net`. Existing `signal-client-tokio` / `-async` / `-dispatcher` and TLS feature names are unchanged.
+
+### Fixes
+
+- Data tracks schema metadata support.
+
+## 0.5.6 (2026-07-17)
+
+### Fixes
+
+- Add deployment field documentation for agent dispatch
+
+#### Compress initial offer in URL for single PC mode
+
+Apply compression to the initial offer when sending it in the JoinRequest URL, reducing URL size and improving connection performance on slow networks.
+
+## 0.5.5 (2026-07-09)
+
+### Features
+
+- feat: auto failover APIs with LK Cloud - #1196 (@davidzhao)
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
+## 0.5.4 (2026-06-24)
+
+### Fixes
+
+- harden reconnect behaviour - #1148 (@lukasIO)
+
+## 0.5.3 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
+## 0.5.2 (2026-06-17)
+
+### Fixes
+
+#### Shrink binaries with an HMAC-only JWT crypto provider
+
+`livekit-api` now installs a minimal in-crate HMAC `CryptoProvider`
+(HS256/384/512) instead of jsonwebtoken's `rust_crypto` backend, dropping the
+unused RSA/EC/EdDSA algorithms. LiveKit access tokens are HS256, so there is no
+public API or behavior change. This trims ~200 KiB of unreachable crypto code,
+shrinking the shipped binaries ~25–29% — the `RustLiveKitUniFFI` iOS framework
+drops from ~900 KiB to ~672 KiB (arm64) and the Android arm64-v8a `.so` from
+~1.13 MiB to ~816 KiB. `livekit-ffi` and `livekit` benefit too.
+
+#### fix: surface full error chain in region fetch failures for better TLS error diagnosis.
+
+When connecting to LiveKit Cloud from containers without CA certificates installed, the error message now includes the full error chain (e.g., "invalid peer certificate: UnknownIssuer") instead of just "error sending request for url (...)". This makes TLS certificate issues self-diagnosing.
+
+Also added documentation for TLS features in Cargo.toml, highlighting `rustls-tls-webpki-roots` as the recommended option for container deployments.
+
+## 0.5.1 (2026-06-03)
+
+### Fixes
+
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.5.0 (2026-05-29)
+
+### Features
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- add pagination to ListEgressRequest
+
 ## [0.4.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.13...rust-sdks/livekit-api@0.4.14) - 2026-02-16
 
 ### Fixed
@@ -96,6 +370,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+
+
 ## 0.4.24 (2026-05-20)
 
 ### Fixes

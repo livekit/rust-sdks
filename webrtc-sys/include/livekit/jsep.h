@@ -35,7 +35,7 @@ class SessionDescription;
 
 namespace livekit_ffi {
 
-class PeerContext;
+struct PeerContext;
 
 class IceCandidate {
  public:

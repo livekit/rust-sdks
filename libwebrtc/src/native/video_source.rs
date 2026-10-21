@@ -13,19 +13,21 @@
 // limitations under the License.
 
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Weak,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use cxx::SharedPtr;
-use livekit_runtime::interval;
-use parking_lot::Mutex;
+use tokio::time::interval;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
-    video_frame::{I420Buffer, VideoBuffer, VideoFrame},
-    video_source::VideoResolution,
+    video_frame::{EncodedVideoFrame, I420Buffer, VideoBuffer, VideoFrame},
+    video_source::{EncodedRateControl, VideoResolution},
 };
 
 impl From<vt_sys::ffi::VideoResolution> for VideoResolution {
@@ -43,55 +45,91 @@ impl From<VideoResolution> for vt_sys::ffi::VideoResolution {
 #[derive(Clone)]
 pub struct NativeVideoSource {
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
-    inner: Arc<Mutex<VideoSourceInner>>,
+    captured_frames: Arc<AtomicUsize>,
 }
 
-struct VideoSourceInner {
-    captured_frames: usize,
+fn keepalive_should_continue(captured_frames: &Weak<AtomicUsize>) -> bool {
+    captured_frames
+        .upgrade()
+        .is_some_and(|captured_frames| captured_frames.load(Ordering::Relaxed) == 0)
+}
+
+async fn raw_keepalive_task(
+    resolution: VideoResolution,
+    captured_frames: Weak<AtomicUsize>,
+    sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
+) {
+    if !keepalive_should_continue(&captured_frames) {
+        return;
+    }
+
+    // This buffer reaches the encoder without any plane ever being
+    // written, so it must be black-initialized: `I420Buffer::new`
+    // leaves the pixel data uninitialized and would leak recycled
+    // heap memory to subscribers in the first keyframes.
+    let i420 = I420Buffer::new_black(resolution.width, resolution.height);
+    let mut interval = interval(Duration::from_millis(100)); // 10 fps
+
+    loop {
+        interval.tick().await;
+
+        if !keepalive_should_continue(&captured_frames) {
+            break;
+        }
+
+        let mut builder = vf_sys::ffi::new_video_frame_builder();
+        builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
+        builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+
+        sys_handle.on_captured_frame(
+            &builder.pin_mut().build(),
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: false,
+                user_timestamp: 0,
+                frame_id: 0,
+                user_data: Vec::new(),
+            },
+        );
+    }
 }
 
 impl NativeVideoSource {
     pub fn new(resolution: VideoResolution, is_screencast: bool) -> NativeVideoSource {
+        Self::new_inner(resolution, is_screencast, true)
+    }
+
+    /// Creates a source for pre-encoded access units.
+    ///
+    /// Unlike [`NativeVideoSource::new`], no raw black-frame keepalive is
+    /// injected before the first capture: raw frames would start a real
+    /// encoder on a sender meant for the pass-through encoder and corrupt
+    /// the encoded stream.
+    pub fn new_encoded(resolution: VideoResolution) -> NativeVideoSource {
+        Self::new_inner(resolution, false, false)
+    }
+
+    fn new_inner(
+        resolution: VideoResolution,
+        is_screencast: bool,
+        raw_keepalive: bool,
+    ) -> NativeVideoSource {
         let source = Self {
             sys_handle: vt_sys::ffi::new_video_track_source(
                 &vt_sys::ffi::VideoResolution::from(resolution.clone()),
                 is_screencast,
             ),
-            inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
+            captured_frames: Arc::new(AtomicUsize::new(0)),
         };
 
-        livekit_runtime::spawn({
-            let source = source.clone();
-            let i420 = I420Buffer::new(resolution.width, resolution.height);
-            async move {
-                let mut interval = interval(Duration::from_millis(100)); // 10 fps
-
-                loop {
-                    interval.tick().await;
-
-                    let inner = source.inner.lock();
-                    if inner.captured_frames > 0 {
-                        break;
-                    }
-
-                    let mut builder = vf_sys::ffi::new_video_frame_builder();
-                    builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
-                    builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
-
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-                    builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
-
-                    source.sys_handle.on_captured_frame(
-                        &builder.pin_mut().build(),
-                        &vt_sys::ffi::FrameMetadata {
-                            has_packet_trailer: false,
-                            user_timestamp: 0,
-                            frame_id: 0,
-                        },
-                    );
-                }
-            }
-        });
+        if raw_keepalive {
+            let captured_frames = Arc::downgrade(&source.captured_frames);
+            let sys_handle = source.sys_handle.clone();
+            let _keepalive_task =
+                tokio::spawn(raw_keepalive_task(resolution, captured_frames, sys_handle));
+        }
 
         source
     }
@@ -100,7 +138,9 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
-    pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
+    /// Returns `false` if the frame was dropped by the adapter (e.g. due to
+    /// resolution/frame-rate adaptation) instead of being forwarded.
+    pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) -> bool {
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
@@ -113,12 +153,17 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
-            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-            None => (false, 0, 0),
+        let (has_trailer, user_ts, fid, user_data) = match &frame.frame_metadata {
+            Some(meta) => (
+                true,
+                meta.user_timestamp.unwrap_or(0),
+                meta.frame_id.unwrap_or(0),
+                meta.user_data.clone().unwrap_or_default(),
+            ),
+            None => (false, 0, 0, Vec::new()),
         };
 
-        self.inner.lock().captured_frames += 1;
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
 
         self.sys_handle.on_captured_frame(
             &builder.pin_mut().build(),
@@ -126,8 +171,63 @@ impl NativeVideoSource {
                 has_packet_trailer: has_trailer,
                 user_timestamp: user_ts,
                 frame_id: fid,
+                user_data,
             },
-        );
+        )
+    }
+
+    pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
+        let (has_trailer, user_ts, fid, user_data) = match &frame.frame_metadata {
+            Some(meta) => (
+                true,
+                meta.user_timestamp.unwrap_or(0),
+                meta.frame_id.unwrap_or(0),
+                meta.user_data.clone().unwrap_or_default(),
+            ),
+            None => (false, 0, 0, Vec::new()),
+        };
+
+        let capture_ts = if frame.timestamp_us == 0 {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            now.as_micros() as i64
+        } else {
+            frame.timestamp_us
+        };
+
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
+        self.sys_handle.capture_encoded_frame(
+            frame.resolution.width as i32,
+            frame.resolution.height as i32,
+            &vt_sys::ffi::EncodedVideoFrameData {
+                codec: frame.codec.into(),
+                frame_type: frame.frame_type.into(),
+                timestamp_us: capture_ts,
+            },
+            frame.payload,
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: has_trailer,
+                user_timestamp: user_ts,
+                frame_id: fid,
+                user_data,
+            },
+        )
+    }
+
+    /// Returns and clears the pending keyframe request raised by the
+    /// pass-through encoder (PLI/FIR or reconfiguration). Poll from the
+    /// capture loop and forward the request to the upstream encoder.
+    pub fn take_keyframe_request(&self) -> bool {
+        self.sys_handle.take_keyframe_request()
+    }
+
+    /// Returns and clears the pending rate-control target raised by the
+    /// pass-through encoder.
+    pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+        let request = self.sys_handle.take_rate_control_request();
+        request.has_request.then_some(EncodedRateControl {
+            target_bitrate_bps: request.target_bitrate_bps,
+            framerate_fps: request.framerate_fps,
+        })
     }
 
     /// Set the packet trailer handler used by this source.
@@ -143,5 +243,73 @@ impl NativeVideoSource {
 
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use std::time::Duration;
+
+    use super::{keepalive_should_continue, raw_keepalive_task, NativeVideoSource};
+    use crate::video_source::VideoResolution;
+
+    #[test]
+    fn keepalive_continues_before_first_capture() {
+        let captured_frames = Arc::new(AtomicUsize::new(0));
+
+        assert!(keepalive_should_continue(&Arc::downgrade(&captured_frames)));
+    }
+
+    #[test]
+    fn keepalive_stops_after_first_capture() {
+        let captured_frames = Arc::new(AtomicUsize::new(0));
+        let weak_captured_frames = Arc::downgrade(&captured_frames);
+        captured_frames.fetch_add(1, Ordering::Relaxed);
+
+        assert!(!keepalive_should_continue(&weak_captured_frames));
+    }
+
+    #[test]
+    fn keepalive_stops_when_source_is_dropped() {
+        let weak_captured_frames = {
+            let captured_frames = Arc::new(AtomicUsize::new(0));
+            Arc::downgrade(&captured_frames)
+        };
+
+        assert!(!keepalive_should_continue(&weak_captured_frames));
+    }
+
+    #[tokio::test]
+    async fn keepalive_task_does_not_keep_capture_state_alive() {
+        let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+        let captured_frames = Arc::downgrade(&source.captured_frames);
+
+        tokio::task::yield_now().await;
+        drop(source);
+
+        assert!(captured_frames.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn keepalive_task_releases_native_source_after_drop() {
+        let resolution = VideoResolution { width: 16, height: 16 };
+        let source = NativeVideoSource::new_inner(resolution.clone(), false, false);
+        let keepalive_task = tokio::spawn(raw_keepalive_task(
+            resolution,
+            Arc::downgrade(&source.captured_frames),
+            source.sys_handle.clone(),
+        ));
+
+        tokio::task::yield_now().await;
+        drop(source);
+
+        tokio::time::timeout(Duration::from_secs(1), keepalive_task)
+            .await
+            .expect("keepalive task retained its resources after the source was dropped")
+            .expect("keepalive task panicked");
     }
 }

@@ -19,6 +19,41 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 [![Builds](https://github.com/livekit/rust-sdks/actions/workflows/builds.yml/badge.svg?branch=main)](https://github.com/livekit/rust-sdks/actions/workflows/builds.yml)
 [![Tests](https://github.com/livekit/rust-sdks/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/livekit/rust-sdks/actions/workflows/tests.yml)
 
+<!--BEGIN_AGENTS_INFO-->
+> [!IMPORTANT]
+> If you're building Voice AI, [LiveKit Agents](https://github.com/livekit/agents) is the SDK for code-first realtime voice agents. STT, LLM, TTS, turn detection, [expressive speech](https://docs.livekit.io/agents/models/tts/expressive/), [keyterm accuracy](https://docs.livekit.io/agents/models/stt/keyterms/), tool usage, and telephony all come bundled in the framework. It's available in both [Python](https://github.com/livekit/agents) and [Node.js](https://github.com/livekit/agents-js).
+>
+> ```python
+> # agent.py
+> from livekit import agents
+> from livekit.agents import Agent, AgentServer, AgentSession, STTContextOptions, TurnHandlingOptions, inference
+>
+> server = AgentServer()
+>
+>
+> @server.rtc_session(agent_name="my-agent")
+> async def my_agent(ctx: agents.JobContext):
+>     session = AgentSession(
+>         stt=inference.STT(model="deepgram/nova-3", language="multi"),
+>         llm=inference.LLM(model="google/gemma-4-31b-it"),
+>         tts=inference.TTS(model="inworld/inworld-tts-2", voice="Ashley"),
+>         turn_handling=TurnHandlingOptions(turn_detection=inference.TurnDetector()),
+>         stt_context_options=STTContextOptions(keyterms=["LiveKit", "Acme Corp"]),
+>         expressive=True,
+>     )
+>     await session.start(room=ctx.room, agent=Agent(instructions="You are a helpful voice AI assistant."))
+>     await session.generate_reply(instructions="Greet the user and offer your assistance.")
+>
+>
+> if __name__ == "__main__":
+>     agents.cli.run_app(server)
+> ```
+>
+> Models come from [LiveKit Inference](https://docs.livekit.io/agents/models/) with no per-provider API keys, and LiveKit Cloud handles [deployment](https://docs.livekit.io/deploy/agents/) and [observability](https://docs.livekit.io/deploy/observability/). Visit the docs for more info at [docs.livekit.io/agents](https://docs.livekit.io/agents/).
+>
+> Using a coding agent? Install the LiveKit skill with `npx skills add livekit/agent-skills` and add the docs MCP at `https://docs.livekit.io/mcp/` (see [coding agent support](https://docs.livekit.io/intro/coding-agents/)).
+<!--END_AGENTS_INFO-->
+
 ## Features
 
 - [x] Receiving tracks
@@ -27,12 +62,12 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Simulcast
 - [x] SVC codecs (AV1/VP9)
 - [ ] Adaptive Streaming
-- [ ] Dynacast
+- [x] Dynacast
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
-  - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
+  - [x] H.264, H.265, AV1 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
-  - [ ] H.264, H.265 on NVidia Jetson (Linux)
+  - [x] H.264, H.265, AV1 on NVidia Jetson (Linux)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS
@@ -44,7 +79,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 
 - `livekit-api`: Server APIs and auth token generation
 - `livekit`: LiveKit real-time SDK
-- `livekit-ffi`: Internal crate, used to generate bindings for other languages
+- `livekit-ffi`: Internal crate, used to generate bindings for other languages. Its `room-apis` feature (default) serves the Python/Node/Unity SDKs; its `core-modules` feature serves the Swift/Android/Flutter SDKs over UniFFI
 - `livekit-protocol`: LiveKit protocol generated code
 
 When adding the SDK as a dependency to your project, make sure to add the
@@ -55,7 +90,7 @@ Also, please refer to the list of the [supported platform toolkits](https://gith
 
 ## Getting started
 
-Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
+Tokio is required to use this SDK.
 
 ## Using Server API
 
@@ -165,12 +200,43 @@ match event {
 ![](https://github.com/livekit/rust-sdks/blob/main/examples/images/simple-room-demo.gif)
 
 - [basic room](https://github.com/livekit/rust-sdks/tree/main/examples/basic_room): simple example connecting to a room.
-- [wgpu_room](https://github.com/livekit/rust-sdks/tree/main/examples/wgpu_room): complete example app with video rendering using wgpu and egui.
+- [rust-dev-client](https://github.com/livekit-examples/rust-dev-client): complete example app with video rendering using wgpu and egui (maintained in a separate repository).
 - [mobile](https://github.com/livekit/rust-sdks/tree/main/examples/mobile): mobile app targeting iOS and Android
 - [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
 - [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file
 
 ## Building
+
+### Linux
+
+Building on Ubuntu 24 x86_64:
+
+```
+# install required libs
+sudo apt install -y \
+  libglib2.0-dev build-essential \
+  libclang-dev libc6-dev pkg-config libjpeg-turbo8-dev
+
+# webrtc-sys compiles against the hermetic libc++ shipped inside the libwebrtc
+# artifact, which tracks LLVM trunk and needs clang 21 or later. Ubuntu 24's
+# clang is 18, so install a newer one from apt.llvm.org:
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 21
+export CC=clang-21 CXX=clang++-21
+
+# install cuda-toolkit if you have an Nvidia GPU and want to use NVENC for video encoding
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install -y cuda-toolkit
+
+# ensure CUDA_HOME env var is set
+export CUDA_HOME="$(dirname "$(dirname "$(sudo find /usr/local /usr -path '*/include/cuda.h' -print 2>/dev/null | grep -v '/linux/' | sort -V | tail -1)")")"
+
+cargo build
+  
+```
 
 ### MacOS
 
@@ -179,17 +245,6 @@ When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implemen
 ```
 *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
 ```
-
-## Environment variables
-
-### `LIVEKIT_PREFERRED_HW_ENCODER`
-
-On Linux builds that include support for multiple hardware video encoders (NVENC and VAAPI), this variable selects which one is preferred when both are available at runtime. Accepted values:
-
-- `nvenc` — prefer the NVIDIA NVENC encoder.
-- `vaapi` — prefer the VAAPI encoder.
-
-If unset (the default), NVENC is preferred. If the requested encoder is not supported or not compiled in, the SDK logs a warning and falls back to the other available hardware encoder (or software encoders). Any other value is ignored with a warning.
 
 ## Motivation and Design Goals
 

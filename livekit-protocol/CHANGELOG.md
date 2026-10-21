@@ -62,6 +62,67 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.8.2 (2026-10-20)
+
+### Fixes
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+## 0.8.1 (2026-10-12)
+
+### Fixes
+
+#### `livekit-protocol` carries the `livekit.agent` package (`AgentSessionEvent`,
+
+`SessionRequest`, the EOT inference messages), the agent threads messages
+and the agent-db service; the crates that depend on it follow its bump.
+
+## 0.8.0 (2026-09-24)
+
+### Breaking Changes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
+## 0.7.13 (2026-09-08)
+
+### Features
+
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
+## 0.7.12 (2026-07-29)
+
+### Fixes
+
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.7.11 (2026-07-27)
+
+### Fixes
+
+- Data tracks schema metadata support.
+
+## 0.7.10 (2026-06-30)
+
+### Features
+
+- Add `user_data` support to frame metadata, allowing arbitrary application-supplied bytes to be attached to a video frame via the `PTF_USER_DATA` packet trailer feature.
+
+## 0.7.9 (2026-06-23)
+
+### Features
+
+- Rename user facing APIs for Packet Trailer to Frame Metadata.
+- Upgrade protocol to v1.48.0
+
+## 0.7.8 (2026-05-29)
+
+### Fixes
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+
 ## 0.7.7 (2026-05-14)
 
 ### Features

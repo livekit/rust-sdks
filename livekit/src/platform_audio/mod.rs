@@ -156,6 +156,11 @@ impl RecordingDeviceId {
         Self(guid.to_string())
     }
 
+    /// Creates a recording device ID from a device index.
+    pub fn from_index(index: usize) -> Self {
+        Self(format!("index:{index}"))
+    }
+
     /// Returns the underlying GUID string.
     pub fn as_str(&self) -> &str {
         &self.0
@@ -176,7 +181,8 @@ impl fmt::Display for RecordingDeviceId {
 /// # Platform Notes
 ///
 /// - **Desktop (Windows, macOS, Linux):** Contains a unique GUID that persists across
-///   device hot-plug events. Use this for reliable device selection.
+///   device hot-plug events. On Linux, when the audio backend (e.g. PulseAudio) does not
+///   provide a hardware GUID, an index-based identifier (e.g. `"index:0"`) is used.
 /// - **Android:** Always empty. Android doesn't provide device GUIDs and only reports
 ///   a single "default" device. Audio routing (speaker, earpiece, Bluetooth) is handled
 ///   by the system via `AudioManager`, not through WebRTC device selection.
@@ -198,6 +204,11 @@ impl PlayoutDeviceId {
     #[doc(hidden)]
     pub fn from_unchecked_guid(guid: &str) -> Self {
         Self(guid.to_string())
+    }
+
+    /// Creates a playout device ID from a device index.
+    pub fn from_index(index: usize) -> Self {
+        Self(format!("index:{index}"))
     }
 
     /// Returns the underlying GUID string.
@@ -610,13 +621,17 @@ impl PlatformAudio {
             return None;
         }
 
-        let index = index as u16;
+        let index_u16 = index as u16;
+        let guid = self.handle.runtime.recording_device_guid(index_u16);
+        let id = if guid.is_empty() {
+            RecordingDeviceId::from_index(index)
+        } else {
+            RecordingDeviceId::from_unchecked_guid(&guid)
+        };
         Some(RecordingDeviceInfo {
-            id: RecordingDeviceId::from_unchecked_guid(
-                &self.handle.runtime.recording_device_guid(index),
-            ),
-            name: self.handle.runtime.recording_device_name(index),
-            index: index as usize,
+            id,
+            name: self.handle.runtime.recording_device_name(index_u16),
+            index,
         })
     }
 
@@ -625,14 +640,30 @@ impl PlatformAudio {
             return None;
         }
 
-        let index = index as u16;
+        let index_u16 = index as u16;
+        let guid = self.handle.runtime.playout_device_guid(index_u16);
+        let id = if guid.is_empty() {
+            PlayoutDeviceId::from_index(index)
+        } else {
+            PlayoutDeviceId::from_unchecked_guid(&guid)
+        };
         Some(PlayoutDeviceInfo {
-            id: PlayoutDeviceId::from_unchecked_guid(
-                &self.handle.runtime.playout_device_guid(index),
-            ),
-            name: self.handle.runtime.playout_device_name(index),
-            index: index as usize,
+            id,
+            name: self.handle.runtime.playout_device_name(index_u16),
+            index,
         })
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    fn ensure_device_exists<Device>(
+        devices: impl IntoIterator<Item = Device>,
+        mut is_match: impl FnMut(&Device) -> bool,
+    ) -> AudioResult<()> {
+        if devices.into_iter().any(|device| is_match(&device)) {
+            Ok(())
+        } else {
+            Err(AudioError::DeviceNotFound)
+        }
     }
 
     // =========================================================================
@@ -657,6 +688,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available recording devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -668,10 +704,58 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
-        if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
+
+        let guid = id.as_str();
+        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
+            if let Ok(idx) = idx_str.parse::<u16>() {
+                self.handle.runtime.set_recording_device(idx)
+            } else {
+                self.handle.runtime.set_recording_device_by_guid(guid)
+            }
+        } else {
+            self.handle.runtime.set_recording_device_by_guid(guid)
+        };
+
+        if success {
             Ok(())
         } else {
             Err(AudioError::DeviceNotFound)
+        }
+    }
+
+    /// Selects a recording (microphone) device by index.
+    ///
+    /// This is an alternative to [`set_recording_device`](Self::set_recording_device) using a 0-based index.
+    /// Note that device indices can change across device hot-plug events.
+    ///
+    /// # Platform Notes
+    ///
+    /// - **Desktop:** Selects the recording device at `index`.
+    /// - **Mobile (iOS/Android):** Device selection is a no-op (system handles routing).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 0-based device index
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if `index` is out of bounds or cannot be selected.
+    pub fn set_recording_device_by_index(&self, index: usize) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            let device = self
+                .recording_devices()
+                .find(|d| d.index == index)
+                .ok_or(AudioError::DeviceNotFound)?;
+            self.set_recording_device(&device.id)
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            let id = RecordingDeviceId::from_index(index);
+            self.set_recording_device(&id)
         }
     }
 
@@ -693,6 +777,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available playout devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -704,8 +793,22 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
+
         let runtime = &self.handle.runtime;
-        if !runtime.set_playout_device_by_guid(id.as_str()) {
+        let guid = id.as_str();
+        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
+            if let Ok(idx) = idx_str.parse::<u16>() {
+                runtime.set_playout_device(idx)
+            } else {
+                runtime.set_playout_device_by_guid(guid)
+            }
+        } else {
+            runtime.set_playout_device_by_guid(guid)
+        };
+
+        if !success {
             return Err(AudioError::DeviceNotFound);
         }
 
@@ -717,6 +820,40 @@ impl PlatformAudio {
         // (e.g., when remote audio arrives or when a track is subscribed).
 
         Ok(())
+    }
+
+    /// Selects a playout (speaker) device by index.
+    ///
+    /// This is an alternative to [`set_playout_device`](Self::set_playout_device) using a 0-based index.
+    /// Note that device indices can change across device hot-plug events.
+    ///
+    /// # Platform Notes
+    ///
+    /// - **Desktop:** Selects the playout device at `index`.
+    /// - **Mobile (iOS/Android):** Device selection is a no-op (system handles routing).
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 0-based device index
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if `index` is out of bounds or cannot be selected.
+    pub fn set_playout_device_by_index(&self, index: usize) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            let device = self
+                .playout_devices()
+                .find(|d| d.index == index)
+                .ok_or(AudioError::DeviceNotFound)?;
+            self.set_playout_device(&device.id)
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            let id = PlayoutDeviceId::from_index(index);
+            self.set_playout_device(&id)
+        }
     }
 
     /// Switches the recording device while audio is active (hot-swap).
@@ -743,6 +880,9 @@ impl PlatformAudio {
     ///
     /// [`set_recording_device`]: Self::set_recording_device
     pub fn switch_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
+
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.recording_is_initialized();
 
@@ -752,7 +892,18 @@ impl PlatformAudio {
             }
         }
 
-        if !runtime.set_recording_device_by_guid(id.as_str()) {
+        let guid = id.as_str();
+        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
+            if let Ok(idx) = idx_str.parse::<u16>() {
+                runtime.set_recording_device(idx)
+            } else {
+                runtime.set_recording_device_by_guid(guid)
+            }
+        } else {
+            runtime.set_recording_device_by_guid(guid)
+        };
+
+        if !success {
             return Err(AudioError::DeviceNotFound);
         }
 
@@ -767,6 +918,36 @@ impl PlatformAudio {
         }
 
         Ok(())
+    }
+
+    /// Switches the recording device by index while audio is active (hot-swap).
+    ///
+    /// Unlike [`set_recording_device_by_index`](Self::set_recording_device_by_index), this method handles
+    /// the stop/change/restart sequence required when recording is already active.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 0-based device index
+    ///
+    /// # Errors
+    ///
+    /// - [`AudioError::DeviceNotFound`] if `index` is out of bounds or device is unavailable
+    /// - [`AudioError::OperationFailed`] if any step fails
+    pub fn switch_recording_device_by_index(&self, index: usize) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            let device = self
+                .recording_devices()
+                .find(|d| d.index == index)
+                .ok_or(AudioError::DeviceNotFound)?;
+            self.switch_recording_device(&device.id)
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            let id = RecordingDeviceId::from_index(index);
+            self.switch_recording_device(&id)
+        }
     }
 
     /// Switches the playout device while audio is active (hot-swap).
@@ -802,7 +983,18 @@ impl PlatformAudio {
             }
         }
 
-        if !runtime.set_playout_device_by_guid(id.as_str()) {
+        let guid = id.as_str();
+        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
+            if let Ok(idx) = idx_str.parse::<u16>() {
+                runtime.set_playout_device(idx)
+            } else {
+                runtime.set_playout_device_by_guid(guid)
+            }
+        } else {
+            runtime.set_playout_device_by_guid(guid)
+        };
+
+        if !success {
             return Err(AudioError::DeviceNotFound);
         }
 
@@ -817,6 +1009,36 @@ impl PlatformAudio {
         }
 
         Ok(())
+    }
+
+    /// Switches the playout device by index while audio is active (hot-swap).
+    ///
+    /// Unlike [`set_playout_device_by_index`](Self::set_playout_device_by_index), this method handles
+    /// the stop/change/restart sequence required when playout is already active.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - 0-based device index
+    ///
+    /// # Errors
+    ///
+    /// - [`AudioError::DeviceNotFound`] if `index` is out of bounds or device is unavailable
+    /// - [`AudioError::OperationFailed`] if any step fails
+    pub fn switch_playout_device_by_index(&self, index: usize) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        {
+            let device = self
+                .playout_devices()
+                .find(|d| d.index == index)
+                .ok_or(AudioError::DeviceNotFound)?;
+            self.switch_playout_device(&device.id)
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            let id = PlayoutDeviceId::from_index(index);
+            self.switch_playout_device(&id)
+        }
     }
 
     // =========================================================================
@@ -1205,5 +1427,44 @@ mod tests {
     fn rtc_audio_source_device_variant() {
         let source = RtcAudioSource::Device;
         assert!(matches!(source, RtcAudioSource::Device));
+    }
+
+    #[test]
+    fn recording_device_id_from_index() {
+        let id = RecordingDeviceId::from_index(0);
+        assert_eq!(id.as_str(), "index:0");
+        assert_eq!(id.to_string(), "index:0");
+
+        let id = RecordingDeviceId::from_index(42);
+        assert_eq!(id.as_str(), "index:42");
+        assert_eq!(id.to_string(), "index:42");
+    }
+
+    #[test]
+    fn playout_device_id_from_index() {
+        let id = PlayoutDeviceId::from_index(0);
+        assert_eq!(id.as_str(), "index:0");
+        assert_eq!(id.to_string(), "index:0");
+
+        let id = PlayoutDeviceId::from_index(7);
+        assert_eq!(id.as_str(), "index:7");
+        assert_eq!(id.to_string(), "index:7");
+    }
+
+    #[test]
+    fn device_id_equality_and_hash() {
+        use std::collections::HashSet;
+
+        let id1 = RecordingDeviceId::from_index(1);
+        let id2 = RecordingDeviceId::from_unchecked_guid("index:1");
+        let id3 = RecordingDeviceId::from_index(2);
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+
+        let mut set = HashSet::new();
+        set.insert(id1.clone());
+        assert!(set.contains(&id2));
+        assert!(!set.contains(&id3));
     }
 }

@@ -39,13 +39,9 @@ pub async fn test_rpc_invocation() -> Result<()> {
         Box::pin(async move { Ok(data.payload.to_string()) })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: PAYLOAD.to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
+        .with_response_timeout(Duration::from_millis(500));
     let return_payload = caller_room
         .local_participant()
         .perform_rpc(perform_data)
@@ -66,13 +62,9 @@ pub async fn test_rpc_unregistered() -> Result<()> {
     const METHOD_NAME: &str = "unregistered-method";
     const PAYLOAD: &str = "test-payload";
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: PAYLOAD.to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
+        .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
     Ok(())
@@ -94,13 +86,9 @@ pub async fn test_rpc_large_payload() -> Result<()> {
         Box::pin(async move { Ok(data.payload.to_string()) })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: large_payload.clone(),
-        response_timeout: Duration::from_secs(5),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(large_payload.clone())
+        .with_response_timeout(Duration::from_secs(5));
     let return_payload = caller_room
         .local_participant()
         .perform_rpc(perform_data)
@@ -128,13 +116,9 @@ pub async fn test_rpc_error_response() -> Result<()> {
         })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: "test".to_string(),
-        response_timeout: Duration::from_secs(5),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload("test")
+        .with_response_timeout(Duration::from_secs(5));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error response");
     let err = result.unwrap_err();
@@ -149,15 +133,68 @@ pub async fn test_rpc_unknown_destination() -> Result<()> {
     let mut rooms = test_rooms(1).await?;
     let (caller_room, _) = rooms.pop().unwrap();
 
-    let perform_data = PerformRpcData {
-        method: "unregistered-method".to_string(),
-        destination_identity: "unknown-participant".to_string(),
-        payload: "test-payload".to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new("unknown-participant", "unregistered-method")
+        .with_payload("test-payload")
+        .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
+    Ok(())
+}
+
+/// A recipient that leaves without replying must fail its caller promptly, rather than
+/// stranding it until the response timeout expires.
+///
+/// The caller gives a departed recipient a brief grace period, because a reply sent just
+/// before it left may still be in flight on the data channel while the departure itself
+/// arrives on the signalling connection. That grace period shortens the wait; it must not
+/// turn back into waiting out the full response timeout.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+pub async fn test_rpc_recipient_leaving_without_replying_fails_promptly() -> Result<()> {
+    use livekit::prelude::RpcErrorCode;
+
+    let mut rooms = test_rooms(2).await?;
+    let (caller_room, _) = rooms.pop().unwrap();
+    let (callee_room, _) = rooms.pop().unwrap();
+    let callee_identity = callee_room.local_participant().identity();
+
+    const METHOD_NAME: &str = "never-replies";
+
+    // Acks the request, then never produces a response.
+    callee_room.local_participant().register_rpc_method(METHOD_NAME.to_string(), |_data| {
+        Box::pin(async move {
+            std::future::pending::<()>().await;
+            unreachable!("handler is never allowed to complete")
+        })
+    });
+
+    let caller = caller_room.local_participant();
+    let perform = tokio::spawn(async move {
+        caller
+            .perform_rpc(
+                PerformRpcData::new(callee_identity, METHOD_NAME)
+                    .with_payload("{}")
+                    // Long enough that expiry could not explain a prompt failure.
+                    .with_response_timeout(Duration::from_secs(60)),
+            )
+            .await
+    });
+
+    // Let the request arrive and be acked, so the call is parked on the response.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    callee_room.close().await.context("Failed to close callee room")?;
+
+    let result = tokio::time::timeout(Duration::from_secs(15), perform)
+        .await
+        .context("Caller was stranded well past the disconnect grace period")?
+        .context("perform_rpc task panicked")?;
+
+    let err = result.expect_err("Expected the departure to fail the call");
+    assert_eq!(
+        err.code,
+        RpcErrorCode::RecipientDisconnected as u32,
+        "Expected RECIPIENT_DISCONNECTED, got: {err}",
+    );
     Ok(())
 }
 
@@ -183,13 +220,9 @@ pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {
     let caller_handle = tokio::spawn(collect(caller_events));
     let callee_handle = tokio::spawn(collect(callee_events));
 
-    let perform_data = PerformRpcData {
-        method: "echo".to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: "hi".to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), "echo")
+        .with_payload("hi")
+        .with_response_timeout(Duration::from_millis(500));
     let resp = caller_room
         .local_participant()
         .perform_rpc(perform_data)

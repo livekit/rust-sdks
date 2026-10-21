@@ -12,168 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
-mod tokio {
-    #[cfg(feature = "services-tokio")]
-    pub use reqwest::Client;
+// Server-API (services) HTTP client only. The signal client's transport and its
+// region/validate HTTP calls now live in livekit-net, so nothing here is gated
+// on the signal-client features.
 
-    /// GET with an `Authorization: Bearer <token>` header attached.
-    ///
-    /// `reqwest::get(url)` (the free function) constructs a fresh default
-    /// `Client` and attaches no auth, which is why `SignalInner::validate` —
-    /// the sole caller — uses this helper: the access token must reach the
-    /// server or the server returns 401 regardless of the underlying error.
-    #[cfg(feature = "signal-client-tokio")]
-    pub async fn get_with_token(url: &str, token: &str) -> reqwest::Result<reqwest::Response> {
-        reqwest::Client::new().get(url).bearer_auth(token).send().await
-    }
+pub use reqwest::Client;
+
+pub fn client() -> Client {
+    builder().build().expect("http client")
 }
 
-#[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
-pub use tokio::*;
-
-#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
-mod async_std {
-
-    #[cfg(any(
-        feature = "native-tls-vendored",
-        feature = "rustls-tls-native-roots",
-        feature = "rustls-tls-webpki-roots",
-        feature = "__rustls-tls"
-    ))]
-    compile_error!("the async std compatible libraries do not support these features");
-
-    #[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
-    pub struct Response(http::Response<isahc::AsyncBody>);
-
-    #[cfg(feature = "__signal-client-async-compatible")]
-    mod signal_client {
-        use std::io;
-
-        use isahc::AsyncReadResponseExt;
-
-        use super::Response;
-
-        impl Response {
-            pub fn status(&self) -> http::StatusCode {
-                self.0.status()
-            }
-
-            pub async fn text(mut self) -> io::Result<String> {
-                self.0.text().await
-            }
-        }
-
-        /// GET with an `Authorization: Bearer <token>` header attached.
-        ///
-        /// `isahc::get_async(url)` attaches no auth, which is why
-        /// `SignalInner::validate` — the sole caller — uses this helper: the
-        /// access token must reach the server or the server returns 401
-        /// regardless of the underlying error. Mirrors the tokio variant.
-        pub async fn get_with_token(url: &str, token: &str) -> io::Result<Response> {
-            let request = isahc::Request::get(url)
-                .header("Authorization", format!("Bearer {}", token))
-                .body(())
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            let response = isahc::send_async(request).await?;
-            Ok(Response(response))
-        }
-    }
-
-    #[cfg(feature = "__signal-client-async-compatible")]
-    pub use signal_client::*;
-
-    #[cfg(feature = "services-async")]
-    mod services {
-        use std::io;
-
-        use isahc::AsyncReadResponseExt;
-        use prost::bytes::Bytes;
-
-        use super::Response;
-
-        use http::header::{Entry, OccupiedEntry};
-        use url::Url;
-
-        impl Response {
-            pub async fn bytes(self) -> io::Result<Bytes> {
-                Ok(self.0.bytes().await?.into())
-            }
-
-            pub async fn json<T: serde::de::DeserializeOwned + Unpin>(&mut self) -> io::Result<T> {
-                self.0.json().await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-            }
-        }
-
-        #[derive(Debug)]
-        pub struct Client(isahc::HttpClient);
-
-        impl Client {
-            pub fn new() -> Self {
-                Self(isahc::HttpClient::new().unwrap())
-            }
-        }
-
-        impl Client {
-            pub fn post(&self, url: Url) -> RequestBuilder {
-                RequestBuilder {
-                    body: Vec::new(),
-                    builder: isahc::http::Request::post(url.as_str()),
-                    client: self.0.clone(),
-                }
-            }
-        }
-
-        pub struct RequestBuilder {
-            builder: isahc::http::request::Builder,
-            body: Vec<u8>,
-            client: isahc::HttpClient,
-        }
-
-        impl RequestBuilder {
-            pub fn headers(mut self, headers: http::HeaderMap) -> Self {
-                // Copied from: https://docs.rs/reqwest/0.11.24/src/reqwest/util.rs.html#62-89
-                let self_headers = self.builder.headers_mut().unwrap();
-                let mut prev_entry: Option<OccupiedEntry<_>> = None;
-                for (key, value) in headers {
-                    match key {
-                        Some(key) => match self_headers.entry(key) {
-                            Entry::Occupied(mut e) => {
-                                e.insert(value);
-                                prev_entry = Some(e);
-                            }
-                            Entry::Vacant(e) => {
-                                let e = e.insert_entry(value);
-                                prev_entry = Some(e);
-                            }
-                        },
-                        None => match prev_entry {
-                            Some(ref mut entry) => {
-                                entry.append(value);
-                            }
-                            None => unreachable!("HeaderMap::into_iter yielded None first"),
-                        },
-                    }
-                }
-                self
-            }
-
-            pub fn body(mut self, body: Vec<u8>) -> Self {
-                self.body = body;
-                self
-            }
-
-            pub async fn send(self) -> io::Result<Response> {
-                let request = self.builder.body(self.body).unwrap();
-                let response = self.client.send_async(request).await?;
-                Ok(Response(response))
-            }
-        }
-    }
-
-    #[cfg(feature = "services-async")]
-    pub use services::*;
+/// A reqwest builder on the crate's TLS feature. With rustls, the TLS config is built on ring,
+/// the provider livekit-net's websocket uses: reqwest 0.13 defaults to aws-lc-rs, and a process
+/// with both providers and no installed default fails every `ClientConfig::builder()`.
+pub fn builder() -> reqwest::ClientBuilder {
+    let builder = Client::builder();
+    #[cfg(feature = "__rustls-tls")]
+    let builder = builder.tls_backend_preconfigured(rustls_config());
+    builder
 }
 
-#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
-pub use async_std::*;
+#[cfg(feature = "__rustls-tls")]
+fn rustls_config() -> rustls::ClientConfig {
+    let mut roots = rustls::RootCertStore::empty();
+    #[cfg(feature = "rustls-tls-webpki-roots")]
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    #[cfg(feature = "rustls-tls-native-roots")]
+    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+    rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("ring supports the default TLS versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth()
+}

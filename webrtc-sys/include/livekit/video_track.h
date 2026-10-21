@@ -16,11 +16,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "livekit/helper.h"
+#include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/video_frame.h"
 #include "livekit/webrtc.h"
@@ -105,11 +107,27 @@ class VideoTrackSource {
     void set_packet_trailer_handler(
         std::shared_ptr<PacketTrailerHandler> handler);
 
+    // Shared with every EncodedVideoFrameBuffer this source emits; the
+    // pass-through encoder raises it on unsatisfied keyframe requests.
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag() const {
+      return keyframe_request_flag_;
+    }
+    std::shared_ptr<livekit::EncodedRateControlState> rate_control_state()
+        const {
+      return rate_control_state_;
+    }
+
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag_ =
+        std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
+        std::make_shared<livekit::EncodedRateControlState>();
+    // Numbers encoded frames in delivery order; guarded by `mutex_`.
+    uint64_t encoded_sequence_number_ = 0;
     bool is_screencast_;
   };
 
@@ -122,6 +140,18 @@ class VideoTrackSource {
                          const FrameMetadata& frame_metadata)
       const;  // frames pushed from Rust (+interior mutability)
 
+  bool capture_encoded_frame(int width,
+                             int height,
+                             const EncodedVideoFrameData& frame,
+                             rust::Slice<const uint8_t> payload,
+                             const FrameMetadata& frame_metadata) const;
+
+  // Returns and clears the pending upstream keyframe request raised by the
+  // pass-through encoder (PLI/FIR or post-reconfigure). Poll from the
+  // capture loop.
+  bool take_keyframe_request() const;
+  EncodedRateControlRequest take_rate_control_request() const;
+
   void set_packet_trailer_handler(
       std::shared_ptr<PacketTrailerHandler> handler) const;
 
@@ -133,6 +163,13 @@ class VideoTrackSource {
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
     const VideoResolution& resolution, bool is_screencast);
+
+#ifdef LIVEKIT_TEST
+// Captures encoded frames from several threads at once and returns the
+// sequence numbers in the order a sink received them.
+rust::Vec<uint64_t> encoded_capture_order_for_test(uint32_t threads,
+                                                   uint32_t frames_per_thread);
+#endif
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

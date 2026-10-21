@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub use livekit_protocol::{AudioTrackFeature, PacketTrailerFeature};
+pub use livekit_rpc::api::{PerformRpcData, RpcError, RpcErrorCode, RpcInvocationData};
 
 pub use crate::{
     data_track::{
@@ -22,13 +23,15 @@ pub use crate::{
     },
     id::*,
     participant::{
-        ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
-        RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
+        ConnectionQuality, DisconnectReason, LocalParticipant, Participant, RemoteParticipant,
     },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
-        AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
-        RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
+        AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, PublishTimingEvent,
+        PublishTimingEventStream, PublishTimingStage, PublishingLayer, PublishingLayerQuality,
+        RemoteAudioTrack, RemoteTrack, RemoteVideoTrack, StreamState, SubscribeTimingEvent,
+        SubscribeTimingEventStream, SubscribeTimingStage, Track, TrackDimension, TrackKind,
+        TrackSource, VideoTrack,
     },
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
     RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,

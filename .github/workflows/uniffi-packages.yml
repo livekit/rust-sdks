@@ -1,33 +1,40 @@
 name: UniFFI packages
 
-# Orchestrates per-language wrapper-package publishing on knope draft releases
-# for the livekit-uniffi crate. Resolves the source tag once, then delegates
-# to per-language reusable workflows (uniffi-swift.yml today; uniffi-kotlin.yml
-# / uniffi-python.yml would slot in as additional jobs).
+# Publishes the per-language livekit-ffi core-modules wrapper packages (Swift
+# xcframework → livekit/livekit-uniffi-xcframework; Android AAR → Maven
+# Central) when a livekit-ffi release tag is pushed.
 #
-# Trigger pattern mirrors ffi-builds.yml: every push to main checks for a
-# draft release with prefix `livekit-uniffi/v`; workflow_dispatch allows
-# manual runs with an explicit tag.
+# Trigger note: this used to react to `release: published`, which worked only
+# because knope-bot (a GitHub App) published the livekit-uniffi release and its
+# tag directly. livekit-ffi uses knope's `assets = "marker"` draft flow, and a
+# draft carries no tag until it is published — with GITHUB_TOKEN, whose refs
+# and releases never start a workflow run (see #1256). So ffi-builds.yml
+# dispatches this workflow explicitly once its build matrix is green and the
+# release is published; workflow_dispatch is exempt from that recursion guard.
+# A run therefore still implies a green 11-target build, the same guarantee the
+# release event gave. The push trigger below stays for a tag pushed by hand.
+#
+# The Dart package, and the cdylib release assets its build hook downloads, are
+# handled by uniffi-dart-publish.yml, which reacts to the same tag push
+# (pub.dev requires a tag-push-triggered workflow) and builds those assets
+# itself so publishing can depend on them directly.
 
 on:
   push:
-    branches: ["main"]
+    tags: ["livekit-ffi/v*"]
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g., livekit-uniffi/v0.0.7). Required if no draft release exists."
-        required: false
+        description: "Release tag (e.g. livekit-ffi/v0.13.0)"
+        required: true
         type: string
       dry_run:
-        description: "Build artifacts but skip release upload/PR."
+        description: "Build artifacts but skip publishing."
         type: boolean
         default: false
 
 permissions:
   contents: read
-
-env:
-  TAG_PREFIX: livekit-uniffi/v
 
 jobs:
   resolve-tag:
@@ -36,29 +43,26 @@ jobs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
       version: ${{ steps.get-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - id: get-tag
+        # Tags are bound through env rather than template-expanded into the
+        # script: tag names may contain shell metacharacters (Actions script
+        # injection).
         env:
-          GH_TOKEN: ${{ github.token }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
         run: |
-          MANUAL_TAG="${{ inputs.tag_name }}"
-          if [ -n "$MANUAL_TAG" ]; then
-            TAG="$MANUAL_TAG"
-            echo "Using manually provided tag: '$TAG'"
-          else
-            TAG=$(gh release list --repo "${{ github.repository }}" \
-              --json 'isDraft,tagName' \
-              --jq "[.[] | select(.isDraft and (.tagName | startswith(\"${TAG_PREFIX}\")))] | first | .tagName // empty")
-            echo "Resolved livekit-uniffi draft release tag: '${TAG:-<none>}'"
-          fi
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          case "$TAG" in
+            livekit-ffi/v*) ;;
+            *) echo "::error::unexpected tag: $TAG"; exit 1 ;;
+          esac
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
-          # Strip the "livekit-uniffi/v" prefix to get the hosting-repo tag (e.g., 0.0.7)
-          VERSION="${TAG#${TAG_PREFIX}}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # Strip the "livekit-ffi/v" prefix to get the package version (e.g. 0.13.0).
+          echo "version=${TAG#livekit-ffi/v}" >> "$GITHUB_OUTPUT"
 
   swift:
     needs: resolve-tag
-    if: needs.resolve-tag.outputs.tag_name != ''
     uses: ./.github/workflows/uniffi-swift.yml
     with:
       version: ${{ needs.resolve-tag.outputs.version }}
@@ -69,7 +73,6 @@ jobs:
 
   android:
     needs: resolve-tag
-    if: needs.resolve-tag.outputs.tag_name != ''
     uses: ./.github/workflows/uniffi-android.yml
     with:
       version: ${{ needs.resolve-tag.outputs.version }}

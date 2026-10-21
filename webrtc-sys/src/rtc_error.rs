@@ -86,11 +86,11 @@ impl ffi::RtcError {
         if value.len() < 22 {
             return None;
         }
-        let error_type = u32::from_str_radix(&value[0..8], 16).ok()?;
-        let error_detail = u32::from_str_radix(&value[8..16], 16).ok()?;
-        let has_scp_cause_code = u8::from_str_radix(&value[16..18], 16).ok()?;
-        let sctp_cause_code = u16::from_str_radix(&value[18..22], 16).ok()?;
-        let message = String::from(&value[22..]);
+        let error_type = u32::from_str_radix(value.get(0..8)?, 16).ok()?;
+        let error_detail = u32::from_str_radix(value.get(8..16)?, 16).ok()?;
+        let has_scp_cause_code = u8::from_str_radix(value.get(16..18)?, 16).ok()?;
+        let sctp_cause_code = u16::from_str_radix(value.get(18..22)?, 16).ok()?;
+        let message = String::from(value.get(22..)?);
 
         Some(Self {
             error_type: rtc_error_type_from_u32(error_type),
@@ -104,11 +104,23 @@ impl ffi::RtcError {
     /// Backwards-compatible wrapper for callers that already trust the input
     /// is well-formed.
     ///
+    /// In practice C++ can hand us a string that doesn't match the format,
+    /// for example an empty `cxx::Exception` "what" on participant
+    /// disconnect (see #944). Falling through to `expect` panicked the
+    /// caller's task. Now we fall back to a generic error and stash the raw
+    /// string in `message` so the caller can still see what came through.
+    ///
     /// # Safety
     /// Marked `unsafe` purely for source-compat with prior callers; the body
     /// no longer relies on caller-upheld invariants.
     pub unsafe fn from(value: &str) -> Self {
-        Self::parse(value).expect("malformed serialized RtcError")
+        Self::parse(value).unwrap_or_else(|| Self {
+            error_type: ffi::RtcErrorType::None,
+            error_detail: ffi::RtcErrorDetailType::None,
+            has_sctp_cause_code: false,
+            sctp_cause_code: 0,
+            message: value.into(),
+        })
     }
 
     pub fn ok(&self) -> bool {
@@ -181,5 +193,37 @@ mod tests {
         assert!(error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(error.message, "this is not a test, I repeat, this is not a test");
+    }
+
+    /// A non-ASCII byte sequence in the fixed-width header must be rejected without panicking.
+    #[test]
+    fn non_ascii_header_does_not_panic() {
+        for offset in 0..22 {
+            for symbol in ["é", "界", "🦀"] {
+                let input = format!("{}{}{}", "0".repeat(offset), symbol, "0".repeat(24));
+                assert!(RtcError::parse(&input).is_none(), "offset={offset}, symbol={symbol}");
+                // SAFETY: `from` has no caller invariants and must fall back for malformed input.
+                let error = unsafe { RtcError::from(&input) };
+                assert_eq!(error.error_type, RtcErrorType::None);
+                assert_eq!(error.message, input);
+            }
+        }
+
+        let input = format!("{}🦀", "0".repeat(22));
+        let error = RtcError::parse(&input).expect("non-ASCII message should be valid");
+        assert_eq!(error.message, "🦀");
+    }
+
+    /// On participant disconnect the C++ side sometimes hands us a string
+    /// that doesn't fit the serialized format; we used to panic here (#944).
+    #[test]
+    fn malformed_input_does_not_panic() {
+        let error = unsafe { RtcError::from("") };
+        assert_eq!(error.error_type, RtcErrorType::None);
+        assert!(error.message.is_empty());
+
+        let error = unsafe { RtcError::from("not hex at all, just words") };
+        assert_eq!(error.error_type, RtcErrorType::None);
+        assert_eq!(error.message, "not hex at all, just words");
     }
 }

@@ -30,10 +30,12 @@ use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
+    pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    task::{Context as TaskContext, Poll},
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
@@ -76,7 +78,7 @@ impl Manager {
     /// - Channel for sending [`InputEvent`]s to be processed by the manager.
     /// - Stream for receiving [`OutputEvent`]s produced by the manager.
     ///
-    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
 
@@ -90,7 +92,7 @@ impl Manager {
             sub_handles: HashMap::default(),
         };
 
-        let event_out = ReceiverStream::new(event_out_rx);
+        let event_out = ManagerOutput(ReceiverStream::new(event_out_rx));
         (manager, event_in, event_out)
     }
 
@@ -179,6 +181,9 @@ impl Manager {
                 if self.descriptors.contains_key(&sid) {
                     continue;
                 }
+                if self.handle_sid_reassigned(&publisher_identity, &info).await {
+                    continue;
+                }
                 self.handle_track_published(publisher_identity.clone(), info).await;
             }
         }
@@ -227,6 +232,64 @@ impl Manager {
         };
         let track = RemoteDataTrack::new(info, inner);
         _ = self.event_out_tx.send(TrackPublished { track }.into()).await;
+    }
+
+    /// Detects and handles SID reassignment, which occurs when the publisher
+    /// republishes its tracks after a full reconnect.
+    ///
+    /// Returns `true` if an SID reassignment occurred, `false` otherwise.
+    ///
+    async fn handle_sid_reassigned(
+        &mut self,
+        publisher_identity: &str,
+        info: &DataTrackInfo,
+    ) -> bool {
+        // Publisher identity and pub handle are stable across republications.
+        let Some((old_sid, descriptor)) = self.descriptors.iter().find(|(_, desc)| {
+            desc.publisher_identity.as_ref() == publisher_identity
+                && desc.info.pub_handle == info.pub_handle
+        }) else {
+            return false;
+        };
+
+        // Invariant: other than SID, info should not have changed.
+        // TODO: consider refactoring to move SID out of info to allow for direct comparison.
+        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee, schema, frame_encoding } =
+            &*descriptor.info;
+        if *name != info.name
+            || *uses_e2ee != info.uses_e2ee
+            || *schema != info.schema
+            || *frame_encoding != info.frame_encoding
+        {
+            log::warn!("Info mismatch for {}, treating as new publication", old_sid);
+            return false;
+        }
+        let old_sid = old_sid.clone();
+
+        let new_sid = info.sid();
+        log::debug!("SID reassigned: {} -> {}", old_sid, new_sid);
+
+        let Some(descriptor) = self.descriptors.remove(&old_sid) else {
+            return false;
+        };
+        *descriptor.info.sid.write().unwrap() = new_sid.clone();
+
+        match &descriptor.subscription {
+            SubscriptionState::None => {}
+            SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
+                // The SFU does not carry subscriptions across a publisher's full
+                // reconnect; re-request the subscription under the new SID.
+                let event = SfuUpdateSubscription { sid: new_sid.clone(), subscribe: true };
+                _ = self.event_out_tx.send(event.into()).await;
+            }
+        }
+        if let SubscriptionState::Active { sub_handle, .. } = &descriptor.subscription {
+            // Keep the routing index consistent until the SFU assigns a new handle
+            // (see `register_subscriber_handle`).
+            self.sub_handles.insert(*sub_handle, new_sid.clone());
+        }
+        self.descriptors.insert(new_sid, descriptor);
+        true
     }
 
     fn on_set_pipeline_options(&mut self, event: SetPipelineOptions) {
@@ -304,7 +367,7 @@ impl Manager {
             frame_tx: frame_tx.clone(),
             event_in_tx: self.event_in_tx.clone(),
         };
-        let task_handle = livekit_runtime::spawn(track_task.run());
+        let task_handle = tokio::spawn(track_task.run());
 
         descriptor.subscription = SubscriptionState::Active {
             sub_handle: assigned_handle,
@@ -368,7 +431,9 @@ impl Manager {
                         _ = result_tx.send(Err(DataTrackSubscribeError::Disconnected));
                     }
                 }
-                SubscriptionState::Active { task_handle, .. } => task_handle.await,
+                SubscriptionState::Active { task_handle, .. } => {
+                    let _ = task_handle.await;
+                }
             }
         }
     }
@@ -378,7 +443,10 @@ impl Manager {
     const PACKET_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
-    const EVENT_BUFFER_COUNT: usize = 16;
+    ///
+    /// Must exceed a burst of track lifecycle events. A full channel blocks
+    /// the manager and can deadlock room disconnect.
+    const EVENT_BUFFER_COUNT: usize = 512;
 }
 
 /// Information and state for a remote data track.
@@ -407,7 +475,7 @@ enum SubscriptionState {
         sub_handle: Handle,
         packet_tx: mpsc::Sender<Packet>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
-        task_handle: livekit_runtime::JoinHandle<()>,
+        task_handle: tokio::task::JoinHandle<()>,
     },
 }
 
@@ -463,6 +531,18 @@ pub struct ManagerInput {
     _drop_guard: Arc<DropGuard>,
 }
 
+/// Stream of [`OutputEvent`]s produced by [`Manager`].
+#[derive(Debug)]
+pub struct ManagerOutput(ReceiverStream<OutputEvent>);
+
+impl Stream for ManagerOutput {
+    type Item = OutputEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
+}
+
 /// Guard that sends shutdown event when the last reference is dropped.
 #[derive(Debug)]
 struct DropGuard {
@@ -508,7 +588,7 @@ mod tests {
         fn decrypt(
             &self,
             payload: EncryptedPayload,
-            _sender_identity: &str,
+            _sender_identity: String,
         ) -> Result<Bytes, DecryptionError> {
             Ok(payload.payload.slice(4..))
         }
@@ -519,10 +599,10 @@ mod tests {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager.run());
+        let join_handle = tokio::spawn(manager.run());
         _ = input.send(InputEvent::Shutdown);
 
-        time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+        time::timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
     }
 
     #[test_case(true; "via_unpublish")]
@@ -553,7 +633,7 @@ mod tests {
 
         let task =
             TrackTask { info: info, pipeline, published_rx, packet_rx, frame_tx, event_in_tx };
-        let task_handle = livekit_runtime::spawn(task.run());
+        let task_handle = tokio::spawn(task.run());
 
         let trigger_shutdown = async {
             if via_unpublish {
@@ -573,7 +653,11 @@ mod tests {
             }
             panic!("Did not receive unsubscribe");
         };
-        time::timeout(Duration::from_secs(1), join(task_handle, trigger_shutdown)).await.unwrap();
+        let (joined, _) =
+            time::timeout(Duration::from_secs(1), join(task_handle, trigger_shutdown))
+                .await
+                .unwrap();
+        joined.unwrap();
     }
 
     #[tokio::test]
@@ -585,7 +669,7 @@ mod tests {
 
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Simulate track published
         let event = SfuPublicationUpdates {
@@ -596,6 +680,8 @@ mod tests {
                     pub_handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
+                    schema: None,
+                    frame_encoding: None,
                 }],
             )]),
         };
@@ -650,7 +736,7 @@ mod tests {
     async fn test_track_publication_add_and_remove() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -658,6 +744,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -686,7 +774,7 @@ mod tests {
     async fn test_sfu_publication_updates_idempotent() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -694,6 +782,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate three identical publication updates
@@ -714,10 +804,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_sid_reassignment_does_not_republish() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        tokio::spawn(manager.run());
+
+        let pub_handle: Handle = Faker.fake();
+        let old_sid: DataTrackSid = Faker.fake();
+        let new_sid: DataTrackSid = Faker.fake();
+
+        // Simulate track published
+        let info = DataTrackInfo {
+            sid: RwLock::new(old_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+        assert_eq!(track.info().sid(), old_sid);
+
+        // Simulate publisher full reconnect: same track, new SID
+        let info = DataTrackInfo {
+            sid: RwLock::new(new_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        // Drain remaining events; no publish/unpublish should appear
+        input.send(InputEvent::Shutdown).unwrap();
+        while let Some(event) = output.next().await {
+            assert!(!matches!(
+                event,
+                OutputEvent::TrackPublished(_) | OutputEvent::TrackUnpublished(_)
+            ));
+        }
+        assert_eq!(track.info().sid(), new_sid);
+    }
+
+    #[tokio::test]
+    async fn test_sid_reassignment_resubscribes_active_subscription() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        tokio::spawn(manager.run());
+
+        let pub_handle: Handle = Faker.fake();
+        let old_sid: DataTrackSid = Faker.fake();
+        let new_sid: DataTrackSid = Faker.fake();
+        let old_sub_handle: Handle = Faker.fake();
+        let new_sub_handle: Handle = Faker.fake();
+
+        // Simulate track published
+        let info = DataTrackInfo {
+            sid: RwLock::new(old_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+
+        // Subscribe to the track
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: old_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+        expect_event!(output, OutputEvent::SfuUpdateSubscription);
+
+        // Simulate SFU assigning subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(old_sub_handle, old_sid)]) };
+        input.send(event.into()).unwrap();
+
+        let mut frame_rx =
+            time::timeout(Duration::from_secs(1), result_rx).await.unwrap().unwrap().unwrap();
+
+        // Simulate publisher full reconnect: same track, new SID
+        let info = DataTrackInfo {
+            sid: RwLock::new(new_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        // Manager should re-subscribe under the new SID
+        let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
+        assert!(event.subscribe);
+        assert_eq!(event.sid, new_sid);
+        assert_eq!(track.info().sid(), new_sid);
+        assert!(track.is_published());
+
+        // Simulate SFU assigning a new subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(new_sub_handle, new_sid)]) };
+        input.send(event.into()).unwrap();
+
+        // Frames received on the new handle reach the existing subscriber
+        let packet = Packet {
+            header: Header {
+                marker: FrameMarker::Single,
+                track_handle: new_sub_handle,
+                extensions: Extensions::default(),
+                ..Faker.fake()
+            },
+            payload: Bytes::from_static(&[1, 2, 3, 4, 5]),
+        };
+        input.send(InputEvent::PacketReceived(packet.serialize())).unwrap();
+
+        let frame = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(frame.payload.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[tokio::test]
     async fn test_subscribe_receives_frame() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -726,6 +945,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -776,7 +997,7 @@ mod tests {
         let options =
             ManagerOptions { decryption_provider: Some(Arc::new(PrefixStrippingDecryptor)) };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -785,6 +1006,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published (with e2ee)
@@ -837,7 +1060,7 @@ mod tests {
     async fn test_subscribe_fan_out_to_multiple_subscribers() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -846,6 +1069,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -917,7 +1142,7 @@ mod tests {
     async fn test_subscribe_unknown_track_fails() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, _) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Subscribe to a track that was never published
         let (result_tx, result_rx) = oneshot::channel();
@@ -936,7 +1161,7 @@ mod tests {
     async fn test_unpublish_terminates_pending_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -944,6 +1169,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -978,7 +1205,7 @@ mod tests {
     async fn test_unpublish_terminates_active_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -987,6 +1214,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -1029,7 +1258,7 @@ mod tests {
     async fn test_all_subscribers_dropped_terminates_sfu_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -1038,6 +1267,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -1080,7 +1311,7 @@ mod tests {
     async fn test_max_partial_frames_set_before_subscribe() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
@@ -1142,7 +1373,7 @@ mod tests {
     async fn test_max_partial_frames_set_live() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
@@ -1201,7 +1432,7 @@ mod tests {
     async fn test_default_drops_older_partial_frame() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
