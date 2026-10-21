@@ -1,7 +1,7 @@
 name: UniFFI Swift package
 
 # Builds livekit-ffi/core-modules as a Swift xcframework and
-# publishes it to the livekit-uniffi-xcframework hosting repo
+# publishes it to the livekit-ffi-xcframework hosting repo
 # (draft release + PR).
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
@@ -29,7 +29,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  HOSTING_REPO: livekit/livekit-uniffi-xcframework
+  HOSTING_REPO: livekit/livekit-ffi-xcframework
   # SPM_NAME must match the value in livekit-ffi/Makefile.toml [env].
   SPM_NAME: LiveKitFFI
   OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitFFI

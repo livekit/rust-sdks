@@ -15,18 +15,18 @@ cargo make swift-package                                  # all Apple platforms
 To consume it from a Swift project (e.g. `client-sdk-swift`), add this dependency entry to its `Package.swift` (and `Package@swift-6.2.swift`):
 
 ```swift
-.package(name: "livekit-uniffi-xcframework", path: "../rust-sdks/livekit-ffi/packages/swift/LiveKitFFI"),
+.package(name: "livekit-ffi-xcframework", path: "../rust-sdks/livekit-ffi/packages/swift/LiveKitFFI"),
 ```
 
-Adjust the relative path to match your checkout layout. Don't commit this change — it's purely for local iteration.
+Adjust the relative path to match your checkout layout. The `name:` must match the `package:` of its `.product(...)` entries (`livekit-uniffi-xcframework` in manifests that still use the old URL). Don't commit this change — it's purely for local iteration.
 
-**Release** — produces a zipped xcframework, computes its SHA256, and renders `Package.swift` / `Package@swift-6.2.swift` / podspec with a remote `url:` + `checksum:` pointing at the hosting repo release. Used by CI (`.github/workflows/uniffi-swift.yml`) to publish to [_livekit-uniffi-xcframework_](https://github.com/livekit/livekit-uniffi-xcframework):
+**Release** — produces a zipped xcframework, computes its SHA256, and renders `Package.swift` / `Package@swift-6.2.swift` / podspec with a remote `url:` + `checksum:` pointing at the hosting repo release. Used by CI (`.github/workflows/uniffi-swift.yml`) to publish to [_livekit-ffi-xcframework_](https://github.com/livekit/livekit-ffi-xcframework):
 
 ```
 SPM_VERSION=0.1.0 cargo make --profile release swift-package
 ```
 
-`SPM_HOSTING_REPO` defaults to `livekit/livekit-uniffi-xcframework`; override it if forking.
+`SPM_HOSTING_REPO` defaults to `livekit/livekit-ffi-xcframework`; override it if forking.
 
 ## Local dependencies
 

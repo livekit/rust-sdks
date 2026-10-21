@@ -400,7 +400,7 @@ echo "Rust${SPM_NAME}.xcframework.zip checksum: $(cat .checksum)"
 # canonical LiveKit one; override if forking. The condition makes these
 # defaults only — caller-set values from the environment take precedence.
 SPM_VERSION = { value = "0.0.0-dev", condition = { env_not_set = ["SPM_VERSION"] } }
-SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
+SPM_HOSTING_REPO = { value = "livekit/livekit-ffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
 
 [tasks.swift-generate-manifest]
 private = true
