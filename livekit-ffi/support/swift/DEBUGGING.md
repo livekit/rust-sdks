@@ -5,7 +5,7 @@ description: Debug Rust code (livekit-ffi) through Swift consumers with full Rus
 
 # Debugging Rust through Swift (UniFFI)
 
-The published `livekit-uniffi-xcframework` is a release build with `strip = "symbols"`
+The published `livekit-ffi-xcframework` is a release build with `strip = "symbols"`
 (see `livekit-ffi/Cargo.toml`), so lldb has nothing to symbolicate: Xcode shows only
 the generated UniFFI Swift glue and bare addresses for Rust. **A locally built debug
 xcframework has full DWARF** — lldb then shows mixed Swift/Rust backtraces, Rust source
@@ -86,13 +86,14 @@ In `<client-sdk-swift>`, replace the released dependency in **both** `Package.sw
 
 ```swift
 // before:
-.package(url: "https://github.com/livekit/livekit-uniffi-xcframework.git", exact: "X.Y.Z"),
+.package(url: "https://github.com/livekit/livekit-ffi-xcframework.git", exact: "X.Y.Z"),
 // after — absolute path to Recipe 1 output:
-.package(name: "livekit-uniffi-xcframework", path: "<rust-sdks>/livekit-ffi/packages/swift/LiveKitFFI"),
+.package(name: "livekit-ffi-xcframework", path: "<rust-sdks>/livekit-ffi/packages/swift/LiveKitFFI"),
 ```
 
-Keep the `name:` parameter — `.product(..., package: "livekit-uniffi-xcframework")`
-references it. Don't commit this change.
+Keep the `name:` parameter — `.product(..., package: "livekit-ffi-xcframework")`
+references it. A manifest that still uses the old `livekit-uniffi-xcframework` URL
+references that name instead. Match it. Don't commit this change.
 
 Heads-up: if an `.xcodeproj` app will consume this working copy through a workspace
 folder reference (Recipe 4), the override matches by directory **basename** — a

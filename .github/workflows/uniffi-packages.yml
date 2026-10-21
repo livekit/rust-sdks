@@ -1,7 +1,7 @@
 name: UniFFI packages
 
 # Publishes the per-language livekit-ffi core-modules wrapper packages (Swift
-# xcframework → livekit/livekit-uniffi-xcframework; Android AAR → Maven
+# xcframework → livekit/livekit-ffi-xcframework; Android AAR → Maven
 # Central) when a livekit-ffi release tag is pushed.
 #
 # Trigger note: this used to react to `release: published`, which worked only

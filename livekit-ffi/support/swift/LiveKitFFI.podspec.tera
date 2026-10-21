@@ -2,9 +2,9 @@
 Pod::Spec.new do |spec|
   spec.name = "{{ SPM_NAME }}"
   spec.version = "{{ SPM_VERSION }}"
-  spec.summary = "LiveKit UniFFI bindings"
+  spec.summary = "LiveKit FFI bindings"
   spec.description = <<-DESC
-    LiveKit UniFFI XCFramework with Swift bindings
+    LiveKit FFI XCFramework with Swift bindings
   DESC
 
   spec.homepage = "https://github.com/{{ SPM_HOSTING_REPO }}"
