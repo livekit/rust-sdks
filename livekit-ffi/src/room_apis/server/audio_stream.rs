@@ -72,10 +72,32 @@ impl From<AudioFrameBuffer> for AudioFrame<'static> {
     }
 }
 
+/// How an [`AudioStream`] shapes the audio it hands out.
+#[derive(uniffi::Record)]
+pub struct AudioStreamOptions {
+    #[uniffi(default = 48000)]
+    pub sample_rate: u32,
+    #[uniffi(default = 1)]
+    pub num_channels: u32,
+    /// Re-cuts the sink's frames to this length; without it they arrive as the sink
+    /// produced them.
+    #[uniffi(default = None)]
+    pub frame_size_ms: Option<u32>,
+    #[uniffi(default = None)]
+    pub queue_size_frames: Option<u32>,
+    /// Names a plugin loaded over the protobuf path, which is still the only way to load one.
+    #[uniffi(default = None)]
+    pub audio_filter_module_id: Option<String>,
+    #[uniffi(default = None)]
+    pub audio_filter_options: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum AudioStreamError {
-    #[error("{0}")]
-    InvalidTrack(String),
+    #[error("no track behind that handle")]
+    InvalidTrackHandle,
+    #[error("not an audio track")]
+    NotAudioTrack,
     #[error("{0}")]
     AudioFilter(String),
 }
@@ -105,27 +127,26 @@ impl AudioStream {
     /// The track arrives as a handle id rather than an object because `Track` has not
     /// migrated yet. An inbound handle is the cheap direction: it costs one untyped
     /// parameter, re-signed when `Track` lands.
-    ///
-    /// `frame_size_ms` re-cuts the sink's frames to that length; without it they arrive
-    /// as the sink produced them. `audio_filter_module_id` names a plugin loaded over the
-    /// protobuf path, which is still the only way to load one.
     #[uniffi::constructor]
     pub fn from_track_handle(
         track_handle: FfiHandleId,
-        sample_rate: Option<u32>,
-        num_channels: Option<u32>,
-        frame_size_ms: Option<u32>,
-        queue_size_frames: Option<u32>,
-        audio_filter_module_id: Option<String>,
-        audio_filter_options: Option<String>,
+        options: AudioStreamOptions,
     ) -> Result<Arc<Self>, AudioStreamError> {
+        let AudioStreamOptions {
+            sample_rate,
+            num_channels,
+            frame_size_ms,
+            queue_size_frames,
+            audio_filter_module_id,
+            audio_filter_options,
+        } = options;
         let ffi_track = crate::FFI_SERVER
             .retrieve_handle::<FfiTrack>(track_handle)
-            .map_err(|err| AudioStreamError::InvalidTrack(err.to_string()))?
+            .map_err(|_| AudioStreamError::InvalidTrackHandle)?
             .clone();
 
         let MediaStreamTrack::Audio(rtc_track) = ffi_track.track.rtc_track() else {
-            return Err(AudioStreamError::InvalidTrack("not an audio track".into()));
+            return Err(AudioStreamError::NotAudioTrack);
         };
 
         let filter = match audio_filter_module_id {
@@ -138,9 +159,7 @@ impl AudioStream {
             None => None,
         };
 
-        let sample_rate = sample_rate.unwrap_or(48000);
-        let num_channels = num_channels.unwrap_or(1);
-        let inner = AudioStreamInner::over(
+        let inner = AudioStreamInner::new(
             rtc_track,
             ffi_track.track.codec_clock_rate(),
             sample_rate,
@@ -148,12 +167,13 @@ impl AudioStream {
             queue_size_frames,
             filter,
         );
-        Ok(Arc::new(Self::over(Some(inner), sample_rate, num_channels, frame_size_ms)))
+        Ok(Arc::new(Self::new(Some(inner), sample_rate, num_channels, frame_size_ms)))
     }
 
     /// The next frame, or `None` once the track has ended.
     ///
-    /// Participant-sourced streams always yield `None`: they have not migrated.
+    /// A participant-sourced stream yields `None` at once: the protobuf path drives it
+    /// entirely, so one reached through `from_ffi_handle_id` has no frames to give here.
     ///
     /// One puller at a time, by the mutex. A stream the protobuf path is pumping will
     /// interleave its frames with a foreign caller's: the handle round-trip is for passing
@@ -176,7 +196,7 @@ impl AudioStream {
 }
 
 impl AudioStream {
-    pub(crate) fn over(
+    pub(crate) fn new(
         inner: Option<AudioStreamInner>,
         sample_rate: u32,
         num_channels: u32,
@@ -239,7 +259,7 @@ impl AudioStreamInner {
     /// Without a live session — none asked for, or creation failed — the sink must run at
     /// the requested rate directly, or codec-rate audio would be forwarded mislabeled as
     /// the output rate, dilating it downstream.
-    pub(crate) fn over(
+    pub(crate) fn new(
         rtc_track: RtcAudioTrack,
         codec_clock_rate: Option<u32>,
         output_sample_rate: u32,

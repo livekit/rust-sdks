@@ -27,7 +27,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::server::audio_stream::{
     AudioFilterInfo, AudioFilterSetup, AudioFrameBuffer, AudioStream, AudioStreamError,
-    AudioStreamInner,
+    AudioStreamInner, AudioStreamOptions,
 };
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -106,12 +106,14 @@ impl AudioStream {
         let track_handle = new_stream.track_handle;
         let stream = Self::from_track_handle(
             track_handle,
-            new_stream.sample_rate,
-            new_stream.num_channels,
-            new_stream.frame_size_ms,
-            new_stream.queue_size_frames,
-            new_stream.audio_filter_module_id,
-            new_stream.audio_filter_options,
+            AudioStreamOptions {
+                sample_rate: new_stream.sample_rate.unwrap_or(48000),
+                num_channels: new_stream.num_channels.unwrap_or(1),
+                frame_size_ms: new_stream.frame_size_ms,
+                queue_size_frames: new_stream.queue_size_frames,
+                audio_filter_module_id: new_stream.audio_filter_module_id,
+                audio_filter_options: new_stream.audio_filter_options,
+            },
         )?;
 
         let handle_id = stream.clone().ffi_handle_id();
@@ -145,7 +147,7 @@ impl AudioStream {
             return Err(FfiError::InvalidRequest("unsupported audio stream type".into()));
         }
 
-        let stream = Arc::new(Self::over(
+        let stream = Arc::new(Self::new(
             None,
             request.sample_rate.unwrap_or(48000),
             request.num_channels.unwrap_or(1),
@@ -261,8 +263,8 @@ impl AudioStream {
 
                 // One stream per track, pumped by the same loop as a track-sourced stream.
                 // It is never published as a handle: the outer stream owns the id.
-                let per_track = Arc::new(Self::over(
-                    Some(AudioStreamInner::over(
+                let per_track = Arc::new(Self::new(
+                    Some(AudioStreamInner::new(
                         rtc_track,
                         track.codec_clock_rate(),
                         sample_rate,
@@ -405,12 +407,14 @@ mod migration_tests {
     fn stream_over(track_handle: FfiHandleId, frame_size_ms: Option<u32>) -> Arc<AudioStream> {
         AudioStream::from_track_handle(
             track_handle,
-            Some(SAMPLE_RATE),
-            Some(1),
-            frame_size_ms,
-            None,
-            None,
-            None,
+            AudioStreamOptions {
+                sample_rate: SAMPLE_RATE,
+                num_channels: 1,
+                frame_size_ms,
+                queue_size_frames: None,
+                audio_filter_module_id: None,
+                audio_filter_options: None,
+            },
         )
         .expect("the track handle resolves to an audio track")
     }
@@ -444,6 +448,8 @@ mod migration_tests {
             // is drained first because the sink's queue is bounded, and the silence the
             // source keeps producing during that wait would push the frame out of it.
             assert_eq!(next_tagged(&rival).await.data[0], 10);
+            // So `same` finds no tagged frame left: `next_tagged` skips the silence the
+            // sink keeps producing, and runs into the timeout instead.
             assert!(
                 tokio::time::timeout(Duration::from_millis(500), next_tagged(&same)).await.is_err(),
                 "the frame `stream` consumed is gone from `same`"
