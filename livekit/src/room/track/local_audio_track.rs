@@ -38,6 +38,14 @@ impl Debug for LocalAudioTrack {
 }
 
 impl LocalAudioTrack {
+    /// Test-only: returns a probe that reports whether every clone of this track has been
+    /// dropped, so lifecycle tests can assert nothing retains it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
         Self {
             inner: Arc::new(super::new_inner(

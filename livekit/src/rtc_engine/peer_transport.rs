@@ -46,7 +46,14 @@ struct TransportInner {
     // Whether an offer carrying `x-google-start-bitrate` has been accepted locally. The
     // hint is written once per peer connection; see `compute_start_bitrate_kbps`.
     start_bitrate_applied: bool,
-    pending_initial_offer: Option<SessionDescription>,
+    pending_initial_offer: Option<MungedOffer>,
+}
+
+/// An offer after local SDP munging, see [`PeerTransport::munge_offer`].
+struct MungedOffer {
+    offer: SessionDescription,
+    /// Whether the offer carries the one-shot `x-google-start-bitrate` hint.
+    has_start_bitrate: bool,
 }
 
 pub struct PeerTransport {
@@ -162,8 +169,12 @@ impl PeerTransport {
     ) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
-        if let Some(pending_offer) = inner.pending_initial_offer.take() {
-            self.peer_connection.set_local_description(pending_offer).await?;
+        if let Some(pending) = inner.pending_initial_offer.take() {
+            self.peer_connection.set_local_description(pending.offer).await?;
+            // Only consume the one-shot hint once the offer carrying it is accepted locally.
+            if pending.has_start_bitrate {
+                inner.start_bitrate_applied = true;
+            }
         }
 
         self.peer_connection.set_remote_description(remote_description).await?;
@@ -216,19 +227,10 @@ impl PeerTransport {
     /// Create an initial offer without setting it as local description.
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
-    /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published, so only the `inactive→recvonly` munging applies.
-    ///
-    /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
-    /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
-    /// published — always after this runs — so there is never a target to write here. Writing
-    /// one would also have to consume the one-shot latch before the offer becomes the local
-    /// description, which happens later in `set_remote_description`, and the offer can be
-    /// dropped without ever being applied: when the server declines single PC mode,
-    /// `RtcSession` calls `clear_pending_initial_offer` and reuses this transport for the rest
-    /// of the session. The latch would then be spent on an offer that never existed, silently
-    /// skipping the hint for the life of the connection. `create_and_send_offer` owns the hint
-    /// and latches only once `set_local_description` has succeeded.
+    /// It gets the same munging as [`Self::create_and_send_offer`], including the
+    /// `x-google-start-bitrate` hint when join-time video tracks are present. That hint is computed without a connection setup time, since the
+    /// connection does not exist yet, so it stays capped at
+    /// [`Self::MAX_START_BITRATE_KBPS`].
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
@@ -236,25 +238,13 @@ impl PeerTransport {
         }
         drop(inner);
 
-        let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let sdp = offer.to_string();
-
-        // Apply inactive→recvonly munging for single PC mode
-        let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
-        if recvonly_munged != sdp {
-            if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                offer = parsed;
-            }
-        }
+        let offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
 
         let mut inner = self.inner.lock().await;
-        inner.pending_initial_offer = Some(offer.clone());
+        let munged = Self::munge_offer(&inner, offer);
+        let offer = munged.offer.clone();
+        inner.pending_initial_offer = Some(munged);
         Ok(Some(offer))
-    }
-
-    pub async fn clear_pending_initial_offer(&self) {
-        let mut inner = self.inner.lock().await;
-        inner.pending_initial_offer = None;
     }
 
     pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, is_screen_share: bool) {
@@ -551,35 +541,8 @@ impl PeerTransport {
         munged
     }
 
-    pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
-        let mut inner = self.inner.lock().await;
-        if options.ice_restart {
-            inner.restarting_ice = true;
-        }
-
-        if inner.pending_initial_offer.is_some() {
-            inner.renegotiate = true;
-            return Ok(());
-        }
-
-        if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
-            let remote_sdp = self.peer_connection.current_remote_description();
-            if options.ice_restart && remote_sdp.is_some() {
-                let remote_sdp = remote_sdp.unwrap();
-
-                // Cancel the old renegotiation (Basically say the server rejected the previous
-                // offer) So we can resend a new offer just after this
-                self.peer_connection.set_remote_description(remote_sdp).await?;
-            } else {
-                inner.renegotiate = true;
-                return Ok(());
-            }
-        } else if self.peer_connection.signaling_state() == SignalingState::Closed {
-            log::warn!("peer connection is closed, cannot create offer");
-            return Ok(());
-        }
-
-        let mut offer = self.peer_connection.create_offer(options).await?;
+    /// Applies the local SDP munging to a freshly created offer.
+    fn munge_offer(inner: &TransportInner, mut offer: SessionDescription) -> MungedOffer {
         let mut sdp = offer.to_string();
 
         if inner.single_pc_mode {
@@ -626,7 +589,7 @@ impl PeerTransport {
         // x-google-max-bitrate is deliberately never written: the same Call-level promotion
         // would turn a per-track cap into a ceiling on total send bandwidth, starving concurrent
         // tracks. Per-track and per-layer caps belong in the encodings' max_bitrate.
-        let mut applied_start_bitrate = false;
+        let mut has_start_bitrate = false;
         let has_video = sdp.contains(" VP8/90000")
             || sdp.contains(" VP9/90000")
             || sdp.contains(" AV1/90000")
@@ -651,7 +614,7 @@ impl PeerTransport {
                     match SessionDescription::parse(&munged, offer.sdp_type()) {
                         Ok(parsed) => {
                             offer = parsed;
-                            applied_start_bitrate = true;
+                            has_start_bitrate = true;
                         }
                         Err(e) => log::warn!(
                             "Failed to parse munged SDP, falling back to original offer: {e}"
@@ -663,10 +626,44 @@ impl PeerTransport {
             }
         }
 
+        MungedOffer { offer, has_start_bitrate }
+    }
+
+    pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
+        let mut inner = self.inner.lock().await;
+        if options.ice_restart {
+            inner.restarting_ice = true;
+        }
+
+        if inner.pending_initial_offer.is_some() {
+            inner.renegotiate = true;
+            return Ok(());
+        }
+
+        if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
+            let remote_sdp = self.peer_connection.current_remote_description();
+            if options.ice_restart && remote_sdp.is_some() {
+                let remote_sdp = remote_sdp.unwrap();
+
+                // Cancel the old renegotiation (Basically say the server rejected the previous
+                // offer) So we can resend a new offer just after this
+                self.peer_connection.set_remote_description(remote_sdp).await?;
+            } else {
+                inner.renegotiate = true;
+                return Ok(());
+            }
+        } else if self.peer_connection.signaling_state() == SignalingState::Closed {
+            log::warn!("peer connection is closed, cannot create offer");
+            return Ok(());
+        }
+
+        let offer = self.peer_connection.create_offer(options).await?;
+        let MungedOffer { offer, has_start_bitrate } = Self::munge_offer(&inner, offer);
+
         self.peer_connection.set_local_description(offer.clone()).await?;
 
         // Only consume the one-shot hint once the offer carrying it is accepted locally.
-        if applied_start_bitrate {
+        if has_start_bitrate {
             inner.start_bitrate_applied = true;
         }
 
@@ -778,6 +775,44 @@ mod tests {
             "the deferred renegotiation should emit a follow-up offer"
         );
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+    }
+
+    /// Join-time video makes the initial offer carry the start bitrate hint, which is consumed
+    /// only once the server's answer applies the offer as the local description.
+    #[tokio::test]
+    async fn initial_offer_carries_start_bitrate_hint() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let alice_pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let bob_pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::SendOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+        alice_pc.add_transceiver_for_media(MediaType::Video, init).unwrap();
+
+        let transport = PeerTransport::new(
+            alice_pc,
+            proto::SignalTarget::Publisher,
+            /* single_pc_mode= */ true,
+        );
+        transport.set_max_send_bitrate_bps(Some(2_000_000), false).await;
+
+        let offer = transport.create_initial_offer().await.unwrap().expect("single PC mode");
+        // 90% of the 2 Mbps target, capped at 1 Mbps without a connection setup time.
+        assert!(offer.to_string().contains("x-google-start-bitrate=1000"));
+        assert!(!transport.inner.lock().await.start_bitrate_applied);
+
+        bob_pc.set_remote_description(offer).await.unwrap();
+        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
+        bob_pc.set_local_description(answer.clone()).await.unwrap();
+
+        transport.set_remote_description(answer).await.unwrap();
+        assert!(transport.inner.lock().await.start_bitrate_applied);
     }
 
     /// The two counters are the whole basis on which a resume decides a transport recovered,
