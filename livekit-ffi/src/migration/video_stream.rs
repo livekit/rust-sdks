@@ -162,7 +162,7 @@ impl VideoStream {
 
         let dst_type = request.format.map(|_| request.format().into());
         let normalize_stride = request.normalize_stride.unwrap_or(true);
-        let stream = Arc::new(Self::over(None, dst_type, normalize_stride));
+        let stream = Arc::new(Self::new(None, dst_type, normalize_stride));
 
         let info = video_stream_info();
         let handle_id = stream.ffi_handle_id();
@@ -238,7 +238,7 @@ impl VideoStream {
 
                 // One stream per track, pumped by the same loop as a track-sourced stream.
                 // It is never published as a handle: the outer stream owns the id.
-                let per_track = Arc::new(Self::over(
+                let per_track = Arc::new(Self::new(
                     Some(NativeVideoStream::with_options(rtc_track, options)),
                     dst_type,
                     normalize_stride,
