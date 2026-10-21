@@ -263,6 +263,8 @@ impl FfiServer {
             .ffi_handles
             .remove(&id)
             .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+        // the id leaves the map as it does in drop_handle, so its watchers see the same end
+        self.handle_dropped_txs.remove(&id);
 
         let handle = handle.downcast::<T>().map_err(|_| {
             let tyname = std::any::type_name::<T>();
