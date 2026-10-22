@@ -1003,9 +1003,27 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResourc
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::span::SpanKind;
-    use crate::{ReconnectReason, RoomIdentity, SpanName, SpanStep};
-    use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
+    use std::{
+        collections::VecDeque,
+        fs,
+        path::{Path, PathBuf},
+        sync::Mutex,
+    };
+
+    use prost::Message;
+
+    use super::*;
+    use crate::{
+        cache::temp_dir,
+        proto::opentelemetry::proto::{
+            collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
+            common::v1::any_value::Value,
+            logs::v1::LogRecord,
+            trace::v1::{span, status},
+        },
+        AppState, ExportError, ExportRequest, ExportResponse, ReconnectReason, RoomIdentity,
+        SpanName, SpanOutcome, SpanStep, StreamDirection, ThermalState, TrackKind,
+    };
 
     #[tokio::test(start_paused = true)]
     async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
@@ -1068,6 +1086,7 @@ pub(crate) mod tests {
         session.subscribe_started(track("TR_c"));
         session.track_ended("TR_c");
         tokio::time::sleep(Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
+        session.subscribe_started(track("TR_d"));
         telemetry.flush().await;
 
         let spans = exported_spans(&transport);
@@ -1123,7 +1142,7 @@ pub(crate) mod tests {
             os_version: "19.0".into(),
             device_model: Some("iPhone17,1".into()),
         });
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         let session = telemetry.begin_scope();
         session.set_room(RoomIdentity {
             sid: Some("RM_a".into()),
@@ -1196,21 +1215,6 @@ pub(crate) mod tests {
         assert_eq!(attribute(&logs[1], "lk.log.source"), Some(Value::StringValue("webrtc".into())));
     }
 
-    use prost::Message;
-
-    use super::*;
-    use crate::{
-        cache::temp_dir,
-        proto::opentelemetry::proto::{
-            collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
-            common::v1::any_value::Value,
-            logs::v1::LogRecord,
-            trace::v1::{span, status},
-        },
-        AppState, ExportError, ExportRequest, ExportResponse, SpanOutcome, StreamDirection,
-        ThermalState, TrackKind,
-    };
-
     /// Fail a test wait that could otherwise hang, naming the line that waited. The bound
     /// outlasts one export timeout, which a flush through a hanging transport waits out.
     #[track_caller]
@@ -1227,7 +1231,12 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub(crate) struct FakeTransport {
         requests: Mutex<Vec<ExportRequest>>,
+        /// When each request arrived.
+        times: Mutex<Vec<Instant>>,
         script: Mutex<VecDeque<Result<ExportResponse, ExportError>>>,
+        /// A directory whose files are counted at every request, before it is answered.
+        watched: Mutex<Option<PathBuf>>,
+        files_seen: Mutex<Vec<usize>>,
     }
 
     impl FakeTransport {
@@ -1243,6 +1252,21 @@ pub(crate) mod tests {
             self.requests.lock().expect("lock").clone()
         }
 
+        /// When each request arrived, in order.
+        pub(crate) fn times(&self) -> Vec<Instant> {
+            self.times.lock().expect("lock").clone()
+        }
+
+        /// Count the files in `dir` at every request, before it is answered.
+        pub(crate) fn watch(&self, dir: &Path) {
+            *self.watched.lock().expect("lock") = Some(dir.to_owned());
+        }
+
+        /// The file counts [`watch`](Self::watch) saw, one per request.
+        pub(crate) fn files_seen(&self) -> Vec<usize> {
+            self.files_seen.lock().expect("lock").clone()
+        }
+
         /// Queue more answers.
         pub(crate) fn then(
             &self,
@@ -1256,6 +1280,11 @@ pub(crate) mod tests {
     impl TelemetryTransport for FakeTransport {
         async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
             self.requests.lock().expect("lock").push(request);
+            self.times.lock().expect("lock").push(Instant::now());
+            let watched = self.watched.lock().expect("lock").clone();
+            if let Some(dir) = watched {
+                self.files_seen.lock().expect("lock").push(files_in(&dir));
+            }
             let scripted = self.script.lock().expect("lock").pop_front();
             scripted.unwrap_or_else(|| Ok(ExportResponse::accepted()))
         }
@@ -1296,17 +1325,45 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn pipeline(transport: Arc<FakeTransport>) -> Telemetry {
-        start(test_config(), transport)
+        start_with_collector(test_config(), transport)
     }
 
     pub(crate) fn persisted_pipeline(transport: Arc<FakeTransport>, dir: &Path) -> Telemetry {
         let mut config = test_config();
         config.storage_dir = Some(dir.to_string_lossy().into_owned());
-        start(config, transport)
+        start_with_collector(config, transport)
+    }
+
+    /// The process session's view of the pipeline, for tests that need no Room. Production code
+    /// goes through a [`Scope`]; these exist only in tests.
+    impl Telemetry {
+        /// Point every upload at `endpoint`, as [`ENDPOINT_OVERRIDE_ENV`] does.
+        pub(crate) fn override_endpoint(&self, endpoint: &str) {
+            *self.shared.destinations.lock().expect("lock") = Destinations::new(Some(endpoint));
+        }
+
+        /// The process session's trace id.
+        pub(crate) fn trace_id(&self) -> String {
+            self.shared.process.hex().to_owned()
+        }
+
+        /// Window a reading under the process session.
+        pub(crate) fn record_stats(&self, sample: RtcStatsSample) {
+            self.record_stats_in(sample, &self.shared.process);
+        }
+
+        /// An app event under the process session.
+        pub(crate) fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
+            let process = Scope { telemetry: self.clone(), state: self.shared.process.clone() };
+            process.emit_custom(name, attributes);
+        }
     }
 
     /// A running pipeline whose uploads all go to `http://collector` (the test override).
-    pub(crate) fn start(config: TelemetryConfig, transport: Arc<FakeTransport>) -> Telemetry {
+    pub(crate) fn start_with_collector(
+        config: TelemetryConfig,
+        transport: Arc<FakeTransport>,
+    ) -> Telemetry {
         let telemetry = start_cloud(config, transport);
         telemetry.override_endpoint("http://collector");
         telemetry
@@ -1408,7 +1465,7 @@ pub(crate) mod tests {
     async fn queue_overflow_is_counted_by_reason() {
         let mut config = test_config();
         config.max_queue_size = 1;
-        let telemetry = start(config, FakeTransport::scripted([]));
+        let telemetry = start_with_collector(config, FakeTransport::scripted([]));
         for _ in 0..3 {
             telemetry.emit(TelemetryEvent::new("lk.ping"));
         }
@@ -1433,19 +1490,22 @@ pub(crate) mod tests {
     async fn batch_is_written_before_upload_and_replayed_on_next_start() {
         let dir = temp_dir("replay");
         let first_transport = FakeTransport::scripted(offline_forever());
+        first_transport.watch(&dir);
         let first = persisted_pipeline(first_transport.clone(), &dir);
         first.emit(TelemetryEvent::new("lk.ping"));
         first.flush().await;
-        assert_eq!(first_transport.sent().len(), 1);
+        assert_eq!(first_transport.files_seen(), [1], "on disk before the network was tried");
         assert_eq!(first.stats().dropped, 0);
-        assert_eq!(files_in(&dir), 1, "written before the first attempt, kept after failure");
+        assert_eq!(files_in(&dir), 1, "kept after the failure");
+        // The first pipeline stops before the next one starts, as an app restart would.
+        first.shutdown().await;
+        drop(first);
 
         let second_transport = FakeTransport::scripted([]);
         let second = persisted_pipeline(second_transport.clone(), &dir);
         second.flush().await;
-        let sent = second_transport.sent();
-        assert_eq!(sent.len(), 1, "replayed on start");
-        assert_eq!(event_names(&sent[0]), ["lk.ping"]);
+        let names: Vec<String> = second_transport.sent().iter().flat_map(event_names).collect();
+        assert!(names.contains(&"lk.ping".to_owned()), "replayed on start: {names:?}");
         assert_eq!(files_in(&dir), 0);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1453,9 +1513,7 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn throttling_holds_uploads_and_keeps_collecting() {
         let dir = temp_dir("throttle");
-        let throttled =
-            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(5_000) });
-        let transport = FakeTransport::scripted([throttled]);
+        let transport = FakeTransport::scripted([answer(429, &[("Retry-After", "5")], b"")]);
         let telemetry = persisted_pipeline(transport.clone(), &dir);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
@@ -1481,13 +1539,11 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_hold_longer_than_the_cache_reports_what_it_cost() {
         let dir = temp_dir("throttle-overflow");
-        let throttled =
-            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(60_000) });
-        let transport = FakeTransport::scripted([throttled]);
+        let transport = FakeTransport::scripted([answer(429, &[("Retry-After", "60")], b"")]);
         let mut config = test_config();
         config.storage_dir = Some(dir.to_string_lossy().into_owned());
         config.max_cache_bytes = 700; // a couple of batches, so the hold overruns it quickly
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
 
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
@@ -1585,19 +1641,20 @@ pub(crate) mod tests {
     async fn uploads_hold_while_connecting_but_never_beyond_the_cap() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
+        let connect = telemetry.begin_scope().start(SpanName::Connect, None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
         assert!(transport.sent().is_empty(), "the uplink belongs to signaling and ICE");
         assert_eq!(telemetry.stats().cached_batches, 1, "…but the batch is safely cached");
 
-        tokio::time::sleep(Duration::from_secs(301)).await;
-        telemetry.flush().await;
-        assert_eq!(transport.sent().len(), 1, "held 5 min: one batch goes out regardless");
+        tokio::time::sleep(Duration::from_secs(59)).await;
+        assert!(transport.sent().is_empty(), "within the 60 s cap");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(transport.sent().len(), 1, "held 60 s: one batch goes out regardless");
         assert_eq!(telemetry.stats().holds_capped, 1, "…and the starvation is counted");
 
         telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.end_span(connect, SpanOutcome::Ok, None, Vec::new());
+        connect.end(SpanOutcome::Ok, None);
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 3, "connected: the ping and the connect span ship");
     }
@@ -1624,7 +1681,7 @@ pub(crate) mod tests {
         let transport = FakeTransport::scripted([]);
         let mut config = test_config();
         config.max_batches_per_upload = 2;
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         let call = telemetry.begin_scope();
         call.set_server("wss://p.livekit.cloud", "token"); // the budget applies next to a call
         telemetry.set_device_state(DeviceState { network_constrained: true, ..Default::default() });
@@ -1648,10 +1705,10 @@ pub(crate) mod tests {
         assert_eq!(transport.sent().len(), 7, "shutdown drains too (+ the summary)");
     }
 
-    struct Hanging;
+    struct HangingTransport;
 
     #[async_trait::async_trait]
-    impl TelemetryTransport for Hanging {
+    impl TelemetryTransport for HangingTransport {
         async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
             std::future::pending().await
         }
@@ -1663,7 +1720,7 @@ pub(crate) mod tests {
         let mut config = test_config();
         config.flush_interval_ms = 60_000;
         config.flush_threshold_bytes = 10_000;
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         tokio::time::sleep(Duration::from_millis(1)).await; // the immediate first tick passes
         for _ in 0..3 {
             telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
@@ -1680,7 +1737,7 @@ pub(crate) mod tests {
         let mut config = test_config();
         config.max_batch_bytes = 10_000;
         config.max_batches_per_upload = 10;
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         for _ in 0..5 {
             telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
         }
@@ -1739,7 +1796,7 @@ pub(crate) mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn timeouts_are_counted_apart_from_failures() {
-        let (telemetry, exporter) = Telemetry::new(test_config(), Arc::new(Hanging));
+        let (telemetry, exporter) = Telemetry::new(test_config(), Arc::new(HangingTransport));
         telemetry.override_endpoint("http://collector");
         tokio::spawn(exporter.run());
         telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -1866,7 +1923,7 @@ pub(crate) mod tests {
         config.max_events_per_10min = 1;
         config.stats_window_ms = 1_000;
         let transport = FakeTransport::scripted([]);
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.record_stats(RtcStatsSample::new(
@@ -1889,7 +1946,7 @@ pub(crate) mod tests {
         let mut config = test_config();
         config.stats_window_ms = 2_000;
         let transport = FakeTransport::scripted([]);
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         for (bytes, jitter) in [(100, 1.0), (200, 3.0), (300, 2.0)] {
             let mut sample =
                 RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Inbound);
@@ -1960,22 +2017,19 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn spans_export_as_traces_under_the_session_trace_id() {
         let transport = FakeTransport::scripted([]);
-        let telemetry = start(test_config(), transport.clone());
+        let telemetry = start_with_collector(test_config(), transport.clone());
         telemetry.override_endpoint("http://c/observability/client/logs/otlp/v0");
-        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
-        telemetry.add_span_event(connect, "ws_open");
+        let room = telemetry.begin_scope();
+        let span = room.start(SpanName::Connect, None);
+        span.step(SpanStep::WsOpen);
+        let connect = span.context().expect("bound").span_id;
         telemetry.emit(
             TelemetryEvent::new("")
                 .with_severity(Severity::Error)
                 .with_body("boom")
                 .in_span(connect),
         );
-        telemetry.end_span(
-            connect,
-            SpanOutcome::Error,
-            Some("timeout".into()),
-            vec![Attribute::new("lk.connect.attempt", 1i64)],
-        );
+        span.fail("timeout".into());
         telemetry.flush().await;
 
         let sent = transport.sent();
@@ -1991,7 +2045,7 @@ pub(crate) mod tests {
         let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(otlp_span.name, "lk.connect");
         assert_eq!(otlp_span.kind, span::SpanKind::Client as i32);
-        assert_eq!(hex(&otlp_span.trace_id), telemetry.trace_id());
+        assert_eq!(hex(&otlp_span.trace_id), room.trace_id());
         assert_eq!(otlp_span.span_id, connect.to_be_bytes().to_vec());
         assert!(otlp_span.parent_span_id.is_empty());
         assert!(otlp_span.end_time_unix_nano >= otlp_span.start_time_unix_nano);
@@ -2015,7 +2069,7 @@ pub(crate) mod tests {
 
         let logs = sent.iter().find(|r| r.url.ends_with("/logs/otlp/v0")).expect("logs request");
         let record = &records(logs)[0];
-        assert_eq!(hex(&record.trace_id), telemetry.trace_id(), "every record carries the trace");
+        assert_eq!(hex(&record.trace_id), room.trace_id(), "every record carries the trace");
         assert_eq!(
             record.span_id,
             connect.to_be_bytes().to_vec(),
@@ -2027,8 +2081,7 @@ pub(crate) mod tests {
     async fn cancelled_spans_keep_status_unset() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        let publish = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
-        telemetry.end_span(publish, SpanOutcome::Cancelled, None, vec![]);
+        telemetry.begin_scope().start(SpanName::Publish, None).cancel();
         telemetry.flush().await;
         let sent = transport.sent();
         assert_eq!(sent[0].url, "http://collector/v1/traces");
@@ -2057,7 +2110,7 @@ pub(crate) mod tests {
         assert_eq!(TelemetryConfig::default().flush_interval_ms, 60_000);
         for app_state in [AppState::Foreground, AppState::Background] {
             let transport = FakeTransport::scripted([]);
-            let telemetry = start(TelemetryConfig::default(), transport.clone());
+            let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
             telemetry.set_device_state(DeviceState::default());
             telemetry.flush().await;
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2095,7 +2148,7 @@ pub(crate) mod tests {
         let transport = FakeTransport::scripted([]);
         let mut config = test_config();
         config.max_batch_size = 2;
-        let telemetry = start(config, transport.clone());
+        let telemetry = start_with_collector(config, transport.clone());
         tokio::time::sleep(Duration::from_millis(10)).await; // the start-up tick is behind us
         let session = telemetry.begin_scope();
         for _ in 0..5 {
