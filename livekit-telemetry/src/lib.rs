@@ -42,9 +42,12 @@ mod stats;
 mod device;
 
 /// RTC stats samples and their on-device windowing.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+    )
 )]
 mod rtc;
 

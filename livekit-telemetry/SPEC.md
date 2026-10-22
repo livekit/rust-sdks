@@ -10,9 +10,9 @@ owner and timestamp, are taken at capture, its session's (`lk.room.*`, `lk.parti
 `session.id`) included, so a record captured before a disconnect keeps its room; only
 pipeline-wide attributes are added at export. A record ships each key once: of a key it repeats,
 the last value supplied wins, and its session's keys replace its own. Attribute keys the SDK
-owns are `lk.*`, `otel.*`, `code.*`, `session.id` and `error.type`: an app's attributes and
-custom events cannot set them, and on a span only the core writes `lk.outcome` and `error.type`
-(see [Spans](#spans)).
+owns are `lk.*`, `otel.*`, `code.*`, `session.id`, `error.type` and `network.connection.type`:
+an app's attributes and custom events cannot set them, and on a span only the core writes
+`lk.outcome` and `error.type` (see [Spans](#spans)).
 
 ## Resource attributes
 
@@ -183,8 +183,8 @@ platforms: ios, macos, android — web: Chromium only
 event: lk.device.battery.changed
 area: device
 attributes:
-  hw.battery.charge: double                        # 0.0–1.0 (OTel hardware semconv)
-  hw.battery.state: enum(charging | discharging)   # OTel hardware semconv
+  lk.device.battery.level: int      # percent, 0–100
+  lk.device.battery.charging: bool
 cadence: on charging change and when the level crosses 20 % or 10 % unplugged — never per
          percent; silent where the level is unknown (desktops, tvOS)
 platforms: ios, android — optional elsewhere
@@ -218,6 +218,54 @@ attributes:
   lk.device.capture.reason: enum(permission_denied | not_found | in_use | disconnected | other)   # the getUserMedia failure taxonomy
 cadence: on failure
 platforms: all — ios: authorization status, capture interruptions; android: permission checks, camera callbacks; web: DOMException names
+```
+
+```yaml
+event: lk.rtc.stats.sample
+area: rtc
+severity: info
+cadence: one per track and direction per stats window (default 60 s, stretched by the cadence
+         factor); closed early on background, when the track leaves (`track_ended`), at
+         disconnect and at shutdown. Produced by the core from raw readings — one getStats()
+         report per peer connection (`record_peer_stats`), polled when the core says
+         (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
+         track keep two windows.
+attributes:
+  lk.track.sid: string
+  lk.track.kind: enum(audio | video)
+  lk.track.direction: enum(inbound | outbound)
+  lk.rtc.codec: string                      # mimeType, when known
+  lk.rtc.window_ms: int                     # actual window length
+  lk.rtc.samples: int                       # readings (polls) in the window; one poll's layers are one reading
+  # cumulative counters — the last reading's value, monotonic (W3C webrtc-stats model). A
+  # layered outbound track's (one whose readings name their RTP streams) bytes and packets are its
+  # running total: each poll adds every stream's growth since the previous poll, so a stream's
+  # first poll only sets its starting point (a new or returning stream's first poll is not
+  # counted, never a double count), and the order of a report's streams changes nothing
+  lk.rtc.bytes: int
+  lk.rtc.packets: int
+  lk.rtc.packets_lost: int                  # inbound
+  lk.rtc.freeze_count: int                  # inbound video
+  lk.rtc.freezes_duration_ms: int           # inbound video
+  lk.rtc.concealed_samples: int             # inbound audio
+  lk.rtc.concealment_events: int            # inbound audio
+  lk.rtc.jitter_buffer_delay_ms: int        # inbound
+  lk.rtc.jitter_buffer_emitted_count: int   # inbound
+  lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
+  lk.rtc.quality_limitation.cpu_ms: int         # outbound video
+  lk.rtc.quality_limitation.other_ms: int       # outbound video
+  lk.rtc.pause_count: int                   # inbound video
+  lk.rtc.pauses_duration_ms: int            # inbound video
+  lk.rtc.silent_concealed_samples: int      # inbound audio
+  lk.rtc.interruption_count: int            # inbound audio
+  lk.rtc.interruptions_duration_ms: int     # inbound audio
+  # gauges — min / max / avg over the window's readings, one reading per poll; a poll's value is
+  # the largest any of its streams reports, so a value one stream lacks comes from the others
+  lk.rtc.jitter_ms.{min,max,avg}: double
+  lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, the selected candidate pair for inbound
+  lk.rtc.fps.{min,max,avg}: double          # video
+  lk.rtc.audio_level.{min,max,avg}: double  # audio, 0.0–1.0 linear
+platforms: all
 ```
 
 ## Cadence policy

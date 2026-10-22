@@ -22,9 +22,13 @@ pub enum ThermalState {
     /// The platform has no thermal source: no pressure assumed, no change event.
     #[default]
     Unknown,
+    /// No thermal pressure; sent as `nominal`.
     Nominal,
+    /// Slightly raised thermal pressure; sent as `fair`.
     Fair,
+    /// High thermal pressure; sent as `serious`.
     Serious,
+    /// Pressure high enough to cut performance until the device cools; sent as `critical`.
     Critical,
 }
 
@@ -32,8 +36,10 @@ pub enum ThermalState {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppState {
+    /// The app is in front of the user; sent as `foreground`.
     #[default]
     Foreground,
+    /// The app runs in the background; sent as `background`.
     Background,
 }
 
@@ -42,9 +48,12 @@ pub enum AppState {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MemoryPressure {
+    /// No memory pressure; sent as `normal`.
     #[default]
     Normal,
+    /// The OS warns that memory runs low; sent as `warning`.
     Warning,
+    /// Memory is critically low; sent as `critical`.
     Critical,
 }
 
@@ -52,10 +61,14 @@ pub enum MemoryPressure {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NetworkType {
+    /// The platform cannot tell the network type; sent as `unknown`.
     #[default]
     Unknown,
+    /// Wi-Fi; sent as `wifi`.
     Wifi,
+    /// A cellular network; sent as `cell`.
     Cell,
+    /// Ethernet or another wired link; sent as `wired`.
     Wired,
     /// A VPN tunnel is the active interface (Android `TRANSPORT_VPN`, WebRTC candidate `vpn`).
     Vpn,
@@ -64,11 +77,12 @@ pub enum NetworkType {
     /// Connected over something the platform does not name (`NWInterface.InterfaceType.other`,
     /// Android `TRANSPORT_USB` / `LOWPAN`, …).
     Other,
+    /// No network path: the device is offline; sent as `unavailable`.
     Unavailable,
 }
 
-/// What the host observes about the device; pushed with
-/// [`Telemetry::set_device_state`](crate::Telemetry::set_device_state) whenever anything changes.
+/// What the host observes about the device; pushed with `Telemetry::set_device_state` whenever
+/// anything changes.
 ///
 /// The host owns the OS APIs (thermal, power, memory, battery, network path, lifecycle) — they
 /// are not reachable from Rust without a JVM/ObjC bridge — and the core owns what to do with
@@ -77,16 +91,20 @@ pub enum NetworkType {
 /// costs CPU): thermal state is the OS's judgement, and WebRTC's own `qualityLimitationReason`
 /// (see [`RtcStatsSample`](crate::RtcStatsSample)) says when the encoder is CPU-starved.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DeviceState {
+    /// The OS's thermal state; `Unknown` when the platform has no source.
     pub thermal: ThermalState,
     /// Low Power Mode / Battery Saver; `None` when the platform has no source (no change event,
     /// no stretch).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub low_power_mode: Option<bool>,
+    /// Whether the app is in front of the user.
     pub app_state: AppState,
     // No `uniffi(default)` on enum fields: uniffi 0.31's Swift generator rejects `Default` there.
+    /// The OS's memory pressure.
     pub memory: MemoryPressure,
+    /// The active network path.
     pub network: NetworkType,
     /// Cellular / personal hotspot (`NWPath.isExpensive`, metered on Android).
     #[cfg_attr(feature = "uniffi", uniffi(default = false))]
@@ -98,8 +116,23 @@ pub struct DeviceState {
     /// Battery charge in percent; `None` when unknown (desktops, tvOS, monitoring disabled).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub battery_level: Option<u32>,
+    /// Plugged in and charging: a charging battery is never low.
     #[cfg_attr(feature = "uniffi", uniffi(default = false))]
     pub battery_charging: bool,
+}
+
+/// The largest cadence factor: the flush interval and stats window stretch at most this much.
+pub(crate) const MAX_CADENCE_FACTOR: u32 = 4;
+
+/// How much the battery level matters; per-percent updates only count when they cross a bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BatteryBucket {
+    /// Charging, unknown, or above 20 %.
+    Fine,
+    /// At most 20 % and unplugged: the cadence doubles.
+    Low,
+    /// At most 10 % and unplugged: uploads hold.
+    NearlyEmpty,
 }
 
 impl DeviceState {
@@ -108,11 +141,11 @@ impl DeviceState {
     /// Below this, unplugged, the cadence doubles.
     const BATTERY_LOW_PERCENT: u32 = 20;
 
-    /// Multiplier on the flush interval and stats window: 1× at rest, up to 4× under pressure
-    /// (60 s → 4 min at the default cadence). Serious thermal, memory
-    /// warning, low-power mode, background, low battery and a constrained network each double
-    /// it; critical thermal or memory quadruple it.
-    pub fn cadence_factor(&self) -> u32 {
+    /// Multiplier on the flush interval and stats window: 1× at rest, up to
+    /// [`MAX_CADENCE_FACTOR`] under pressure (60 s → 4 min at the default cadence). Serious
+    /// thermal, memory warning, low-power mode, background, low battery and a constrained network
+    /// each double it; critical thermal or memory quadruple it.
+    pub(crate) fn cadence_factor(&self) -> u32 {
         let thermal = match self.thermal {
             ThermalState::Unknown | ThermalState::Nominal | ThermalState::Fair => 1,
             ThermalState::Serious => 2,
@@ -126,35 +159,41 @@ impl DeviceState {
         let doubled = [
             self.low_power_mode == Some(true),
             self.app_state == AppState::Background,
-            self.battery_bucket() >= 1,
+            self.battery_bucket() != BatteryBucket::Fine,
             self.network_constrained,
         ]
         .iter()
         .filter(|&&on| on)
         .count() as u32;
-        ((thermal * memory) << doubled).min(4)
+        ((thermal * memory) << doubled).min(MAX_CADENCE_FACTOR)
     }
 
     /// A soft hold: the user asked for less traffic (Low Data Mode / Data Saver) or the battery
     /// is nearly empty and unplugged. Uploads wait (at most a minute at a time); data keeps
     /// flowing into the cache meanwhile. Being offline (`network: Unavailable`) is a hard hold:
     /// nothing is attempted until the network is back.
-    pub fn holds_uploads(&self) -> bool {
-        self.network_constrained || self.battery_bucket() == 2
+    pub(crate) fn holds_uploads(&self) -> bool {
+        self.network_constrained || self.battery_bucket() == BatteryBucket::NearlyEmpty
     }
 
-    /// 0 = fine or unknown, 1 = low (≤ 20 %), 2 = nearly empty (≤ 10 %); always 0 on charge.
-    /// Per-percent battery updates only matter when they cross one of these.
-    fn battery_bucket(&self) -> u8 {
+    /// Where the battery level stands; always [`BatteryBucket::Fine`] on charge.
+    fn battery_bucket(&self) -> BatteryBucket {
         match self.battery_level {
-            Some(level) if !self.battery_charging && level <= Self::BATTERY_HOLD_PERCENT => 2,
-            Some(level) if !self.battery_charging && level <= Self::BATTERY_LOW_PERCENT => 1,
-            _ => 0,
+            Some(level) if !self.battery_charging && level <= Self::BATTERY_HOLD_PERCENT => {
+                BatteryBucket::NearlyEmpty
+            }
+            Some(level) if !self.battery_charging && level <= Self::BATTERY_LOW_PERCENT => {
+                BatteryBucket::Low
+            }
+            _ => BatteryBucket::Fine,
         }
     }
 
-    /// The `SPEC.md` events describing what changed between `previous` and `self`
-    /// (everything, when there is no previous state: "initial value at session start").
+    /// The `SPEC.md` events describing what changed between `previous` and `self` (every known
+    /// field, when there is no previous state: "initial value at session start"). Each event
+    /// carries a display body that repeats its values: the body takes the place of the name a
+    /// body-less event would show (see `SPEC.md`, Events), so it costs about what that name copy
+    /// would.
     pub(crate) fn change_events(&self, previous: Option<&DeviceState>) -> Vec<TelemetryEvent> {
         let mut events = Vec::new();
         // An unknown reading is no reading: it never makes a change event.
@@ -209,24 +248,20 @@ impl DeviceState {
             );
         }
         // Per-percent updates are noise; report charging flips and bucket crossings.
-        if self.battery_level.is_some()
-            && previous.is_none_or(|p| {
+        if let Some(level) = self.battery_level.filter(|_| {
+            previous.is_none_or(|p| {
                 p.battery_charging != self.battery_charging
                     || p.battery_bucket() != self.battery_bucket()
                     || p.battery_level.is_none()
             })
-        {
+        }) {
             events.push(
                 TelemetryEvent::new("lk.device.battery.changed")
                     .with_body(format!(
-                        "battery: {}%{}",
-                        self.battery_level.unwrap_or(0),
+                        "battery: {level}%{}",
                         if self.battery_charging { ", charging" } else { "" }
                     ))
-                    .with_attribute(
-                        "lk.device.battery.level",
-                        self.battery_level.unwrap_or(0) as i64,
-                    )
+                    .with_attribute("lk.device.battery.level", i64::from(level))
                     .with_attribute("lk.device.battery.charging", self.battery_charging),
             );
         }
@@ -276,6 +311,153 @@ impl NetworkType {
             NetworkType::Bluetooth => "bluetooth",
             NetworkType::Other => "other",
             NetworkType::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Why the audio route changed, in platform-neutral terms (AVAudioSession reasons; Android's
+/// device added/removed callbacks map to `NewDevice` / `OldDeviceUnavailable`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioRouteReason {
+    /// An audio device became available, such as plugged-in headphones; sent as `new_device`.
+    NewDevice,
+    /// The audio device in use went away; sent as `old_device_unavailable`.
+    OldDeviceUnavailable,
+    /// The audio session category changed; sent as `category_change`.
+    CategoryChange,
+    /// The app overrode the route, such as forcing the speaker; sent as `override`.
+    Override,
+    /// The device woke from sleep; sent as `wake_from_sleep`.
+    WakeFromSleep,
+    /// No route suits the audio session category; sent as `no_suitable_route`.
+    NoSuitableRoute,
+    /// The configuration of the route's ports changed; sent as `route_configuration_change`.
+    RouteConfigurationChange,
+    /// The platform gives no reason; sent as `unknown`.
+    Unknown,
+}
+
+/// Where the audio goes, in platform-neutral terms (AVAudioSession port types, Android's
+/// `AudioDevice`; the web's `MediaDeviceInfo.kind` only ever gives `other`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioOutput {
+    /// The built-in loudspeaker; sent as `speaker`.
+    Speaker,
+    /// The phone earpiece (`builtInReceiver`, Android `Earpiece`).
+    Receiver,
+    /// Wired headphones or a wired headset; sent as `wired_headset`.
+    WiredHeadset,
+    /// A Bluetooth headset, headphones or speaker; sent as `bluetooth`.
+    Bluetooth,
+    /// A car's audio system; sent as `car_audio`.
+    CarAudio,
+    /// An AirPlay receiver; sent as `air_play`.
+    AirPlay,
+    /// An HDMI display or receiver; sent as `hdmi`.
+    Hdmi,
+    /// A USB audio device; sent as `usb`.
+    Usb,
+    /// An output the platform does not name; sent as `other`.
+    Other,
+}
+
+/// Which capture device a failure is about.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureDevice {
+    /// A camera; sent as `camera`.
+    Camera,
+    /// A microphone; sent as `microphone`.
+    Microphone,
+    /// Screen capture; sent as `screen_share`.
+    ScreenShare,
+}
+
+/// Why a capture device could not be used: the `getUserMedia` failure taxonomy, which every
+/// platform maps onto (authorization status, `onCameraDisconnected`, `NotReadableError`, …).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureFailure {
+    /// The user (or MDM) said no: the most common pre-connect failure on mobile.
+    PermissionDenied,
+    /// No such device exists (`NotFoundError`); sent as `not_found`.
+    NotFound,
+    /// Another app holds the device (`NotReadableError`, `TrackStartError`).
+    InUse,
+    /// The device went away mid-capture (unplugged, `onCameraDisconnected`).
+    Disconnected,
+    /// Any other failure; sent as `other`.
+    Other,
+}
+
+/// Things that happen to the device mid-call and explain what the media did next. Not state
+/// (see [`DeviceState`]): each one is a record with a display body.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceEvent {
+    /// The audio output route changed.
+    AudioRouteChanged {
+        /// The outputs now in use, in platform order; sent in `lk.device.audio_route.outputs`.
+        outputs: Vec<AudioOutput>,
+        /// Why the route changed; sent in `lk.device.audio_route.reason`.
+        reason: AudioRouteReason,
+    },
+    /// A phone call, Siri, another app taking audio focus: `began`, then the matching `ended`.
+    AudioInterruption {
+        /// Began (`true`) or ended (`false`); sent in `lk.device.audio.interruption`.
+        began: bool,
+    },
+    /// A capture device could not be, or stay, used.
+    CaptureFailed {
+        /// The device that failed; sent in `lk.device.capture.device`.
+        device: CaptureDevice,
+        /// Why it failed; sent in `lk.device.capture.reason`.
+        reason: CaptureFailure,
+    },
+}
+
+/// A variant's wire value: its `Debug` name in snake case (`OldDeviceUnavailable` →
+/// `old_device_unavailable`). Variant names are therefore the wire contract: renaming a variant
+/// changes what ships, and the tests pin every value to `SPEC.md`.
+pub(crate) fn snake_case(debug: impl std::fmt::Debug) -> String {
+    let mut out = String::new();
+    for (i, c) in format!("{debug:?}").chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+impl From<DeviceEvent> for TelemetryEvent {
+    /// The `SPEC.md` event for a device event, with its display body.
+    fn from(event: DeviceEvent) -> Self {
+        match event {
+            DeviceEvent::AudioRouteChanged { outputs, reason } => {
+                let outputs = outputs.into_iter().map(snake_case).collect::<Vec<_>>().join(",");
+                let reason = snake_case(reason);
+                TelemetryEvent::new("lk.device.audio_route.changed")
+                    .with_body(format!("audio route: {outputs} ({reason})"))
+                    .with_attribute("lk.device.audio_route.outputs", outputs)
+                    .with_attribute("lk.device.audio_route.reason", reason)
+            }
+            DeviceEvent::AudioInterruption { began } => {
+                let phase = if began { "began" } else { "ended" };
+                TelemetryEvent::new("lk.device.audio.interruption")
+                    .with_body(format!("audio interruption {phase}"))
+                    .with_attribute("lk.device.audio.interruption", phase)
+            }
+            DeviceEvent::CaptureFailed { device, reason } => {
+                let (device, reason) = (snake_case(device), snake_case(reason));
+                TelemetryEvent::new("lk.device.capture.failed")
+                    .with_severity(crate::Severity::Warn)
+                    .with_body(format!("capture failed: {device} ({reason})"))
+                    .with_attribute("lk.device.capture.device", device)
+                    .with_attribute("lk.device.capture.reason", reason)
+            }
         }
     }
 }
@@ -383,134 +565,87 @@ mod tests {
         let charging = DeviceState { battery_charging: true, ..at(10) };
         assert_eq!(charging.change_events(Some(&at(10))).len(), 1, "plugged in");
     }
-}
 
-/// Why the audio route changed, in platform-neutral terms (AVAudioSession reasons; Android's
-/// device added/removed callbacks map to `NewDevice` / `OldDeviceUnavailable`).
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioRouteReason {
-    NewDevice,
-    OldDeviceUnavailable,
-    CategoryChange,
-    Override,
-    WakeFromSleep,
-    NoSuitableRoute,
-    RouteConfigurationChange,
-    Unknown,
-}
-
-/// Where the audio goes, in platform-neutral terms (AVAudioSession port types, Android's
-/// `AudioDevice`; the web's `MediaDeviceInfo.kind` only ever gives `other`).
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioOutput {
-    Speaker,
-    /// The phone earpiece (`builtInReceiver`, Android `Earpiece`).
-    Receiver,
-    WiredHeadset,
-    Bluetooth,
-    CarAudio,
-    AirPlay,
-    Hdmi,
-    Usb,
-    Other,
-}
-
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CaptureDevice {
-    Camera,
-    Microphone,
-    ScreenShare,
-}
-
-/// Why a capture device could not be used: the `getUserMedia` failure taxonomy, which every
-/// platform maps onto (authorization status, `onCameraDisconnected`, `NotReadableError`, …).
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CaptureFailure {
-    /// The user (or MDM) said no: the most common pre-connect failure on mobile.
-    PermissionDenied,
-    NotFound,
-    /// Another app holds the device (`NotReadableError`, `TrackStartError`).
-    InUse,
-    /// The device went away mid-capture (unplugged, `onCameraDisconnected`).
-    Disconnected,
-    Other,
-}
-
-/// Things that happen to the device mid-call and explain what the media did next. Not state
-/// (see [`DeviceState`]): each one is a record with a display body.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeviceEvent {
-    /// The outputs after the change, in the order the platform lists them.
-    AudioRouteChanged { outputs: Vec<AudioOutput>, reason: AudioRouteReason },
-    /// A phone call, Siri, another app taking audio focus: `began`, then the matching `ended`.
-    AudioInterruption { began: bool },
-    /// A capture device could not be, or stay, used.
-    CaptureFailed { device: CaptureDevice, reason: CaptureFailure },
-}
-
-pub(crate) fn snake(debug: impl std::fmt::Debug) -> String {
-    let mut out = String::new();
-    for (i, c) in format!("{debug:?}").chars().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(c.to_ascii_lowercase());
+    #[test]
+    fn battery_events_carry_the_level_and_the_charging_flag() {
+        let low = DeviceState { battery_level: Some(15), ..Default::default() };
+        let events = low.change_events(Some(&DeviceState::default()));
+        let [event] = &events[..] else { panic!("one battery event: {events:?}") };
+        let value = |key: &str| event.attributes.iter().find(|a| a.key == key).map(|a| &a.value);
+        assert_eq!(value("lk.device.battery.level"), Some(&crate::AttributeValue::Int(15)));
+        assert_eq!(value("lk.device.battery.charging"), Some(&crate::AttributeValue::Bool(false)));
     }
-    out
-}
 
-impl DeviceEvent {
-    pub(crate) fn into_event(self) -> crate::TelemetryEvent {
-        use crate::{Severity, TelemetryEvent};
-        match self {
-            Self::AudioRouteChanged { outputs, reason } => {
-                let outputs = outputs.into_iter().map(snake).collect::<Vec<_>>().join(",");
-                let reason = snake(reason);
-                TelemetryEvent::new("lk.device.audio_route.changed")
-                    .with_body(format!("audio route: {outputs} ({reason})"))
-                    .with_attribute("lk.device.audio_route.outputs", outputs)
-                    .with_attribute("lk.device.audio_route.reason", reason)
-            }
-            Self::AudioInterruption { began } => {
-                let phase = if began { "began" } else { "ended" };
-                TelemetryEvent::new("lk.device.audio.interruption")
-                    .with_body(format!("audio interruption {phase}"))
-                    .with_attribute("lk.device.audio.interruption", phase)
-            }
-            Self::CaptureFailed { device, reason } => {
-                let (device, reason) = (snake(device), snake(reason));
-                TelemetryEvent::new("lk.device.capture.failed")
-                    .with_severity(Severity::Warn)
-                    .with_body(format!("capture failed: {device} ({reason})"))
-                    .with_attribute("lk.device.capture.device", device)
-                    .with_attribute("lk.device.capture.reason", reason)
-            }
-        }
+    #[test]
+    fn the_core_owns_the_network_connection_type() {
+        assert!(!crate::event::valid_custom("network.connection.type", None));
+        assert!(crate::event::valid_custom("network.peer.address", None), "other `network.*`");
     }
-}
 
-#[cfg(test)]
-mod event_tests {
-    use super::*;
+    /// Every enum value that ships, pinned to the lists in `SPEC.md`.
+    #[test]
+    fn wire_values_match_the_spec() {
+        let names = |values: Vec<String>| values.join(" | ");
+        use AudioRouteReason as R;
+        let reasons = [
+            R::NewDevice,
+            R::OldDeviceUnavailable,
+            R::CategoryChange,
+            R::Override,
+            R::WakeFromSleep,
+            R::NoSuitableRoute,
+            R::RouteConfigurationChange,
+            R::Unknown,
+        ];
+        assert_eq!(
+            names(reasons.into_iter().map(snake_case).collect()),
+            "new_device | old_device_unavailable | category_change | override | wake_from_sleep \
+             | no_suitable_route | route_configuration_change | unknown"
+        );
+        use AudioOutput as O;
+        let outputs = [
+            O::Speaker,
+            O::Receiver,
+            O::WiredHeadset,
+            O::Bluetooth,
+            O::CarAudio,
+            O::AirPlay,
+            O::Hdmi,
+            O::Usb,
+            O::Other,
+        ];
+        assert_eq!(
+            names(outputs.into_iter().map(snake_case).collect()),
+            "speaker | receiver | wired_headset | bluetooth | car_audio | air_play | hdmi | usb \
+             | other"
+        );
+        let devices =
+            [CaptureDevice::Camera, CaptureDevice::Microphone, CaptureDevice::ScreenShare];
+        assert_eq!(
+            names(devices.into_iter().map(snake_case).collect()),
+            "camera | microphone | screen_share"
+        );
+        use CaptureFailure as F;
+        let failures = [F::PermissionDenied, F::NotFound, F::InUse, F::Disconnected, F::Other];
+        assert_eq!(
+            names(failures.into_iter().map(snake_case).collect()),
+            "permission_denied | not_found | in_use | disconnected | other"
+        );
+    }
 
     #[test]
     fn device_events_have_bodies_and_snake_case_values() {
-        let event = DeviceEvent::AudioRouteChanged {
+        let event: TelemetryEvent = DeviceEvent::AudioRouteChanged {
             outputs: vec![AudioOutput::Speaker],
             reason: AudioRouteReason::OldDeviceUnavailable,
         }
-        .into_event();
+        .into();
         assert_eq!(event.body.as_deref(), Some("audio route: speaker (old_device_unavailable)"));
-        let denied = DeviceEvent::CaptureFailed {
+        let denied: TelemetryEvent = DeviceEvent::CaptureFailed {
             device: CaptureDevice::ScreenShare,
             reason: CaptureFailure::PermissionDenied,
         }
-        .into_event();
+        .into();
         assert_eq!(
             denied.body.as_deref(),
             Some("capture failed: screen_share (permission_denied)")
