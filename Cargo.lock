@@ -3665,6 +3665,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "webrtc-sys",
+ "windows 0.62.2",
 ]
 
 [[package]]

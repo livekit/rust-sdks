@@ -44,6 +44,7 @@ pub mod ffi {
         type I010Buffer;
         type NV12Buffer;
         type PlatformImageBuffer;
+        type D3D11Texture2D;
 
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
         fn width(self: &VideoFrameBuffer) -> u32;
@@ -177,6 +178,31 @@ pub mod ffi {
         /// is not DMA-BUF backed.
         fn native_buffer_to_dmabuf_fd(buffer: &UniquePtr<VideoFrameBuffer>) -> i32;
 
+        /// Creates a native buffer on the top-left `width` x `height` of a
+        /// BGRA `ID3D11Texture2D` (`livekit::D3D11VideoFrameBuffer`), taking a
+        /// reference on the texture. `keep_alive` is dropped when libwebrtc
+        /// releases the last view of the frame. Null for an unsupported
+        /// texture, and always null outside Windows.
+        ///
+        /// # SAFETY
+        /// `texture` must be null or a valid `ID3D11Texture2D` whose device
+        /// has multithread protection on.
+        unsafe fn new_native_buffer_from_d3d11_texture(
+            texture: *mut D3D11Texture2D,
+            width: i32,
+            height: i32,
+            keep_alive: Box<D3D11KeepAlive>,
+        ) -> UniquePtr<VideoFrameBuffer>;
+
+        /// The texture behind a D3D11 native buffer (no reference added), or
+        /// null if this buffer is not one.
+        fn native_buffer_to_d3d11_texture(
+            buffer: &UniquePtr<VideoFrameBuffer>,
+        ) -> *mut D3D11Texture2D;
+
+        /// GPU-to-CPU readbacks done by D3D11 native buffers in this process.
+        fn d3d11_readback_count() -> u64;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;
@@ -191,7 +217,16 @@ pub mod ffi {
 
         fn _unique_video_frame_buffer() -> UniquePtr<VideoFrameBuffer>;
     }
+
+    extern "Rust" {
+        type D3D11KeepAlive;
+    }
 }
+
+/// Whatever keeps a D3D11 frame's texture from being overwritten while
+/// libwebrtc still reads it (a capture pool's slot, say). C++ drops it with
+/// the last view of the frame, on whichever thread releases that view.
+pub struct D3D11KeepAlive(pub Box<dyn std::any::Any + Send>);
 
 impl_thread_safety!(ffi::VideoFrameBuffer, Send + Sync);
 impl_thread_safety!(ffi::PlanarYuvBuffer, Send + Sync);

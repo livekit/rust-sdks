@@ -25,6 +25,11 @@ use crate::video_frame::{self as vf, VideoFormatType, VideoRotation};
 /// All the types inside this module are only used internally. For public types, see the top level
 /// video_frame.rs
 
+#[cfg(target_os = "windows")]
+pub fn d3d11_readback_count() -> u64 {
+    vfb_sys::ffi::d3d11_readback_count()
+}
+
 pub fn new_video_frame_buffer(
     mut sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 ) -> Box<dyn vf::VideoBuffer + Send + Sync> {
@@ -188,6 +193,30 @@ impl NativeBuffer {
     pub fn get_dmabuf_fd(&self) -> Option<vf::native::DmaBufFileDescriptor> {
         let fd = vfb_sys::ffi::native_buffer_to_dmabuf_fd(&self.sys_handle);
         (fd >= 0).then_some(fd)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub unsafe fn from_d3d11_texture(
+        texture: *mut std::ffi::c_void,
+        resolution: crate::video_source::VideoResolution,
+        keep_alive: Box<dyn std::any::Any + Send>,
+    ) -> Option<vf::native::NativeBuffer> {
+        let (width, height) =
+            (i32::try_from(resolution.width).ok()?, i32::try_from(resolution.height).ok()?);
+        let sys_handle = vfb_sys::ffi::new_native_buffer_from_d3d11_texture(
+            texture as *mut _,
+            width,
+            height,
+            Box::new(vfb_sys::D3D11KeepAlive(keep_alive)),
+        );
+        (!sys_handle.is_null())
+            .then(|| vf::native::NativeBuffer { handle: NativeBuffer { sys_handle } })
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn get_d3d11_texture(&self) -> Option<*mut std::ffi::c_void> {
+        let texture = vfb_sys::ffi::native_buffer_to_d3d11_texture(&self.sys_handle);
+        (!texture.is_null()).then_some(texture as *mut std::ffi::c_void)
     }
 
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {

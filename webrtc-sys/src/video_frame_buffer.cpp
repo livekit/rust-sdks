@@ -18,6 +18,9 @@
 
 #include "api/make_ref_counted.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
+#ifdef _WIN32
+#include "livekit/d3d11_video_frame_buffer.h"
+#endif
 
 namespace livekit_ffi {
 
@@ -375,6 +378,45 @@ int native_buffer_to_dmabuf_fd(
   auto* dmabuf =
       livekit::DmaBufVideoFrameBuffer::FromNative(buffer->get().get());
   return dmabuf ? dmabuf->dmabuf_fd() : -1;
+}
+
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_d3d11_texture(
+    D3D11Texture2D* texture,
+    int width,
+    int height,
+    rust::Box<D3D11KeepAlive> keep_alive) {
+#ifdef _WIN32
+  // Dropped (on whichever thread releases the last view) when libwebrtc is
+  // done with every view of the frame.
+  std::shared_ptr<void> owner =
+      std::make_shared<rust::Box<D3D11KeepAlive>>(std::move(keep_alive));
+  auto buffer = livekit::D3D11VideoFrameBuffer::Create(texture, width, height,
+                                                       std::move(owner));
+  if (!buffer) {
+    return nullptr;
+  }
+  return std::make_unique<VideoFrameBuffer>(std::move(buffer));
+#else
+  return nullptr;
+#endif
+}
+
+D3D11Texture2D* native_buffer_to_d3d11_texture(
+    const std::unique_ptr<VideoFrameBuffer>& buffer) {
+#ifdef _WIN32
+  auto* d3d11 = livekit::D3D11VideoFrameBuffer::FromNative(buffer->get().get());
+  return d3d11 ? d3d11->texture() : nullptr;
+#else
+  return nullptr;
+#endif
+}
+
+uint64_t d3d11_readback_count() {
+#ifdef _WIN32
+  return livekit::D3D11VideoFrameBuffer::readback_count();
+#else
+  return 0;
+#endif
 }
 
 #ifndef __APPLE__

@@ -157,6 +157,8 @@ fn main() {
             //println!("cargo:rustc-link-lib=dylib=va");
             //println!("cargo:rustc-link-lib=dylib=va_win32");
 
+            builder.file("src/d3d11_video_frame_buffer.cpp");
+
             builder
                 //.include("./vaapi-windows/DirectX-Headers-1.0/include")
                 //.include(path::PathBuf::from("./vaapi-windows/x64/include"))

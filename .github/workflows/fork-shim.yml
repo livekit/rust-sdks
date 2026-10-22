@@ -1,0 +1,48 @@
+# Builds the webrtc-sys C++ shim against LiveKit's prebuilt libwebrtc and runs
+# the tests that need it, for the Livenalt patch branches of this fork. Unlike
+# fork-ci.yml (DOCS_RS=1, Rust only), this compiles the shim; like it, it never
+# builds libwebrtc itself: webrtc-sys downloads the pinned prebuilt.
+#
+# Windows only: the shim pieces under test (the D3D11 native buffer, patch 3)
+# are Windows code. The runner has no GPU; Direct3D 11 comes from the Basic
+# Render Driver or WARP, which is enough for the conversions and the VP8
+# loopback. Hardware encoders are checked by hand.
+name: Fork shim
+
+on:
+  push:
+    branches: ["livenalt/**"]
+  pull_request:
+    branches: ["livenalt/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-shim-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        shell: bash
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: shim
+      - name: Build the shim against the prebuilt
+        shell: bash
+        run: cargo build -p libwebrtc --tests --locked
+      - name: D3D11 native buffer
+        shell: bash
+        run: cargo test -p libwebrtc --test d3d11_buffer --locked -- --nocapture
+      - name: D3D11 frames through a VP8 simulcast encoder
+        shell: bash
+        run: cargo test -p libwebrtc --test d3d11_send --locked -- --nocapture

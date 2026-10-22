@@ -51,6 +51,17 @@ typedef void PlatformImageBuffer;
 }  // namespace livekit_ffi
 #endif
 
+#ifdef _WIN32
+struct ID3D11Texture2D;
+namespace livekit_ffi {
+typedef ::ID3D11Texture2D D3D11Texture2D;
+}  // namespace livekit_ffi
+#else
+namespace livekit_ffi {
+typedef void D3D11Texture2D;
+}  // namespace livekit_ffi
+#endif
+
 #include "webrtc-sys/src/video_frame_buffer.rs.h"
 
 namespace livekit_ffi {
@@ -225,6 +236,17 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_pt
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(int dmabuf_fd, int width, int height, int pixel_format);
 int native_buffer_to_dmabuf_fd(const std::unique_ptr<VideoFrameBuffer> &);
+
+// A native buffer on a BGRA D3D11 texture (livekit::D3D11VideoFrameBuffer).
+// Windows only; elsewhere these return null and 0.
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_d3d11_texture(
+    D3D11Texture2D* texture,
+    int width,
+    int height,
+    rust::Box<D3D11KeepAlive> keep_alive);
+D3D11Texture2D* native_buffer_to_d3d11_texture(
+    const std::unique_ptr<VideoFrameBuffer>& buffer);
+uint64_t d3d11_readback_count();
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

@@ -568,7 +568,7 @@ pub mod native {
     use std::fmt::Debug;
 
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     use crate::video_source::VideoResolution;
 
     new_buffer_type!(NativeBuffer, Native, as_native);
@@ -634,6 +634,51 @@ pub mod native {
         pub fn get_dmabuf_fd(&self) -> Option<DmaBufFileDescriptor> {
             self.handle.get_dmabuf_fd()
         }
+
+        /// Creates a `NativeBuffer` on the top-left `resolution` of a BGRA
+        /// (`DXGI_FORMAT_B8G8R8A8_UNORM`) `ID3D11Texture2D`, so the frame
+        /// reaches the encoder as the texture: a hardware encoder reads it on
+        /// the GPU. An encoder that needs memory (VP8) gets one NV12 readback
+        /// per frame, converted on the GPU by the D3D11 video processor
+        /// (BT.601, limited range); without a video processor on the device,
+        /// a BGRA readback converted with libyuv.
+        ///
+        /// A reference is taken on the texture. `keep_alive` is dropped when
+        /// libwebrtc releases the last view of the frame (possibly on another
+        /// thread): hold whatever stops the texture from being reused in it,
+        /// such as the capture pool's slot.
+        ///
+        /// Returns `None` for a null texture, another format, or a resolution
+        /// larger than the texture.
+        ///
+        /// # Safety
+        /// `texture` must be null or a valid `ID3D11Texture2D*`, and its device
+        /// must have multithread protection on
+        /// (`ID3D11Multithread::SetMultithreadProtected`): the readback runs on
+        /// the encoder's thread on the device's immediate context.
+        #[cfg(target_os = "windows")]
+        pub unsafe fn from_d3d11_texture(
+            texture: *mut std::ffi::c_void,
+            resolution: VideoResolution,
+            keep_alive: impl Send + 'static,
+        ) -> Option<Self> {
+            vf_imp::NativeBuffer::from_d3d11_texture(texture, resolution, Box::new(keep_alive))
+        }
+
+        /// The `ID3D11Texture2D*` behind this buffer (no reference added), or
+        /// `None` if it is not a D3D11 buffer.
+        #[cfg(target_os = "windows")]
+        pub fn get_d3d11_texture(&self) -> Option<*mut std::ffi::c_void> {
+            self.handle.get_d3d11_texture()
+        }
+    }
+
+    /// GPU-to-CPU readbacks done by D3D11 native buffers in this process so
+    /// far: one per captured frame that a memory encoder consumed. For tests
+    /// and diagnostics.
+    #[cfg(target_os = "windows")]
+    pub fn d3d11_readback_count() -> u64 {
+        vf_imp::d3d11_readback_count()
     }
 
     pub trait VideoFrameBufferExt: VideoBuffer {
