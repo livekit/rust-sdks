@@ -150,7 +150,6 @@ impl RawStream {
                 self.write_chunk(chunk).await?;
             }
             on_progress(self.file_progress(bytes_read));
-            return Ok(());
         } else {
             let mut pending: Vec<u8> = Vec::new();
             loop {
@@ -163,29 +162,18 @@ impl RawStream {
                 while pending.len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = pending.split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(&mut pending, rest);
-                    let bytes_sent = bytes_read - pending.len() as u64;
-                    self.write_file_chunk(&chunk, bytes_sent, on_progress).await?;
+                    self.write_chunk(&chunk).await?;
+                    on_progress(self.file_progress(bytes_read - pending.len() as u64));
                 }
             }
             if !pending.is_empty() {
-                self.write_file_chunk(&pending, bytes_read, on_progress).await?;
+                self.write_chunk(&pending).await?;
+                on_progress(self.file_progress(bytes_read));
+            }
+            if self.progress.chunk_index == 0 {
+                on_progress(self.file_progress(bytes_read));
             }
         }
-        if self.progress.chunk_index == 0 {
-            on_progress(self.file_progress(bytes_read));
-        }
-        Ok(())
-    }
-
-    /// Sends one chunk of a file, then reports `file_bytes` as the file's progress.
-    async fn write_file_chunk(
-        &mut self,
-        chunk: &[u8],
-        file_bytes: u64,
-        on_progress: &mut (impl FnMut(StreamProgress) + Send),
-    ) -> StreamResult<()> {
-        self.write_chunk(chunk).await?;
-        on_progress(self.file_progress(file_bytes));
         Ok(())
     }
 
