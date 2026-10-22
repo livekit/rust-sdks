@@ -13,8 +13,9 @@
 // limitations under the License.
 
 //! The backend contract, end to end through the pipeline: what the platform hands over (server
-//! URL, token) and what the collector answers, and what the core does about each. One test per
-//! row of the contract table in the PR description.
+//! URL, token) and what the collector answers, and what the core does about each. The pipeline
+//! tests in `telemetry` and the unit tests in `destination`, `transport`, `cache` and `exporter`
+//! cover the rest of it.
 
 use std::{sync::Arc, time::Duration};
 
@@ -23,7 +24,8 @@ use prost::Message;
 use crate::{
     destination::tests::{granted, grantless},
     telemetry::tests::{
-        answer, bounded, event_names, offline, start, start_cloud, test_config, FakeTransport,
+        answer, bounded, event_names, offline, offline_forever, start_cloud, start_with_collector,
+        test_config, FakeTransport,
     },
     ExportError, Scope, Telemetry, TelemetryEvent, TelemetryStatus,
 };
@@ -42,6 +44,9 @@ async fn ping(telemetry: &Telemetry, room: &Scope) {
     room.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await;
 }
+
+/// The gRPC status code for a quota error.
+const RESOURCE_EXHAUSTED: i32 = 8;
 
 fn rpc_status(message: &str, retry_secs: Option<i64>) -> Vec<u8> {
     #[derive(Clone, PartialEq, prost::Message)]
@@ -66,7 +71,7 @@ fn rpc_status(message: &str, retry_secs: Option<i64>) -> Vec<u8> {
         })
         .into_iter()
         .collect();
-    Status { code: 8, message: message.into(), details }.encode_to_vec()
+    Status { code: RESOURCE_EXHAUSTED, message: message.into(), details }.encode_to_vec()
 }
 
 #[tokio::test(start_paused = true)]
@@ -93,7 +98,7 @@ async fn handing_over_the_same_token_again_is_free() {
         room.set_server(PROJECT, &token);
     }
     ping(&telemetry, &room).await;
-    assert_eq!(transport.sent().len(), 1, "one upload, no extra wake-ups");
+    assert_eq!(transport.sent().len(), 1, "one upload, not one per hand-over");
 }
 
 #[tokio::test(start_paused = true)]
@@ -270,7 +275,7 @@ async fn unauthorized_holds_the_batch_until_a_new_token() {
     assert_eq!(stats.status, TelemetryStatus::Waiting);
 
     room.set_server(PROJECT, &granted(7200));
-    tokio::time::sleep(secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(telemetry.stats().cached_batches, 0, "the new token ships the backlog");
 }
 
@@ -288,10 +293,16 @@ async fn not_found_on_the_derived_endpoint_goes_silent() {
 #[tokio::test(start_paused = true)]
 async fn throttling_honors_retry_after_then_retry_info_then_a_minute() {
     let cases: [(crate::ExportResponse, Duration); 4] = [
-        (answer(429, &[("Retry-After", "7")], &rpc_status("q", Some(30))).unwrap(), secs(7)),
-        (answer(429, &[], &rpc_status("q", Some(30))).unwrap(), secs(30)),
-        (answer(429, &[], &rpc_status("QuotaStatusExceeded", None)).unwrap(), secs(60)),
-        (answer(503, &[("Retry-After", "12")], b"").unwrap(), secs(12)),
+        (
+            answer(429, &[("Retry-After", "7")], &rpc_status("q", Some(30))).unwrap(),
+            Duration::from_secs(7),
+        ),
+        (answer(429, &[], &rpc_status("q", Some(30))).unwrap(), Duration::from_secs(30)),
+        (
+            answer(429, &[], &rpc_status("QuotaStatusExceeded", None)).unwrap(),
+            Duration::from_secs(60),
+        ),
+        (answer(503, &[("Retry-After", "12")], b"").unwrap(), Duration::from_secs(12)),
     ];
     for (response, wait) in cases {
         let transport = FakeTransport::scripted([Ok(response.clone())]);
@@ -312,9 +323,9 @@ async fn a_retryable_500_waits_for_its_retry_info() {
     let transport = FakeTransport::scripted([answer(500, &[], &rpc_status("later", Some(9)))]);
     let (telemetry, room) = connected(&transport);
     ping(&telemetry, &room).await;
-    tokio::time::sleep(secs(8)).await;
+    tokio::time::sleep(Duration::from_secs(8)).await;
     assert_eq!(transport.sent().len(), 1);
-    tokio::time::sleep(secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(transport.sent().len(), 2, "retried after the delay the server named");
     assert_eq!(telemetry.stats().cached_batches, 0);
 }
@@ -337,44 +348,46 @@ async fn a_failing_server_never_costs_a_batch() {
     let transport = FakeTransport::scripted(failures);
     let (telemetry, room) = connected(&transport);
     ping(&telemetry, &room).await;
-    tokio::time::sleep(secs(20 * 60)).await;
+    tokio::time::sleep(Duration::from_secs(20 * 60)).await;
     let stats = telemetry.stats();
     assert_eq!(transport.sent().len(), 13, "twelve failures, then delivered");
     assert_eq!((stats.dropped, stats.cached_batches, stats.upload_failures), (0, 0, 12));
 }
 
 /// No answer at all (offline, DNS, TLS, connection reset, timeout): 1 s doubling to a 60 s cap,
-/// fully jittered, never dropped.
+/// fully jittered, never dropped. The jitter draws are scripted, low then high, so the time of
+/// every one of the eight retries is known: each one lands in the lower or upper half of its
+/// envelope exactly where the draw puts it.
 #[tokio::test(start_paused = true)]
 async fn no_answer_backs_off_exponentially_with_full_jitter() {
-    let transport = FakeTransport::scripted(std::iter::repeat_with(offline).take(8));
-    let (telemetry, room) = connected(&transport);
-    ping(&telemetry, &room).await;
-    let backoffs = [1.0_f64, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0];
-    let mut at = Vec::new();
-    let start = tokio::time::Instant::now();
-    // Twice all eight full backoffs: every retry is due well before, so past it they stopped.
-    let deadline = Duration::from_secs_f64(2.0 * backoffs.iter().sum::<f64>());
-    tokio::time::timeout(deadline, async {
-        while transport.sent().len() < 9 {
-            let before = transport.sent().len();
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            if transport.sent().len() > before {
-                at.push(start.elapsed().as_secs_f64());
+    let envelopes = [1.0_f64, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0];
+    for draw in [0.25, 0.75] {
+        crate::exporter::tests::script_jitter([draw; 8]);
+        let transport = FakeTransport::scripted(std::iter::repeat_with(offline).take(8));
+        let (telemetry, room) = connected(&transport);
+        ping(&telemetry, &room).await;
+        // Twice all eight full backoffs: every retry is due well before.
+        let deadline = Duration::from_secs_f64(2.0 * envelopes.iter().sum::<f64>());
+        tokio::time::timeout(deadline, async {
+            while transport.times().len() < 9 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{} of 9 requests by {deadline:?}", transport.times().len()));
+        let times = transport.times();
+        assert_eq!(times.len(), 9, "eight failures, then delivered");
+        let gaps: Vec<f64> = times.windows(2).map(|w| (w[1] - w[0]).as_secs_f64()).collect();
+        for (gap, full) in gaps.iter().zip(envelopes) {
+            assert!((gap - full * draw).abs() < 0.05, "draw {draw}: {gaps:?} vs {envelopes:?}");
         }
-    })
-    .await
-    .unwrap_or_else(|_| {
-        panic!("retry loop: {} of 9 requests by {deadline:?}", transport.sent().len())
-    });
-    // The flush tick (1 s here) retries too once a wait is over; waits never exceed the backoff.
-    let gaps: Vec<f64> = std::iter::once(at[0]).chain(at.windows(2).map(|w| w[1] - w[0])).collect();
-    for (gap, full) in gaps.iter().zip(backoffs) {
-        assert!(*gap <= full.max(1.0) + 1.05, "gap {gap} over {full} ({gaps:?})");
+        let stats = telemetry.stats();
+        assert_eq!(
+            (stats.dropped, stats.cached_batches),
+            (0, 0),
+            "delivered in the end, none lost"
+        );
     }
-    let stats = telemetry.stats();
-    assert_eq!((stats.dropped, stats.cached_batches), (0, 0), "delivered in the end, none lost");
 }
 
 #[tokio::test(start_paused = true)]
@@ -389,7 +402,7 @@ async fn an_invalid_request_is_dropped() {
 #[tokio::test(start_paused = true)]
 async fn the_override_reaches_a_local_collector_without_cloud_rules() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let room = telemetry.begin_scope();
     room.set_server("ws://localhost:7880", "dev-token-without-grant");
     ping(&telemetry, &room).await;
@@ -403,47 +416,16 @@ async fn the_override_reaches_a_local_collector_without_cloud_rules() {
 #[cfg(feature = "net")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_real_http_collector_throttles_and_recovers() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let addr = listener.local_addr().expect("addr");
-    let (seen_tx, mut seen) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        let answers = [
-            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-        ];
-        for answer in answers.iter().cycle() {
-            let Ok((mut socket, _)) = listener.accept().await else { return };
-            let mut request = Vec::new();
-            let mut chunk = [0u8; 4096];
-            // Read the head, then exactly Content-Length bytes of body.
-            loop {
-                let n = socket.read(&mut chunk).await.unwrap_or(0);
-                request.extend_from_slice(&chunk[..n]);
-                let text = String::from_utf8_lossy(&request).to_string();
-                if let Some(head_end) = text.find("\r\n\r\n") {
-                    let length = text[..head_end]
-                        .lines()
-                        .find_map(|l| {
-                            l.to_ascii_lowercase()
-                                .strip_prefix("content-length:")
-                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
-                        })
-                        .unwrap_or(0);
-                    if request.len() >= head_end + 4 + length || n == 0 {
-                        let _ = seen_tx.send(text[..head_end].to_owned());
-                        break;
-                    }
-                }
-                if n == 0 {
-                    break;
-                }
-            }
-            let _ = socket.write_all(answer.as_bytes()).await;
-            let _ = socket.shutdown().await;
-        }
-    });
+    let answers = [
+        "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+    ];
+    let next = AtomicUsize::new(0);
+    let (addr, mut seen) =
+        http_server_by_host(move |_| answers[next.fetch_add(1, Ordering::SeqCst) % 2].to_owned())
+            .await;
 
     let transport = Arc::new(crate::NetTransport::new(livekit_net::testing::native_http_client()));
     let (telemetry, exporter) = Telemetry::new(test_config(), transport);
@@ -457,13 +439,14 @@ async fn a_real_http_collector_throttles_and_recovers() {
     assert_eq!(telemetry.stats().status, TelemetryStatus::Throttled);
 
     bounded(seen.recv()).await.expect("retried request");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    bounded(async {
+        while telemetry.stats().uploads_sent == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
     let stats = telemetry.stats();
     assert_eq!((stats.uploads_sent, stats.dropped, stats.cached_batches), (1, 0, 0));
-}
-
-fn secs(n: u64) -> Duration {
-    Duration::from_secs(n)
 }
 
 /// 413: the batch is split in half and retried at once, down to single records; a record too
@@ -500,7 +483,7 @@ async fn repeated_unauthorized_answers_wait_for_renewal_without_loss() {
     }
     assert_eq!(transport.sent().len(), 2, "no token left to try: nothing is sent");
     room.set_server(PROJECT, &granted(3602));
-    tokio::time::sleep(secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let stats = telemetry.stats();
     assert_eq!((stats.dropped, stats.cached_batches, stats.uploads_unauthorized), (0, 0, 2));
 }
@@ -525,10 +508,10 @@ async fn hard_holds_have_no_escape_hatch() {
     let room = telemetry.begin_scope();
     room.set_server(PROJECT, &granted(10));
     let _connecting = room.start(crate::SpanName::Connect, None); // a soft hold on top
-    tokio::time::sleep(secs(11)).await;
+    tokio::time::sleep(Duration::from_secs(11)).await;
     for _ in 0..10 {
         ping(&telemetry, &room).await;
-        tokio::time::sleep(secs(61)).await;
+        tokio::time::sleep(Duration::from_secs(61)).await;
     }
     assert!(transport.sent().is_empty(), "ten minutes, not a single request");
     assert_eq!(telemetry.stats().dropped, 0);
@@ -543,8 +526,7 @@ async fn a_restart_with_cached_data_and_no_token_waits_for_the_same_project() {
         storage_dir: Some(dir.to_string_lossy().into_owned()),
         ..test_config()
     };
-    let first =
-        start_cloud(config(), FakeTransport::scripted(std::iter::repeat_with(offline).take(64)));
+    let first = start_cloud(config(), FakeTransport::scripted(offline_forever()));
     let room = first.begin_scope();
     room.set_server("wss://a.livekit.cloud", &granted(3600));
     room.emit(TelemetryEvent::new("custom.yesterday"));
@@ -586,7 +568,7 @@ async fn a_room_switching_projects_takes_nothing_along() {
     room.emit(TelemetryEvent::new("custom.queued_for_a")); // captured for a, not yet encoded
     room.set_server("wss://b.livekit.cloud", &b);
     room.emit(TelemetryEvent::new("custom.for_b"));
-    tokio::time::sleep(secs(70)).await;
+    tokio::time::sleep(Duration::from_secs(70)).await;
     let sent = transport.sent();
     for request in &sent[1..] {
         let names = event_names(request);
@@ -616,12 +598,12 @@ async fn an_unconnected_room_never_borrows_another_rooms_project() {
     connected.set_server("wss://a.livekit.cloud", &granted(3600));
     connected.emit(TelemetryEvent::new("custom.a"));
     telemetry.flush().await;
-    tokio::time::sleep(secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
     assert!(!names.contains(&"custom.early".to_owned()), "not on a's token: {names:?}");
 
     early.set_server("wss://b.livekit.cloud", &granted(3601));
-    tokio::time::sleep(secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let last =
         transport.sent().into_iter().find(|r| event_names(r).contains(&"custom.early".to_owned()));
     assert!(last.is_some_and(|r| r.url.starts_with("https://b.")), "its own project");
@@ -636,7 +618,7 @@ async fn a_failing_project_does_not_pause_the_others() {
     a.set_server("wss://a.livekit.cloud", &granted(3600));
     a.emit(TelemetryEvent::new("custom.a"));
     telemetry.flush().await; // a's first batch goes out and is accepted
-    transport.then(std::iter::repeat_with(|| answer(503, &[], b"")).take(1));
+    transport.then([answer(503, &[], b"")]);
     a.emit(TelemetryEvent::new("custom.a"));
     telemetry.flush().await; // a now backs off
     b.set_server("wss://b.livekit.cloud", &granted(3600));
@@ -685,6 +667,7 @@ async fn http_server_by_host(
             let Ok((mut socket, _)) = listener.accept().await else { return };
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
+            // Read the head, then exactly Content-Length bytes of body.
             loop {
                 let n = socket.read(&mut chunk).await.unwrap_or(0);
                 request.extend_from_slice(&chunk[..n]);
@@ -813,7 +796,7 @@ async fn a_gone_rooms_pre_connect_backlog_keeps_its_credential() {
         telemetry.flush().await; // passes retire what nothing needs any more
     }
     telemetry.set_device_state(crate::DeviceState::default());
-    tokio::time::sleep(secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     let sent = transport
         .sent()
         .into_iter()
