@@ -322,7 +322,8 @@ impl Manager {
 
         let instance = self.inner.next_instance;
         self.inner.next_instance += 1;
-        let closer = StreamCloser::new(self.inner.input_tx.clone(), id.clone(), instance);
+        let closer =
+            StreamCloser { input: self.inner.input_tx.clone(), stream_id: id.clone(), instance };
         let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info, closer);
         let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }

@@ -80,26 +80,18 @@ pub struct TextStreamReader {
 #[derive(Clone, Debug)]
 pub struct StreamCloser {
     /// The incoming manager's input. Weak, so a closer does not keep the manager running.
-    input: WeakUnboundedSender<ManagerMessage>,
+    pub(crate) input: WeakUnboundedSender<ManagerMessage>,
     pub(crate) stream_id: StreamId,
     /// Tells this stream apart from a later stream that reuses its id.
     pub(crate) instance: u64,
 }
 
 impl StreamCloser {
-    pub(crate) fn new(
-        input: WeakUnboundedSender<ManagerMessage>,
-        stream_id: StreamId,
-        instance: u64,
-    ) -> Self {
-        Self { input, stream_id, instance }
-    }
-
     /// A closer that does nothing, for readers made outside a manager.
     #[cfg(any(test, feature = "test-utils"))]
     fn detached() -> Self {
         let (input, _) = mpsc::unbounded_channel();
-        Self::new(input.downgrade(), StreamId::from(""), 0)
+        Self { input: input.downgrade(), stream_id: StreamId::from(""), instance: 0 }
     }
 
     /// Ends the stream on the receiving side. The incoming manager drops the stream's state and
