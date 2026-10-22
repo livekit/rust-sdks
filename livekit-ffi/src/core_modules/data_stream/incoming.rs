@@ -161,6 +161,16 @@ impl ByteStreamReader {
     }
 }
 
+impl Drop for ByteStreamReader {
+    /// A host that releases the reader without `close()` still ends the stream in the manager at
+    /// once. After the stream ended, the manager ignores this.
+    fn drop(&mut self) {
+        if !self.closed.is_cancelled() {
+            self.closer.close();
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl ByteStreamReader {
     /// Information about the underlying stream.
@@ -222,6 +232,16 @@ impl TextStreamReader {
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
+        }
+    }
+}
+
+impl Drop for TextStreamReader {
+    /// A host that releases the reader without `close()` still ends the stream in the manager at
+    /// once. After the stream ended, the manager ignores this.
+    fn drop(&mut self) {
+        if !self.closed.is_cancelled() {
+            self.closer.close();
         }
     }
 }

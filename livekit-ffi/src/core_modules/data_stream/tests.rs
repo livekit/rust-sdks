@@ -448,6 +448,30 @@ fn incoming_reader_close_ends_its_stream_without_more_packets() {
 }
 
 #[test]
+fn incoming_reader_drop_ends_its_stream_once() {
+    crate::runtime::runtime().block_on(async {
+        let (manager, mut events) = manager_with_events();
+        let unread = open_text_stream(&manager, &mut events, "s1").await;
+        let read = open_text_stream(&manager, &mut events, "s2").await;
+
+        // A host drops a reader without `close()`, and no packet follows: the stream ends at once.
+        drop(unread);
+        assert_eq!(manager.open_stream_count().await, 1);
+        assert_eq!(count_closes(&manager, &mut events.closed, "s1").await, 1);
+
+        // Dropping a reader whose stream already ended does nothing.
+        manager
+            .handle_packet_received(chunk_packet("s2", "alice", 1, b"world"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("s2", "alice", &[]), EncryptionType::None);
+        assert_eq!(read.read_all().await.unwrap(), "helloworld");
+        assert_eq!(count_closes(&manager, &mut events.closed, "s2").await, 1);
+        drop(read);
+        assert_eq!(count_closes(&manager, &mut events.closed, "s2").await, 0);
+        assert_eq!(manager.open_stream_count().await, 0);
+    });
+}
+
+#[test]
 fn incoming_byte_reader_close_ends_its_stream() {
     crate::runtime::runtime().block_on(async {
         let (manager, mut events) = manager_with_events();
