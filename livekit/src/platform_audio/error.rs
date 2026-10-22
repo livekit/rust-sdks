@@ -39,6 +39,14 @@ pub enum AudioError {
 
     /// An audio operation failed.
     OperationFailed(String),
+
+    /// The operation is not supported on this platform.
+    ///
+    /// For example, [`PlatformAudio::set_mute_mode`] is only supported on
+    /// iOS/macOS with the Apple AudioEngine ADM.
+    ///
+    /// [`PlatformAudio::set_mute_mode`]: crate::platform_audio::PlatformAudio::set_mute_mode
+    Unsupported,
 }
 
 impl fmt::Display for AudioError {
@@ -50,6 +58,9 @@ impl fmt::Display for AudioError {
             AudioError::InvalidDeviceIndex => write!(f, "Invalid device index"),
             AudioError::DeviceNotFound => write!(f, "Device not found"),
             AudioError::OperationFailed(msg) => write!(f, "Audio operation failed: {}", msg),
+            AudioError::Unsupported => {
+                write!(f, "Operation not supported on this platform")
+            }
         }
     }
 }
@@ -76,6 +87,10 @@ mod tests {
         let err = AudioError::OperationFailed("test message".to_string());
         let msg = format!("{}", err);
         assert!(msg.contains("test message"));
+
+        let err = AudioError::Unsupported;
+        let msg = format!("{}", err);
+        assert!(msg.contains("not supported"));
     }
 
     #[test]
