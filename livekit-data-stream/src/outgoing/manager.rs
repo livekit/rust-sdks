@@ -1122,9 +1122,88 @@ mod tests {
             async fn send_file_reports_progress_before_compression() {
                 // Incompressible, so the compressed stream spans several chunks.
                 let reports = send_file_progress(&random_bytes(50_000), true).await;
-                assert!(reports.len() >= 4);
-                assert!(reports.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+                assert!(reports.len() >= 2, "{reports:?}");
+                assert!(reports.windows(2).all(|pair| pair[0].0 < pair[1].0), "{reports:?}");
                 assert_eq!(reports.last(), Some(&(50_000, Some(50_000))));
+            }
+
+            /// What the transport and the progress callback saw, in order.
+            #[derive(Debug, PartialEq)]
+            enum Seen {
+                Chunk,
+                Progress(u64),
+            }
+
+            /// Sends `bytes` as a compressed file over a transport that fails request
+            /// `fail_request` (request 1 is the header). Returns what was seen, in order, and the
+            /// result of the send.
+            async fn compressed_send_file(
+                bytes: &[u8],
+                fail_request: Option<usize>,
+            ) -> (Vec<Seen>, StreamResult<ByteStreamInfo>) {
+                let (m, mut packet_rx) = Manager::new();
+                let seen = Arc::new(StdMutex::new(Vec::new()));
+                let transport_seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut request = 0;
+                    while let Ok((packets, responder)) = packet_rx.recv().await {
+                        request += 1;
+                        if Some(request) == fail_request {
+                            let _ = responder.respond(Err(SendError));
+                            continue;
+                        }
+                        let is_chunk = |p: &proto::DataPacket| {
+                            matches!(p.value, Some(proto::data_packet::Value::StreamChunk(_)))
+                        };
+                        if packets.iter().any(is_chunk) {
+                            transport_seen.lock().unwrap().push(Seen::Chunk);
+                        }
+                        let _ = responder.respond(Ok(()));
+                    }
+                });
+                let path = write_temp_file(bytes).await;
+                let progress_seen = seen.clone();
+                let result = m
+                    .send_file_with_progress(
+                        &path,
+                        byte_opts("file", &["alice"]),
+                        &all_v2_room(),
+                        |p| progress_seen.lock().unwrap().push(Seen::Progress(p.bytes_processed())),
+                    )
+                    .await;
+                let _ = tokio::fs::remove_file(&path).await;
+                let seen = std::mem::take(&mut *seen.lock().unwrap());
+                (seen, result)
+            }
+
+            #[tokio::test]
+            async fn compressed_send_file_reports_rising_progress_and_the_total_last() {
+                // Incompressible, so the compressed stream spans several chunks.
+                let (seen, result) = compressed_send_file(&random_bytes(50_000), None).await;
+                result.unwrap();
+                let reports: Vec<u64> = seen
+                    .iter()
+                    .filter_map(|s| match s {
+                        Seen::Progress(bytes) => Some(*bytes),
+                        Seen::Chunk => None,
+                    })
+                    .collect();
+                assert!(reports.windows(2).all(|pair| pair[0] < pair[1]), "{seen:?}");
+                // The total is reported once, after the last chunk was sent.
+                assert_eq!(seen.last(), Some(&Seen::Progress(50_000)), "{seen:?}");
+                assert_eq!(seen[seen.len() - 2], Seen::Chunk, "{seen:?}");
+            }
+
+            #[tokio::test]
+            async fn compressed_send_file_without_its_last_chunk_never_reports_the_total() {
+                let data = random_bytes(50_000);
+                let (seen, _) = compressed_send_file(&data, None).await;
+                let chunks = seen.iter().filter(|s| **s == Seen::Chunk).count();
+
+                // Request 1 is the header, so request `1 + chunks` carries the last chunk.
+                let (seen, result) = compressed_send_file(&data, Some(1 + chunks)).await;
+                assert!(matches!(result, Err(StreamError::SendFailed)));
+                assert!(!seen.contains(&Seen::Progress(50_000)), "{seen:?}");
             }
 
             #[tokio::test]

@@ -97,9 +97,11 @@ impl RawStream {
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
     ///
-    /// Calls `on_progress` after each chunk is sent, with the file bytes (before compression)
-    /// that chunk completes, so the last call covers the whole file. A file that sends no chunk
-    /// (an empty, uncompressed one) reports once at the end.
+    /// Calls `on_progress` with the file bytes, before compression, that went out so far. An
+    /// uncompressed file reports after each chunk. A compressed file reports once per batch of
+    /// chunks that the encoder releases while the file is still being read, then reports the
+    /// whole file once, after its last chunk was sent. The values rise strictly. A file that
+    /// sends no chunk (an empty, uncompressed one) reports once at the end.
     pub(crate) async fn write_file(
         &mut self,
         path: impl AsRef<Path>,
@@ -128,18 +130,27 @@ impl RawStream {
                     .expect("deflate write to Vec is infallible");
                 // Drain whole MTU-sized chunks of compressed output as they accumulate so
                 // we never hold the full compressed file in memory.
+                let mut drained = false;
                 while encoder.get_ref().len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = encoder.get_mut().split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(encoder.get_mut(), rest);
-                    self.write_file_chunk(&chunk, bytes_read, on_progress).await?;
+                    self.write_chunk(&chunk).await?;
+                    drained = true;
+                }
+                // The encoder still holds part of what was read, so the whole file is reported
+                // only after the tail below.
+                if drained && self.progress.bytes_total.is_some_and(|total| bytes_read < total) {
+                    on_progress(self.file_progress(bytes_read));
                 }
             }
             // Flush the final deflate block and send whatever compressed bytes remain.
             encoder.close().await.expect("deflate finish into Vec is infallible");
             let remaining = encoder.into_inner();
             for chunk in remaining.chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
-                self.write_file_chunk(chunk, bytes_read, on_progress).await?;
+                self.write_chunk(chunk).await?;
             }
+            on_progress(self.file_progress(bytes_read));
+            return Ok(());
         } else {
             let mut pending: Vec<u8> = Vec::new();
             loop {
