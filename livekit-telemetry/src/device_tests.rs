@@ -294,7 +294,7 @@ async fn a_subscribe_past_its_deadline_stays_timed_out_through_disconnect() {
             .find(|s| {
                 s.attributes
                     .iter()
-                    .any(|a| a.key == "lk.track.sid" && format!("{:?}", a.value).contains(sid))
+                    .any(|a| a.key == "lk.track_sid" && format!("{:?}", a.value).contains(sid))
             })
             .expect("span");
         span.attributes.iter().find(|a| a.key == "lk.outcome").map(|a| format!("{:?}", a.value))
@@ -420,12 +420,12 @@ async fn custom_data_is_room_scoped_validated_and_snapshotted() {
     other.emit_custom("elsewhere", vec![]);
 
     let long = "x".repeat(1025);
-    room.set_attribute("lk.room.sid", Some("spoof".into()));
+    room.set_attribute("lk.room_sid", Some("spoof".into()));
     room.set_attribute("session.id", Some("spoof".into()));
     room.set_attribute("app.long", Some(long.clone().into()));
     room.set_attribute(&"k".repeat(129), Some("v".into()));
     room.emit_custom(&"n".repeat(129), vec![]);
-    room.emit_custom("bad", vec![Attribute::new("lk.track.sid", "spoof")]);
+    room.emit_custom("bad", vec![Attribute::new("lk.track_sid", "spoof")]);
     room.emit_custom("bad", vec![Attribute::new("v", long.as_str())]);
     for n in 0..63 {
         room.set_attribute(&format!("app.k{n}"), Some("v".into()));

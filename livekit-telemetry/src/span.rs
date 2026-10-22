@@ -15,6 +15,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Weak};
 
+use livekit_protocol::semconv::{self, lk_outcome as outcome, upstream};
+
 use crate::{
     event::{attributes_size_hint, now_unix_nanos},
     scope::ScopeState,
@@ -47,9 +49,9 @@ pub enum SpanOutcome {
 impl SpanOutcome {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            SpanOutcome::Ok => "ok",
-            SpanOutcome::Error => "error",
-            SpanOutcome::Cancelled => "cancelled",
+            SpanOutcome::Ok => outcome::OK,
+            SpanOutcome::Error => outcome::ERROR,
+            SpanOutcome::Cancelled => outcome::CANCELLED,
         }
     }
 }
@@ -284,7 +286,7 @@ impl Spans {
     /// Its attributes are taken now, like a log record's when it is queued: `attributes`, then
     /// the app's correlation attributes, cut to [`MAX_ATTRIBUTES_PER_SPAN`] — the app's go first,
     /// then the tail of `attributes` — counted in [`SpanRecord::dropped_attributes`] and warned
-    /// about once per drain. The session's own (`lk.room.*`, `session.id`) and the outcome are
+    /// about once per drain. The session's own (`lk.room_sid`, `session.id`, …) and the outcome are
     /// added past the cap and always ship.
     pub fn end(
         &mut self,
@@ -397,9 +399,10 @@ impl SpanRecord {
     /// `lk.outcome`, plus `error.type` when the span failed: the attributes every span carries
     /// beyond the caller's.
     pub(crate) fn outcome_attributes(&self) -> Vec<Attribute> {
-        let mut attributes = vec![Attribute::new("lk.outcome", self.outcome.as_str())];
+        let mut attributes = vec![Attribute::new(semconv::LK_OUTCOME, self.outcome.as_str())];
         if let (SpanOutcome::Error, Some(error_type)) = (self.outcome, &self.error_type) {
-            attributes.push(Attribute::new("error.type", AttributeValue::Str(error_type.clone())));
+            let error_type = AttributeValue::Str(error_type.clone());
+            attributes.push(Attribute::new(upstream::ERROR_TYPE, error_type));
         }
         attributes
     }
@@ -509,7 +512,7 @@ mod tests {
         crate::test_log::capture();
         let mut spans = Spans::new(8);
         let session = ScopeState::new();
-        session.set_attribute("lk.room.sid", Some("RM_1".into()));
+        session.set_attribute("lk.room_sid", Some("RM_1".into()));
         assert!(session.set_custom("app.call_id", Some("c1".into())));
         let overflow = |spans: &mut Spans| {
             let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
@@ -526,7 +529,7 @@ mod tests {
             assert_eq!(span.dropped_attributes_count, 1, "the app's call id");
             let keys: Vec<_> = span.attributes.iter().map(|kv| kv.key.as_str()).collect();
             assert!(!keys.contains(&"app.call_id"), "the app's own go first");
-            for key in ["lk.publish.k127", "lk.room.sid", "session.id", "lk.outcome"] {
+            for key in ["lk.publish.k127", "lk.room_sid", "session.id", "lk.outcome"] {
                 assert!(keys.contains(&key), "{key} survives the cap");
             }
         }

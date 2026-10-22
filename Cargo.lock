@@ -4022,6 +4022,7 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "livekit-net",
+ "livekit-protocol",
  "log",
  "opentelemetry-proto",
  "prost 0.14.4",
