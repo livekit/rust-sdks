@@ -452,15 +452,27 @@ pub struct InitialTrack {
 }
 
 impl InitialTrack {
-    /// Creates a track to publish while connecting.
-    pub fn new(track: LocalTrack, options: TrackPublishOptions) -> Self {
-        Self { track, options }
+    /// Creates a track to publish while connecting, with default [`TrackPublishOptions`].
+    pub fn new(track: LocalTrack) -> Self {
+        Self { track, options: TrackPublishOptions::default() }
+    }
+
+    /// Sets the options to publish the track with.
+    pub fn with_options(mut self, options: TrackPublishOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
+impl From<LocalTrack> for InitialTrack {
+    fn from(track: LocalTrack) -> Self {
+        Self::new(track)
     }
 }
 
 impl From<(LocalTrack, TrackPublishOptions)> for InitialTrack {
     fn from((track, options): (LocalTrack, TrackPublishOptions)) -> Self {
-        Self::new(track, options)
+        Self::new(track).with_options(options)
     }
 }
 
@@ -647,20 +659,19 @@ impl Room {
             EncryptionType::None => &pre_publish_tracks,
             _ => &[],
         };
-        let (rtc_engine, join_response, engine_events, pre_publish_receivers) =
-            RtcEngine::connect_with_tracks(
-                url,
-                token,
-                EngineOptions {
-                    rtc_config: options.rtc_config.clone(),
-                    signal_options,
-                    join_retries: options.join_retries,
-                    single_peer_connection: options.single_peer_connection,
-                },
-                Some(e2ee_manager.clone()),
-                join_publish_tracks,
-            )
-            .await?;
+        let (rtc_engine, join_response, engine_events, pre_publish_receivers) = RtcEngine::connect(
+            url,
+            token,
+            EngineOptions {
+                rtc_config: options.rtc_config.clone(),
+                signal_options,
+                join_retries: options.join_retries,
+                single_peer_connection: options.single_peer_connection,
+            },
+            Some(e2ee_manager.clone()),
+            join_publish_tracks,
+        )
+        .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
         if let Some(key_provider) = e2ee_manager.key_provider() {
@@ -939,7 +950,7 @@ impl Room {
         let room = Self { inner };
         if let Err(err) = room.complete_pre_publish(pre_publish_tracks, pre_publish_receivers).await
         {
-            room.inner.close(DisconnectReason::ClientInitiated).await?;
+            room.inner.close(DisconnectReason::JoinFailure).await?;
             return Err(err);
         }
 

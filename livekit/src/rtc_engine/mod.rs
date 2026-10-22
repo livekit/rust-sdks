@@ -330,22 +330,11 @@ impl Debug for RtcEngine {
 }
 
 impl RtcEngine {
-    pub async fn connect(
-        url: &str,
-        token: &str,
-        options: EngineOptions,
-        e2ee_manager: Option<E2eeManager>,
-    ) -> EngineResult<(Self, proto::JoinResponse, EngineEvents)> {
-        let (engine, join_response, engine_events, _) =
-            Self::connect_with_tracks(url, token, options, e2ee_manager, &[]).await?;
-        Ok((engine, join_response, engine_events))
-    }
-
-    /// Like [`Self::connect`], also sending `publish_tracks` with the join request when possible.
+    /// Connects to the room, sending `publish_tracks` with the join request when possible.
     ///
     /// Returns a receiver for the server's `TrackInfo` per track that was sent, keyed by its cid.
     /// Tracks without one were not sent and must be published normally.
-    pub(crate) async fn connect_with_tracks(
+    pub(crate) async fn connect(
         url: &str,
         token: &str,
         options: EngineOptions,
@@ -364,6 +353,14 @@ impl RtcEngine {
 
     pub async fn close(&self, reason: DisconnectReason) {
         self.inner.close(reason).await
+    }
+
+    /// Test-only: connects with default options and no join-time tracks, so lifecycle tests can
+    /// exercise the engine without a [`Room`](crate::Room) around it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub async fn connect_for_test(url: &str, token: &str) -> EngineResult<Self> {
+        let (engine, ..) = Self::connect(url, token, EngineOptions::default(), None, &[]).await?;
+        Ok(engine)
     }
 
     /// Test-only: returns a probe that reports whether the engine internals have been

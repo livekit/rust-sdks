@@ -81,6 +81,7 @@ pub struct PcGenerationSnapshot {
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+const JOIN_TRACK_CONFIRM_TIMEOUT: Duration = Duration::from_secs(1);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
@@ -2038,7 +2039,7 @@ impl SessionInner {
         let cid = req.cid.clone();
         let rx = self.register_pending_track(&cid)?;
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
-        self.wait_track_published(cid, rx).await
+        self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await
     }
 
     async fn wait_track_published_by_cid(
@@ -2046,7 +2047,7 @@ impl SessionInner {
         cid: String,
         rx: oneshot::Receiver<proto::TrackInfo>,
     ) -> EngineResult<proto::TrackInfo> {
-        self.wait_track_published(cid, rx).await
+        self.wait_track_published(cid, rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
     }
 
     fn register_pending_track(
@@ -2066,10 +2067,11 @@ impl SessionInner {
         &self,
         cid: String,
         rx: oneshot::Receiver<proto::TrackInfo>,
+        timeout: Duration,
     ) -> EngineResult<proto::TrackInfo> {
         tokio::select! {
             Ok(info) = rx => Ok(info),
-            _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
+            _ = sleep(timeout) => {
                 self.pending_tracks.lock().remove(&cid);
                 Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },

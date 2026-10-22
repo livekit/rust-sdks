@@ -228,9 +228,9 @@ impl PeerTransport {
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
     /// It gets the same munging as [`Self::create_and_send_offer`], including the
-    /// `x-google-start-bitrate` hint when join-time video tracks are present. That hint is computed without a connection setup time, since the
-    /// connection does not exist yet, so it stays capped at
-    /// [`Self::MAX_START_BITRATE_KBPS`].
+    /// `x-google-start-bitrate` hint when join-time video tracks are present. That hint is
+    /// computed without a connection setup time, since the connection does not exist yet, so it
+    /// stays capped at [`Self::MAX_START_BITRATE_KBPS`].
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {

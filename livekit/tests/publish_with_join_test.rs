@@ -66,14 +66,15 @@ fn join_tracks() -> Vec<InitialTrack> {
         )),
     );
     vec![
-        InitialTrack::new(
-            LocalTrack::Audio(audio),
-            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
-        ),
-        InitialTrack::new(
+        InitialTrack::new(LocalTrack::Audio(audio)).with_options(TrackPublishOptions {
+            source: TrackSource::Microphone,
+            ..Default::default()
+        }),
+        (
             LocalTrack::Video(video),
             TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
-        ),
+        )
+            .into(),
     ]
 }
 
@@ -247,8 +248,7 @@ fn single_audio_track() -> (InitialTrack, impl Fn() -> bool) {
         )),
     );
     let released = track.drop_probe();
-    let options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
-    (InitialTrack::new(LocalTrack::Audio(track), options), released)
+    (LocalTrack::Audio(track).into(), released)
 }
 
 async fn wait_released(released: impl Fn() -> bool) -> Result<()> {
@@ -349,7 +349,11 @@ async fn test_publish_with_join_failure_closes_room() -> Result<()> {
     let (track, released) = single_audio_track();
     let mut options = RoomOptions::default();
     options.publish_tracks = vec![track];
-    let Err(err) = Room::connect(&server.url, &token, options).await else {
+    // The join-time confirmation wait is short, far below the 10 s publish timeout.
+    let connected = timeout(Duration::from_secs(5), Room::connect(&server.url, &token, options))
+        .await
+        .map_err(|_| anyhow!("connect waited too long for a refused track"))?;
+    let Err(err) = connected else {
         bail!("connect succeeded although the track could not be published");
     };
     log::info!("connect failed as expected: {err}");
