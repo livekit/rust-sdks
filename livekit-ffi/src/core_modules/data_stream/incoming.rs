@@ -141,8 +141,10 @@ impl IncomingDataStreamManager {
 pub struct ByteStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
     info: ds_api::ByteStreamInfo,
-    inner: Mutex<ds_api::ByteStreamReader>,
+    /// The core reader, or `None` once the reader was closed.
+    inner: Arc<Mutex<Option<ds_api::ByteStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    closed: CancellationToken,
 }
 
 impl ByteStreamReader {
@@ -150,7 +152,8 @@ impl ByteStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress().boxed()),
-            inner: Mutex::new(reader),
+            inner: Arc::new(Mutex::new(Some(reader))),
+            closed: CancellationToken::new(),
         }
     }
 }
@@ -169,22 +172,27 @@ impl ByteStreamReader {
     ///
     /// See [`TextStreamReader::next_progress`].
     pub async fn next_progress(&self) -> Option<StreamProgress> {
-        self.progress.lock().await.next().await.map(Into::into)
+        next_progress(&self.progress, &self.closed).await
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.
     pub async fn next(&self) -> Result<Option<Bytes>, DataStreamError> {
-        Ok(self.inner.lock().await.next().await.transpose()?)
+        next_chunk(&mut *self.inner.lock().await, &self.closed).await
     }
 
     /// Reads every chunk, concatenating them into a single buffer returned once the stream closes.
     pub async fn read_all(&self) -> Result<Bytes, DataStreamError> {
         let mut reader = self.inner.lock().await;
         let mut buffer = BytesMut::new();
-        while let Some(chunk) = reader.next().await {
-            buffer.extend_from_slice(&chunk?);
+        while let Some(chunk) = next_chunk(&mut reader, &self.closed).await? {
+            buffer.extend_from_slice(&chunk);
         }
         Ok(buffer.freeze())
+    }
+
+    /// Stops reading the stream. See [`TextStreamReader::close`].
+    pub fn close(&self) {
+        close_reader(&self.inner, &self.closed);
     }
 }
 
@@ -193,8 +201,10 @@ impl ByteStreamReader {
 pub struct TextStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
     info: ds_api::TextStreamInfo,
-    inner: Mutex<ds_api::TextStreamReader>,
+    /// The core reader, or `None` once the reader was closed.
+    inner: Arc<Mutex<Option<ds_api::TextStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    closed: CancellationToken,
 }
 
 impl TextStreamReader {
@@ -202,7 +212,8 @@ impl TextStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress().boxed()),
-            inner: Mutex::new(reader),
+            inner: Arc::new(Mutex::new(Some(reader))),
+            closed: CancellationToken::new(),
         }
     }
 }
@@ -223,23 +234,78 @@ impl TextStreamReader {
     /// after decompression, whether or not they were read yet. Updates that arrive between two
     /// calls are merged into the latest one.
     pub async fn next_progress(&self) -> Option<StreamProgress> {
-        self.progress.lock().await.next().await.map(Into::into)
+        next_progress(&self.progress, &self.closed).await
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.
     pub async fn next(&self) -> Result<Option<String>, DataStreamError> {
-        Ok(self.inner.lock().await.next().await.transpose()?)
+        next_chunk(&mut *self.inner.lock().await, &self.closed).await
     }
 
     /// Reads every chunk, concatenating them into a single string returned once the stream closes.
     pub async fn read_all(&self) -> Result<String, DataStreamError> {
         let mut reader = self.inner.lock().await;
         let mut result = String::new();
-        while let Some(chunk) = reader.next().await {
-            result.push_str(&chunk?);
+        while let Some(chunk) = next_chunk(&mut reader, &self.closed).await? {
+            result.push_str(&chunk);
         }
         Ok(result)
     }
+
+    /// Stops reading the stream and releases the data it buffered.
+    ///
+    /// A pending or later `next()` or `read_all()` fails with
+    /// [`DataStreamError::AlreadyClosed`], and `next_progress()` returns `None`. Other streams are
+    /// not affected. Returns at once, so it is safe to call from a cancellation handler.
+    pub fn close(&self) {
+        close_reader(&self.inner, &self.closed);
+    }
+}
+
+/// Reads the next chunk, unless the reader is closed first. A read that sees the close drops the
+/// core reader, which releases its buffered chunks; the manager then drops the stream at its next
+/// packet.
+async fn next_chunk<R: ds_api::StreamReader + Unpin>(
+    reader: &mut Option<R>,
+    closed: &CancellationToken,
+) -> Result<Option<R::Output>, DataStreamError> {
+    let Some(open) = reader.as_mut() else {
+        return Err(DataStreamError::AlreadyClosed);
+    };
+    let read = tokio::select! {
+        biased;
+        _ = closed.cancelled() => None,
+        chunk = open.next() => Some(chunk),
+    };
+    let Some(chunk) = read else {
+        *reader = None;
+        return Err(DataStreamError::AlreadyClosed);
+    };
+    Ok(chunk.transpose()?)
+}
+
+/// Waits for the next progress update, unless the reader is closed first.
+async fn next_progress(
+    progress: &Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    closed: &CancellationToken,
+) -> Option<StreamProgress> {
+    let mut progress = progress.lock().await;
+    tokio::select! {
+        biased;
+        _ = closed.cancelled() => None,
+        update = progress.next() => update.map(Into::into),
+    }
+}
+
+/// Wakes pending reads and drops the core reader.
+fn close_reader<R: Send + 'static>(reader: &Arc<Mutex<Option<R>>>, closed: &CancellationToken) {
+    closed.cancel();
+    // A read in progress holds the lock until it sees the cancellation. Drop the reader after it
+    // in a task, because `close` must not block its caller.
+    let reader = reader.clone();
+    crate::runtime::runtime().spawn(async move {
+        reader.lock().await.take();
+    });
 }
 
 /// Forwards manager output events to the foreign [`IncomingDataStreamManagerDelegate`].

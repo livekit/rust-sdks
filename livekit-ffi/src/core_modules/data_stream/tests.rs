@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use livekit_protocol as proto;
 use prost::Message as _;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use super::common::{
     ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamByteOptions,
@@ -34,10 +34,10 @@ use super::outgoing::{
     RemoteParticipantRegistryDelegate, StreamProgressDelegate,
 };
 
-/// Builds an encoded v2 inline (single-packet) text `DataPacket`.
-fn inline_text_packet(identity: &str, topic: &str, text: &str) -> Bytes {
+/// Builds an encoded v2 inline (single-packet) text `DataPacket` for stream `stream_id`.
+fn inline_text_packet(stream_id: &str, identity: &str, topic: &str, text: &str) -> Bytes {
     let header = proto::data_stream::Header {
-        stream_id: "s1".to_string(),
+        stream_id: stream_id.to_string(),
         topic: topic.to_string(),
         mime_type: "text/plain".to_string(),
         timestamp: 0,
@@ -56,10 +56,16 @@ fn inline_text_packet(identity: &str, topic: &str, text: &str) -> Bytes {
     Bytes::from(packet.encode_to_vec())
 }
 
-/// Builds an encoded v1 multi-packet text stream header `DataPacket` (no inline content).
-fn multipacket_text_header_packet(identity: &str, topic: &str, total_length: u64) -> Bytes {
+/// Builds an encoded v1 multi-packet text stream header `DataPacket` (no inline content) for
+/// stream `stream_id`.
+fn multipacket_text_header_packet(
+    stream_id: &str,
+    identity: &str,
+    topic: &str,
+    total_length: u64,
+) -> Bytes {
     let header = proto::data_stream::Header {
-        stream_id: "s1".to_string(),
+        stream_id: stream_id.to_string(),
         topic: topic.to_string(),
         mime_type: "text/plain".to_string(),
         timestamp: 0,
@@ -77,10 +83,10 @@ fn multipacket_text_header_packet(identity: &str, topic: &str, total_length: u64
     Bytes::from(packet.encode_to_vec())
 }
 
-/// Builds an encoded chunk `DataPacket` for stream `s1`.
-fn chunk_packet(identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
+/// Builds an encoded chunk `DataPacket` for stream `stream_id`.
+fn chunk_packet(stream_id: &str, identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
     let chunk = proto::data_stream::Chunk {
-        stream_id: "s1".to_string(),
+        stream_id: stream_id.to_string(),
         chunk_index,
         content: content.to_vec(),
         ..Default::default()
@@ -93,10 +99,10 @@ fn chunk_packet(identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
     Bytes::from(packet.encode_to_vec())
 }
 
-/// Builds an encoded trailer `DataPacket` for stream `s1`.
-fn trailer_packet(identity: &str, attributes: &[(&str, &str)]) -> Bytes {
+/// Builds an encoded trailer `DataPacket` for stream `stream_id`.
+fn trailer_packet(stream_id: &str, identity: &str, attributes: &[(&str, &str)]) -> Bytes {
     let trailer = proto::data_stream::Trailer {
-        stream_id: "s1".to_string(),
+        stream_id: stream_id.to_string(),
         attributes: attributes.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         ..Default::default()
     };
@@ -134,7 +140,7 @@ fn incoming_inline_text_stream_roundtrips() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(
-            inline_text_packet("alice", "my-topic", "hello world"),
+            inline_text_packet("s1", "alice", "my-topic", "hello world"),
             EncryptionType::None,
         );
 
@@ -154,11 +160,12 @@ fn incoming_chunk_with_mismatched_encryption_errors_reader() {
 
         // The stream is announced unencrypted, but a chunk arrives claiming GCM encryption.
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::None,
         );
         let (reader, _) = rx.await.expect("a stream should open");
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::Gcm);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::Gcm);
 
         let result = reader.read_all().await;
         assert!(matches!(
@@ -180,12 +187,13 @@ fn incoming_trailer_with_mismatched_encryption_errors_reader() {
 
         // The stream is announced under GCM, but its trailer arrives in plaintext.
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::Gcm,
         );
         let (reader, _) = rx.await.expect("a stream should open");
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::Gcm);
-        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::Gcm);
+        manager.handle_packet_received(trailer_packet("s1", "alice", &[]), EncryptionType::None);
 
         let result = reader.read_all().await;
         assert!(matches!(
@@ -210,7 +218,7 @@ fn incoming_open_stream_count_tracks_headers_and_aborts() {
         // waits for the (orphaned) header to register without racing the run loop — exactly what
         // exercising the abort paths requires.
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::None,
         );
         assert_eq!(manager.open_stream_count().await, 1);
@@ -228,13 +236,14 @@ fn incoming_reader_info_shows_trailer_attributes() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::None,
         );
         let (reader, _) = rx.await.expect("a stream should open");
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
         manager.handle_packet_received(
-            trailer_packet("alice", &[("summary", "done")]),
+            trailer_packet("s1", "alice", &[("summary", "done")]),
             EncryptionType::None,
         );
 
@@ -251,7 +260,7 @@ fn incoming_reader_reports_progress() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 10),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 10),
             EncryptionType::None,
         );
         let (reader, _) = rx.await.expect("a stream should open");
@@ -260,14 +269,80 @@ fn incoming_reader_reports_progress() {
         assert_eq!(reader.next_progress().await, progress(0));
 
         // Progress counts bytes as they arrive, before the reader reads them.
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
         assert_eq!(reader.next_progress().await, progress(5));
-        manager.handle_packet_received(chunk_packet("alice", 1, b"world"), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
         assert_eq!(reader.next_progress().await, progress(10));
-        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("s1", "alice", &[]), EncryptionType::None);
         assert_eq!(reader.next_progress().await, None);
 
         assert_eq!(reader.read_all().await.unwrap(), "helloworld");
+    });
+}
+
+/// Forwards every opened text reader and the id of every closed stream.
+struct StreamEvents {
+    opened: mpsc::UnboundedSender<Arc<TextStreamReader>>,
+    closed: mpsc::UnboundedSender<String>,
+}
+
+impl IncomingDataStreamManagerDelegate for StreamEvents {
+    fn on_byte_stream_opened(&self, _reader: Arc<ByteStreamReader>, _identity: String) {}
+
+    fn on_text_stream_opened(&self, reader: Arc<TextStreamReader>, _identity: String) {
+        let _ = self.opened.send(reader);
+    }
+
+    fn on_stream_closed(&self, stream_id: String, _identity: String) {
+        let _ = self.closed.send(stream_id);
+    }
+}
+
+#[test]
+fn incoming_reader_close_ends_only_its_stream() {
+    crate::runtime::runtime().block_on(async {
+        let (opened_tx, mut opened) = mpsc::unbounded_channel();
+        let (closed_tx, mut closed) = mpsc::unbounded_channel();
+        let delegate = Arc::new(StreamEvents { opened: opened_tx, closed: closed_tx });
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        for id in ["s1", "s2"] {
+            let header = multipacket_text_header_packet(id, "alice", "my-topic", 10);
+            manager.handle_packet_received(header, EncryptionType::None);
+            manager.handle_packet_received(
+                chunk_packet(id, "alice", 0, b"hello"),
+                EncryptionType::None,
+            );
+        }
+        let reader = opened.recv().await.expect("s1 should open");
+        let other = opened.recv().await.expect("s2 should open");
+        assert_eq!(reader.info().id, "s1");
+
+        // A read that waits for the rest of the stream ends as soon as the reader is closed.
+        let read = tokio::spawn({
+            let reader = reader.clone();
+            async move { reader.read_all().await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!read.is_finished(), "the read should wait for the rest of the stream");
+        reader.close();
+        assert!(matches!(read.await.unwrap(), Err(DataStreamError::AlreadyClosed)));
+        assert!(matches!(reader.next().await, Err(DataStreamError::AlreadyClosed)));
+        assert_eq!(reader.next_progress().await, None);
+
+        // The receiver is released, so the manager ends the stream at its next chunk.
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
+        assert_eq!(closed.recv().await.as_deref(), Some("s1"));
+        assert_eq!(manager.open_stream_count().await, 1);
+
+        // The other stream is not affected.
+        manager
+            .handle_packet_received(chunk_packet("s2", "alice", 1, b"world"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("s2", "alice", &[]), EncryptionType::None);
+        assert_eq!(other.read_all().await.unwrap(), "helloworld");
     });
 }
 
@@ -294,11 +369,12 @@ fn incoming_trailer_fires_stream_closed() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::None,
         );
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
-        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("s1", "alice", &[]), EncryptionType::None);
 
         let (stream_id, identity) = rx.await.expect("the stream should close");
         assert_eq!(stream_id, "s1");
@@ -316,7 +392,7 @@ fn incoming_inline_stream_fires_stream_closed() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(
-            inline_text_packet("alice", "my-topic", "hello world"),
+            inline_text_packet("s1", "alice", "my-topic", "hello world"),
             EncryptionType::None,
         );
 
@@ -335,7 +411,7 @@ fn incoming_abort_fires_stream_closed() {
 
         // Announce a multi-packet stream, then abort before its trailer ever arrives.
         manager.handle_packet_received(
-            multipacket_text_header_packet("alice", "my-topic", 5),
+            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
             EncryptionType::None,
         );
         manager.abort_all_streams();
