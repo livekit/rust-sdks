@@ -104,6 +104,34 @@ export declare enum CaptureExit {
 }
 
 /**
+ * Why a capture ended with an error.
+ *
+ * @generated from enum livekit.proto.CaptureErrorKind
+ */
+export declare enum CaptureErrorKind {
+  /**
+   * The capture source failed or violated its contract.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_SOURCE = 0;
+   */
+  SOURCE = 0,
+
+  /**
+   * The RTC video source rejected a frame.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_RTC = 1;
+   */
+  RTC = 1,
+
+  /**
+   * The pump thread panicked.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_PANICKED = 2;
+   */
+  PANICKED = 2,
+}
+
+/**
  * Binding from WebRTC rate-control targets to a GStreamer encoder property.
  *
  * @generated from message livekit.proto.GstreamerRateControl
@@ -620,6 +648,11 @@ export declare class CaptureError extends Message<CaptureError> {
    * @generated from field: required string error = 1;
    */
   error?: string;
+
+  /**
+   * @generated from field: required livekit.proto.CaptureErrorKind kind = 2;
+   */
+  kind?: CaptureErrorKind;
 
   constructor(data?: PartialMessage<CaptureError>);
 

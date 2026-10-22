@@ -288,7 +288,14 @@ impl From<Result<PumpStats, PumpError>> for proto::capture_source_event::Message
                     exit: exit.into(),
                 })
             }
-            Err(err) => Self::Error(proto::CaptureError { error: err.to_string() }),
+            Err(err) => {
+                let kind = match err {
+                    PumpError::Source(_) => proto::CaptureErrorKind::Source,
+                    PumpError::CaptureFailed => proto::CaptureErrorKind::Rtc,
+                    PumpError::Panicked(_) => proto::CaptureErrorKind::Panicked,
+                };
+                Self::Error(proto::CaptureError { error: err.to_string(), kind: kind.into() })
+            }
         }
     }
 }

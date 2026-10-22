@@ -78,6 +78,20 @@ const CaptureExit = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * Why a capture ended with an error.
+ *
+ * @generated from enum livekit.proto.CaptureErrorKind
+ */
+const CaptureErrorKind = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.CaptureErrorKind",
+  [
+    {no: 0, name: "CAPTURE_ERROR_KIND_SOURCE", localName: "SOURCE"},
+    {no: 1, name: "CAPTURE_ERROR_KIND_RTC", localName: "RTC"},
+    {no: 2, name: "CAPTURE_ERROR_KIND_PANICKED", localName: "PANICKED"},
+  ],
+);
+
+/**
  * Binding from WebRTC rate-control targets to a GStreamer encoder property.
  *
  * @generated from message livekit.proto.GstreamerRateControl
@@ -264,6 +278,7 @@ const CaptureError = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.CaptureError",
   () => [
     { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "kind", kind: "enum", T: proto2.getEnumType(CaptureErrorKind), req: true },
   ],
 );
 
@@ -287,6 +302,7 @@ exports.GstreamerBitrateUnit = GstreamerBitrateUnit;
 exports.Pattern = Pattern;
 exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
+exports.CaptureErrorKind = CaptureErrorKind;
 exports.GstreamerRateControl = GstreamerRateControl;
 exports.GstreamerVideoSourceConfig = GstreamerVideoSourceConfig;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
