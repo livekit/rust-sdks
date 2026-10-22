@@ -94,27 +94,21 @@ impl RawStream {
         Ok(())
     }
 
-    /// Writes opaque bytes split into MTU-sized chunks on raw byte boundaries, one transport
-    /// request per chunk.
-    ///
-    /// Used for byte payloads and for compressed (deflate-raw) content, where the bytes
-    /// are opaque and must not be split on UTF-8 boundaries.
-    pub(crate) async fn write_raw_chunks(&mut self, bytes: &[u8]) -> StreamResult<()> {
-        for chunk in bytes.chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
-            self.write_chunk(chunk).await?;
-        }
-        Ok(())
-    }
-
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
+    ///
+    /// Calls `on_progress` after each chunk is sent, with the file bytes (before compression)
+    /// that chunk completes, so the last call covers the whole file. A file that sends no chunk
+    /// (an empty, uncompressed one) reports once at the end.
     pub(crate) async fn write_file(
         &mut self,
         path: impl AsRef<Path>,
         compress: bool,
+        on_progress: &mut (impl FnMut(StreamProgress) + Send),
     ) -> StreamResult<()> {
         let mut file = tokio::fs::File::open(path).await?;
         let mut read_buf = vec![0u8; 8192];
+        let mut bytes_read = 0;
 
         if compress {
             use futures_util::io::AsyncWriteExt;
@@ -126,6 +120,7 @@ impl RawStream {
                 if n == 0 {
                     break;
                 }
+                bytes_read += n as u64;
                 // Writing into a `Vec` is infallible.
                 encoder
                     .write_all(&read_buf[..n])
@@ -136,13 +131,15 @@ impl RawStream {
                 while encoder.get_ref().len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = encoder.get_mut().split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(encoder.get_mut(), rest);
-                    self.write_chunk(&chunk).await?;
+                    self.write_file_chunk(&chunk, bytes_read, on_progress).await?;
                 }
             }
             // Flush the final deflate block and send whatever compressed bytes remain.
             encoder.close().await.expect("deflate finish into Vec is infallible");
             let remaining = encoder.into_inner();
-            self.write_raw_chunks(&remaining).await?;
+            for chunk in remaining.chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
+                self.write_file_chunk(chunk, bytes_read, on_progress).await?;
+            }
         } else {
             let mut pending: Vec<u8> = Vec::new();
             loop {
@@ -150,18 +147,40 @@ impl RawStream {
                 if n == 0 {
                     break;
                 }
+                bytes_read += n as u64;
                 pending.extend_from_slice(&read_buf[..n]);
                 while pending.len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = pending.split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(&mut pending, rest);
-                    self.write_chunk(&chunk).await?;
+                    let bytes_sent = bytes_read - pending.len() as u64;
+                    self.write_file_chunk(&chunk, bytes_sent, on_progress).await?;
                 }
             }
             if !pending.is_empty() {
-                self.write_chunk(&pending).await?;
+                self.write_file_chunk(&pending, bytes_read, on_progress).await?;
             }
         }
+        if self.progress.chunk_index == 0 {
+            on_progress(self.file_progress(bytes_read));
+        }
         Ok(())
+    }
+
+    /// Sends one chunk of a file, then reports `file_bytes` as the file's progress.
+    async fn write_file_chunk(
+        &mut self,
+        chunk: &[u8],
+        file_bytes: u64,
+        on_progress: &mut (impl FnMut(StreamProgress) + Send),
+    ) -> StreamResult<()> {
+        self.write_chunk(chunk).await?;
+        on_progress(self.file_progress(file_bytes));
+        Ok(())
+    }
+
+    /// Progress of a file send, counting `file_bytes` before compression.
+    fn file_progress(&self, file_bytes: u64) -> StreamProgress {
+        StreamProgress { bytes_processed: file_bytes, ..self.progress }
     }
 
     pub(crate) async fn close(

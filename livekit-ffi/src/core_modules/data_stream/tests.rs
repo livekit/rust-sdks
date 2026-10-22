@@ -23,14 +23,15 @@ use tokio::sync::oneshot;
 
 use super::common::{
     ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamByteOptions,
-    StreamTextOptions,
+    StreamProgress, StreamTextOptions,
 };
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
     TextStreamReader,
 };
 use super::outgoing::{
-    OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate, RemoteParticipantRegistryDelegate,
+    OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate,
+    RemoteParticipantRegistryDelegate, StreamProgressDelegate,
 };
 
 /// Builds an encoded v2 inline (single-packet) text `DataPacket`.
@@ -239,6 +240,34 @@ fn incoming_reader_info_shows_trailer_attributes() {
 
         assert_eq!(reader.read_all().await.unwrap(), "hello");
         assert_eq!(reader.info().attributes.get("summary").map(String::as_str), Some("done"));
+    });
+}
+
+#[test]
+fn incoming_reader_reports_progress() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 10),
+            EncryptionType::None,
+        );
+        let (reader, _) = rx.await.expect("a stream should open");
+        let progress =
+            |bytes_processed| Some(StreamProgress { bytes_processed, bytes_total: Some(10) });
+        assert_eq!(reader.next_progress().await, progress(0));
+
+        // Progress counts bytes as they arrive, before the reader reads them.
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
+        assert_eq!(reader.next_progress().await, progress(5));
+        manager.handle_packet_received(chunk_packet("alice", 1, b"world"), EncryptionType::None);
+        assert_eq!(reader.next_progress().await, progress(10));
+        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
+        assert_eq!(reader.next_progress().await, None);
+
+        assert_eq!(reader.read_all().await.unwrap(), "helloworld");
     });
 }
 
@@ -496,6 +525,56 @@ fn outgoing_one_shot_send_is_a_single_delegate_call() {
         };
         manager.send_text("A".repeat(40_000), options).await.expect("send_text should succeed");
         assert_eq!(*delegate.0.lock().unwrap(), vec![5]);
+    });
+}
+
+/// Records every progress report.
+struct ProgressCapture(Mutex<Vec<StreamProgress>>);
+
+impl ProgressCapture {
+    fn take(&self) -> Vec<StreamProgress> {
+        std::mem::take(&mut self.0.lock().unwrap())
+    }
+}
+
+impl StreamProgressDelegate for ProgressCapture {
+    fn on_progress(&self, progress: StreamProgress) {
+        self.0.lock().unwrap().push(progress);
+    }
+}
+
+#[test]
+fn outgoing_sends_report_progress() {
+    crate::runtime::runtime().block_on(async {
+        let delegate = Arc::new(PacketCapture(Mutex::new(Vec::new())));
+        let manager = OutgoingDataStreamManager::new(delegate, Arc::new(PreV2Registry));
+        let progress = Arc::new(ProgressCapture(Mutex::new(Vec::new())));
+        let complete = |bytes| StreamProgress { bytes_processed: bytes, bytes_total: Some(bytes) };
+
+        // One-shot sends hand the whole stream to the transport at once: one report, on completion.
+        let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        manager
+            .send_text_with_progress("hello".to_string(), options, progress.clone())
+            .await
+            .unwrap();
+        assert_eq!(progress.take(), vec![complete(5)]);
+
+        let options = StreamByteOptions { topic: "blob".to_string(), ..Default::default() };
+        let data = Bytes::from_static(b"abc");
+        manager.send_bytes_with_progress(data, options, progress.clone()).await.unwrap();
+        assert_eq!(progress.take(), vec![complete(3)]);
+
+        // A file reports after each chunk: 15 000 + 5 000 bytes, uncompressed for a pre-v2 room.
+        let path = std::env::temp_dir().join(format!("lk-ffi-progress-{}.bin", std::process::id()));
+        std::fs::write(&path, vec![7u8; 20_000]).unwrap();
+        let options = StreamByteOptions { topic: "file".to_string(), ..Default::default() };
+        let result = manager
+            .send_file_with_progress(path.to_string_lossy().into_owned(), options, progress.clone())
+            .await;
+        let _ = std::fs::remove_file(&path);
+        result.unwrap();
+        let reported: Vec<_> = progress.take().iter().map(|p| p.bytes_processed).collect();
+        assert_eq!(reported, vec![15_000, 20_000]);
     });
 }
 

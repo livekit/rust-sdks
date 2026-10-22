@@ -26,7 +26,7 @@ use crate::{
     info::{ByteStreamInfo, TextStreamInfo},
     types::{ByteHeader, CompressionType, ContentHeader, Header, StreamId, TextHeader},
     utf8_chunk::Utf8AwareChunkExt,
-    utils::{SendError, StreamError, StreamResult},
+    utils::{SendError, StreamError, StreamProgress, StreamResult},
 };
 
 use super::{
@@ -287,6 +287,20 @@ impl Manager {
         options: StreamByteOptions,
         remote_participant_registry: &dyn RemoteParticipantRegistry,
     ) -> StreamResult<ByteStreamInfo> {
+        self.send_file_with_progress(path, options, remote_participant_registry, |_| {}).await
+    }
+
+    /// Like [`Self::send_file`], and calls `on_progress` as the file goes out.
+    ///
+    /// Progress counts file bytes before compression, against the file size. It is reported
+    /// after each chunk is sent, so the last report covers the whole file.
+    pub async fn send_file_with_progress(
+        &self,
+        path: impl AsRef<Path>,
+        options: StreamByteOptions,
+        remote_participant_registry: &dyn RemoteParticipantRegistry,
+        mut on_progress: impl FnMut(StreamProgress) + Send,
+    ) -> StreamResult<ByteStreamInfo> {
         let path = path.as_ref();
         let file_size = tokio::fs::metadata(path)
             .await
@@ -315,7 +329,7 @@ impl Manager {
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
-        stream.write_file(path, should_compress).await?;
+        stream.write_file(path, should_compress, &mut on_progress).await?;
         stream.close(None, None).await?;
         Ok(info)
     }
@@ -1067,6 +1081,45 @@ mod tests {
                 assert_eq!(c.content.len(), 10_000);
                 assert!(c.content.iter().all(|b| *b == 0x07));
                 assert_trailer(&p[2]);
+            }
+
+            /// Sends `bytes` as a file to a compression-capable recipient and returns every
+            /// progress report as `(bytes_processed, bytes_total)`.
+            async fn send_file_progress(bytes: &[u8], compress: bool) -> Vec<(u64, Option<u64>)> {
+                let (m, _sent) = setup();
+                let path = write_temp_file(bytes).await;
+                let mut reports = Vec::new();
+                m.send_file_with_progress(
+                    &path,
+                    byte_opts("file", &["alice"]).with_compress(compress),
+                    &all_v2_room(),
+                    |p| reports.push((p.bytes_processed(), p.bytes_total())),
+                )
+                .await
+                .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+                reports
+            }
+
+            #[tokio::test]
+            async fn send_file_reports_progress_after_each_chunk() {
+                let reports = send_file_progress(&vec![0x07u8; 20_000], false).await;
+                assert_eq!(reports, vec![(15_000, Some(20_000)), (20_000, Some(20_000))]);
+            }
+
+            #[tokio::test]
+            async fn send_file_reports_progress_before_compression() {
+                // Incompressible, so the compressed stream spans several chunks.
+                let reports = send_file_progress(&random_bytes(50_000), true).await;
+                assert!(reports.len() >= 4);
+                assert!(reports.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+                assert_eq!(reports.last(), Some(&(50_000, Some(50_000))));
+            }
+
+            #[tokio::test]
+            async fn send_file_reports_progress_for_empty_file() {
+                assert_eq!(send_file_progress(&[], false).await, vec![(0, Some(0))]);
+                assert_eq!(send_file_progress(&[], true).await, vec![(0, Some(0))]);
             }
 
             #[tokio::test]

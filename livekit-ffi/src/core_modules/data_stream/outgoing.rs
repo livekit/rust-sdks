@@ -22,7 +22,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{
     ByteStreamInfo, ClientCapability, DataStreamError, PacketDeliveryError, StreamByteOptions,
-    StreamTextOptions, TextStreamInfo,
+    StreamProgress, StreamTextOptions, TextStreamInfo,
 };
 use ds_api::StreamWriter as _;
 
@@ -65,6 +65,14 @@ pub trait RemoteParticipantRegistryDelegate: Send + Sync {
 
     /// The identities of every remote participant, used to resolve a broadcast send.
     fn remote_identities(&self) -> Vec<String>;
+}
+
+/// Receives the progress of an outgoing send, implemented by the foreign side.
+#[uniffi::export(with_foreign)]
+pub trait StreamProgressDelegate: Send + Sync {
+    /// Reports how much of the payload was sent. Called on the thread that polls the send, so it
+    /// must return quickly.
+    fn on_progress(&self, progress: StreamProgress);
 }
 
 /// Adapts the foreign [`RemoteParticipantRegistryDelegate`] to the crate-internal
@@ -154,6 +162,55 @@ impl OutgoingDataStreamManager {
         options: StreamByteOptions,
     ) -> Result<ByteStreamInfo, DataStreamError> {
         Ok(self.manager.send_file(path, options.into(), &*self.registry).await?.into())
+    }
+
+    /// Like [`Self::send_text`], and reports progress to `progress`.
+    ///
+    /// The whole stream goes to the transport in one delegate call, so progress is reported once,
+    /// when the send completes.
+    pub async fn send_text_with_progress(
+        &self,
+        text: String,
+        options: StreamTextOptions,
+        progress: Arc<dyn StreamProgressDelegate>,
+    ) -> Result<TextStreamInfo, DataStreamError> {
+        let length = text.len() as u64;
+        let info = self.send_text(text, options).await?;
+        progress.on_progress(StreamProgress { bytes_processed: length, bytes_total: Some(length) });
+        Ok(info)
+    }
+
+    /// Like [`Self::send_bytes`], and reports progress to `progress`.
+    ///
+    /// The whole stream goes to the transport in one delegate call, so progress is reported once,
+    /// when the send completes.
+    pub async fn send_bytes_with_progress(
+        &self,
+        data: Bytes,
+        options: StreamByteOptions,
+        progress: Arc<dyn StreamProgressDelegate>,
+    ) -> Result<ByteStreamInfo, DataStreamError> {
+        let length = data.len() as u64;
+        let info = self.send_bytes(data, options).await?;
+        progress.on_progress(StreamProgress { bytes_processed: length, bytes_total: Some(length) });
+        Ok(info)
+    }
+
+    /// Like [`Self::send_file`], and reports progress to `progress` after each chunk is sent.
+    ///
+    /// Progress counts file bytes before compression, so the last report covers the whole file.
+    pub async fn send_file_with_progress(
+        &self,
+        path: String,
+        options: StreamByteOptions,
+        progress: Arc<dyn StreamProgressDelegate>,
+    ) -> Result<ByteStreamInfo, DataStreamError> {
+        let on_progress = |p: ds_api::StreamProgress| progress.on_progress(p.into());
+        let info = self
+            .manager
+            .send_file_with_progress(path, options.into(), &*self.registry, on_progress)
+            .await?;
+        Ok(info.into())
     }
 
     /// Opens an incremental text stream writer (never compressed or inlined).

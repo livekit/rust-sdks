@@ -1706,6 +1706,31 @@ mod tests {
             assert_progress_completes(&values, total);
             drop(reader);
         }
+
+        #[tokio::test]
+        async fn progress_outlives_a_consuming_read() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(4), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (AnyStreamReader::Byte(reader), _) = h.next_opened().await else {
+                panic!("expected a byte reader");
+            };
+            let progress = reader.progress();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+
+            // `read_all` consumes the reader while its progress stream is still held.
+            assert_eq!(reader.read_all().await.unwrap().len(), 4);
+            assert_progress_completes(&collect_progress(progress).await, 4);
+        }
     }
 
     /// The open-stream count reflects descriptor-registered streams, answered in order with the

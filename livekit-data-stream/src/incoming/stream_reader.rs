@@ -46,7 +46,10 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
 
     /// Returns a stream of [`StreamProgress`] events as the stream is incrementally received from
     /// the sender participant.
-    fn progress(&self) -> impl Stream<Item = StreamProgress>;
+    ///
+    /// The returned stream does not borrow the reader, so it can be polled while the reader is
+    /// read or after the reader is consumed.
+    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static;
 
     /// Reads all incoming chunks from the byte stream, concatenating them
     /// into a single value which is returned once the stream closes normally.
@@ -78,7 +81,7 @@ impl StreamReader for ByteStreamReader {
         &self.info
     }
 
-    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static {
         WatchStream::new(self.progress_rx.clone())
     }
 
@@ -178,7 +181,7 @@ impl StreamReader for TextStreamReader {
         &self.info
     }
 
-    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static {
         WatchStream::new(self.progress_rx.clone())
     }
 

@@ -15,14 +15,15 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
-use futures_util::StreamExt;
+use futures_util::stream::{BoxStream, StreamExt};
 use livekit_data_stream::{api as ds_api, backend as ds};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{
-    decode_data_packet, ByteStreamInfo, DataStreamError, EncryptionType, TextStreamInfo,
+    decode_data_packet, ByteStreamInfo, DataStreamError, EncryptionType, StreamProgress,
+    TextStreamInfo,
 };
 use ds_api::StreamReader as _;
 
@@ -141,11 +142,16 @@ pub struct ByteStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
     info: ds_api::ByteStreamInfo,
     inner: Mutex<ds_api::ByteStreamReader>,
+    progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
 }
 
 impl ByteStreamReader {
     fn new(reader: ds_api::ByteStreamReader) -> Self {
-        Self { info: reader.info().clone(), inner: Mutex::new(reader) }
+        Self {
+            info: reader.info().clone(),
+            progress: Mutex::new(reader.progress().boxed()),
+            inner: Mutex::new(reader),
+        }
     }
 }
 
@@ -157,6 +163,13 @@ impl ByteStreamReader {
     /// ends the stream returns.
     pub fn info(&self) -> ByteStreamInfo {
         self.info.clone().into()
+    }
+
+    /// Waits for the next progress update, or returns `None` once the stream has ended.
+    ///
+    /// See [`TextStreamReader::next_progress`].
+    pub async fn next_progress(&self) -> Option<StreamProgress> {
+        self.progress.lock().await.next().await.map(Into::into)
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.
@@ -181,11 +194,16 @@ pub struct TextStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
     info: ds_api::TextStreamInfo,
     inner: Mutex<ds_api::TextStreamReader>,
+    progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
 }
 
 impl TextStreamReader {
     fn new(reader: ds_api::TextStreamReader) -> Self {
-        Self { info: reader.info().clone(), inner: Mutex::new(reader) }
+        Self {
+            info: reader.info().clone(),
+            progress: Mutex::new(reader.progress().boxed()),
+            inner: Mutex::new(reader),
+        }
     }
 }
 
@@ -197,6 +215,15 @@ impl TextStreamReader {
     /// ends the stream returns.
     pub fn info(&self) -> TextStreamInfo {
         self.info.clone().into()
+    }
+
+    /// Waits for the next progress update, or returns `None` once the stream has ended.
+    ///
+    /// The first call returns the current progress at once. Progress counts bytes as they arrive,
+    /// after decompression, whether or not they were read yet. Updates that arrive between two
+    /// calls are merged into the latest one.
+    pub async fn next_progress(&self) -> Option<StreamProgress> {
+        self.progress.lock().await.next().await.map(Into::into)
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.
