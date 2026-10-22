@@ -1397,6 +1397,67 @@ mod tests {
         assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
     }
 
+    #[tokio::test]
+    async fn writers_closed_with_trailer_attributes_target_every_packet() {
+        let attributes: HashMap<String, String> = [("k".to_string(), "v".to_string())].into();
+
+        let (m, sent) = setup();
+        let writer = m.stream_text(text_opts("chat", &["alice", "bob"])).await.unwrap();
+        writer.write("hello").await.unwrap();
+        writer.close_with_options(None, Some(attributes.clone())).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice", "bob"]));
+        assert_trailer(&p[2]);
+
+        let (m, sent) = setup();
+        let writer = m.stream_bytes(byte_opts("file", &["bob"])).await.unwrap();
+        writer.write(b"hello").await.unwrap();
+        writer.close_with_options(Some("cancelled"), Some(attributes)).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
+    }
+
+    #[tokio::test]
+    async fn writer_dropped_without_close_targets_its_trailer() {
+        let (m, sent) = setup();
+        let writer = m.stream_text(text_opts("chat", &["alice"])).await.unwrap();
+        writer.write("hello").await.unwrap();
+        drop(writer);
+        // The trailer goes out from a task that the drop spawns.
+        let trailer_sent = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while sent.lock().unwrap().len() < 3 {
+                tokio::task::yield_now().await;
+            }
+        });
+        trailer_sent.await.expect("the drop should send a trailer");
+        let p = sent.lock().unwrap().clone();
+        assert_trailer(&p[2]);
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice"]));
+    }
+
+    #[tokio::test]
+    async fn compressed_send_file_with_progress_targets_every_packet() {
+        let (m, sent) = setup();
+        let path = std::env::temp_dir().join(format!("lk_ds_dest_{}.bin", create_random_uuid()));
+        // Incompressible, so chunks go out both while the file is read and in the tail.
+        tokio::fs::write(&path, random_bytes(50_000)).await.unwrap();
+        let mut reports = 0;
+        m.send_file_with_progress(&path, byte_opts("file", &["alice"]), &all_v2_room(), |_| {
+            reports += 1
+        })
+        .await
+        .unwrap();
+        let _ = tokio::fs::remove_file(&path).await;
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::DeflateRaw);
+        assert!(p.len() >= 5, "header, at least 3 chunks, trailer: {}", p.len());
+        assert_trailer(p.last().unwrap());
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice"]));
+        assert!(reports >= 2);
+    }
+
     // --- Incremental writers never compress or inline ------------------------------------
 
     #[tokio::test]

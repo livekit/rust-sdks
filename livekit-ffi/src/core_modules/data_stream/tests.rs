@@ -786,7 +786,13 @@ fn outgoing_writers_send_trailer_attributes() {
         let attributes: std::collections::HashMap<String, String> =
             [("summary".to_string(), "done".to_string())].into();
 
-        let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let destination_identities = vec!["bob".to_string()];
+
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
         let writer = manager.stream_text(options).await.unwrap();
         writer.write("hello".to_string()).await.unwrap();
         writer.close(None, attributes.clone()).await.unwrap();
@@ -794,12 +800,24 @@ fn outgoing_writers_send_trailer_attributes() {
         assert_eq!(trailer.attributes, attributes);
         assert_eq!(trailer.reason, "");
 
-        let options = StreamByteOptions { topic: "file".to_string(), ..Default::default() };
+        let options = StreamByteOptions {
+            topic: "file".to_string(),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
         let writer = manager.stream_bytes(options).await.unwrap();
         writer.close(Some("cancelled".to_string()), attributes.clone()).await.unwrap();
         let trailer = last_trailer(&delegate.0.lock().unwrap());
         assert_eq!(trailer.attributes, attributes);
         assert_eq!(trailer.reason, "cancelled");
+
+        // Every header, chunk and trailer packet is sent only to the stream's recipients.
+        let packets = delegate.0.lock().unwrap();
+        assert_eq!(packets.len(), 5);
+        for packet in packets.iter() {
+            let packet = proto::DataPacket::decode(packet.as_ref()).unwrap();
+            assert_eq!(packet.destination_identities, destination_identities);
+        }
     });
 }
 
