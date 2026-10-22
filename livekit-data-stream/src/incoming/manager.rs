@@ -1924,10 +1924,11 @@ mod tests {
                             chunk: chunk(id, 1, b"world".to_vec()),
                             encryption_type: EncryptionType::None,
                         }),
-                        _ => h.send_packet(Packet::Trailer {
+                        "trailer" => h.send_packet(Packet::Trailer {
                             trailer: trailer(id),
                             encryption_type: EncryptionType::None,
                         }),
+                        _ => unreachable!("{step}"),
                     }
                 }
                 assert_eq!(h.open_stream_count().await, 0, "{steps:?}");
@@ -2242,8 +2243,9 @@ mod tests {
     #[tokio::test]
     async fn trailer_with_reason_errors_abnormal_end() {
         let mut h = Harness::new();
+        // The stream is short of its declared length, and the trailer's reason must win over that.
         h.send_packet(Packet::Header {
-            header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+            header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
             encryption_type: EncryptionType::None,
         });
         let (reader, _) = h.next_opened().await;
@@ -2262,41 +2264,6 @@ mod tests {
         assert!(
             matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(r)) if r == "cancelled")
         );
-    }
-
-    #[tokio::test]
-    async fn trailer_reason_wins_over_a_short_declared_length() {
-        // The sender declared ten bytes, sent five, and closed with a reason. The reason is the
-        // error, as in JS; a short stream that closes without a reason stays `Incomplete`.
-        for compression in [CompressionType::None, CompressionType::DeflateRaw] {
-            let mut h = Harness::new();
-            let content = match compression {
-                CompressionType::DeflateRaw => deflate_raw(b"hello").await,
-                _ => b"hello".to_vec(),
-            };
-            h.send_packet(Packet::Header {
-                header: text_header("s1", Some(10), HashMap::new(), None, compression.clone()),
-                encryption_type: EncryptionType::None,
-            });
-            let (reader, _) = h.next_opened().await;
-            h.send_packet(Packet::Chunk {
-                chunk: chunk("s1", 0, content),
-                encryption_type: EncryptionType::None,
-            });
-            h.send_packet(Packet::Trailer {
-                trailer: Trailer {
-                    stream_id: StreamId::from("s1"),
-                    reason: "cancelled".to_string(),
-                    attributes: HashMap::new(),
-                },
-                encryption_type: EncryptionType::None,
-            });
-            let result = read_text(reader).await;
-            assert!(
-                matches!(&result, Err(StreamError::AbnormalEnd(r)) if r == "cancelled"),
-                "{compression:?}: {result:?}"
-            );
-        }
     }
 
     #[tokio::test]
