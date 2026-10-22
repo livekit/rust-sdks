@@ -151,7 +151,7 @@ impl ByteStreamReader {
     fn new(reader: ds_api::ByteStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
-            progress: Mutex::new(reader.progress().boxed()),
+            progress: Mutex::new(reader.progress_stream().boxed()),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
         }
@@ -170,7 +170,8 @@ impl ByteStreamReader {
 
     /// Waits for the next progress update, or returns `None` once the stream has ended.
     ///
-    /// See [`TextStreamReader::next_progress`].
+    /// Progress counts the bytes received from the sender, after decompression, not the bytes
+    /// the app has read. See [`TextStreamReader::next_progress`].
     pub async fn next_progress(&self) -> Option<StreamProgress> {
         next_progress(&self.progress, &self.closed).await
     }
@@ -211,7 +212,7 @@ impl TextStreamReader {
     fn new(reader: ds_api::TextStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
-            progress: Mutex::new(reader.progress().boxed()),
+            progress: Mutex::new(reader.progress_stream().boxed()),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
         }
@@ -230,9 +231,10 @@ impl TextStreamReader {
 
     /// Waits for the next progress update, or returns `None` once the stream has ended.
     ///
-    /// The first call returns the current progress at once. Progress counts bytes as they arrive,
-    /// after decompression, whether or not they were read yet. Updates that arrive between two
-    /// calls are merged into the latest one.
+    /// Progress counts the bytes received from the sender, after decompression, not the bytes
+    /// the app has read: a chunk counts as soon as it arrives, before `next()` returns it. The
+    /// first call returns the current progress at once. Updates that arrive between two calls are
+    /// merged into the latest one.
     pub async fn next_progress(&self) -> Option<StreamProgress> {
         next_progress(&self.progress, &self.closed).await
     }

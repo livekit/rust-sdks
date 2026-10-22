@@ -46,10 +46,7 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
 
     /// Returns a stream of [`StreamProgress`] events as the stream is incrementally received from
     /// the sender participant.
-    ///
-    /// The returned stream does not borrow the reader, so it can be polled while the reader is
-    /// read or after the reader is consumed.
-    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static;
+    fn progress(&self) -> impl Stream<Item = StreamProgress>;
 
     /// Reads all incoming chunks from the byte stream, concatenating them
     /// into a single value which is returned once the stream closes normally.
@@ -81,8 +78,8 @@ impl StreamReader for ByteStreamReader {
         &self.info
     }
 
-    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static {
-        WatchStream::new(self.progress_rx.clone())
+    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+        self.progress_stream()
     }
 
     async fn read_all(mut self) -> StreamResult<Bytes> {
@@ -98,6 +95,12 @@ impl StreamReader for ByteStreamReader {
 }
 
 impl ByteStreamReader {
+    /// Like [`StreamReader::progress`], but the stream does not borrow the reader, so it can be
+    /// polled while the reader is read or after the reader is consumed.
+    pub fn progress_stream(&self) -> impl Stream<Item = StreamProgress> + Send + Unpin + 'static {
+        WatchStream::new(self.progress_rx.clone())
+    }
+
     /// Reads incoming chunks from the byte stream, writing them to a file as they are received.
     ///
     /// Parameters:
@@ -156,6 +159,14 @@ impl Stream for ByteStreamReader {
     }
 }
 
+impl TextStreamReader {
+    /// Like [`StreamReader::progress`], but the stream does not borrow the reader, so it can be
+    /// polled while the reader is read or after the reader is consumed.
+    pub fn progress_stream(&self) -> impl Stream<Item = StreamProgress> + Send + Unpin + 'static {
+        WatchStream::new(self.progress_rx.clone())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 impl TextStreamReader {
     /// Create a TextStreamReader for testing purposes.
@@ -181,8 +192,8 @@ impl StreamReader for TextStreamReader {
         &self.info
     }
 
-    fn progress(&self) -> impl Stream<Item = StreamProgress> + Send + 'static {
-        WatchStream::new(self.progress_rx.clone())
+    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+        self.progress_stream()
     }
 
     async fn read_all(mut self) -> StreamResult<String> {

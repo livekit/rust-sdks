@@ -1764,7 +1764,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn progress_outlives_a_consuming_read() {
+        async fn progress_stream_outlives_a_consuming_read() {
             let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(4), None, CompressionType::None),
@@ -1773,7 +1773,7 @@ mod tests {
             let (AnyStreamReader::Byte(reader), _) = h.next_opened().await else {
                 panic!("expected a byte reader");
             };
-            let progress = reader.progress();
+            let progress = reader.progress_stream();
             h.send_packet(Packet::Chunk {
                 chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
                 encryption_type: EncryptionType::None,
