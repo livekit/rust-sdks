@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    incoming::events::InputEvent,
+    incoming::manager::ManagerMessage,
     info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo},
     types::StreamId,
     utils::{StreamError, StreamProgress, StreamResult},
@@ -80,7 +80,7 @@ pub struct TextStreamReader {
 #[derive(Clone, Debug)]
 pub struct StreamCloser {
     /// The incoming manager's input. Weak, so a closer does not keep the manager running.
-    input: WeakUnboundedSender<InputEvent>,
+    input: WeakUnboundedSender<ManagerMessage>,
     pub(crate) stream_id: StreamId,
     /// Tells this stream apart from a later stream that reuses its id.
     pub(crate) instance: u64,
@@ -88,7 +88,7 @@ pub struct StreamCloser {
 
 impl StreamCloser {
     pub(crate) fn new(
-        input: WeakUnboundedSender<InputEvent>,
+        input: WeakUnboundedSender<ManagerMessage>,
         stream_id: StreamId,
         instance: u64,
     ) -> Self {
@@ -110,7 +110,7 @@ impl StreamCloser {
     /// id.
     pub fn close(&self) {
         if let Some(input) = self.input.upgrade() {
-            let _ = input.send(InputEvent::CloseStream(self.clone()));
+            let _ = input.send(ManagerMessage::CloseStream(self.clone()));
         }
     }
 }

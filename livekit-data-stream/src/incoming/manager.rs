@@ -149,35 +149,46 @@ async fn inflate_raw(data: &[u8], max_byte_length: usize) -> StreamResult<Vec<u8
     Ok(out)
 }
 
+/// What the manager's input queue carries. A close from a [`StreamCloser`] shares the queue with
+/// the [`InputEvent`]s, so it stays in order with the packets of its stream, without being a
+/// public [`InputEvent`] variant.
+#[allow(clippy::large_enum_variant)] // Boxing the event would allocate for every inbound packet.
+pub(crate) enum ManagerMessage {
+    Event(InputEvent),
+    /// End one open stream on behalf of its reader. Ignored unless that exact stream, not a later
+    /// one that reuses its id, is still open.
+    CloseStream(StreamCloser),
+}
+
 /// Cheap, cloneable, `Send + Sync` handle used to feed [`InputEvent`]s into the manager's run
 /// loop.
 ///
 /// Dropping the last handle stops the loop (via [`InputEvent::Shutdown`]).
 #[derive(Clone)]
 pub struct ManagerInput {
-    input_tx: UnboundedSender<InputEvent>,
+    input_tx: UnboundedSender<ManagerMessage>,
     _drop_guard: Arc<DropGuard>,
 }
 
 /// Sends [`InputEvent::Shutdown`] when the last [`ManagerInput`] is dropped.
 struct DropGuard {
-    input_tx: UnboundedSender<InputEvent>,
+    input_tx: UnboundedSender<ManagerMessage>,
 }
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        let _ = self.input_tx.send(InputEvent::Shutdown);
+        let _ = self.input_tx.send(ManagerMessage::Event(InputEvent::Shutdown));
     }
 }
 
 impl ManagerInput {
-    fn new(input_tx: UnboundedSender<InputEvent>) -> Self {
+    fn new(input_tx: UnboundedSender<ManagerMessage>) -> Self {
         Self { input_tx: input_tx.clone(), _drop_guard: Arc::new(DropGuard { input_tx }) }
     }
 
     /// Feeds an event to the manager's run loop. Fails only if the loop has already stopped.
     pub fn send(&self, event: InputEvent) -> StreamResult<()> {
-        self.input_tx.send(event).map_err(|_| StreamError::Internal)
+        self.input_tx.send(ManagerMessage::Event(event)).map_err(|_| StreamError::Internal)
     }
 }
 
@@ -186,7 +197,7 @@ impl ManagerInput {
 /// `.await` decompression on the run-loop task.
 pub struct Manager {
     inner: ManagerInner,
-    input_rx: UnboundedReceiver<InputEvent>,
+    input_rx: UnboundedReceiver<ManagerMessage>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
@@ -196,7 +207,7 @@ struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
     output_tx: UnboundedSender<OutputEvent>,
     /// The manager's own input, handed to each reader's [`StreamCloser`].
-    input_tx: WeakUnboundedSender<InputEvent>,
+    input_tx: WeakUnboundedSender<ManagerMessage>,
     /// Instance number for the next stream that opens.
     next_instance: u64,
 }
@@ -229,7 +240,14 @@ impl Manager {
     /// still-open stream is aborted so its reader errors with [`StreamError::AbnormalEnd`]
     /// rather than ending cleanly with whatever partial content had arrived.
     pub async fn run(mut self) {
-        while let Some(event) = self.input_rx.recv().await {
+        while let Some(message) = self.input_rx.recv().await {
+            let event = match message {
+                ManagerMessage::Event(event) => event,
+                ManagerMessage::CloseStream(closer) => {
+                    self.inner.close_from_reader(&closer);
+                    continue;
+                }
+            };
             match event {
                 InputEvent::PacketReceived(PacketReceived { packet, participant_identity }) => {
                     match packet {
@@ -249,7 +267,6 @@ impl Manager {
                 InputEvent::QueryOpenStreamCount(respond_to) => {
                     let _ = respond_to.send(self.inner.open_streams.len());
                 }
-                InputEvent::CloseStream(closer) => self.inner.close_from_reader(&closer),
                 InputEvent::Shutdown => break,
             }
         }

@@ -16,7 +16,7 @@ use from_variants::FromVariants;
 use livekit_common::ParticipantIdentity;
 
 use crate::{
-    incoming::{AnyStreamReader, StreamCloser},
+    incoming::AnyStreamReader,
     types::{Chunk, Packet, StreamId, Trailer},
 };
 
@@ -48,10 +48,6 @@ pub enum InputEvent {
     /// enqueued before it.
     #[from_variants(skip)]
     QueryOpenStreamCount(tokio::sync::oneshot::Sender<usize>),
-    /// End one open stream on behalf of its reader; sent by [`StreamCloser::close`]. Ignored
-    /// unless that exact stream, not a later one that reuses its id, is still open.
-    #[from_variants(skip)]
-    CloseStream(StreamCloser),
     /// Stop the run loop, aborting every still-open stream as [`InputEvent::AbortAllStreams`]
     /// does.
     Shutdown,
