@@ -268,4 +268,33 @@ mod tests {
         drop(running);
         assert!(stop.is_stopped());
     }
+
+    #[tokio::test]
+    async fn cancelled_join_waits_for_source_cleanup() {
+        struct SlowToStopSource;
+
+        impl PixelVideoSource for SlowToStopSource {
+            fn resolution(&self) -> VideoResolution {
+                RESOLUTION
+            }
+
+            fn next_frame(
+                &mut self,
+                stop: &PumpStop,
+            ) -> Result<Option<BoxVideoFrame>, SourceError> {
+                while !stop.is_stopped() {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(None)
+            }
+        }
+
+        let running = PixelVideoPump::new(SlowToStopSource).spawn().unwrap();
+        let start = std::time::Instant::now();
+        let joined =
+            tokio::time::timeout(std::time::Duration::from_millis(20), running.join()).await;
+        assert!(joined.is_err());
+        assert!(start.elapsed() >= std::time::Duration::from_millis(200));
+    }
 }
