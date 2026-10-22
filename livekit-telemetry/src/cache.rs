@@ -13,25 +13,34 @@
 // limitations under the License.
 
 use std::{
+    cell::RefCell,
     fs, io,
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 
-/// Queue of encoded OTLP batches between the [`Exporter`](crate::Exporter) and the transport.
+/// Queue of encoded OTLP batches between the exporter (`Exporter`) and the transport.
 ///
 /// The exporter writes every batch here *before* trying the network (write-ahead), uploads
 /// oldest-first, and removes what the collector accepted or rejected. Two implementations ship:
 /// [`MemoryCache`] (default) and [`FileCache`] (survives crashes and restarts); anything else —
-/// a database, a platform store — plugs in through
-/// [`Telemetry::with_cache`](crate::Telemetry::with_cache).
+/// a database, a platform store — plugs in through `Telemetry::with_cache`.
 ///
-/// Ids are chosen by the exporter as `<unix_ns>-<seq>-<event_count>-<signal>[-<host>]`, made of
-/// filename-safe characters: sortable, so [`pending`](Self::pending) is a plain sort, and
-/// prefixed with the creation time so an implementation can expire old batches without touching
-/// file timestamps. Implementations bound their own footprint by evicting the oldest batches and
-/// report what they evicted, so every loss is counted. Storage failures are reported, never
-/// swallowed: a delete that did not happen must not look like one that did.
+/// Ids are chosen by the exporter as `<unix ns>-<seq>-<records>-<l|t>-<session>-<project key>`.
+/// They hold digits, `a` and `b` (a split's halves), hex or `process`, `l` or `t`, `-`, and a
+/// routing key of lowercase letters, digits, `.`, `-`, `_`, `+`, and `%` followed by two uppercase
+/// hex digits: characters every platform allows in a file name, Windows included. A batch without a
+/// project ends with `-`, because its key is empty. Ids are sortable, so [`pending`](Self::pending)
+/// is a plain sort, and prefixed with the creation time so an implementation can expire old batches
+/// without touching file timestamps.
+/// Implementations bound their own footprint by evicting the oldest batches and report what they
+/// evicted, so every loss is counted. A failed write or delete is an `Err` and is never reported
+/// as done, with one exception: [`FileCache`] counts an eviction once the file is gone, even when
+/// the directory sync after it failed. A failed listing reads as empty, and the next pass tries
+/// again.
 pub trait BatchCache: Send + Sync {
     /// Store one encoded batch under `id`: once this returns `Ok` the batch is committed (for
     /// [`FileCache`], on disk). Returns the ids of older batches evicted to make room (the
@@ -66,7 +75,8 @@ pub trait BatchCache: Send + Sync {
 pub(crate) const MAX_BATCHES: usize = 512;
 
 /// In-memory [`BatchCache`]: batches that could not be uploaded wait for the next attempt,
-/// bounded by `max_bytes` and [`MAX_BATCHES`] (oldest evicted). Lost with the process.
+/// bounded by `max_bytes` and 512 batches (`MAX_BATCHES`, oldest evicted). The newest batch always
+/// stays, even when it alone is larger than `max_bytes`. Lost with the process.
 // ponytail: a Vec with remove(0) — a handful of small batches, and it shares Vec code the
 // binary already has instead of pulling in VecDeque's ring-buffer instantiations.
 pub struct MemoryCache {
@@ -75,7 +85,8 @@ pub struct MemoryCache {
 }
 
 impl MemoryCache {
-    /// An empty cache holding at most `max_bytes` of batches.
+    /// An empty cache holding at most `max_bytes` of batches, apart from the newest batch, which
+    /// always stays.
     pub fn new(max_bytes: u64) -> Self {
         Self {
             batches: Mutex::new(Vec::new()),
@@ -85,6 +96,18 @@ impl MemoryCache {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<(String, Vec<u8>)>> {
         self.batches.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Drop the oldest batches until the rest fit; returns their ids. The newest always stays.
+    fn evict(&self, batches: &mut Vec<(String, Vec<u8>)>) -> Vec<String> {
+        let mut total: usize = batches.iter().map(|(_, b)| b.len()).sum();
+        let mut evicted = Vec::new();
+        while (total > self.max_bytes || batches.len() > MAX_BATCHES) && batches.len() > 1 {
+            let (id, body) = batches.remove(0);
+            total -= body.len();
+            evicted.push(id);
+        }
+        evicted
     }
 }
 
@@ -127,29 +150,19 @@ impl BatchCache for MemoryCache {
     }
 }
 
-impl MemoryCache {
-    /// Drop the oldest batches until the rest fit; returns their ids.
-    fn evict(&self, batches: &mut Vec<(String, Vec<u8>)>) -> Vec<String> {
-        let mut total: usize = batches.iter().map(|(_, b)| b.len()).sum();
-        let mut evicted = Vec::new();
-        while (total > self.max_bytes || batches.len() > MAX_BATCHES) && batches.len() > 1 {
-            let (id, body) = batches.remove(0);
-            total -= body.len();
-            evicted.push(id);
-        }
-        evicted
-    }
-}
-
-const EXT: &str = "otlp";
+/// The extension of a committed batch file.
+const BATCH_EXT: &str = "otlp";
+/// The extension of a file being written; a crash leaves it behind, and `FileCache::open` removes
+/// it.
+const TMP_EXT: &str = "tmp";
 
 /// On-disk [`BatchCache`]: one file per encoded batch, so a crash or an offline shutdown loses
 /// nothing and the next launch replays what is left.
 ///
 /// Files are written as `.tmp` and renamed into place, so a crash never leaves a half batch
-/// readable; eviction is drop-oldest above `max_bytes` or [`MAX_BATCHES`] files. Age is the
-/// exporter's call (24 h, judged by the timestamp in the id rather than file metadata — an
-/// Apple "required reason" API).
+/// readable; eviction is drop-oldest above `max_bytes` or 512 files (`MAX_BATCHES`), and the
+/// newest batch always stays. Age is the exporter's call (24 h, judged by the timestamp in the id
+/// rather than file metadata — an Apple "required reason" API).
 pub struct FileCache {
     dir: PathBuf,
     max_bytes: u64,
@@ -189,20 +202,24 @@ pub(crate) enum Step {
 #[cfg(test)]
 type Fault = Box<dyn Fn(Step, &Path) -> io::Result<()> + Send + Sync>;
 
-const PEND: &str = "pend";
-/// Separates parent and half in a journal file name. Batch ids never contain it (ids are digits,
-/// hex, `l`/`t`, `-` and a URL-parsed host, which cannot hold `@`).
-const JOURNAL: char = '@';
+/// The extension of a journaled split half: `<parent>@<half>.pend`.
+const JOURNAL_EXT: &str = "pend";
+/// Separates parent and half in a journal file name. Batch ids never contain it (see the id
+/// alphabet on [`BatchCache`]).
+const JOURNAL_SEP: char = '@';
 
-/// Held across a split's journaled section and across recovery, by every [`FileCache`] in the
-/// process: a reconfigure opens a second cache on the directory while the replaced pipeline still
-/// drains, and recovery must never see that pipeline's split half-done — it would delete the
-/// journal of a split about to commit, losing the halves.
-// ponytail: process-wide rather than per directory; splits are rare and short (a few fsyncs).
-static SPLITS: Mutex<()> = Mutex::new(());
+/// Held across a push's write, a split's journaled section and recovery, by every [`FileCache`]
+/// in the process: a reconfigure opens a second cache on the directory while the replaced
+/// pipeline still drains. Its open must never sweep away that pipeline's `.tmp` mid-write, and
+/// its recovery must never see a split half-done — it would delete the journal of a split about
+/// to commit, losing the halves.
+// ponytail: process-wide rather than per directory. Every push and split holds it for a few
+// fsyncs, and it contends only while two pipelines overlap in a reconfigure. One lock per
+// directory if that ever matters.
+static DIR_LOCK: Mutex<()> = Mutex::new(());
 
-fn splits() -> std::sync::MutexGuard<'static, ()> {
-    SPLITS.lock().unwrap_or_else(|e| e.into_inner())
+fn lock_dir() -> std::sync::MutexGuard<'static, ()> {
+    DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl FileCache {
@@ -230,11 +247,12 @@ impl FileCache {
         };
         cache.recover()?;
         {
-            // Under `SPLITS` too: another cache's split in progress has `.tmp` files here.
-            let _splits = splits();
+            // Under `DIR_LOCK` too: another cache's push or split in progress has `.tmp` files
+            // here.
+            let _locked = lock_dir();
             for entry in fs::read_dir(&cache.dir)?.flatten() {
                 let path = entry.path();
-                if !is_batch(&path) && path.extension().is_none_or(|e| e != PEND) {
+                if !is_batch(&path) && path.extension().is_none_or(|e| e != JOURNAL_EXT) {
                     let _ = fs::remove_file(&path);
                 }
             }
@@ -281,7 +299,7 @@ impl FileCache {
 
     /// A replacement half journaled under its parent: `<parent>@<half>.pend`.
     fn pend(&self, parent: &str, half: &str) -> PathBuf {
-        self.dir.join(format!("{parent}{JOURNAL}{half}.{PEND}"))
+        self.dir.join(format!("{parent}{JOURNAL_SEP}{half}.{JOURNAL_EXT}"))
     }
 
     /// The journal files in the directory.
@@ -289,7 +307,7 @@ impl FileCache {
         Ok(fs::read_dir(&self.dir)?
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == PEND))
+            .filter(|p| p.extension().is_some_and(|e| e == JOURNAL_EXT))
             .collect())
     }
 
@@ -318,6 +336,18 @@ impl FileCache {
         fs::rename(from, to)
     }
 
+    /// After a committed write: listings may retry a stuck journal again, and the bounds are
+    /// enforced. Eviction trouble is logged and never an error, because the write itself is
+    /// committed (the caller would otherwise keep a second copy in memory); the next write
+    /// enforces the bound again.
+    fn after_write(&self) -> Vec<String> {
+        self.recovery_failed.store(false, Ordering::Relaxed);
+        self.prune().unwrap_or_else(|err| {
+            diagnostic(log::Level::Debug, format!("could not prune the cache: {err}"));
+            Vec::new()
+        })
+    }
+
     /// Make the directory's entries (renames, deletes) durable. Failures are errors; only a
     /// platform that cannot sync a directory at all (not Unix) skips it.
     fn sync_dir(&self) -> io::Result<()> {
@@ -334,7 +364,7 @@ impl FileCache {
         let list = || -> io::Result<(Vec<String>, bool)> {
             let (mut ids, mut journaled) = (Vec::new(), false);
             for path in fs::read_dir(&self.dir)?.flatten().map(|e| e.path()) {
-                journaled |= path.extension().is_some_and(|e| e == PEND);
+                journaled |= path.extension().is_some_and(|e| e == JOURNAL_EXT);
                 if let Some(id) =
                     path.file_stem().and_then(|s| s.to_str()).filter(|_| is_batch(&path))
                 {
@@ -349,7 +379,10 @@ impl FileCache {
                 Ok(()) => ids = list()?.0,
                 Err(err) => {
                     self.recovery_failed.store(true, Ordering::Relaxed);
-                    log::debug!("journaled split not published yet: {err}; retried after a write");
+                    diagnostic(
+                        log::Level::Debug,
+                        format!("journaled split not published yet: {err}; retried after a write"),
+                    );
                 }
             }
         }
@@ -363,10 +396,10 @@ impl FileCache {
     /// published. A rebinding — one half whose id extends its host-less parent's with the project
     /// the parent lacks — is rolled forward instead: a journal file is complete once it exists (its
     /// contents are `fsync`ed before the rename), and only it records the project. Either way
-    /// every record is there exactly once. Under [`SPLITS`], so no split is in progress: a
+    /// every record is there exactly once. Under [`DIR_LOCK`], so no split is in progress: a
     /// journal next to its parent is a crash's or a failed rollback's.
     fn recover(&self) -> io::Result<()> {
-        let _splits = splits();
+        let _locked = lock_dir();
         #[cfg(test)]
         self.recoveries.fetch_add(1, Ordering::Relaxed);
         let journal = self.journal()?;
@@ -375,45 +408,49 @@ impl FileCache {
         }
         for pend in journal {
             let Some((parent, half)) =
-                pend.file_stem().and_then(|s| s.to_str()).and_then(|s| s.split_once(JOURNAL))
+                pend.file_stem().and_then(|s| s.to_str()).and_then(|s| s.split_once(JOURNAL_SEP))
             else {
                 let _ = fs::remove_file(&pend);
                 continue;
             };
-            // A host-less id ends with its empty host; a split's halves rename the sequence.
-            let rebinding =
-                parent.ends_with('-') && half.len() > parent.len() && half.starts_with(parent);
-            if self.path(parent, EXT).exists() {
+            let rebinding = is_rebinding(parent, half);
+            if self.path(parent, BATCH_EXT).exists() {
                 if !rebinding {
                     fs::remove_file(&pend)?;
                     continue;
                 }
                 // Parent first: a crash in between leaves a committed journal, published below.
-                fs::remove_file(self.path(parent, EXT))?;
+                fs::remove_file(self.path(parent, BATCH_EXT))?;
             }
-            fs::rename(&pend, self.path(half, EXT))?;
+            fs::rename(&pend, self.path(half, BATCH_EXT))?;
         }
         self.sync_dir()
     }
 
     /// Delete the oldest batches until the rest fit `max_bytes` and the file-count bound (a
-    /// committed split is published by the listing first). Returns the ids actually removed.
+    /// committed split is published by the listing first). The newest batch always stays, as in
+    /// [`MemoryCache`], so it gets its upload attempt. Returns the ids actually removed. An id
+    /// counts once its file is gone, even when the directory sync after the unlink failed: the
+    /// count follows the visible removal and does not promise a delete that survives a crash. A
+    /// power loss can bring the file back, and the next open evicts it again or keeps it for
+    /// upload, like any other batch.
     fn prune(&self) -> io::Result<Vec<String>> {
         let mut removed = Vec::new();
         let kept = self.ids()?;
         let sizes: Vec<u64> = kept
             .iter()
-            .map(|id| fs::metadata(self.path(id, EXT)).map(|m| m.len()).unwrap_or(0))
+            .map(|id| fs::metadata(self.path(id, BATCH_EXT)).map(|m| m.len()).unwrap_or(0))
             .collect();
         let mut total: u64 = sizes.iter().sum();
         let mut count = kept.len();
         for (id, len) in kept.iter().zip(sizes) {
-            if total <= self.max_bytes && count <= self.max_batches {
+            if (total <= self.max_bytes && count <= self.max_batches) || count == 1 {
                 break;
             }
             // A batch that could not be deleted still takes its room: keep evicting, report only
-            // what really went.
-            if self.remove(id).is_ok() {
+            // what really went. A delete whose directory sync failed still went.
+            if self.remove(id).is_ok() || matches!(self.path(id, BATCH_EXT).try_exists(), Ok(false))
+            {
                 total -= len;
                 count -= 1;
                 removed.push(id.clone());
@@ -422,20 +459,27 @@ impl FileCache {
         Ok(removed)
     }
 
-    /// The journaled section of [`BatchCache::replace`], under [`SPLITS`]. `Err` only before the
-    /// commit point, with `old` whole.
+    /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
+    /// commit point, with `old` whole. A rebinding has exactly one member: recovery could not
+    /// tell a crashed multi-member rebinding from a finished one.
     fn split(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<()> {
-        let _splits = splits();
+        if new.len() > 1 && new.iter().any(|(half, _)| is_rebinding(old, half)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a rebinding replaces a batch with exactly one batch",
+            ));
+        }
+        let locked = lock_dir();
         let pends: Vec<PathBuf> = new.iter().map(|(half, _)| self.pend(old, half)).collect();
         let roll_back = |err: io::Error| {
             for ((half, _), pend) in new.iter().zip(&pends) {
-                let _ = fs::remove_file(self.path(half, "tmp"));
+                let _ = fs::remove_file(self.path(half, TMP_EXT));
                 let _ = fs::remove_file(pend);
             }
             Err(err)
         };
         for ((half, body), pend) in new.iter().zip(&pends) {
-            let tmp = self.path(half, "tmp");
+            let tmp = self.path(half, TMP_EXT);
             if let Err(err) =
                 self.write_synced(&tmp, body).and_then(|()| self.rename(&tmp, pend, Step::Rename))
             {
@@ -446,8 +490,8 @@ impl FileCache {
             return roll_back(err);
         }
         if let Err(err) = self
-            .step(Step::Delete, &self.path(old, EXT))
-            .and_then(|()| fs::remove_file(self.path(old, EXT)))
+            .step(Step::Delete, &self.path(old, BATCH_EXT))
+            .and_then(|()| fs::remove_file(self.path(old, BATCH_EXT)))
         {
             return roll_back(err);
         }
@@ -458,12 +502,17 @@ impl FileCache {
             .sync_dir()
             .and_then(|()| {
                 new.iter().zip(&pends).try_for_each(|((half, _), pend)| {
-                    self.rename(pend, &self.path(half, EXT), Step::Publish)
+                    self.rename(pend, &self.path(half, BATCH_EXT), Step::Publish)
                 })
             })
             .and_then(|()| self.sync_dir());
+        // Logged after the lock: a log line may call into the host.
+        drop(locked);
         if let Err(err) = published {
-            log::warn!("split committed but not published yet ({err}); it will be");
+            diagnostic(
+                log::Level::Warn,
+                format!("split committed but not published yet ({err}); it will be"),
+            );
         }
         Ok(())
     }
@@ -474,10 +523,12 @@ impl FileCache {
 /// the file is removed and `push` errs (the caller keeps the batch in memory instead). A crash
 /// before that point loses only the batch being written (its `.tmp` is removed at the next
 /// open). Deletes are `fsync`ed the same way. A split (`replace`) is journaled: see
-/// [`recover`](FileCache::recover).
+/// `FileCache::recover`.
 impl BatchCache for FileCache {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
-        let (tmp, dest) = (self.path(id, "tmp"), self.path(id, EXT));
+        let (tmp, dest) = (self.path(id, TMP_EXT), self.path(id, BATCH_EXT));
+        // Under `DIR_LOCK`: another cache opening on the directory sweeps stray `.tmp` files.
+        let locked = lock_dir();
         let written = self
             .write_synced(&tmp, body)
             .and_then(|()| self.rename(&tmp, &dest, Step::Rename))
@@ -489,24 +540,20 @@ impl BatchCache for FileCache {
             let _ = fs::remove_file(&dest);
             return Err(err);
         }
-        // Committed. Eviction trouble must not turn that into an error (the caller would keep a
-        // second copy in memory): it is logged, and the bound is enforced at the next push.
-        self.recovery_failed.store(false, Ordering::Relaxed);
-        Ok(self.prune().unwrap_or_else(|err| {
-            log::debug!("could not prune the cache: {err}");
-            Vec::new()
-        }))
+        drop(locked);
+        Ok(self.after_write())
     }
 
     /// Journaled: both halves are written, `fsync`ed and renamed to `<old>@<half>.pend`, the
     /// directory is `fsync`ed, then `old` is deleted — the commit point — and the halves are
     /// published. Before the commit point any failure rolls back and `old` stays whole; after it
     /// the halves are safe in the journal and published by the next listing. Nothing is evicted
-    /// until the replacement is complete.
+    /// until the replacement is complete. A rebinding (a host-less `old` that a half extends with
+    /// its project) has exactly one member. Otherwise this returns `InvalidInput` and writes
+    /// nothing.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
         self.split(old, new)?;
-        self.recovery_failed.store(false, Ordering::Relaxed);
-        Ok(self.prune().unwrap_or_default())
+        Ok(self.after_write())
     }
 
     fn pending(&self) -> Vec<String> {
@@ -514,23 +561,32 @@ impl BatchCache for FileCache {
     }
 
     fn read(&self, id: &str) -> io::Result<Vec<u8>> {
-        fs::read(self.path(id, EXT))
+        fs::read(self.path(id, BATCH_EXT))
     }
 
     fn remove(&self, id: &str) -> io::Result<()> {
-        let path = self.path(id, EXT);
+        let path = self.path(id, BATCH_EXT);
         self.step(Step::Delete, &path)?;
         match fs::remove_file(&path) {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-            _ => self.sync_dir(),
+            // A gone file is synced too (an earlier unlink's sync may have failed), but a gone
+            // directory (the OS purged it) has nothing left to sync.
+            _ => match self.sync_dir() {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            },
         }
     }
 
     fn clear(&self) -> io::Result<()> {
         // Try every file — batches and journaled split halves — then report the first failure,
-        // an unreadable directory included.
+        // an unreadable directory included. A directory the OS purged is already empty.
+        let ids = match self.ids() {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            other => other?,
+        };
         let mut first = Ok(());
-        for id in self.ids()? {
+        for id in ids {
             if let Err(err) = self.remove(&id) {
                 first = first.and(Err(err));
             }
@@ -540,6 +596,25 @@ impl BatchCache for FileCache {
                 first = first.and(Err(err));
             }
         }
+        // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
+        // no push or split is writing one right now.
+        {
+            let _locked = lock_dir();
+            let entries = match fs::read_dir(&self.dir) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
+                other => other?,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == TMP_EXT) {
+                    if let Err(err) = fs::remove_file(&path) {
+                        first = first.and(Err(err));
+                    }
+                }
+            }
+        }
+        // Nothing journaled is left to publish.
+        self.recovery_failed.store(false, Ordering::Relaxed);
         first.and_then(|()| self.sync_dir())
     }
 
@@ -551,22 +626,32 @@ impl BatchCache for FileCache {
 /// A cache that never refuses a batch: what the primary cannot store (disk full, directory
 /// gone) goes to memory instead, so it still uploads — it just no longer survives the process.
 /// Every spill is counted as `cache_write_errors`.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
+)]
 pub(crate) struct SpillCache {
     primary: std::sync::Arc<dyn BatchCache>,
     spill: MemoryCache,
     counters: std::sync::Arc<crate::stats::Counters>,
     /// The consent barrier at the commit point: writes check the opt-out under `gate`, and
     /// `clear` takes `gate` too, so no write can land after a purge has cleared.
-    revoked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    revoked: std::sync::Arc<AtomicBool>,
     gate: Mutex<()>,
+    /// The primary is failing: the first spill of an episode warns, a successful write ends it.
+    spilling: AtomicBool,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
+)]
 impl SpillCache {
     pub fn new(
         primary: std::sync::Arc<dyn BatchCache>,
         max_bytes: u64,
         counters: std::sync::Arc<crate::stats::Counters>,
-        revoked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        revoked: std::sync::Arc<AtomicBool>,
     ) -> Self {
         Self {
             primary,
@@ -574,13 +659,14 @@ impl SpillCache {
             counters,
             revoked,
             gate: Mutex::new(()),
+            spilling: AtomicBool::new(false),
         }
     }
 
     /// Hold the write gate; `Err` once the app opted out.
     fn open_gate(&self) -> io::Result<std::sync::MutexGuard<'_, ()>> {
         let gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
-        if self.revoked.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.revoked.load(Ordering::SeqCst) {
             return Err(io::Error::other("telemetry was disabled"));
         }
         Ok(gate)
@@ -589,31 +675,38 @@ impl SpillCache {
 
 impl BatchCache for SpillCache {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
-        let _gate = self.open_gate()?;
-        match self.primary.push(id, body) {
-            Ok(evicted) => Ok(evicted),
-            Err(err) => {
-                let first = self.counters.snapshot().cache_write_errors == 0;
-                crate::stats::Counters::add(&self.counters.cache_write_errors, 1);
-                if first {
-                    log::warn!(
-                        "cannot write the telemetry cache ({err}); keeping batches in memory"
-                    );
+        outside_gate(|| {
+            let gate = self.open_gate()?;
+            let err = match self.primary.push(id, body) {
+                Ok(evicted) => {
+                    self.spilling.store(false, Ordering::Relaxed);
+                    return Ok(evicted);
                 }
-                self.spill.push(id, body)
+                Err(err) => err,
+            };
+            crate::stats::Counters::add(&self.counters.cache_write_errors, 1);
+            let first = !self.spilling.swap(true, Ordering::Relaxed);
+            let spilled = self.spill.push(id, body);
+            // Logged after the gate: a log line may call into the host.
+            drop(gate);
+            if first {
+                log::warn!("cannot write the telemetry cache ({err}); keeping batches in memory");
             }
-        }
+            spilled
+        })
     }
 
     /// A batch spilled to memory is split in memory; one on disk is split on disk or not at all
     /// — never moved from disk to memory, where a crash would lose it.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
-        let _gate = self.open_gate()?;
-        if self.spill.pending().iter().any(|id| id == old) {
-            self.spill.replace(old, new)
-        } else {
-            self.primary.replace(old, new)
-        }
+        outside_gate(|| {
+            let _gate = self.open_gate()?;
+            if self.spill.pending().iter().any(|id| id == old) {
+                self.spill.replace(old, new)
+            } else {
+                self.primary.replace(old, new)
+            }
+        })
     }
 
     fn pending(&self) -> Vec<String> {
@@ -633,9 +726,11 @@ impl BatchCache for SpillCache {
     }
 
     fn clear(&self) -> io::Result<()> {
-        let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
-        self.spill.clear()?;
-        self.primary.clear()
+        outside_gate(|| {
+            let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+            self.spill.clear()?;
+            self.primary.clear()
+        })
     }
 
     fn take_evicted(&self) -> Vec<String> {
@@ -643,15 +738,62 @@ impl BatchCache for SpillCache {
     }
 }
 
-/// A batch file: our extension and a creation stamp in its name. Anything else in the directory
-/// (a half-written `.tmp`, a stray or mangled file) is removed when the cache is pruned.
-fn is_batch(path: &Path) -> bool {
-    path.extension().is_some_and(|e| e == EXT) && stamp(path).is_some()
+thread_local! {
+    /// Diagnostics held back while this thread holds the spill gate; `None` logs them at once.
+    static HELD_BACK: RefCell<Option<Vec<(log::Level, String)>>> = const { RefCell::new(None) };
 }
 
-/// The creation time encoded in a batch file name.
-fn stamp(path: &Path) -> Option<u64> {
-    path.file_stem()?.to_str()?.split('-').next()?.parse().ok()
+/// Log `message` now, or once the spill gate this thread holds is released (see
+/// [`outside_gate`]): a host logger may call back into the cache, and must not find it locked.
+fn diagnostic(level: log::Level, message: String) {
+    let now = HELD_BACK.with(|held| match held.borrow_mut().as_mut() {
+        Some(queue) => {
+            queue.push((level, message));
+            None
+        }
+        None => Some(message),
+    });
+    if let Some(message) = now {
+        log::log!(level, "{message}");
+    }
+}
+
+/// Run `gated`, which takes the spill gate, and log the diagnostics it raised once it returned,
+/// its gate released (into an outer `outside_gate`, if any).
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "`SpillCache` uses it, and the pipeline is not in place yet")
+)]
+fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
+    struct Release(Option<Vec<(log::Level, String)>>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let held =
+                HELD_BACK.with(|held| std::mem::replace(&mut *held.borrow_mut(), self.0.take()));
+            for (level, message) in held.unwrap_or_default() {
+                diagnostic(level, message);
+            }
+        }
+    }
+    let _release = Release(HELD_BACK.with(|held| held.borrow_mut().replace(Vec::new())));
+    gated()
+}
+
+/// A batch file: our extension and a creation stamp in its name. Anything else in the directory
+/// (a half-written `.tmp`, a stray or mangled file) is removed by [`FileCache::open`].
+fn is_batch(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == BATCH_EXT)
+        && path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.split('-').next())
+            .is_some_and(|stamp| stamp.parse::<u64>().is_ok())
+}
+
+/// Whether `half` rebinds `parent`: it extends the host-less parent's id (which ends with its
+/// empty host) with the project the parent lacks. A split's halves rename the sequence instead.
+fn is_rebinding(parent: &str, half: &str) -> bool {
+    parent.ends_with('-') && half.len() > parent.len() && half.starts_with(parent)
 }
 
 #[cfg(test)]
@@ -675,6 +817,206 @@ mod tests {
         let base =
             *BASE.get_or_init(|| crate::event::now_unix_nanos() / 1_000_000_000 * 1_000_000_000);
         format!("{:020}-{n:06}-1", base + n)
+    }
+
+    #[test]
+    fn the_newest_batch_always_stays_whatever_the_cap() {
+        let dir = temp_dir("floor");
+        let cache = FileCache::open(&dir, 25).expect("open");
+        assert_eq!(cache.push(&id(1), &[b'a'; 30]).expect("push"), Vec::<String>::new());
+        assert_eq!(cache.pending(), [id(1)], "a batch over the cap still gets its upload");
+        assert_eq!(cache.push(&id(2), &[b'b'; 30]).expect("push"), [id(1)]);
+        assert_eq!(cache.pending(), [id(2)]);
+        let _ = fs::remove_dir_all(&dir);
+        let dir = temp_dir("floor-zero");
+        let cache = FileCache::open(&dir, 0).expect("open");
+        cache.push(&id(1), b"x").expect("push");
+        assert_eq!(cache.pending(), [id(1)], "a cap of 0 keeps the push");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_eviction_whose_directory_sync_fails_still_counts() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = temp_dir("evict-sync");
+        let cache = FileCache::open(&dir, 10).expect("open");
+        cache.push(&id(1), &[b'a'; 10]).expect("push");
+        let deleted = Arc::new(AtomicBool::new(false));
+        cache.inject(move |step, _| {
+            if step == Step::Delete {
+                deleted.store(true, Ordering::SeqCst);
+            }
+            if step == Step::SyncDir && deleted.load(Ordering::SeqCst) {
+                return Err(io::Error::other("injected"));
+            }
+            Ok(())
+        });
+        assert_eq!(cache.push(&id(2), &[b'b'; 10]).expect("push"), [id(1)]);
+        assert_eq!(cache.pending(), [id(2)], "the batch just committed stays");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_purged_directory_is_already_empty() {
+        let dir = temp_dir("purged");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.push(&id(1), b"x").expect("push");
+        fs::remove_dir_all(&dir).expect("the OS purges the directory");
+        assert!(cache.remove(&id(1)).is_ok());
+        assert!(cache.clear().is_ok(), "an opt-out with nothing on disk succeeds");
+    }
+
+    #[test]
+    fn a_rebinding_replaces_a_batch_with_exactly_one() {
+        let dir = temp_dir("rebinding");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        let parent = format!("{}-l-s-", id(1));
+        cache.push(&parent, b"parent").expect("push");
+        let two = [
+            (format!("{parent}a.example"), b"a".to_vec()),
+            (format!("{parent}b.example"), b"b".to_vec()),
+        ];
+        let err = cache.replace(&parent, &two).expect_err("rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(cache.pending(), std::slice::from_ref(&parent), "the parent is kept");
+        let one = [(format!("{parent}a.example"), b"a".to_vec())];
+        cache.replace(&parent, &one).expect("one member");
+        assert_eq!(cache.pending(), [format!("{parent}a.example")]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_lets_listings_publish_a_journal_again() {
+        let dir = temp_dir("clear-recovery");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.recovery_failed.store(true, Ordering::Relaxed);
+        cache.clear().expect("clear");
+        assert!(!cache.recovery_failed.load(Ordering::Relaxed));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A second cache opening on the directory (a reconfigure) never sweeps away the `.tmp` of a
+    /// push still in flight.
+    #[test]
+    fn a_second_cache_never_breaks_a_push_in_progress() {
+        let dir = temp_dir("push-two-generations");
+        let old = FileCache::open(&dir, 1 << 20).expect("open");
+        let (opened, path) = (Arc::new(Mutex::new(None)), dir.clone());
+        let handle = opened.clone();
+        old.inject(move |step, _| {
+            let mut handle = handle.lock().expect("lock");
+            if step == Step::Rename && handle.is_none() {
+                let path = path.clone();
+                *handle = Some(std::thread::spawn(move || {
+                    FileCache::open(&path, 1 << 20).expect("open");
+                }));
+                // Give it every chance to sweep the directory mid-push.
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Ok(())
+        });
+        old.push(&id(1), b"in flight").expect("the push commits");
+        opened.lock().expect("lock").take().expect("opened").join().expect("open succeeded");
+        assert_eq!(old.pending(), [id(1)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A `.tmp` that a failed write could not remove (the directory went read-only) is deleted by
+    /// the next `clear` once the directory is writable again: an opt-out leaves no batch bytes.
+    #[cfg(unix)]
+    #[test]
+    fn clear_deletes_a_tmp_a_failed_write_left_behind() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("clear-tmp");
+        let cache = FileCache::open(&dir, 1024).expect("open");
+        cache.inject(|step, path| {
+            if step == Step::Sync {
+                let parent = path.parent().expect("the cache directory");
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o555))?;
+                return Err(io::Error::other("disk gone"));
+            }
+            Ok(())
+        });
+        let pushed = cache.push(&id(1), b"telemetry bytes");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("writable again");
+        cache.inject(|_, _| Ok(()));
+        assert!(pushed.is_err());
+        assert_eq!(fs::read_dir(&dir).expect("dir").count(), 1, "the failed write left its .tmp");
+        cache.clear().expect("clear");
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    /// A warning raised inside a gated write reaches the host logger only once the spill gate is
+    /// released: a logger that calls back into the cache (a purge, say) does not deadlock.
+    #[test]
+    fn diagnostics_reach_the_logger_outside_the_spill_gate() {
+        crate::test_log::capture();
+        let dir = temp_dir("diagnostics-outside-the-gate");
+        let primary = Arc::new(FileCache::open(&dir, 1024).expect("open"));
+        primary.push(&id(1), b"parent").expect("push");
+        primary.inject(|step, _| match step {
+            Step::Publish => Err(io::Error::other("publish failed")),
+            _ => Ok(()),
+        });
+        let cache = Arc::new(SpillCache::new(primary, 1024, Arc::default(), Arc::default()));
+        let gated = Arc::downgrade(&cache);
+        crate::test_log::mark_while(move || {
+            gated.upgrade().is_some_and(|cache| cache.gate.try_lock().is_err())
+        });
+        let halves =
+            [(format!("{}a", id(1)), b"a".to_vec()), (format!("{}b", id(1)), b"b".to_vec())];
+        cache.replace(&id(1), &halves).expect("split");
+        let lines = crate::test_log::take();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(lines.iter().any(|l| l.contains("split committed but not published")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
+    /// A primary that fails while its flag is set.
+    struct Flaky(std::sync::atomic::AtomicBool);
+
+    impl BatchCache for Flaky {
+        fn push(&self, _: &str, _: &[u8]) -> io::Result<Vec<String>> {
+            if self.0.load(Ordering::SeqCst) {
+                return Err(io::Error::other("disk full"));
+            }
+            Ok(Vec::new())
+        }
+        fn replace(&self, _: &str, _: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+        fn pending(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn read(&self, _: &str) -> io::Result<Vec<u8>> {
+            Err(io::ErrorKind::NotFound.into())
+        }
+        fn remove(&self, _: &str) -> io::Result<()> {
+            Ok(())
+        }
+        fn clear(&self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn each_spill_episode_warns_once() {
+        crate::test_log::capture();
+        let primary = Arc::new(Flaky(true.into()));
+        let counters = Arc::new(crate::stats::Counters::default());
+        let cache = SpillCache::new(primary.clone(), 1 << 20, counters.clone(), Arc::default());
+        let warning = "cannot write the telemetry cache (disk full); keeping batches in memory";
+        cache.push(&id(1), b"a").expect("spilled");
+        cache.push(&id(2), b"b").expect("spilled");
+        assert_eq!(crate::test_log::take(), [warning], "two spills, one warning");
+        primary.0.store(false, Ordering::SeqCst);
+        cache.push(&id(3), b"c").expect("written");
+        primary.0.store(true, Ordering::SeqCst);
+        cache.push(&id(4), b"d").expect("spilled");
+        assert_eq!(crate::test_log::take(), [warning], "a new episode warns again");
+        assert_eq!(counters.snapshot().cache_write_errors, 3);
     }
 
     #[test]
@@ -761,10 +1103,8 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let (parent, a, b) = (id(1), format!("{}a", id(1)), format!("{}b", id(1)));
         let halves = [(a.clone(), vec![b'a'; 60]), (b.clone(), vec![b'b'; 60])];
-        // Room for the parent and not a byte more / not a file more: a duplicate would force an
-        // eviction.
-        // (The split's two halves take two files: the file bound is two — a duplicate would
-        // need three.)
+        // Room for the parent and not a byte more, or for the two halves and not a file more: a
+        // duplicate would force an eviction.
         for (max_bytes, max_batches) in [(120, MAX_BATCHES), (1 << 20, 2)] {
             let mut step = 0;
             loop {
@@ -819,8 +1159,7 @@ mod tests {
             let dir = temp_dir(&format!("post-commit-{failing:?}"));
             let cache = FileCache::open(&dir, 1 << 20).expect("open");
             cache.push(&parent, b"parent").expect("push");
-            let committed = Arc::new(AtomicBool::new(false));
-            let seen = committed.clone();
+            let seen = Arc::new(AtomicBool::new(false));
             cache.inject(move |step, _| {
                 if step == Step::Delete {
                     seen.store(true, Ordering::SeqCst);
@@ -830,7 +1169,7 @@ mod tests {
                 }
                 Ok(())
             });
-            let ids = cache.replace(&parent, &halves).expect("committed: not an error");
+            cache.replace(&parent, &halves).expect("committed: not an error");
             assert!(!cache.pending().contains(&parent), "{failing:?}: the parent is gone");
             cache.inject(|_, _| Ok(())); // the storage recovers; then the app opts out
             assert!(cache.clear().is_ok());
@@ -839,7 +1178,6 @@ mod tests {
                 0,
                 "{failing:?}: nothing survives the opt-out"
             );
-            let _ = ids;
 
             // Without the opt-out, the next listing publishes the journaled halves.
             let dir2 = temp_dir(&format!("post-commit-publish-{failing:?}"));
@@ -847,8 +1185,7 @@ mod tests {
             cache.push(&parent, b"parent").expect("push");
             let flag = Arc::new(AtomicBool::new(true));
             let fail = flag.clone();
-            let committed = Arc::new(AtomicBool::new(false));
-            let seen = committed.clone();
+            let seen = Arc::new(AtomicBool::new(false));
             cache.inject(move |step, _| {
                 if step == Step::Delete {
                     seen.store(true, Ordering::SeqCst);
@@ -911,8 +1248,8 @@ mod tests {
         let (parent, half) = (id(1), format!("{}a", id(1)));
         fs::write(cache.pend(&parent, &half), b"half").expect("journal");
         // The half's name is taken by a non-empty directory: the publishing rename fails.
-        fs::create_dir(cache.path(&half, EXT)).expect("blocker");
-        fs::write(cache.path(&half, EXT).join("x"), b"").expect("blocker content");
+        fs::create_dir(cache.path(&half, BATCH_EXT)).expect("blocker");
+        fs::write(cache.path(&half, BATCH_EXT).join("x"), b"").expect("blocker content");
         let before = cache.recoveries.load(Ordering::Relaxed);
         for _ in 0..5 {
             cache.pending();
@@ -920,7 +1257,7 @@ mod tests {
         assert_eq!(cache.recoveries.load(Ordering::Relaxed), before + 1, "tried once");
         cache.push(&id(2), b"next").expect("push");
         assert_eq!(cache.recoveries.load(Ordering::Relaxed), before + 2, "a write retries");
-        fs::remove_dir_all(cache.path(&half, EXT)).expect("unblock");
+        fs::remove_dir_all(cache.path(&half, BATCH_EXT)).expect("unblock");
         cache.push(&id(3), b"next").expect("push");
         assert_eq!(cache.pending(), [half, id(2), id(3)], "published once unblocked");
         let _ = fs::remove_dir_all(&dir);
