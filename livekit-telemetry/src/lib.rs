@@ -76,6 +76,7 @@ pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTranspo
 /// The backend contract, end to end through the pipeline.
 #[cfg(test)]
 mod backend_tests;
+/// The device contract, end to end through the pipeline and the process-wide opt-out.
 #[cfg(test)]
 mod device_tests;
 

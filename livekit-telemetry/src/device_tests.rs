@@ -27,16 +27,32 @@ use std::{
 use crate::{
     cache::temp_dir,
     telemetry::tests::{
-        event_names, exported_spans, files_in, offline_forever, records, start, test_config,
-        FakeTransport,
+        event_names, exported_spans, files_in, offline_forever, records, start_with_collector,
+        test_config, FakeTransport,
     },
     BatchCache, DeviceState, ExportError, ExportRequest, ExportResponse, MemoryCache, NetworkType,
-    RtcStatsSample, SpanName, SpanOutcome, StreamDirection, Telemetry, TelemetryConfig,
-    TelemetryEvent, TelemetryTransport, TrackKind,
+    RtcStatsSample, SpanName, SpanOutcome, SpanTrack, StreamDirection, Telemetry, TelemetryConfig,
+    TelemetryEvent, TelemetryTransport, TrackKind, TrackSource,
 };
 
 fn on_disk(dir: &Path) -> TelemetryConfig {
     TelemetryConfig { storage_dir: Some(dir.to_string_lossy().into_owned()), ..test_config() }
+}
+
+/// A track a span or subscribe is about, published by nobody in particular.
+fn track(sid: &str, kind: TrackKind, source: TrackSource) -> SpanTrack {
+    SpanTrack { sid: Some(sid.into()), kind, source, remote_identity: None }
+}
+
+/// A running pipeline around `cache`, uploading to the test collector.
+fn on_cache(
+    config: TelemetryConfig,
+    transport: Arc<dyn TelemetryTransport>,
+    cache: Arc<dyn BatchCache>,
+) -> (Telemetry, tokio::task::JoinHandle<()>) {
+    let (telemetry, exporter) = Telemetry::with_cache(config, transport, cache);
+    telemetry.override_endpoint("http://collector");
+    (telemetry, tokio::spawn(exporter.run()))
 }
 
 /// A pipeline whose exporter task the test can kill, like the OS kills an app.
@@ -52,7 +68,7 @@ fn killable(
 #[tokio::test(start_paused = true)]
 async fn defaults_export_and_window_once_a_minute() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await; // the start-up replay is behind us
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.record_stats(RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound));
@@ -146,10 +162,7 @@ async fn a_full_disk_keeps_batches_in_memory_and_says_so() {
         }
     }
     let transport = FakeTransport::scripted([]);
-    let (telemetry, exporter) =
-        Telemetry::with_cache(test_config(), transport.clone(), Arc::new(FullDisk));
-    telemetry.override_endpoint("http://collector");
-    tokio::spawn(exporter.run());
+    let (telemetry, _exporter) = on_cache(test_config(), transport.clone(), Arc::new(FullDisk));
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await;
     telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -216,7 +229,7 @@ async fn device_holds_record_without_attempting() {
     ];
     for (hold, secs) in holds {
         let transport = FakeTransport::scripted([]);
-        let telemetry = start(test_config(), transport.clone());
+        let telemetry = start_with_collector(test_config(), transport.clone());
         telemetry.set_device_state(hold);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
@@ -261,18 +274,13 @@ async fn opting_out_stops_collection_and_purges_everything() {
 /// a disconnect after the deadline keeps that outcome instead of `cancelled`.
 #[tokio::test(start_paused = true)]
 async fn a_subscribe_past_its_deadline_stays_timed_out_through_disconnect() {
-    use crate::{DisconnectReason, SpanTrack, TrackSource};
+    use crate::DisconnectReason;
     let transport = FakeTransport::scripted([]);
     // No exporter running: nothing sweeps, the disconnect is the first to look.
     let (telemetry, exporter) = Telemetry::new(test_config(), transport.clone());
     telemetry.override_endpoint("http://collector");
     let room = telemetry.begin_scope();
-    let track = |sid: &str| SpanTrack {
-        sid: Some(sid.into()),
-        kind: TrackKind::Audio,
-        source: TrackSource::Microphone,
-        remote_identity: None,
-    };
+    let track = |sid: &str| track(sid, TrackKind::Audio, TrackSource::Microphone);
     room.subscribe_started(track("TR_late"));
     tokio::time::advance(crate::Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
     room.subscribe_started(track("TR_fresh"));
@@ -301,7 +309,7 @@ async fn a_subscribe_past_its_deadline_stays_timed_out_through_disconnect() {
 #[tokio::test(start_paused = true)]
 async fn in_memory_bounds_count_every_drop() {
     let config = TelemetryConfig { max_queue_size: 4, max_events_per_10min: 6, ..test_config() };
-    let telemetry = start(config, FakeTransport::scripted([]));
+    let telemetry = start_with_collector(config, FakeTransport::scripted([]));
     tokio::time::sleep(Duration::from_millis(10)).await;
     for _ in 0..10 {
         telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -315,13 +323,8 @@ async fn in_memory_bounds_count_every_drop() {
 #[tokio::test(start_paused = true)]
 async fn a_memory_cache_survives_failed_uploads_not_the_process() {
     let cache = Arc::new(MemoryCache::new(1 << 20));
-    let (telemetry, exporter) = Telemetry::with_cache(
-        test_config(),
-        FakeTransport::scripted(offline_forever()),
-        cache.clone(),
-    );
-    telemetry.override_endpoint("http://collector");
-    tokio::spawn(exporter.run());
+    let (telemetry, _exporter) =
+        on_cache(test_config(), FakeTransport::scripted(offline_forever()), cache.clone());
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.shutdown().await;
     assert!(!cache.pending().is_empty(), "kept through the failure; gone with the process");
@@ -370,7 +373,7 @@ async fn opting_out_during_an_upload_resurrects_nothing() {
 #[tokio::test(start_paused = true)]
 async fn a_clock_jump_does_not_expire_a_fresh_backlog() {
     let transport = FakeTransport::scripted(offline_forever());
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await;
     crate::event::CLOCK_JUMP_NS.with(|jump| jump.set(25 * 3600 * 1_000_000_000));
@@ -386,7 +389,7 @@ async fn a_clock_jump_does_not_expire_a_fresh_backlog() {
 #[tokio::test(start_paused = true)]
 async fn batches_expire_while_the_app_runs() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let offline = DeviceState { network: NetworkType::Unavailable, ..Default::default() };
     telemetry.set_device_state(offline);
     telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -408,7 +411,7 @@ async fn batches_expire_while_the_app_runs() {
 async fn custom_data_is_room_scoped_validated_and_snapshotted() {
     use crate::Attribute;
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let (room, other) = (telemetry.begin_scope(), telemetry.begin_scope());
     room.set_attribute("app.call_id", Some("c1".into()));
     room.emit_custom("checkout", vec![Attribute::new("step", "pay")]);
@@ -453,16 +456,11 @@ async fn custom_data_is_room_scoped_validated_and_snapshotted() {
 /// first media, else two readings per (pressure-stretched) window.
 #[tokio::test(start_paused = true)]
 async fn the_core_paces_stats_polling() {
-    use crate::{SpanTrack, ThermalState, TrackSource};
-    let telemetry = start(TelemetryConfig::default(), FakeTransport::scripted([]));
+    use crate::ThermalState;
+    let telemetry = start_with_collector(TelemetryConfig::default(), FakeTransport::scripted([]));
     let room = telemetry.begin_scope();
     assert_eq!(room.stats_poll_interval_ms(), 30_000, "a 60 s window, polled twice");
-    room.subscribe_started(SpanTrack {
-        sid: Some("TR_1".into()),
-        kind: TrackKind::Video,
-        source: TrackSource::Camera,
-        remote_identity: None,
-    });
+    room.subscribe_started(track("TR_1", TrackKind::Video, TrackSource::Camera));
     assert_eq!(room.stats_poll_interval_ms(), 1_000, "first media is seen in the readings");
     room.track_ended("TR_1");
     telemetry
@@ -470,12 +468,7 @@ async fn the_core_paces_stats_polling() {
     assert_eq!(room.stats_poll_interval_ms(), 60_000, "thermal pressure stretches it");
     // The fallback: a `subscribed` with no intent before it (a platform that missed a join-time
     // track's `subscribe_started`) is the intent, and polling turns fast at once.
-    room.subscribed(SpanTrack {
-        sid: Some("TR_join".into()),
-        kind: TrackKind::Audio,
-        source: TrackSource::Microphone,
-        remote_identity: None,
-    });
+    room.subscribed(track("TR_join", TrackKind::Audio, TrackSource::Microphone));
     assert_eq!(room.stats_poll_interval_ms(), 1_000, "a join-time track awaits first media");
 }
 
@@ -498,7 +491,6 @@ impl TelemetryTransport for Slow {
 /// falls due while a 40 s upload is out is enforced on time.
 #[tokio::test(start_paused = true)]
 async fn deadlines_are_served_while_a_request_is_out() {
-    use crate::{SpanTrack, TrackSource};
     let slow = Arc::new(Slow { delay: Duration::from_secs(40), sent: Mutex::new(0) });
     let config = TelemetryConfig { export_timeout_ms: 60_000, ..test_config() };
     let (telemetry, _task) = killable(config, slow.clone());
@@ -506,12 +498,7 @@ async fn deadlines_are_served_while_a_request_is_out() {
     tokio::time::sleep(Duration::from_millis(1500)).await; // the tick put it on the wire
     assert_eq!(*slow.sent.lock().expect("lock"), 1);
     let room = telemetry.begin_scope();
-    room.subscribe_started(SpanTrack {
-        sid: Some("TR_1".into()),
-        kind: TrackKind::Video,
-        source: TrackSource::Camera,
-        remote_identity: None,
-    });
+    room.subscribe_started(track("TR_1", TrackKind::Video, TrackSource::Camera));
     assert_eq!(room.stats_poll_interval_ms(), 1_000, "awaiting first media");
     tokio::time::sleep(Duration::from_secs(31)).await; // the upload is still out
     assert_eq!(room.stats_poll_interval_ms(), 7_500, "timed out on time, not after the upload");
@@ -520,17 +507,11 @@ async fn deadlines_are_served_while_a_request_is_out() {
 /// First media after the deadline is `timed_out` even when no sweep ran first.
 #[tokio::test(start_paused = true)]
 async fn late_first_media_is_timed_out_whoever_looks_first() {
-    use crate::{SpanTrack, TrackSource};
     let transport = FakeTransport::scripted([]);
     let (telemetry, exporter) = Telemetry::new(test_config(), transport.clone());
     telemetry.override_endpoint("http://collector");
     let room = telemetry.begin_scope();
-    room.subscribe_started(SpanTrack {
-        sid: Some("TR_1".into()),
-        kind: TrackKind::Audio,
-        source: TrackSource::Microphone,
-        remote_identity: None,
-    });
+    room.subscribe_started(track("TR_1", TrackKind::Audio, TrackSource::Microphone));
     tokio::time::advance(crate::Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
     let mut media = RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound);
     media.bytes = Some(100);
@@ -573,7 +554,7 @@ async fn the_soft_hold_cap_is_scheduled_and_splits_count_against_it() {
     use crate::ThermalState;
     let transport =
         FakeTransport::scripted([Ok(ExportResponse { status: 413, ..Default::default() })]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await;
     telemetry.set_device_state(DeviceState {
         network_constrained: true,
@@ -598,20 +579,14 @@ async fn the_soft_hold_cap_is_scheduled_and_splits_count_against_it() {
 /// subscribes do not start, stats and events go nowhere.
 #[tokio::test(start_paused = true)]
 async fn after_the_opt_out_nothing_is_captured() {
-    use crate::{SpanTrack, TrackSource};
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let room = telemetry.begin_scope();
     telemetry.purge().await;
     let span = room.start(SpanName::Connect, None);
     assert!(span.context().is_none(), "detached: never registered");
     span.end(SpanOutcome::Ok, None);
-    room.subscribe_started(SpanTrack {
-        sid: Some("TR_1".into()),
-        kind: TrackKind::Video,
-        source: TrackSource::Camera,
-        remote_identity: None,
-    });
+    room.subscribe_started(track("TR_1", TrackKind::Video, TrackSource::Camera));
     assert_eq!(room.stats_poll_interval_ms(), 7_500, "no subscribe started");
     room.record_stats(RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound));
     room.emit(TelemetryEvent::new("lk.ping"));
@@ -625,19 +600,13 @@ async fn after_the_opt_out_nothing_is_captured() {
 /// dropped the exporter stops and the pipeline is freed, again and again.
 #[tokio::test(start_paused = true)]
 async fn a_pending_subscribe_never_keeps_the_pipeline_alive() {
-    use crate::{SpanTrack, TrackSource};
     for _ in 0..3 {
         let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
         telemetry.override_endpoint("http://collector");
         let task = tokio::spawn(exporter.run());
         let weak = Arc::downgrade(&telemetry.shared);
         let room = telemetry.begin_scope();
-        room.subscribe_started(SpanTrack {
-            sid: Some("TR_1".into()),
-            kind: TrackKind::Video,
-            source: TrackSource::Camera,
-            remote_identity: None,
-        });
+        room.subscribe_started(track("TR_1", TrackKind::Video, TrackSource::Camera));
         drop(room);
         drop(telemetry);
         tokio::time::timeout(Duration::from_secs(30), task)
@@ -648,6 +617,7 @@ async fn a_pending_subscribe_never_keeps_the_pipeline_alive() {
     }
 }
 
+#[cfg(unix)]
 fn chmod(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("chmod");
@@ -764,10 +734,7 @@ async fn a_split_never_moves_a_batch_off_the_disk() {
         std::iter::once(crate::telemetry::tests::offline())
             .chain(std::iter::repeat_with(too_large).take(64)),
     );
-    let (telemetry, exporter) =
-        Telemetry::with_cache(test_config(), transport.clone(), cache.clone());
-    telemetry.override_endpoint("http://collector");
-    tokio::spawn(exporter.run());
+    let (telemetry, _exporter) = on_cache(test_config(), transport.clone(), cache.clone());
     for _ in 0..4 {
         telemetry.emit(TelemetryEvent::new("lk.ping"));
     }
@@ -790,7 +757,7 @@ async fn encoded_requests_stay_under_the_byte_limit_for_both_signals() {
     let transport = FakeTransport::scripted([]);
     let config =
         TelemetryConfig { max_batch_bytes: limit, max_batches_per_upload: 100, ..test_config() };
-    let telemetry = start(config, transport.clone());
+    let telemetry = start_with_collector(config, transport.clone());
     let room = telemetry.begin_scope();
     // ~1 KB per record, taken at capture: the estimate that cuts batches counts it.
     room.set_room(RoomIdentity { name: Some("n".repeat(1_000)), ..Default::default() });
@@ -818,7 +785,7 @@ async fn encoded_requests_stay_under_the_byte_limit_for_both_signals() {
 #[tokio::test(start_paused = true)]
 async fn rtc_windows_carry_the_attributes_of_their_readings() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let room = telemetry.begin_scope();
     room.set_attribute("app.call_id", Some("before".into()));
     let reading = |bytes| RtcStatsSample {
@@ -878,7 +845,7 @@ async fn a_device_change_during_a_pass_stops_its_remaining_requests() {
 #[tokio::test(start_paused = true)]
 async fn a_soft_hold_turning_hard_does_not_spin() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await;
     telemetry.set_device_state(DeviceState { network_constrained: true, ..Default::default() });
     telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -915,7 +882,7 @@ async fn final_limits_hold_after_decoration_and_caller_strings_are_bounded() {
         max_batches_per_upload: 100,
         ..test_config()
     };
-    let telemetry = start(config, transport.clone());
+    let telemetry = start_with_collector(config, transport.clone());
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await; // offline: a failure to report
     for _ in 0..12 {
@@ -965,7 +932,7 @@ async fn final_limits_hold_after_decoration_and_caller_strings_are_bounded() {
 #[tokio::test(start_paused = true)]
 async fn a_window_closed_before_a_change_keeps_its_snapshot_whenever_it_is_queued() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(test_config(), transport.clone());
+    let telemetry = start_with_collector(test_config(), transport.clone());
     let room = telemetry.begin_scope();
     room.set_attribute("app.call_id", Some("before".into()));
     room.record_stats(RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound));
@@ -1068,9 +1035,7 @@ async fn a_failed_directory_sync_keeps_the_batch_in_memory_not_half_on_disk() {
         _ => Ok(()),
     });
     let transport = FakeTransport::scripted(offline_forever());
-    let (telemetry, exporter) = Telemetry::with_cache(test_config(), transport, cache.clone());
-    telemetry.override_endpoint("http://collector");
-    tokio::spawn(exporter.run());
+    let (telemetry, _exporter) = on_cache(test_config(), transport, cache.clone());
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await;
     assert_eq!(files_in(&dir), 0, "nothing of unknown durability on disk");
@@ -1108,11 +1073,11 @@ async fn an_instrument_never_starts_after_the_opt_out_stopped_it() {
     use std::sync::mpsc;
     let _global = crate::global::TEST_LOCK.lock().await;
     crate::global::reset_for_test();
-    struct Slow {
+    struct SlowStart {
         log: Mutex<Vec<&'static str>>,
         entered: Mutex<Option<mpsc::Sender<()>>>,
     }
-    impl crate::global::TelemetryInstrument for Slow {
+    impl crate::global::TelemetryInstrument for SlowStart {
         fn start(&self) {
             self.log.lock().expect("log").push("start begins");
             if let Some(entered) = self.entered.lock().expect("lock").take() {
@@ -1127,7 +1092,7 @@ async fn an_instrument_never_starts_after_the_opt_out_stopped_it() {
     }
     let (entered, started) = mpsc::channel();
     let instrument =
-        Arc::new(Slow { log: Mutex::new(Vec::new()), entered: Mutex::new(Some(entered)) });
+        Arc::new(SlowStart { log: Mutex::new(Vec::new()), entered: Mutex::new(Some(entered)) });
     let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
     tokio::spawn(exporter.run());
     let installing = {
@@ -1138,6 +1103,55 @@ async fn an_instrument_never_starts_after_the_opt_out_stopped_it() {
     crate::global::disable().await; // races the running start()
     installing.join().expect("install");
     assert_eq!(*instrument.log.lock().expect("log"), ["start begins", "start ends", "stop"]);
+    crate::global::reset_for_test();
+}
+
+/// A second opt-out while the first still purges resolves only once the cache is deleted.
+#[tokio::test(start_paused = true)]
+async fn a_repeated_opt_out_waits_for_the_purge() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    let dir = temp_dir("repeated-opt-out");
+    let telemetry = start_with_collector(on_disk(&dir), FakeTransport::scripted(offline_forever()));
+    telemetry.emit(TelemetryEvent::new("lk.ping"));
+    telemetry.flush().await;
+    assert_eq!(files_in(&dir), 1, "cached");
+    crate::global::install(telemetry, Vec::new());
+    let first = crate::global::disable(); // not polled yet
+    assert!(crate::global::disable().await);
+    assert_eq!(files_in(&dir), 0, "the second call purged too");
+    assert!(first.await);
+    crate::global::reset_for_test();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// An instrument's last record from `stop` reaches its own pipeline, on replace and on shutdown.
+#[tokio::test(start_paused = true)]
+async fn a_stopping_instrument_reports_to_its_own_pipeline() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    struct Farewell;
+    impl crate::global::TelemetryInstrument for Farewell {
+        fn start(&self) {}
+        fn stop(&self) {
+            crate::global::emit(TelemetryEvent::new("custom.stopped"));
+        }
+    }
+    let (a, b) = (FakeTransport::scripted([]), FakeTransport::scripted([]));
+    let names = |t: &FakeTransport| t.sent().iter().flat_map(event_names).collect::<Vec<_>>();
+    crate::global::install(
+        start_with_collector(test_config(), a.clone()),
+        vec![Arc::new(Farewell)],
+    );
+    let second = start_with_collector(test_config(), b.clone());
+    let replaced = crate::global::install(second, vec![Arc::new(Farewell)]).expect("replaced");
+    replaced.flush().await;
+    crate::global::flush().await;
+    assert_eq!(names(&a), ["custom.stopped"]);
+    assert!(names(&b).is_empty(), "never the new pipeline");
+    crate::global::shutdown().await;
+    let sent = names(&b);
+    assert!(sent.iter().any(|n| n == "custom.stopped"), "shutdown sends it too: {sent:?}");
     crate::global::reset_for_test();
 }
 
@@ -1175,7 +1189,7 @@ async fn the_opt_out_cancels_a_draining_generation_before_returning() {
     crate::global::install(first, Vec::new());
     crate::global::emit(TelemetryEvent::new("lk.ping"));
     tokio::time::sleep(Duration::from_millis(1500)).await; // its request is on the wire
-    let second = start(test_config(), FakeTransport::scripted([]));
+    let second = start_with_collector(test_config(), FakeTransport::scripted([]));
     let replaced = crate::global::install(second, Vec::new()).expect("replaced");
     tokio::spawn(async move { replaced.shutdown().await }); // draining, as the SDKs do
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1190,7 +1204,7 @@ async fn the_opt_out_cancels_a_draining_generation_before_returning() {
     crate::global::reset_for_test();
 }
 
-/// Android e2e flake (investigated): the device state an instrument pushes from `start`, right
+/// The device state an instrument pushes from `start`, right
 /// after install and racing the exporter's first pass, always reaches the collector by the end
 /// of a `flush` + `shutdown` — on a multi-threaded runtime, many times over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1235,15 +1249,15 @@ async fn the_opt_out_is_in_effect_before_its_purge_runs() {
     let _global = crate::global::TEST_LOCK.lock().await;
     crate::global::reset_for_test();
     let transport = FakeTransport::scripted([]);
-    let installed = start(test_config(), transport.clone());
+    let installed = start_with_collector(test_config(), transport.clone());
     crate::global::install(installed.clone(), Vec::new());
     let room = crate::global::scope().expect("scope");
     room.emit_custom("before", Vec::new());
     let purge = crate::global::disable(); // not awaited yet
-    assert!(crate::global::scope().is_none() && crate::global::shared().is_none());
+    assert!(crate::global::scope().is_none() && crate::global::current().is_none());
     assert!(installed.shared.revoked(), "every capture refuses from here on");
     room.emit_custom("after", Vec::new());
-    let later = start(test_config(), transport.clone());
+    let later = start_with_collector(test_config(), transport.clone());
     assert!(crate::global::install(later, Vec::new()).is_some(), "a configure is refused");
     assert!(purge.await);
     installed.shutdown().await;
@@ -1308,16 +1322,10 @@ async fn a_capture_racing_the_opt_out_leaves_nothing_behind() {
 /// 30 s), so platforms need no post-publish nudge; `lk.connect` carries attempt 1 by default.
 #[tokio::test(start_paused = true)]
 async fn publishing_polls_fast_until_the_first_outbound_reading() {
-    use crate::{SpanTrack, TrackSource};
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     let room = telemetry.begin_scope();
-    let track = SpanTrack {
-        sid: Some("TR_mic".into()),
-        kind: TrackKind::Audio,
-        source: TrackSource::Microphone,
-        remote_identity: None,
-    };
+    let track = track("TR_mic", TrackKind::Audio, TrackSource::Microphone);
     let publish = room.start(SpanName::Publish, None);
     publish.set_track(track.clone());
     publish.end(SpanOutcome::Ok, None);
@@ -1355,9 +1363,9 @@ async fn publishing_polls_fast_until_the_first_outbound_reading() {
 /// batch; the next interval brings the next allowance.
 #[tokio::test(start_paused = true)]
 async fn notifications_within_an_interval_never_exceed_one_allowance() {
-    use crate::{SpanTrack, ThermalState, TrackSource};
+    use crate::ThermalState;
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await; // the first tick is behind us
     let offline = DeviceState { network: NetworkType::Unavailable, ..Default::default() };
     telemetry.set_device_state(offline);
@@ -1399,7 +1407,7 @@ async fn notifications_within_an_interval_never_exceed_one_allowance() {
 /// A room in a call with `n` batches cached offline, then back online: one allowance goes out.
 async fn in_call_with_backlog(n: usize) -> (Telemetry, crate::Scope, Arc<FakeTransport>) {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await; // the first tick is behind us
     let room = telemetry.begin_scope();
     room.set_server("wss://p.livekit.cloud", "token");
@@ -1448,7 +1456,7 @@ async fn the_allowance_applies_only_while_a_room_is_in_a_call() {
 #[tokio::test(start_paused = true)]
 async fn relief_brings_the_pending_tick_forward() {
     let transport = FakeTransport::scripted([]);
-    let telemetry = start(TelemetryConfig::default(), transport.clone());
+    let telemetry = start_with_collector(TelemetryConfig::default(), transport.clone());
     tokio::time::sleep(Duration::from_millis(10)).await; // the first tick is behind us
     let hot = DeviceState { thermal: crate::ThermalState::Critical, ..Default::default() };
     telemetry.set_device_state(hot);
@@ -1496,10 +1504,7 @@ async fn a_failing_self_report_never_starves_real_records() {
         (TelemetryConfig { max_batch_size: 1, ..test_config() }, 1),
     ] {
         let transport = FakeTransport::scripted(offline_forever());
-        let (telemetry, exporter) =
-            Telemetry::with_cache(config, transport, Arc::new(MemoryCache::new(cache)));
-        telemetry.override_endpoint("http://collector");
-        tokio::spawn(exporter.run());
+        let (telemetry, _exporter) = on_cache(config, transport, Arc::new(MemoryCache::new(cache)));
         for _ in 0..3 {
             telemetry.emit(TelemetryEvent::new("lk.ping"));
         }
@@ -1509,4 +1514,337 @@ async fn a_failing_self_report_never_starves_real_records() {
         assert!(stats.dropped_oversized + stats.dropped_cache_full >= 2, "{stats:?}");
         assert!(telemetry.shared.store.is_empty(), "every real record moved");
     }
+}
+
+/// The opt-out reaches an exporter whose only handle was the installed one: its upload is
+/// cancelled and it has stopped once the awaited opt-out returns.
+#[tokio::test(start_paused = true)]
+async fn the_opt_out_cancels_an_upload_when_the_global_held_the_last_handle() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    /// Never answers; notes that a request started, and that it was dropped (cancelled).
+    struct Hang(Arc<AtomicBool>, Arc<AtomicBool>);
+    struct Cancelled(Arc<AtomicBool>);
+    impl Drop for Cancelled {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Hang {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            self.0.store(true, Ordering::SeqCst);
+            let _cancelled = Cancelled(self.1.clone());
+            std::future::pending().await
+        }
+    }
+    let (sent, cancelled) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let config = TelemetryConfig { export_timeout_ms: 600_000, ..test_config() };
+    let transport = Arc::new(Hang(sent.clone(), cancelled.clone()));
+    let (telemetry, exporter) = killable(config, transport);
+    crate::global::install(telemetry, Vec::new());
+    crate::global::emit(TelemetryEvent::new("custom.ping"));
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(sent.load(Ordering::SeqCst), "the upload is on the wire");
+    assert!(crate::global::disable().await);
+    let (was_cancelled, stopped) = (cancelled.load(Ordering::SeqCst), exporter.is_finished());
+    exporter.abort();
+    let _ = exporter.await;
+    crate::global::reset_for_test();
+    assert!(was_cancelled && stopped, "cancelled {was_cancelled}, stopped {stopped}");
+}
+
+/// A request made before the opt-out (its batch read from the cache) does not start once the
+/// synchronous opt-out returned, even with the opt-out's future never polled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_upload_starts_after_the_opt_out_returns() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    /// Holds the first read, after it has the body, until the test lets it go.
+    struct HeldRead {
+        inner: MemoryCache,
+        entered: Mutex<Option<mpsc::Sender<()>>>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl BatchCache for HeldRead {
+        fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
+            self.inner.push(id, body)
+        }
+        fn pending(&self) -> Vec<String> {
+            self.inner.pending()
+        }
+        fn replace(&self, id: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
+            self.inner.replace(id, new)
+        }
+        fn read(&self, id: &str) -> io::Result<Vec<u8>> {
+            let body = self.inner.read(id)?;
+            if let Some(entered) = self.entered.lock().expect("lock").take() {
+                entered.send(()).expect("the test waits");
+                let release = self.release.lock().expect("lock");
+                release.recv_timeout(Duration::from_secs(5)).expect("released");
+            }
+            Ok(body)
+        }
+        fn remove(&self, id: &str) -> io::Result<()> {
+            self.inner.remove(id)
+        }
+        fn clear(&self) -> io::Result<()> {
+            self.inner.clear()
+        }
+    }
+    struct Observe(Arc<AtomicBool>);
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Observe {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            self.0.store(true, Ordering::SeqCst);
+            Ok(ExportResponse::accepted())
+        }
+    }
+    let (entered, arrived) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let cache = Arc::new(HeldRead {
+        inner: MemoryCache::new(1 << 20),
+        entered: Mutex::new(Some(entered)),
+        release: Mutex::new(released),
+    });
+    let sent = Arc::new(AtomicBool::new(false));
+    let (telemetry, exporter) = on_cache(test_config(), Arc::new(Observe(sent.clone())), cache);
+    crate::global::install(telemetry.clone(), Vec::new());
+    telemetry.emit(TelemetryEvent::new("custom.ping"));
+    arrived.recv_timeout(Duration::from_secs(5)).expect("the batch is being read");
+    let purge = crate::global::disable();
+    release.send(()).expect("release the read");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let started = sent.load(Ordering::SeqCst);
+    assert!(purge.await);
+    exporter.await.expect("exporter");
+    crate::global::reset_for_test();
+    assert!(!started, "an upload started after the opt-out returned");
+}
+
+/// The opt-out deletes what a generation already gone left on disk: a pipeline shut down
+/// offline, then freed, before the app opted out.
+#[tokio::test(start_paused = true)]
+async fn the_opt_out_erases_the_disk_of_a_generation_already_gone() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    let dir = temp_dir("opt-out-gone");
+    let old = start_with_collector(on_disk(&dir), FakeTransport::scripted(offline_forever()));
+    old.emit(TelemetryEvent::new("custom.ping"));
+    old.flush().await;
+    let freed = Arc::downgrade(&old.shared);
+    crate::global::install(old, Vec::new());
+    crate::global::shutdown().await;
+    tokio::task::yield_now().await;
+    assert!(freed.upgrade().is_none(), "the old pipeline is gone");
+    assert!(files_in(&dir) > 0, "its unsent batches stay on disk");
+    assert!(crate::global::disable().await);
+    let left = files_in(&dir);
+    crate::global::reset_for_test();
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(left, 0, "the opt-out left batches on disk");
+}
+
+/// A gone generation's disk that the opt-out cannot read is not forgotten: that opt-out reports
+/// the erase incomplete, and a later one erases the disk once it can. Whether the directory
+/// cannot be listed or cannot even be looked up.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn the_opt_out_keeps_an_unreadable_gone_disk_until_it_is_erased() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::test_log::capture();
+    let root = temp_dir("opt-out-unreadable");
+    fs::create_dir(&root).expect("root");
+    let dir = root.join("cache");
+    for locked in [&dir, &root] {
+        crate::global::reset_for_test();
+        let old = start_with_collector(on_disk(&dir), FakeTransport::scripted(offline_forever()));
+        old.emit(TelemetryEvent::new("custom.ping"));
+        old.flush().await;
+        let freed = Arc::downgrade(&old.shared);
+        crate::global::install(old, Vec::new());
+        crate::global::shutdown().await;
+        tokio::task::yield_now().await;
+        assert!(freed.upgrade().is_none(), "the old pipeline is gone");
+        assert!(files_in(&dir) > 0, "its unsent batches stay on disk");
+        chmod(locked, 0o000);
+        let unreadable = crate::global::disable().await;
+        let warned = crate::test_log::take().iter().any(|l| l.contains("could not all be deleted"));
+        chmod(locked, 0o755);
+        let readable = crate::global::disable().await;
+        let left = files_in(&dir);
+        crate::global::reset_for_test();
+        assert!(!unreadable, "{locked:?} locked: the opt-out that could not erase says so");
+        assert!(warned, "{locked:?} locked: and logs it");
+        assert!(readable, "{locked:?} locked: a later opt-out erases the disk");
+        assert_eq!(left, 0, "{locked:?} locked: the opt-out left batches on disk");
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// The opt-out never touches the `storage_dir` that a caller-provided cache ignores.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn the_opt_out_leaves_the_storage_dir_of_a_caller_provided_cache() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    let dir = temp_dir("opt-out-caller-cache");
+    fs::create_dir(&dir).expect("dir");
+    let app_file = dir.join("settings.json");
+    fs::write(&app_file, b"{}").expect("app file");
+    let transport = FakeTransport::scripted(offline_forever());
+    let (telemetry, _exporter) =
+        on_cache(on_disk(&dir), transport, Arc::new(MemoryCache::new(1 << 20)));
+    let freed = Arc::downgrade(&telemetry.shared);
+    crate::global::install(telemetry, Vec::new());
+    crate::global::shutdown().await;
+    tokio::task::yield_now().await;
+    assert!(freed.upgrade().is_none(), "the pipeline is gone");
+    crate::global::disable().await;
+    let kept = app_file.exists();
+    crate::global::reset_for_test();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(kept, "the opt-out deleted a file in a directory the pipeline never cached in");
+}
+
+/// An earlier launch, gone now, that left unsent batches in `dir`.
+async fn cache_an_earlier_launch(dir: &Path) {
+    crate::global::reset_for_test();
+    let earlier = start_with_collector(on_disk(dir), FakeTransport::scripted(offline_forever()));
+    earlier.emit(TelemetryEvent::new("custom.ping"));
+    earlier.flush().await;
+    crate::global::install(earlier, Vec::new());
+    crate::global::shutdown().await;
+    tokio::task::yield_now().await;
+    assert!(files_in(dir) > 0, "the earlier launch's batches are on disk");
+    // A new process: no generation remembers the earlier launch.
+    crate::global::reset_for_test();
+}
+
+/// An earlier launch's batches in the configured `storage_dir` go with the opt-out, although this
+/// launch could not open that directory at start and caches in memory: whether its pipeline is
+/// gone by then or still alive.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn the_opt_out_deletes_an_earlier_launchs_batches_after_a_fallback_start() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    let dir = temp_dir("opt-out-fallback-start");
+    for alive in [false, true] {
+        cache_an_earlier_launch(&dir).await;
+        // The directory cannot be opened at start, so the pipeline falls back to memory.
+        chmod(&dir, 0o000);
+        let (telemetry, exporter) =
+            Telemetry::new(on_disk(&dir), FakeTransport::scripted(offline_forever()));
+        chmod(&dir, 0o755);
+        tokio::spawn(exporter.run());
+        let freed = Arc::downgrade(&telemetry.shared);
+        crate::global::install(telemetry, Vec::new());
+        if !alive {
+            crate::global::shutdown().await;
+            tokio::task::yield_now().await;
+        }
+        assert!(alive || freed.upgrade().is_none(), "alive {alive}: the pipeline is gone");
+        let complete = crate::global::disable().await;
+        let left = files_in(&dir);
+        crate::global::reset_for_test();
+        assert!(complete, "alive {alive}: the opt-out reports a complete delete");
+        assert_eq!(left, 0, "alive {alive}: the earlier launch's batches stay on disk");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A configure that an earlier opt-out refuses deletes what an earlier launch left in its
+/// `storage_dir`, also when this launch could not open that directory and cached in memory.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_refused_configure_deletes_an_earlier_launchs_batches() {
+    let _global = crate::global::TEST_LOCK.lock().await;
+    let dir = temp_dir("refused-configure");
+    for unreadable in [false, true] {
+        cache_an_earlier_launch(&dir).await;
+        // This launch opts out first, then configures.
+        crate::global::disable().await;
+        if unreadable {
+            chmod(&dir, 0o000);
+        }
+        let (telemetry, _exporter) =
+            Telemetry::new(on_disk(&dir), FakeTransport::scripted(offline_forever()));
+        chmod(&dir, 0o755);
+        let refused = crate::global::install(telemetry, Vec::new());
+        let left = files_in(&dir);
+        crate::global::reset_for_test();
+        assert!(refused.is_some(), "unreadable {unreadable}: refused after the opt-out");
+        assert_eq!(left, 0, "unreadable {unreadable}: the earlier launch's batches stay on disk");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Two opt-outs racing over one cache count each deleted record once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_opt_outs_count_each_record_once() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Condvar,
+    };
+    let _global = crate::global::TEST_LOCK.lock().await;
+    crate::global::reset_for_test();
+    /// The first two listings wait (briefly) for each other, so two purges that could list at
+    /// once do.
+    struct Listing {
+        inner: MemoryCache,
+        listed: Mutex<usize>,
+        both: Condvar,
+        calls: AtomicUsize,
+    }
+    impl BatchCache for Listing {
+        fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
+            self.inner.push(id, body)
+        }
+        fn pending(&self) -> Vec<String> {
+            let ids = self.inner.pending();
+            if self.calls.fetch_add(1, Ordering::SeqCst) < 2 {
+                let mut listed = self.listed.lock().expect("lock");
+                *listed += 1;
+                self.both.notify_all();
+                let wait = Duration::from_millis(200);
+                let _ = self.both.wait_timeout_while(listed, wait, |n| *n < 2).expect("lock");
+            }
+            ids
+        }
+        fn replace(&self, id: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
+            self.inner.replace(id, new)
+        }
+        fn read(&self, id: &str) -> io::Result<Vec<u8>> {
+            self.inner.read(id)
+        }
+        fn remove(&self, id: &str) -> io::Result<()> {
+            self.inner.remove(id)
+        }
+        fn clear(&self) -> io::Result<()> {
+            self.inner.clear()
+        }
+    }
+    let cache = Arc::new(Listing {
+        inner: MemoryCache::new(1 << 20),
+        listed: Mutex::new(0),
+        both: Condvar::new(),
+        calls: AtomicUsize::new(0),
+    });
+    cache.inner.push("00000000000000000001-000001-3-l", b"cached").expect("cached");
+    let (telemetry, exporter) =
+        Telemetry::with_cache(test_config(), FakeTransport::scripted([]), cache);
+    drop(exporter);
+    crate::global::install(telemetry.clone(), Vec::new());
+    let (first, second) = (crate::global::disable(), crate::global::disable());
+    let (first, second) = (tokio::spawn(first), tokio::spawn(second));
+    assert!(first.await.expect("first"));
+    assert!(second.await.expect("second"));
+    let purged = telemetry.stats().dropped_purged;
+    crate::global::reset_for_test();
+    assert_eq!(purged, 3, "three records, counted once");
 }
