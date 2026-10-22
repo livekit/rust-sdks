@@ -723,7 +723,7 @@ fn outgoing_all_v2_text_inlines_compressed() {
             ..Default::default()
         };
         let info = manager
-            .send_text("hello hello compressible world".to_string(), options)
+            .send_text("hello hello compressible world".to_string(), options, None)
             .await
             .expect("send_text should succeed");
         assert_eq!(info.topic, "chat");
@@ -765,14 +765,14 @@ fn outgoing_writers_send_trailer_attributes() {
         let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
         let writer = manager.stream_text(options).await.unwrap();
         writer.write("hello".to_string()).await.unwrap();
-        writer.close_with_options(None, attributes.clone()).await.unwrap();
+        writer.close(None, attributes.clone()).await.unwrap();
         let trailer = last_trailer(&delegate.0.lock().unwrap());
         assert_eq!(trailer.attributes, attributes);
         assert_eq!(trailer.reason, "");
 
         let options = StreamByteOptions { topic: "file".to_string(), ..Default::default() };
         let writer = manager.stream_bytes(options).await.unwrap();
-        writer.close_with_options(Some("cancelled".to_string()), attributes.clone()).await.unwrap();
+        writer.close(Some("cancelled".to_string()), attributes.clone()).await.unwrap();
         let trailer = last_trailer(&delegate.0.lock().unwrap());
         assert_eq!(trailer.attributes, attributes);
         assert_eq!(trailer.reason, "cancelled");
@@ -792,7 +792,7 @@ async fn stream_text_with_total_length(text: &str, total_length: u64) -> Arc<Tex
     let writer = outgoing.stream_text(options).await.unwrap();
     assert_eq!(writer.info().total_length, Some(total_length));
     writer.write(text.to_string()).await.unwrap();
-    writer.close().await.unwrap();
+    writer.close(None, Default::default()).await.unwrap();
 
     let (tx, rx) = oneshot::channel();
     let incoming =
@@ -862,7 +862,7 @@ fn outgoing_send_failure_propagates() {
         let manager = OutgoingDataStreamManager::new(delegate, Arc::new(AllV2Registry));
 
         let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
-        let result = manager.send_text("hello".to_string(), options).await;
+        let result = manager.send_text("hello".to_string(), options, None).await;
         assert!(matches!(result, Err(DataStreamError::SendFailed)));
     });
 }
@@ -897,7 +897,10 @@ fn outgoing_one_shot_send_is_a_single_delegate_call() {
             destination_identities: vec!["bob".to_string()],
             ..Default::default()
         };
-        manager.send_text("A".repeat(40_000), options).await.expect("send_text should succeed");
+        manager
+            .send_text("A".repeat(40_000), options, None)
+            .await
+            .expect("send_text should succeed");
         assert_eq!(*delegate.0.lock().unwrap(), vec![5]);
     });
 }
@@ -927,15 +930,12 @@ fn outgoing_sends_report_progress() {
 
         // One-shot sends hand the whole stream to the transport at once: one report, on completion.
         let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
-        manager
-            .send_text_with_progress("hello".to_string(), options, progress.clone())
-            .await
-            .unwrap();
+        manager.send_text("hello".to_string(), options, Some(progress.clone())).await.unwrap();
         assert_eq!(progress.take(), vec![complete(5)]);
 
         let options = StreamByteOptions { topic: "blob".to_string(), ..Default::default() };
         let data = Bytes::from_static(b"abc");
-        manager.send_bytes_with_progress(data, options, progress.clone()).await.unwrap();
+        manager.send_bytes(data, options, Some(progress.clone())).await.unwrap();
         assert_eq!(progress.take(), vec![complete(3)]);
 
         // A file reports after each chunk: 15 000 + 5 000 bytes, uncompressed for a pre-v2 room.
@@ -943,7 +943,7 @@ fn outgoing_sends_report_progress() {
         std::fs::write(&path, vec![7u8; 20_000]).unwrap();
         let options = StreamByteOptions { topic: "file".to_string(), ..Default::default() };
         let result = manager
-            .send_file_with_progress(path.to_string_lossy().into_owned(), options, progress.clone())
+            .send_file(path.to_string_lossy().into_owned(), options, Some(progress.clone()))
             .await;
         let _ = std::fs::remove_file(&path);
         result.unwrap();
@@ -983,7 +983,11 @@ async fn polled_roundtrip(
         destination_identities: vec!["bob".to_string()],
         ..Default::default()
     };
-    outgoing.manager.send_text(text.to_string(), options).await.expect("send_text should succeed");
+    outgoing
+        .manager
+        .send_text(text.to_string(), options, None)
+        .await
+        .expect("send_text should succeed");
 
     // send_text only resolves once every packet has been queued, so draining terminates rather
     // than blocking.

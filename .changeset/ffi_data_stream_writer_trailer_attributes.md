@@ -2,4 +2,4 @@
 livekit-ffi: minor
 ---
 
-Add `close_with_options(reason, attributes)` to the `core-modules` text and byte stream writers, which sends attributes in the stream's trailer and optionally closes it with a reason. This and the other new data stream methods add requirements to the generated Swift protocols and Kotlin interfaces, so a hand-written conformer such as a test mock must implement them.
+The `core-modules` text and byte stream writers' `close` takes an optional `reason`, which closes the stream abnormally, and `attributes` to send in the stream's trailer, which default to none and an empty map. This and the other changed or new data stream methods change the generated Swift protocols and Kotlin interfaces, so a hand-written conformer such as a test mock must be updated.
