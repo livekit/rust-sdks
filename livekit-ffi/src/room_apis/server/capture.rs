@@ -268,6 +268,7 @@ impl From<Result<PumpStats, PumpError>> for proto::join_capture_callback::Messag
                     PumpError::Source(_) => proto::CaptureErrorKind::Source,
                     PumpError::CaptureFailed => proto::CaptureErrorKind::Rtc,
                     PumpError::Panicked(_) => proto::CaptureErrorKind::Panicked,
+                    _ => proto::CaptureErrorKind::Source,
                 };
                 Self::Error(proto::CaptureError { error: err.to_string(), kind: kind.into() })
             }
@@ -313,6 +314,7 @@ pub fn on_join_capture(
             Some(running) => running.join().await.into(),
             None => proto::join_capture_callback::Message::Error(proto::CaptureError {
                 error: "capture was already joined or disposed".into(),
+                kind: proto::CaptureErrorKind::Source.into(),
             }),
         };
         let _ =
