@@ -62,25 +62,19 @@ impl CapturePump {
 enum CaptureState {
     /// Created but not started.
     Idle(CapturePump),
-    /// Started; the FFI object owns the running pump until join consumes it.
+    /// Started.
     Running(RunningPump),
-    /// The capture was joined or failed to start.
+    /// Joined or failed to start.
     Finished,
 }
 
 pub struct FfiCaptureSource {
     pub handle_id: FfiHandleId,
-    pump_stop: PumpStop,
+    stop: PumpStop,
     state: Mutex<CaptureState>,
 }
 
 impl FfiHandle for FfiCaptureSource {}
-
-impl Drop for FfiCaptureSource {
-    fn drop(&mut self) {
-        self.pump_stop.stop();
-    }
-}
 
 pub fn on_new_capture_source(
     server: &'static FfiServer,
@@ -246,7 +240,6 @@ pub fn on_start_capture(
     let running = match pump.spawn() {
         Ok(running) => running,
         Err(err) => {
-            *state = CaptureState::Finished;
             return Ok(proto::StartCaptureResponse {
                 error: Some(format!("failed to start capture: {err}")),
             });
@@ -295,25 +288,37 @@ pub fn on_join_capture(
     server: &'static FfiServer,
     request: proto::JoinCaptureRequest,
 ) -> FfiResult<proto::JoinCaptureResponse> {
-    let running = {
-        let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(request.capture_handle)?;
-        let mut state = ffi_capture.state.lock();
-        match std::mem::replace(&mut *state, CaptureState::Finished) {
-            CaptureState::Running(running) => running,
-            other => {
-                *state = other;
-                return Err(FfiError::InvalidRequest("capture is not running".into()));
-            }
-        }
+    let capture_handle = request.capture_handle;
+    let finished = {
+        let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
+        let CaptureState::Running(running) = &*ffi_capture.state.lock() else {
+            return Err(FfiError::InvalidRequest("capture is not running".into()));
+        };
+        running.finished()
     };
 
     let async_id = server.resolve_async_id(request.request_async_id);
     server.async_runtime.spawn(async move {
-        let result = running.join().await;
+        finished.await;
+        let running = server.retrieve_handle::<FfiCaptureSource>(capture_handle).ok().and_then(
+            |ffi_capture| match std::mem::replace(
+                &mut *ffi_capture.state.lock(),
+                CaptureState::Finished,
+            ) {
+                CaptureState::Running(running) => Some(running),
+                _ => None,
+            },
+        );
+        let message = match running {
+            Some(running) => running.join().await.into(),
+            None => proto::join_capture_callback::Message::Error(proto::CaptureError {
+                error: "capture was already joined or disposed".into(),
+            }),
+        };
         let _ =
             server.send_event(proto::ffi_event::Message::JoinCapture(proto::JoinCaptureCallback {
                 async_id,
-                message: Some(result.into()),
+                message: Some(message),
             }));
     });
 
@@ -358,8 +363,6 @@ mod tests {
             while !stop.is_stopped() {
                 std::thread::sleep(Duration::from_millis(1));
             }
-            // Make a detached-thread regression deterministic: disposal must
-            // wait through source cleanup before returning.
             std::thread::sleep(Duration::from_millis(50));
             Ok(None)
         }
@@ -396,6 +399,11 @@ mod tests {
             on_start_capture(server(), proto::StartCaptureRequest { capture_handle }).unwrap();
         assert_eq!(response.error, None);
         entered_rx.recv_timeout(Duration::from_secs(5)).expect("capture pump did not start");
+        on_join_capture(
+            server(),
+            proto::JoinCaptureRequest { capture_handle, request_async_id: None },
+        )
+        .unwrap();
 
         server().async_runtime.block_on(server().dispose());
         dropped_rx
