@@ -263,7 +263,7 @@ fn incoming_reader_reports_progress() {
 }
 
 /// How long a test waits for something that must happen.
-const TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Topic of the inline marker streams that [`count_closes`] sends.
 const MARKER_TOPIC: &str = "marker";
@@ -313,14 +313,14 @@ impl IncomingDataStreamManagerDelegate for StreamEvents {
 }
 
 /// The receiving ends of [`StreamEvents`].
-struct Events {
+pub(super) struct Events {
     text: mpsc::UnboundedReceiver<Arc<TextStreamReader>>,
     bytes: mpsc::UnboundedReceiver<Arc<ByteStreamReader>>,
     closed: mpsc::UnboundedReceiver<String>,
 }
 
 /// Creates a manager whose delegate forwards its events to the returned [`Events`].
-fn manager_with_events() -> (Arc<IncomingDataStreamManager>, Events) {
+pub(super) fn manager_with_events() -> (Arc<IncomingDataStreamManager>, Events) {
     let (text_tx, text) = mpsc::unbounded_channel();
     let (bytes_tx, bytes) = mpsc::unbounded_channel();
     let (closed_tx, closed) = mpsc::unbounded_channel();
@@ -351,7 +351,7 @@ async fn count_closes(
 }
 
 /// Opens a text stream that declares 10 bytes and delivers its first 5, and returns its reader.
-async fn open_text_stream(
+pub(super) async fn open_text_stream(
     manager: &IncomingDataStreamManager,
     events: &mut Events,
     stream_id: &str,

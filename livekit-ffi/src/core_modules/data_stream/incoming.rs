@@ -293,25 +293,19 @@ impl TextStreamReader {
     }
 }
 
-/// Reads the next chunk, unless the reader is closed first. A read that sees the close drops the
-/// core reader, which releases its buffered chunks.
+/// Reads the next chunk, unless the reader is closed first.
 async fn next_chunk<R: ds_api::StreamReader + Unpin>(
     reader: &mut Option<R>,
     closed: &CancellationToken,
 ) -> Result<Option<R::Output>, DataStreamError> {
-    let Some(open) = reader.as_mut() else {
+    let Some(reader) = reader.as_mut() else {
         return Err(DataStreamError::AlreadyClosed);
     };
-    let read = tokio::select! {
+    tokio::select! {
         biased;
-        _ = closed.cancelled() => None,
-        chunk = open.next() => Some(chunk),
-    };
-    let Some(chunk) = read else {
-        *reader = None;
-        return Err(DataStreamError::AlreadyClosed);
-    };
-    Ok(chunk.transpose()?)
+        _ = closed.cancelled() => Err(DataStreamError::AlreadyClosed),
+        chunk = reader.next() => Ok(chunk.transpose()?),
+    }
 }
 
 /// Waits for the next progress update, unless the reader is closed first.
@@ -407,72 +401,30 @@ async fn shutdown_forward_task(input: ds::incoming::ManagerInput, token: Cancell
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use futures_util::FutureExt as _;
 
-    use livekit_protocol as proto;
-    use prost::Message as _;
-    use tokio::sync::mpsc;
-
+    use super::super::tests::{manager_with_events, open_text_stream, TIMEOUT};
     use super::*;
-
-    /// How long the test waits for something that must happen.
-    const TIMEOUT: Duration = Duration::from_secs(5);
-
-    /// Forwards every opened text reader.
-    struct TextReaders(mpsc::UnboundedSender<Arc<TextStreamReader>>);
-
-    impl IncomingDataStreamManagerDelegate for TextReaders {
-        fn on_byte_stream_opened(&self, _reader: Arc<ByteStreamReader>, _identity: String) {}
-
-        fn on_text_stream_opened(&self, reader: Arc<TextStreamReader>, _identity: String) {
-            let _ = self.0.send(reader);
-        }
-
-        fn on_stream_closed(&self, _stream_id: String, _identity: String) {}
-    }
 
     #[test]
     fn close_drops_the_core_reader_while_a_read_is_pending() {
         crate::runtime::runtime().block_on(async {
-            let (tx, mut readers) = mpsc::unbounded_channel();
-            let manager = IncomingDataStreamManager::new(Arc::new(TextReaders(tx)), None);
-            let header = proto::data_stream::Header {
-                stream_id: "s1".to_string(),
-                mime_type: "text/plain".to_string(),
-                total_length: Some(10),
-                content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
-                    proto::data_stream::TextHeader::default(),
-                )),
-                ..Default::default()
-            };
-            let packet = proto::DataPacket {
-                participant_identity: "alice".to_string(),
-                value: Some(proto::data_packet::Value::StreamHeader(header)),
-                ..Default::default()
-            };
-            manager.handle_packet_received(packet.encode_to_vec().into(), EncryptionType::None);
-            let reader = readers.recv().await.expect("the stream should open");
+            let (manager, mut events) = manager_with_events();
+            let reader = open_text_stream(&manager, &mut events, "s1").await;
 
-            // A read that waits for data holds the lock on the core reader.
-            let read = tokio::spawn({
-                let reader = reader.clone();
-                async move { reader.read_all().await }
-            });
-            let started = tokio::time::timeout(TIMEOUT, async {
-                while reader.inner.try_lock().is_ok() {
-                    tokio::task::yield_now().await;
-                }
-            });
-            started.await.expect("the read should start waiting");
-
+            // A read that waits for the rest of the stream holds the lock on the core reader.
+            let mut read = std::pin::pin!(reader.read_all());
+            assert!(read.as_mut().now_or_never().is_none());
             reader.close();
+            let result = tokio::time::timeout(TIMEOUT, read).await.expect("the read should end");
+            assert!(matches!(result, Err(DataStreamError::AlreadyClosed)));
+
             let dropped = tokio::time::timeout(TIMEOUT, async {
                 while reader.inner.lock().await.is_some() {
                     tokio::task::yield_now().await;
                 }
             });
             dropped.await.expect("close should drop the core reader");
-            assert!(matches!(read.await.unwrap(), Err(DataStreamError::AlreadyClosed)));
         });
     }
 }
