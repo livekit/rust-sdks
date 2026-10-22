@@ -72,6 +72,9 @@ pub trait RemoteParticipantRegistryDelegate: Send + Sync {
 pub trait StreamProgressDelegate: Send + Sync {
     /// Reports how much of the payload was sent. Called on the thread that polls the send, so it
     /// must return quickly.
+    ///
+    /// It must not throw. The method returns no error, so UniFFI turns an exception from a Kotlin
+    /// or Dart implementation into a Rust panic, and the release profile aborts the process.
     fn on_progress(&self, progress: StreamProgress);
 }
 
