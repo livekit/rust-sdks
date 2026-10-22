@@ -1246,39 +1246,20 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn v2_inline_shorter_than_declared_is_incomplete() {
+        async fn v2_inline_payload_is_held_to_its_declared_length() {
             for compression in [CompressionType::None, CompressionType::DeflateRaw] {
-                let result = read_inline_text("hello", Some(6), compression.clone()).await;
-                assert!(matches!(result, Err(StreamError::Incomplete)), "{compression:?}");
-            }
-        }
-
-        #[tokio::test]
-        async fn v2_inline_longer_than_declared_exceeds_length() {
-            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
-                let result = read_inline_text("hello", Some(4), compression.clone()).await;
-                assert!(matches!(result, Err(StreamError::LengthExceeded)), "{compression:?}");
-            }
-        }
-
-        #[tokio::test]
-        async fn v2_inline_non_empty_payload_with_declared_zero_length_fails() {
-            // JS treats a declared length of 0 as unknown and skips the check. No sender inlines a
-            // non-empty payload with a length of 0, so the core holds 0 to the payload like any
-            // other length.
-            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
-                let result = read_inline_text("hello", Some(0), compression.clone()).await;
-                assert!(matches!(result, Err(StreamError::LengthExceeded)), "{compression:?}");
-            }
-        }
-
-        #[tokio::test]
-        async fn v2_inline_matching_or_undeclared_length_is_accepted() {
-            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
-                for total_length in [Some(5), None] {
-                    let result = read_inline_text("hello", total_length, compression.clone()).await;
-                    assert_eq!(result.unwrap(), "hello", "{compression:?}, {total_length:?}");
-                }
+                let read = |total| read_inline_text("hello", total, compression.clone());
+                let short = read(Some(6)).await;
+                assert!(matches!(short, Err(StreamError::Incomplete)), "{compression:?}");
+                let long = read(Some(4)).await;
+                assert!(matches!(long, Err(StreamError::LengthExceeded)), "{compression:?}");
+                // JS treats a declared length of 0 as unknown and skips the check. No sender
+                // inlines a non-empty payload with a length of 0, so the core holds 0 to the
+                // payload like any other length.
+                let zero = read(Some(0)).await;
+                assert!(matches!(zero, Err(StreamError::LengthExceeded)), "{compression:?}");
+                assert_eq!(read(Some(5)).await.unwrap(), "hello", "{compression:?}");
+                assert_eq!(read(None).await.unwrap(), "hello", "{compression:?}");
             }
         }
 
@@ -1876,76 +1857,47 @@ mod tests {
             reader
         }
 
-        /// Starts a manager whose run loop the test owns and opens one text stream on it.
-        async fn open_on_owned_manager() -> (
-            ManagerInput,
-            UnboundedReceiver<OutputEvent>,
-            tokio::task::JoinHandle<()>,
-            TextStreamReader,
-        ) {
+        #[tokio::test]
+        async fn closer_after_shutdown_does_nothing() {
+            // A manager whose run loop the test owns, with one open text stream.
             let (manager, input, mut output_rx) = Manager::new(None);
             let run = tokio::spawn(manager.run());
             let header = text_header("s1", Some(10), HashMap::new(), None, CompressionType::None);
             let packet = Packet::Header { header, encryption_type: EncryptionType::None };
             let identity = ParticipantIdentity::from(SENDER);
             input.send(PacketReceived::new(packet, identity).into()).unwrap();
-            loop {
+            let reader = loop {
                 let event = output_rx.recv().await.expect("the stream should open");
                 if let OutputEvent::StreamOpened(StreamOpened {
                     stream_reader: AnyStreamReader::Text(reader),
                     ..
                 }) = event
                 {
-                    return (input, output_rx, run, reader);
+                    break reader;
                 }
-            }
-        }
+            };
 
-        /// Waits for the manager's run loop to stop.
-        async fn wait_for_stop(run: tokio::task::JoinHandle<()>) {
+            input.send(InputEvent::Shutdown).unwrap();
             let stopped = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
             stopped.expect("the run loop should stop").expect("the run loop should not panic");
-        }
 
-        /// Counts the close events left in `output_rx`. The channel ends once the stopped
-        /// manager is dropped, so this sees every event the manager emitted.
-        async fn count_closes(mut output_rx: UnboundedReceiver<OutputEvent>) -> usize {
-            let mut count = 0;
-            while let Some(event) = output_rx.recv().await {
-                count += usize::from(matches!(event, OutputEvent::StreamClosed(_)));
-            }
-            count
-        }
-
-        #[tokio::test]
-        async fn closer_after_shutdown_with_input_dropped_does_nothing() {
-            let (input, output_rx, run, reader) = open_on_owned_manager().await;
-            // Dropping the last input handle shuts the manager down.
-            drop(input);
-            wait_for_stop(run).await;
-
-            // No input handle is left, so the closer has nothing to send to. `close()` is
-            // synchronous, so returning means that it did not block.
+            // `close()` is synchronous, so each call returning shows it did not block. With the
+            // input kept, the closer reaches the queue, but the send fails: nothing receives.
             let closer = reader.closer();
             closer.close();
             closer.close();
-            assert_eq!(count_closes(output_rx).await, 1, "only the shutdown abort");
-            assert!(matches!(reader.read_all().await, Err(StreamError::AbnormalEnd(_))));
-        }
-
-        #[tokio::test]
-        async fn closer_after_shutdown_with_input_retained_does_nothing() {
-            let (input, output_rx, run, reader) = open_on_owned_manager().await;
-            input.send(InputEvent::Shutdown).unwrap();
-            wait_for_stop(run).await;
-
-            // The input handle is still alive, but the stopped manager no longer receives.
-            let closer = reader.closer();
-            closer.close();
-            closer.close();
-            assert_eq!(count_closes(output_rx).await, 1, "only the shutdown abort");
-            assert!(matches!(reader.read_all().await, Err(StreamError::AbnormalEnd(_))));
             assert!(input.send(InputEvent::AbortAllStreams).is_err());
+            // With the last input dropped, the closer's weak handle cannot upgrade.
+            drop(input);
+            closer.close();
+
+            // The output ends once the stopped manager is dropped, so this sees every event.
+            let mut closes = 0;
+            while let Some(event) = output_rx.recv().await {
+                closes += usize::from(matches!(event, OutputEvent::StreamClosed(_)));
+            }
+            assert_eq!(closes, 1, "only the shutdown abort");
+            assert!(matches!(reader.read_all().await, Err(StreamError::AbnormalEnd(_))));
         }
 
         #[tokio::test]

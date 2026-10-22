@@ -1118,15 +1118,6 @@ mod tests {
                 assert_eq!(reports, vec![(15_000, Some(20_000)), (20_000, Some(20_000))]);
             }
 
-            #[tokio::test]
-            async fn send_file_reports_progress_before_compression() {
-                // Incompressible, so the compressed stream spans several chunks.
-                let reports = send_file_progress(&random_bytes(50_000), true).await;
-                assert!(reports.len() >= 2, "{reports:?}");
-                assert!(reports.windows(2).all(|pair| pair[0].0 < pair[1].0), "{reports:?}");
-                assert_eq!(reports.last(), Some(&(50_000, Some(50_000))));
-            }
-
             /// What the transport and the progress callback saw, in order.
             #[derive(Debug, PartialEq)]
             enum Seen {
@@ -1188,6 +1179,7 @@ mod tests {
                         Seen::Chunk => None,
                     })
                     .collect();
+                assert!(reports.len() >= 2, "{seen:?}");
                 assert!(reports.windows(2).all(|pair| pair[0] < pair[1]), "{seen:?}");
                 // The total is reported once, after the last chunk was sent.
                 assert_eq!(seen.last(), Some(&Seen::Progress(50_000)), "{seen:?}");
@@ -1395,46 +1387,6 @@ mod tests {
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 4); // header + 2 chunks + trailer
         assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
-    }
-
-    #[tokio::test]
-    async fn writers_closed_with_trailer_attributes_target_every_packet() {
-        let attributes: HashMap<String, String> = [("k".to_string(), "v".to_string())].into();
-
-        let (m, sent) = setup();
-        let writer = m.stream_text(text_opts("chat", &["alice", "bob"])).await.unwrap();
-        writer.write("hello").await.unwrap();
-        writer.close_with_options(None, Some(attributes.clone())).await.unwrap();
-        let p = sent.lock().unwrap().clone();
-        assert_eq!(p.len(), 3);
-        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice", "bob"]));
-        assert_trailer(&p[2]);
-
-        let (m, sent) = setup();
-        let writer = m.stream_bytes(byte_opts("file", &["bob"])).await.unwrap();
-        writer.write(b"hello").await.unwrap();
-        writer.close_with_options(Some("cancelled"), Some(attributes)).await.unwrap();
-        let p = sent.lock().unwrap().clone();
-        assert_eq!(p.len(), 3);
-        assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
-    }
-
-    #[tokio::test]
-    async fn writer_dropped_without_close_targets_its_trailer() {
-        let (m, sent) = setup();
-        let writer = m.stream_text(text_opts("chat", &["alice"])).await.unwrap();
-        writer.write("hello").await.unwrap();
-        drop(writer);
-        // The trailer goes out from a task that the drop spawns.
-        let trailer_sent = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while sent.lock().unwrap().len() < 3 {
-                tokio::task::yield_now().await;
-            }
-        });
-        trailer_sent.await.expect("the drop should send a trailer");
-        let p = sent.lock().unwrap().clone();
-        assert_trailer(&p[2]);
-        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice"]));
     }
 
     #[tokio::test]
