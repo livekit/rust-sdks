@@ -42,8 +42,27 @@ pub struct NativeTransport {
 
 impl NativeTransport {
     pub(crate) fn new() -> Self {
-        Self { http: reqwest::Client::new() }
+        let http = reqwest::Client::builder()
+            .redirect(redirect_policy())
+            .build()
+            // `reqwest::Client::new` panics the same way.
+            .expect("the TLS backend initializes");
+        Self { http }
     }
+}
+
+/// reqwest's default policy (at most 10 redirects), except that a redirect to another scheme is
+/// returned instead of followed: reqwest drops `Authorization` only when the host or port
+/// changes, so an `https` to `http` redirect on port 443 would send a credential in plaintext.
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        let from = attempt.previous().last().map(url::Url::scheme);
+        if from.is_some_and(|scheme| scheme != attempt.url().scheme()) {
+            attempt.stop()
+        } else {
+            reqwest::redirect::Policy::default().redirect(attempt)
+        }
+    })
 }
 
 /// The shared default transport behind the registry fallback. Memoized because
@@ -137,5 +156,45 @@ impl HttpClient for NativeTransport {
                 res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
             Ok(HttpResponse { status, headers: resp_headers, body })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        time::Duration,
+    };
+
+    use super::*;
+
+    /// A redirect that changes only the scheme, on the same port, comes back as the 3xx: the
+    /// request with its `Authorization` header is not sent again under the new scheme.
+    #[tokio::test]
+    async fn a_redirect_to_another_scheme_is_not_followed() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("address").port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("the first request");
+            let _ = stream.read(&mut [0; 4096]);
+            let answer = format!(
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: https://127.0.0.1:{port}/v1/logs\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(answer.as_bytes()).expect("answer");
+            drop(stream);
+            listener.set_nonblocking(true).expect("non-blocking");
+            std::thread::sleep(Duration::from_millis(300));
+            listener.accept().is_ok()
+        });
+        let headers = vec![Header { name: "Authorization".into(), value: "Bearer token".into() }];
+        let url = format!("http://127.0.0.1:{port}/v1/logs");
+        let response = NativeTransport::new()
+            .request(HttpMethod::Post, url, headers, Some(b"batch".to_vec()))
+            .await
+            .expect("the redirect itself comes back");
+        assert_eq!(response.status, 307);
+        assert!(!server.join().expect("server"), "nothing was sent to the new scheme");
     }
 }

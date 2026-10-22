@@ -34,9 +34,9 @@ use tokio::time::Instant;
 
 /// The environment variable that points every upload at a collector of your own — a local
 /// OpenTelemetry collector for end-to-end tests. Not part of any platform API: set it in the
-/// test process's environment before the pipeline starts. Either a base URL
-/// (`http://localhost:4318`, OTLP paths `/v1/logs` and `/v1/traces` are appended) or a full logs
-/// URL ending in `logs` (its traces URL is derived by replacing that segment).
+/// test process's environment before the pipeline starts. Either a URL with a `logs` path
+/// segment (its traces URL replaces that segment with `traces`) or a base URL
+/// (`http://localhost:4318`, OTLP paths `/v1/logs` and `/v1/traces` are appended).
 pub const ENDPOINT_OVERRIDE_ENV: &str = "LK_TELEMETRY_ENDPOINT";
 
 /// The longest a token is believed to stay valid, whatever its `exp` says.
@@ -59,12 +59,16 @@ pub(crate) struct Target {
     /// The project the batch is sent to (`None` for the test override): what its answer is
     /// attributed to — a 404, a disable, a pause.
     pub project: Option<String>,
+    /// The OTLP logs endpoint.
     pub logs: String,
+    /// The OTLP traces endpoint.
     pub traces: String,
+    /// The bearer token to send, `None` for the test override.
     pub token: Option<String>,
 }
 
 impl Target {
+    /// The endpoint for `signal`.
     pub fn url(&self, signal: Signal) -> &str {
         match signal {
             Signal::Logs => &self.logs,
@@ -86,8 +90,9 @@ pub(crate) struct Token {
     id: u64,
 }
 
-impl Token {
-    pub fn parse(raw: &str) -> Self {
+impl From<&str> for Token {
+    /// Read a raw participant token's claims; a malformed one carries no grant.
+    fn from(raw: &str) -> Self {
         let claims = raw
             .split('.')
             .nth(1)
@@ -128,7 +133,9 @@ impl Token {
         };
         Self { raw: raw.to_owned(), grant, expires, id }
     }
+}
 
+impl Token {
     fn expired(&self) -> bool {
         self.expires.is_some_and(|at| Instant::now() >= at)
     }
@@ -237,6 +244,8 @@ pub(crate) struct Destinations {
 }
 
 impl Destinations {
+    /// No projects yet. With `endpoint_override` (see [`ENDPOINT_OVERRIDE_ENV`]) every batch goes
+    /// there instead.
     pub fn new(endpoint_override: Option<&str>) -> Self {
         Self {
             endpoint_override: endpoint_override.filter(|e| !e.is_empty()).map(override_target),
@@ -250,17 +259,21 @@ impl Destinations {
         self.rooms.get(owner).cloned()
     }
 
+    /// Whether every batch goes to the test override.
     pub fn has_override(&self) -> bool {
         self.endpoint_override.is_some()
     }
 
     /// Session `owner`'s server URL and token (at connect, and again on every refresh). Returns
-    /// the project host its batches carry, or `None` when the URL has no host.
+    /// the project key its batches carry, or `None` when the URL has no host.
     pub fn set(&mut self, url: &str, token: &str, owner: &str) -> Option<String> {
         let Server { key: host, cloud } = Server::parse(url)?;
         if self.endpoint_override.is_some() {
             return Some(host);
         }
+        // The first project is the Room's even when it receives nothing: what the Room captured
+        // before it had a server belongs there, and is dropped with it.
+        self.rooms.entry(owner.to_owned()).or_insert_with(|| host.clone());
         let project = self.projects.entry(host.clone()).or_default();
         if project.dead.is_none() && !cloud {
             project.dead = Some(Dead::NotCloud);
@@ -269,7 +282,7 @@ impl Destinations {
         if matches!(project.dead, Some(Dead::NotCloud | Dead::Disabled)) {
             return Some(host);
         }
-        let token = Token::parse(token);
+        let token = Token::from(token);
         if project.dead == Some(Dead::NotFound) {
             log::debug!("new token for {host}: trying its ingest again");
             project.dead = None;
@@ -288,7 +301,6 @@ impl Destinations {
         let mut own = self.sessions.remove(&key);
         offer(&mut own, &token, &self.refused);
         self.sessions.extend(own.map(|own| (key, own)));
-        self.rooms.entry(owner.to_owned()).or_insert_with(|| host.clone());
         self.latest = Some(host.clone());
         Some(host)
     }
@@ -352,16 +364,17 @@ impl Destinations {
         !self.projects.is_empty() && self.projects.values().all(|p| p.dead.is_some())
     }
 
-    /// Whether a session routed to `host` should still collect: `false` once its project is
-    /// known to receive nothing, so its records are dropped at the door instead of cached.
-    pub fn alive(&self, host: Option<&str>) -> bool {
-        self.endpoint_override.is_some() || !matches!(self.route(host, None), Route::Drop)
+    /// Whether session `owner`, routed to `host`, should still collect: `false` once its
+    /// project is known to receive nothing, so its records are dropped at the door instead of
+    /// cached. A Room without a server yet waits for its first project, like [`route`](Self::route).
+    pub fn alive(&self, host: Option<&str>, owner: Option<&str>) -> bool {
+        !matches!(self.route(host, owner), Route::Drop)
     }
 
     /// The collector refused `token` (401/403): it is not sent again, from any slot; batches that
     /// would use it wait for the next one.
     pub fn refuse(&mut self, token: &str) {
-        if self.refused.add(&Token::parse(token)) {
+        if self.refused.add(&Token::from(token)) {
             log::warn!("the collector refused a token; waiting for a new one");
         }
     }
@@ -396,14 +409,27 @@ impl Destinations {
             .retain(|owner, _| live.contains_key(owner) || backlog.iter().any(|(_, o)| o == owner));
         let unrouted = backlog.iter().any(|(host, _)| host.is_none());
         let latest = self.latest.clone();
-        for (host, project) in &mut self.projects {
+        // A kept Room credential or first project keeps its project's entry too.
+        let held: std::collections::HashSet<String> = self
+            .sessions
+            .keys()
+            .map(|(host, _)| host)
+            .chain(self.rooms.values())
+            .cloned()
+            .collect();
+        // An entry nothing needs goes: the table follows the live sessions and the backlog. A
+        // dead entry stays for the process, so a later Room or process-level record is not
+        // collected for a project that takes nothing.
+        self.projects.retain(|host, project| {
             let needed = live.values().any(|route| route.as_deref() == Some(host))
                 || backlog.iter().any(|(h, _)| h.as_deref() == Some(host))
-                || (unrouted && latest.as_deref() == Some(host));
+                || (unrouted && latest.as_deref() == Some(host))
+                || held.contains(host);
             if !needed {
                 project.latest = None;
             }
-        }
+            needed || project.dead.is_some()
+        });
     }
 
     /// How many credentials are held, Room and project copies together.
@@ -438,8 +464,10 @@ impl Destinations {
 }
 
 /// A server URL, parsed (WHATWG URL rules, the same a browser or `URLSession` applies): its
-/// routing key — the canonical host, with the port when one is given — and whether it is a
-/// LiveKit Cloud project a token may be sent to.
+/// routing key (a Cloud project's host, or `<scheme>+` and the escaped host and port for any other
+/// URL, for example `ws+localhost%3A7880`) and whether it is a LiveKit Cloud project a token may be
+/// sent to. The key ends every cached batch's id, which is a file name: it holds no character a
+/// file name cannot hold on any platform.
 struct Server {
     key: String,
     cloud: bool,
@@ -454,18 +482,36 @@ impl Server {
             None => host.clone(),
         };
         // Credentials only ever go to `https://<project>.livekit.cloud/…`, built from the
-        // validated host alone: a TLS scheme, a domain under the Cloud suffix with a label of its
-        // own, the default port, no userinfo. Anything else — a look-alike that only a string
-        // check would accept (`evil.example\.livekit.cloud` is host `evil.example`), a
-        // plaintext scheme, an odd port — is not Cloud.
+        // validated host alone: a TLS scheme, a domain of letters, digits, `-` and `.` (a DNS
+        // hostname) under the Cloud suffix with a label of its own, the default port, no
+        // userinfo. Anything else — a look-alike that only a string check would accept
+        // (`evil.example\.livekit.cloud` is host `evil.example`), a plaintext scheme, an odd port
+        // — is not Cloud.
         let cloud = matches!(url.scheme(), "wss" | "https")
             && matches!(url.host(), Some(url::Host::Domain(_)))
+            && host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
             && host.strip_suffix(CLOUD_SUFFIX).is_some_and(|label| !label.is_empty())
             && url.port().is_none()
             && url.username().is_empty()
             && url.password().is_none();
+        // A non-Cloud URL never shares a key with a Cloud host: it can neither feed nor kill it.
+        let key = if cloud { key } else { format!("{}+{}", url.scheme(), file_safe(&key)) };
         Some(Self { key, cloud })
     }
+}
+
+/// `text` with every byte other than a lowercase letter, a digit, `.`, `-` or `_` written as
+/// `%XX`: a port's `:`, the brackets and colons of an IPv6 address and the `*` or `"` a URL host
+/// may hold are not allowed in a Windows file name.
+fn file_safe(text: &str) -> String {
+    let mut safe = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' => safe.push(byte as char),
+            _ => safe.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    safe
 }
 
 /// `https://<host>/observability/client/{logs,traces}/otlp/v0`: the client table set.
@@ -477,10 +523,19 @@ fn ingest_url(host: &str, signal: Signal) -> String {
     format!("https://{host}/observability/client/{signal}/otlp/v0")
 }
 
+/// The targets of [`ENDPOINT_OVERRIDE_ENV`].
 fn override_target(endpoint: &str) -> Target {
     let endpoint = endpoint.trim_end_matches('/');
-    let (logs, traces) = match endpoint.rsplit_once("logs") {
-        Some((before, after)) => (endpoint.to_owned(), format!("{before}traces{after}")),
+    // A logs URL has a whole `logs` path segment; its traces URL swaps that segment.
+    let traces = url::Url::parse(endpoint).ok().and_then(|mut url| {
+        let mut segments: Vec<String> = url.path_segments()?.map(str::to_owned).collect();
+        let logs = segments.iter().rposition(|s| s == "logs")?;
+        segments[logs] = "traces".to_owned();
+        url.set_path(&segments.join("/"));
+        Some(url.to_string())
+    });
+    let (logs, traces) = match traces {
+        Some(traces) => (endpoint.to_owned(), traces),
         None => (format!("{endpoint}/v1/logs"), format!("{endpoint}/v1/traces")),
     };
     Target { project: None, logs, traces, token: None }
@@ -727,6 +782,131 @@ pub(crate) mod tests {
         assert!(matches!(local.route(host.as_deref(), Some("s")), Route::Send(_)));
     }
 
+    #[test]
+    fn the_override_swaps_only_a_whole_logs_segment() {
+        let targets = |endpoint| {
+            let target = send(Destinations::new(Some(endpoint)).route(None, None));
+            (target.logs, target.traces)
+        };
+        assert_eq!(
+            targets("http://logs-collector:4318"),
+            (
+                "http://logs-collector:4318/v1/logs".to_owned(),
+                "http://logs-collector:4318/v1/traces".to_owned()
+            )
+        );
+        assert_eq!(
+            targets("http://collector:4318/catalogs"),
+            (
+                "http://collector:4318/catalogs/v1/logs".to_owned(),
+                "http://collector:4318/catalogs/v1/traces".to_owned()
+            )
+        );
+    }
+
+    /// A plaintext or userinfo URL on a Cloud host gets a routing key of its own: it never
+    /// revives the Cloud project with a token from an insecure connect, and never silences it.
+    #[test]
+    fn non_cloud_urls_never_share_a_routing_key_with_cloud() {
+        let cloud = "p.livekit.cloud";
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &grantless(600), "a");
+        let plain = d.set("ws://p.livekit.cloud", &granted(600), "b");
+        assert_ne!(plain.as_deref(), Some(cloud));
+        assert_eq!(d.route(Some(cloud), Some("b")), Route::Drop, "still never opted in");
+        assert_eq!(d.route(plain.as_deref(), Some("b")), Route::Drop, "not Cloud");
+
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &granted(600), "a");
+        d.kill(cloud, Dead::NotFound);
+        d.set("ws://p.livekit.cloud", &granted(700), "b");
+        assert_eq!(d.route(Some(cloud), Some("a")), Route::Drop, "only a Cloud connect revives");
+
+        for first in ["ws://p.livekit.cloud", "wss://user@p.livekit.cloud"] {
+            let mut d = Destinations::default();
+            d.set(first, &granted(600), "a");
+            let host = d.set("wss://p.livekit.cloud", &granted(600), "b");
+            assert!(matches!(d.route(host.as_deref(), Some("b")), Route::Send(_)), "{first}");
+        }
+    }
+
+    #[test]
+    fn a_room_without_a_project_waits_for_its_first_one() {
+        let mut d = Destinations::default();
+        d.set("ws://localhost:7880", &granted(600), "a");
+        assert!(!d.alive(None, None), "process data: only dead projects so far");
+        assert!(d.alive(None, Some("b")), "a Room without a server waits");
+    }
+
+    #[test]
+    fn the_project_table_follows_the_live_sessions() {
+        let mut d = Destinations::default();
+        for n in 0..1000 {
+            d.set(&format!("wss://p{n}.livekit.cloud"), &granted(600), &format!("room-{n}"));
+        }
+        d.kill("p0.livekit.cloud", Dead::Disabled);
+        d.retain_owners(&Default::default(), &Default::default());
+        assert_eq!(d.projects.len(), 1, "only the owner's switch stays");
+        let route = d.route(Some("p0.livekit.cloud"), Some("room-0"));
+        assert_eq!(route, Route::Drop, "and keeps the project silent");
+    }
+
+    #[test]
+    fn routing_keys_are_file_names_on_every_platform() {
+        // What Windows refuses in a file name: a routing key ends every cached batch's id.
+        let refused = |c: char| c.is_control() || r#"<>:"/\|?*"#.contains(c);
+        let urls = [
+            "ws://localhost:7880",
+            "wss://[::1]:7880",
+            "wss://a*b\"c.example",
+            "wss://x*y.livekit.cloud",
+            "https://p.livekit.cloud:8443",
+            "wss://p.livekit.cloud",
+        ];
+        let mut d = Destinations::default();
+        let keys: Vec<String> =
+            urls.iter().map(|url| d.set(url, &granted(600), "s").expect(url)).collect();
+        assert!(keys.iter().all(|key| !key.contains(refused)), "{keys:?}");
+        let distinct: std::collections::HashSet<&String> = keys.iter().collect();
+        assert_eq!(distinct.len(), keys.len(), "distinct servers keep distinct keys: {keys:?}");
+        assert_eq!(keys[5], "p.livekit.cloud", "a Cloud project is keyed by its host");
+    }
+
+    #[test]
+    fn early_records_belong_to_a_first_project_that_is_not_cloud() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let first = d.set("ws://localhost:7880", &token, "room").expect("a host");
+        d.set("wss://later.livekit.cloud", &token, "room");
+        assert_eq!(d.first_project("room"), Some(first));
+        assert_eq!(d.route(None, Some("room")), Route::Drop, "dropped with that project");
+    }
+
+    #[test]
+    fn early_records_belong_to_a_first_project_that_is_disabled() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        d.set("wss://disabled.livekit.cloud", &token, "other");
+        d.kill("disabled.livekit.cloud", Dead::Disabled);
+        d.set("wss://disabled.livekit.cloud", &token, "room");
+        d.set("wss://later.livekit.cloud", &token, "room");
+        assert_eq!(d.first_project("room").as_deref(), Some("disabled.livekit.cloud"));
+        assert_eq!(d.route(None, Some("room")), Route::Drop, "dropped with that project");
+    }
+
+    #[test]
+    fn a_dead_project_outlives_its_room() {
+        for (url, token) in
+            [("ws://localhost:7880", granted(600)), ("wss://p.livekit.cloud", grantless(600))]
+        {
+            let mut d = Destinations::default();
+            d.set(url, &token, "room");
+            d.retain_owners(&Default::default(), &Default::default());
+            assert_eq!(d.route(None, Some(PROCESS_OWNER)), Route::Drop, "{url}");
+            assert!(!d.alive(None, Some(PROCESS_OWNER)), "{url}: process data is not collected");
+        }
+    }
+
     /// A past, negative, fractional-past or malformed `exp` is expired (a hard hold); only a
     /// missing one means no known expiry.
     #[tokio::test(start_paused = true)]
@@ -758,11 +938,11 @@ pub(crate) mod tests {
 
     #[test]
     fn tokens_are_read_not_verified() {
-        assert!(Token::parse(&granted(60)).grant);
+        assert!(Token::from(granted(60).as_str()).grant);
         let client_write = jwt(serde_json::json!({ "observability": { "clientWrite": true } }));
-        let parsed = Token::parse(&client_write);
+        let parsed = Token::from(client_write.as_str());
         assert!(parsed.grant && parsed.expires.is_none(), "no exp: no known expiry");
-        assert!(!Token::parse("garbage").grant);
-        assert!(!Token::parse("a.!!!.c").grant);
+        assert!(!Token::from("garbage").grant);
+        assert!(!Token::from("a.!!!.c").grant);
     }
 }

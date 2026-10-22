@@ -8,9 +8,11 @@ Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamp
 captured (queued), never at export; an explicit `timestamp_ns` is kept. Its attributes, like its
 owner and timestamp, are taken at capture, its session's (`lk.room.*`, `lk.participant.*`,
 `session.id`) included, so a record captured before a disconnect keeps its room; only
-pipeline-wide attributes are added at export. Attribute keys the SDK owns are `lk.*`, `otel.*`,
-`code.*`, `session.id` and `error.type`: an app's attributes and custom events cannot set them,
-and on a span only the core writes `lk.outcome` and `error.type` (see [Spans](#spans)).
+pipeline-wide attributes are added at export. A record ships each key once: of a key it repeats,
+the last value supplied wins, and its session's keys replace its own. Attribute keys the SDK
+owns are `lk.*`, `otel.*`, `code.*`, `session.id` and `error.type`: an app's attributes and
+custom events cannot set them, and on a span only the core writes `lk.outcome` and `error.type`
+(see [Spans](#spans)).
 
 ## Resource attributes
 
@@ -62,16 +64,22 @@ minutes). The call is cheap and idempotent. There is no client-side endpoint, he
   Room keeps one credential per project it has used — and while cached batches need them;
   project-level copies only while a live session is routed there or the backlog has batches for
   it. A token the collector refused is recorded by identity (a hash) and never sent again from
-  any slot, until it expires (a token without `exp` stays refused for the process; like the
-  per-host project table, which keeps one small entry per host ever seen, that grows only with
-  what a process meets — bounded in practice, not by a cap). A past,
-  negative or non-numeric `exp` counts as expired.
+  any slot, until it expires (a token without `exp` stays refused for the process). A past,
+  negative or non-numeric `exp` counts as expired. A project's entry goes once no live session
+  and no cached batch needs it. An entry known to receive nothing (not Cloud, no grant, 404,
+  disabled) stays for the process.
+- **Routing key:** a Cloud project is keyed by its host, which must be a DNS hostname (letters,
+  digits, `-` and `.`). Any other URL is keyed by its scheme, host and port, so a plaintext or
+  userinfo URL on a Cloud host can neither feed that project a token nor silence it. Its host and
+  port are escaped (`%XX` for anything but a lowercase letter, a digit, `.`, `-` or `_`): the key
+  ends each cached batch's file name, which must be valid on every platform.
 - **Waiting** for a first destination or a usable token is uncapped, bounded only by the cache.
 
 Local end-to-end tests point everything at an OpenTelemetry collector of their own with the
 `LK_TELEMETRY_ENDPOINT` environment variable, read by the core at start (a base URL gets
-`/v1/logs` and `/v1/traces`; a URL ending in `logs` is used as is). It is not part of any platform
-API. With it, every batch goes there without Cloud rules or tokens.
+`/v1/logs` and `/v1/traces`; a URL with a `logs` path segment is used as is, and its traces URL
+replaces that segment). It is not part of any platform API. With it, every batch goes there
+without Cloud rules or tokens.
 
 ## Events
 
@@ -95,14 +103,14 @@ severity: info
 attributes:                             # counts since the previous report
   lk.telemetry.uploads.sent: int        # batches accepted
   lk.telemetry.uploads.bytes: int       # compressed bytes accepted — what telemetry cost the uplink
-  lk.telemetry.uploads.failed: int      # attempts that failed transiently (no answer, 429, 5xx)
+  lk.telemetry.uploads.failed: int      # attempts that failed transiently (a network error, 429 or 5xx, before the timeout)
   lk.telemetry.cache.batches: int       # batches waiting in the cache right now (a gauge)
   # the rest only when non-zero:
   lk.telemetry.uploads.timeouts: int    # attempts that hit export_timeout_ms
   lk.telemetry.uploads.unauthorized: int # 401/403 answers: tokens the collector refused
   lk.telemetry.holds.capped: int        # soft holds that reached the 60 s cap
   lk.telemetry.cache.write_errors: int  # batches the disk refused (full, gone), kept in memory
-  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue
+  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue, and spans dropped from a full span buffer
   lk.telemetry.dropped.cache_error: int # records no cache, not even memory, could take
   lk.telemetry.dropped.cache_full: int  # records evicted by the cache's size / file-count bound
   lk.telemetry.dropped.expired: int     # records in batches past the 24 h age limit
@@ -219,8 +227,8 @@ A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without 
 (semconv), `lk.log.source` (`sdk` | `ffi` | `webrtc`) and `lk.log.logger` (type, module or file). The
 platform hands the core a typed `LogRecord` via `log(record)`; the core applies the floor: WebRTC only
 at `error`, the SDK and the core at the configured `log_severity`, the core's own telemetry module
-never. Only `warn` and `error` records
-leave the device; `trace`/`debug`/`info` are dropped in `emit`.
+never. Only plain records at or above `log_severity` (default `warn`) leave the device. Lower ones
+are dropped in `emit`.
 
 The core's own warnings and errors (Rust `log` records from `livekit*` targets, never
 `livekit_telemetry*`) reach the pipeline by themselves through `livekit-uniffi`'s log forwarder:
@@ -237,8 +245,9 @@ lines.
 ## Spans
 
 A span is **one attempt** at an operation. The scope (one Room connection lifetime, across
-reconnects) is the trace; its id is generated by the core when the pipeline starts and rides on
-every span and log record. Spans are exported when they end — never a long-lived scope span.
+reconnects) is the trace. The core generates its id in `begin_scope`, and it rides on every span
+and log record. Records outside any Room carry the id of the process session, which the pipeline
+makes at start. Spans are exported when they end — never a long-lived scope span.
 
 | Rule | Value |
 |---|---|

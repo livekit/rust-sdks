@@ -28,8 +28,8 @@ livekit-net = { workspace = true, optional = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
 [features]
-# Default HTTP transport over the pluggable `livekit-net` client (native backend, or one
-# the host registered with `livekit_net::set_http_client`).
+# HTTP transport over a `livekit-net` client. The host registers one with
+# `livekit_net::set_http_client`, or the build enables `livekit-net/native` and a TLS feature.
 net = ["dep:livekit-net"]
 uniffi = ["dep:uniffi"]
 

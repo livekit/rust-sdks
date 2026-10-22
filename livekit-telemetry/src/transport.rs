@@ -19,24 +19,30 @@ use prost::Message;
 /// One fully composed OTLP/HTTP export request.
 ///
 /// The core fills in the URL, the headers (content type, auth, …) and the protobuf body;
-/// a transport only moves the bytes. Non-HTTP transports (e.g. a data channel) may ignore
-/// `url`/`headers` and forward `body`, which is a standard `ExportLogsServiceRequest`.
+/// a transport only moves the bytes. The body is an `ExportLogsServiceRequest` or an
+/// `ExportTraceServiceRequest`, as `url` says.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportRequest {
+    /// Where to POST: the OTLP logs or traces endpoint of the batch's project.
     pub url: String,
+    /// Headers to send exactly as given: content type, content encoding, `Authorization`.
     pub headers: HashMap<String, String>,
+    /// The encoded request body, sent as is.
     pub body: Vec<u8>,
 }
 
 /// What the collector answered. A transport moves bytes both ways and never interprets them:
 /// status classification, `Retry-After`, the `google.rpc.Status` body and the Cloud "disabled"
-/// contract are read once, here, for every platform ([`ExportError::from_response`]).
+/// contract are read once, here, for every platform (`Verdict::of`).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExportResponse {
+    /// The HTTP status code.
     pub status: u16,
+    /// The response headers; the core reads `Retry-After` from them.
     pub headers: HashMap<String, String>,
+    /// The response body: an OTLP partial success, a `google.rpc.Status` or plain text.
     pub body: Vec<u8>,
 }
 
@@ -51,6 +57,10 @@ impl ExportResponse {
 /// text, no machine-readable code yet). Matched as a phrase, not a word.
 const DISABLED_ANSWER: &str = "data recording is disabled by owner";
 
+/// The most characters of an error body that a verdict's reason keeps: enough to read the cause in
+/// a log line, short enough that a large HTML error page does not fill it.
+const MAX_REASON_CHARS: usize = 200;
+
 /// How long a 429 that names no delay holds uploads: LiveKit Cloud's quota answer names none.
 const THROTTLE_DEFAULT_MS: u64 = 60_000;
 
@@ -60,15 +70,20 @@ const THROTTLE_DEFAULT_MS: u64 = 60_000;
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ExportError {
     /// No response: connection refused or reset, DNS or TLS failure, offline, timed out. The
-    /// batch stays cached and is retried with backoff. `retry_after_ms` is honored when set.
+    /// batch stays cached and is retried with backoff.
     #[error("retryable export error: {reason}")]
-    Retryable { reason: String, retry_after_ms: Option<u64> },
+    Retryable {
+        /// What went wrong, for the log.
+        reason: String,
+        /// How long to wait before the next try, when known. `None` uses the backoff.
+        retry_after_ms: Option<u64>,
+    },
     /// The request can never succeed (an invalid URL): the batch is dropped.
     #[error("export rejected: {reason}")]
-    Rejected { reason: String },
-    /// Telemetry is off for this project: the project goes silent.
-    #[error("telemetry disabled by the collector")]
-    Disabled,
+    Rejected {
+        /// What went wrong, for the log.
+        reason: String,
+    },
 }
 
 /// A foreign transport threw something its binding did not declare (a Swift `Error`, a Kotlin
@@ -89,8 +104,8 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for ExportError {
 pub(crate) enum Verdict {
     /// 2xx. `rejected` counts the records an OTLP partial success refused (never retried).
     Accepted { rejected: u64, reason: String },
-    /// 400, 3xx (a credential-bearing request is never redirected), and every other 4xx/5xx the
-    /// OTLP spec does not call retryable: drop the batch.
+    /// 400, 3xx (a redirect the transport did not follow), and every other 4xx/5xx the OTLP spec
+    /// does not call retryable: drop the batch.
     Rejected(String),
     /// 413: split the batch and retry the halves, down to single records.
     TooLarge,
@@ -104,8 +119,8 @@ pub(crate) enum Verdict {
     Disabled,
     /// 429, or 503 naming a delay: pause every upload for `delay_ms`, keep collecting.
     Throttled { delay_ms: u64, reason: String },
-    /// 502/503/504, or any error carrying `RetryInfo`: the server failed transiently. Retry the
-    /// batch after `delay_ms` or a backoff; a batch that keeps failing is dropped eventually.
+    /// 502/503/504, or 500 carrying `RetryInfo`: the server failed transiently. Retry the batch
+    /// after `delay_ms` or a backoff; a batch that keeps failing is dropped eventually.
     Retry { delay_ms: Option<u64>, reason: String },
 }
 
@@ -125,8 +140,13 @@ impl Verdict {
         let rpc = RpcStatus::decode(response.body.as_slice()).ok();
         let text = match rpc.as_ref().map(|s| s.message.trim()).filter(|m| !m.is_empty()) {
             Some(message) => message.to_owned(),
-            None => String::from_utf8_lossy(&response.body).trim().chars().take(200).collect(),
+            None => String::from_utf8_lossy(&response.body).trim().to_owned(),
         };
+        // The whole answer is searched for the phrase; only the logged reason is cut.
+        if matches!(status, 401 | 403) && text.to_ascii_lowercase().contains(DISABLED_ANSWER) {
+            return Self::Disabled;
+        }
+        let text: String = text.chars().take(MAX_REASON_CHARS).collect();
         // `reason`, not `message`: a UniFFI field named `message` collides with
         // `Throwable.message` in Kotlin.
         let reason = if text.is_empty() {
@@ -135,11 +155,7 @@ impl Verdict {
             format!("HTTP {status}: {text}")
         };
         if matches!(status, 401 | 403) {
-            return if text.to_ascii_lowercase().contains(DISABLED_ANSWER) {
-                Self::Disabled
-            } else {
-                Self::Unauthorized(reason)
-            };
+            return Self::Unauthorized(reason);
         }
         let header = response
             .headers
@@ -231,12 +247,19 @@ fn imf_fixdate_secs(value: &str) -> Option<u64> {
         ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let month = MONTHS.iter().position(|m| *m == month)? as i64 + 1;
     let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
     let mut hms = time.split(':').map(|n| n.parse::<i64>().ok());
     let (h, m, s) = (hms.next()??, hms.next()??, hms.next()??);
     // IMF-fixdate has a four-digit year; bounding it keeps the arithmetic below in range.
     if !(1970..=9999).contains(&year)
         || hms.next().is_some()
-        || !(1..=31).contains(&day)
+        || !(1..=month_days).contains(&day)
         || !(0..24).contains(&h)
         || !(0..60).contains(&m)
         || !(0..61).contains(&s)
@@ -268,7 +291,7 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 
 /// Moves an encoded batch off the device and hands back whatever came back.
 ///
-/// Implemented in Rust ([`NetTransport`], feature `net`) or by the host platform through UniFFI.
+/// Implemented in Rust (`NetTransport`, feature `net`) or by the host platform through UniFFI.
 /// The contract:
 ///
 /// - POST `url` with `headers` and `body` as given, and return the response whatever its status;
@@ -278,11 +301,13 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 /// - Never retry: the core owns the retry policy.
 /// - Never forward the `Authorization` header across origins: do not follow a redirect to
 ///   another scheme, host or port with it (returning the 3xx is fine — the core drops the batch).
-///   `NetTransport` over `livekit-net`'s native client strips it on cross-origin redirects.
+///   `NetTransport` over the native `livekit-net` client follows at most 10 redirects, never one
+///   that changes the scheme, and drops `Authorization` when a redirect changes the host or port.
 /// - Keep the request off the call's critical path: lowest priority where the platform allows it.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait TelemetryTransport: Send + Sync {
+    /// Send `request` once and return the collector's answer, whatever its status.
     async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError>;
 }
 
@@ -290,7 +315,7 @@ pub trait TelemetryTransport: Send + Sync {
 mod net {
     use std::sync::Arc;
 
-    use livekit_net::{Header, HttpClient, HttpClientExt, TransportError};
+    use livekit_net::{Header, HttpClient, HttpClientExt, HttpResponse, TransportError};
 
     use super::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
 
@@ -300,13 +325,23 @@ mod net {
 
     impl NetTransport {
         /// Post through `client`.
-        pub fn new(client: Arc<dyn HttpClient>) -> Self {
+        pub(crate) fn new(client: Arc<dyn HttpClient>) -> Self {
             Self(client)
         }
 
         /// Resolve the process-wide `livekit-net` client; `None` when none is available.
         pub fn from_registry() -> Option<Self> {
-            livekit_net::http_client().map(Self)
+            livekit_net::http_client().map(Self::new)
+        }
+    }
+
+    impl From<HttpResponse> for ExportResponse {
+        fn from(response: HttpResponse) -> Self {
+            Self {
+                status: response.status,
+                headers: response.headers.into_iter().map(|h| (h.name, h.value)).collect(),
+                body: response.body,
+            }
         }
     }
 
@@ -316,11 +351,7 @@ mod net {
             let headers =
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
             match self.0.post(request.url, headers, request.body).await {
-                Ok(response) => Ok(ExportResponse {
-                    status: response.status,
-                    headers: response.headers.into_iter().map(|h| (h.name, h.value)).collect(),
-                    body: response.body,
-                }),
+                Ok(response) => Ok(response.into()),
                 // The client swallowed the body with the status; the core still classifies it.
                 Err(TransportError::Http { status }) => {
                     Ok(ExportResponse { status, ..Default::default() })
@@ -409,6 +440,13 @@ mod tests {
         assert_eq!(verdict(401, &[], text), Verdict::Disabled);
         let rpc = status_body("Project data recording is disabled by owner", None);
         assert_eq!(verdict(403, &[], rpc), Verdict::Disabled);
+        // The phrase counts wherever it sits; only the logged reason is cut short.
+        let long = format!("{} data recording is disabled by owner", "x".repeat(250));
+        assert_eq!(verdict(401, &[], long.into_bytes()), Verdict::Disabled);
+        let Verdict::Unauthorized(reason) = verdict(401, &[], "y".repeat(500).into_bytes()) else {
+            panic!("a credential answer")
+        };
+        assert_eq!(reason.len(), "HTTP 401: ".len() + MAX_REASON_CHARS);
         // Only the documented phrase: another answer that merely mentions "disabled" is a
         // credential problem, not a project switch.
         for body in ["account disabled", "token disabled for this room"] {
@@ -502,36 +540,31 @@ mod tests {
     }
 
     #[test]
+    fn impossible_calendar_dates_are_ignored() {
+        assert_eq!(imf_fixdate_secs("Tue, 30 Feb 2027 12:00:00 GMT"), None);
+        assert_eq!(imf_fixdate_secs("Mon, 29 Feb 2027 12:00:00 GMT"), None, "not a leap year");
+        assert_eq!(imf_fixdate_secs("Thu, 31 Apr 2027 12:00:00 GMT"), None);
+        assert_eq!(imf_fixdate_secs("Tue, 29 Feb 2100 12:00:00 GMT"), None, "a century");
+        assert!(imf_fixdate_secs("Tue, 29 Feb 2000 12:00:00 GMT").is_some(), "every 400 years");
+        let ignored = verdict(429, &[("Retry-After", "Tue, 30 Feb 2027 12:00:00 GMT")], vec![]);
+        assert!(matches!(ignored, Verdict::Throttled { delay_ms: 60_000, .. }), "the default");
+    }
+
+    #[test]
     fn retry_after_http_dates() {
         assert_eq!(imf_fixdate_secs("Sun, 06 Nov 1994 08:49:37 GMT"), Some(784_111_777));
         assert_eq!(imf_fixdate_secs("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
         assert_eq!(imf_fixdate_secs("Tue, 29 Feb 2028 12:00:00 GMT"), Some(1_835_438_400));
         assert_eq!(imf_fixdate_secs("Sunday, 06-Nov-94 08:49:37 GMT"), None, "obsolete form");
         assert_eq!(imf_fixdate_secs("Sun, 06 Nov 1994 08:49:37 PST"), None);
+        // A far-future date: the delay is the distance from now, whatever now is.
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_secs();
-        let date = |secs: u64| {
-            let days = secs / 86_400;
-            let (h, m, s) = ((secs % 86_400) / 3600, (secs % 3600) / 60, secs % 60);
-            // Civil from days (inverse of the parser's algorithm) for the fixture only.
-            let z = days as i64 + 719_468;
-            let era = z.div_euclid(146_097);
-            let doe = z - era * 146_097;
-            let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-            let mp = (5 * doy + 2) / 153;
-            let d = doy - (153 * mp + 2) / 5 + 1;
-            let mo = if mp < 10 { mp + 3 } else { mp - 9 };
-            let y = yoe + era * 400 + if mo <= 2 { 1 } else { 0 };
-            const M: [&str; 12] = [
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-            ];
-            format!("Mon, {d:02} {} {y} {h:02}:{m:02}:{s:02} GMT", M[mo as usize - 1])
-        };
-        let ms = retry_after_ms(&date(now + 120)).expect("date");
-        assert!((118_000..=120_000).contains(&ms), "{ms}");
+        let expected = (253_402_300_799 - now) * 1000;
+        let ms = retry_after_ms("Fri, 31 Dec 9999 23:59:59 GMT").expect("date");
+        assert!(expected.abs_diff(ms) <= 2_000, "{ms} vs {expected}");
     }
 
     #[test]
