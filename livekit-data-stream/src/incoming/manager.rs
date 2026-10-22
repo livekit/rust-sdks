@@ -1906,17 +1906,37 @@ mod tests {
         #[tokio::test]
         async fn closer_ends_an_open_stream_once() {
             let mut h = Harness::new();
-            open_text_stream(&h, "s1");
-            let reader = next_text_reader(&mut h).await;
+            // The closer and the packets share one queue, so each order reaches the manager as
+            // written: a second close, then a close before the final chunk and one between that
+            // chunk and the trailer.
+            for (id, steps) in [
+                ("s1", &["close", "close"][..]),
+                ("s2", &["close", "chunk", "trailer"]),
+                ("s3", &["chunk", "close", "trailer"]),
+            ] {
+                open_text_stream(&h, id);
+                let reader = next_text_reader(&mut h).await;
+                let closer = reader.closer();
+                for step in steps {
+                    match *step {
+                        "close" => closer.close(),
+                        "chunk" => h.send_packet(Packet::Chunk {
+                            chunk: chunk(id, 1, b"world".to_vec()),
+                            encryption_type: EncryptionType::None,
+                        }),
+                        _ => h.send_packet(Packet::Trailer {
+                            trailer: trailer(id),
+                            encryption_type: EncryptionType::None,
+                        }),
+                    }
+                }
+                assert_eq!(h.open_stream_count().await, 0, "{steps:?}");
+                assert_eq!(h.drain_closed_ids(), vec![id], "{steps:?}");
 
-            let closer = reader.closer();
-            closer.close();
-            closer.close();
-            assert_eq!(h.open_stream_count().await, 0);
-            assert_eq!(h.drain_closed_ids(), vec!["s1"]);
-
-            // A read that is still going fails rather than ending as if complete.
-            assert!(matches!(reader.read_all().await, Err(StreamError::AlreadyClosed)));
+                // A read that is still going fails rather than ending as if complete.
+                let read = reader.read_all().await;
+                assert!(matches!(read, Err(StreamError::AlreadyClosed)), "{steps:?}: {read:?}");
+            }
         }
 
         #[tokio::test]
