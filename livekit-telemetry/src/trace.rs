@@ -22,9 +22,12 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{
+    self, checkpoint, lk_reconnect_mode as mode, lk_reconnect_reason as reconnect_reason,
+    lk_track_source as track_source, span,
+};
 use tokio::time::Instant;
 
-use crate::device::snake_case;
 use crate::span::SpanKind;
 use crate::{
     scope::ScopeState, telemetry::Shared, Attribute, AttributeValue, SpanOutcome, Telemetry,
@@ -52,6 +55,21 @@ pub enum ReconnectReason {
     Debug,
     /// Anything else, `RR_UNKNOWN` included.
     Unknown,
+}
+
+impl ReconnectReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::SignalDisconnected => reconnect_reason::SIGNAL_DISCONNECTED,
+            Self::PublisherFailed => reconnect_reason::PUBLISHER_FAILED,
+            Self::SubscriberFailed => reconnect_reason::SUBSCRIBER_FAILED,
+            Self::TransportFailed => reconnect_reason::TRANSPORT_FAILED,
+            Self::SwitchCandidate => reconnect_reason::SWITCH_CANDIDATE,
+            Self::NetworkChanged => reconnect_reason::NETWORK_CHANGED,
+            Self::Debug => reconnect_reason::DEBUG,
+            Self::Unknown => reconnect_reason::UNKNOWN,
+        }
+    }
 }
 
 impl From<i32> for ReconnectReason {
@@ -95,10 +113,10 @@ impl SpanName {
     /// The span name on the wire (`lk.connect`, …).
     pub fn label(&self) -> &str {
         match self {
-            Self::Connect => "lk.connect",
-            Self::Reconnect { .. } => "lk.reconnect",
-            Self::Publish => "lk.publish",
-            Self::Subscribe => "lk.subscribe",
+            Self::Connect => span::LK_CONNECT,
+            Self::Reconnect { .. } => span::LK_RECONNECT,
+            Self::Publish => span::LK_PUBLISH,
+            Self::Subscribe => span::LK_SUBSCRIBE,
             Self::Custom { name } => name,
         }
     }
@@ -113,10 +131,10 @@ impl SpanName {
     fn attributes(&self) -> Vec<Attribute> {
         match self {
             Self::Reconnect { reason } => {
-                vec![Attribute::new("lk.reconnect.reason", snake_case(reason))]
+                vec![Attribute::new(semconv::LK_RECONNECT_REASON, reason.as_str())]
             }
             // The user-initiated connect is attempt 1; a platform that retries sets it again.
-            Self::Connect => vec![Attribute::new("lk.connect.attempt", 1i64)],
+            Self::Connect => vec![Attribute::new(semconv::LK_CONNECT_ATTEMPT, 1i64)],
             _ => Vec::new(),
         }
     }
@@ -166,20 +184,19 @@ pub enum SpanStep {
 impl SpanStep {
     fn label(&self) -> String {
         match self {
-            Self::WsOpen => "ws_open".into(),
-            Self::Signal => "signal".into(),
-            Self::JoinRecv => "join_recv".into(),
-            Self::PcCreated => "pc_created".into(),
-            Self::OfferSent => "offer_sent".into(),
-            Self::AnswerSent => "answer_sent".into(),
-            Self::Engine => "engine".into(),
-            Self::PcConnected => "pc_connected".into(),
-            Self::RoomConnected => "room_connected".into(),
-            Self::Subscribed => "subscribed".into(),
-            Self::FirstMedia => "first_media".into(),
-            Self::Attempt { number, full } => {
-                format!("attempt {number} {}", if *full { "full" } else { "quick" })
-            }
+            Self::WsOpen => checkpoint::WS_OPEN.into(),
+            Self::Signal => checkpoint::SIGNAL.into(),
+            Self::JoinRecv => checkpoint::JOIN_RECV.into(),
+            Self::PcCreated => checkpoint::PC_CREATED.into(),
+            Self::OfferSent => checkpoint::OFFER_SENT.into(),
+            Self::AnswerSent => checkpoint::ANSWER_SENT.into(),
+            Self::Engine => checkpoint::ENGINE.into(),
+            Self::PcConnected => checkpoint::PC_CONNECTED.into(),
+            Self::RoomConnected => checkpoint::ROOM_CONNECTED.into(),
+            Self::Subscribed => checkpoint::SUBSCRIBED.into(),
+            Self::FirstMedia => checkpoint::FIRST_MEDIA.into(),
+            // The registry's `attempt <n> <mode>` checkpoint pattern.
+            Self::Attempt { number, full } => format!("attempt {number} {}", reconnect_mode(*full)),
             Self::Custom { name } => name.clone(),
         }
     }
@@ -187,15 +204,25 @@ impl SpanStep {
     fn attributes(&self) -> Vec<Attribute> {
         match self {
             Self::Attempt { number, full } => vec![
-                Attribute::new("lk.reconnect.attempts", *number as i64),
-                Attribute::new("lk.reconnect.mode", if *full { "full" } else { "quick" }),
+                Attribute::new(semconv::LK_RECONNECT_ATTEMPTS, *number as i64),
+                Attribute::new(semconv::LK_RECONNECT_MODE, reconnect_mode(*full)),
             ],
             _ => Vec::new(),
         }
     }
 }
 
-/// The protocol's `TrackSource`.
+/// The `lk.reconnect.mode` value of an attempt.
+fn reconnect_mode(full: bool) -> &'static str {
+    if full {
+        mode::FULL
+    } else {
+        mode::QUICK
+    }
+}
+
+/// What produces a track. Sent as the RTC FFI `TrackSource` name (`SOURCE_CAMERA`, …), the
+/// spelling Agents sends.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackSource {
@@ -209,6 +236,18 @@ pub enum TrackSource {
     ScreenShareAudio,
     /// Anything else.
     Unknown,
+}
+
+impl TrackSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Camera => track_source::SOURCE_CAMERA,
+            Self::Microphone => track_source::SOURCE_MICROPHONE,
+            Self::ScreenShare => track_source::SOURCE_SCREENSHARE,
+            Self::ScreenShareAudio => track_source::SOURCE_SCREENSHARE_AUDIO,
+            Self::Unknown => track_source::SOURCE_UNKNOWN,
+        }
+    }
 }
 
 /// The track a publish or subscribe span is about.
@@ -230,14 +269,17 @@ pub struct SpanTrack {
 impl SpanTrack {
     fn attributes(&self) -> Vec<Attribute> {
         let mut out = vec![
-            Attribute::new("lk.track.kind", snake_case(self.kind)),
-            Attribute::new("lk.track.source", snake_case(self.source)),
+            Attribute::new(semconv::LK_TRACK_KIND, self.kind.as_str()),
+            Attribute::new(semconv::LK_TRACK_SOURCE, self.source.as_str()),
         ];
         if let Some(sid) = &self.sid {
-            out.push(Attribute::new("lk.track.sid", sid.as_str()));
+            out.push(Attribute::new(semconv::LK_TRACK_SID, sid.as_str()));
         }
         if let Some(identity) = &self.remote_identity {
-            out.push(Attribute::new("lk.participant.remote_identity", identity.as_str()));
+            out.push(Attribute::new(
+                semconv::LK_PII_REMOTE_PARTICIPANT_IDENTITY,
+                identity.as_str(),
+            ));
         }
         out
     }
@@ -589,7 +631,7 @@ mod tests {
         let invalid = || telemetry.shared.counters.snapshot().invalid;
         let room = telemetry.begin_scope();
         let app = room.start(SpanName::Custom { name: "work".into() }, None);
-        app.set_attribute("lk.room.sid".into(), AttributeValue::Str("RM_x".into()));
+        app.set_attribute("lk.room_sid".into(), AttributeValue::Str("RM_x".into()));
         app.set_attribute("otel.scope.name".into(), AttributeValue::Str("x".into()));
         app.set_attribute("app.step".into(), AttributeValue::Int(1));
         assert_eq!(invalid(), 2);
@@ -647,8 +689,9 @@ mod tests {
         let attributes = span.lock().attributes.clone();
         let get = |key: &str| attributes.iter().find(|a| a.key == key).map(|a| a.value.clone());
         assert_eq!(get("lk.track.kind"), Some(AttributeValue::Str("video".into())));
-        assert_eq!(get("lk.track.sid"), Some(AttributeValue::Str("TR_1".into())));
-        assert_eq!(attributes.iter().filter(|a| a.key == "lk.track.source").count(), 1);
+        assert_eq!(get("lk.track_sid"), Some(AttributeValue::Str("TR_1".into())));
+        assert_eq!(get("lk.track_source"), Some(AttributeValue::Str("SOURCE_CAMERA".into())));
+        assert_eq!(attributes.iter().filter(|a| a.key == "lk.track_source").count(), 1);
     }
 
     /// What a span retains before export is bounded, however long it lives.
