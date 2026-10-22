@@ -159,6 +159,8 @@ ffi-windows-arm64 = { no-default-features = true, features = ["room-apis", "nati
 swift = { no-default-features = true, features = ["core-modules"] }
 android = { no-default-features = true, features = ["core-modules"] }
 dart = { no-default-features = true, features = ["core-modules"] }
+# @livekit/uniffi. Not `node` above, which is the C-ABI node SDK.
+uniffi-node = { no-default-features = true, features = ["core-modules"] }
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
