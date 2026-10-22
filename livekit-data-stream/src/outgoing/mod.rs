@@ -141,9 +141,6 @@ pub struct StreamTextOptions {
     pub reply_to_stream_id: Option<String>,
     pub attached_stream_ids: Vec<String>,
     pub generated: Option<bool>,
-    /// Total byte length of the text, when known ahead of time. Used by the incremental
-    /// `stream_text`; `send_text` sets it from the text it sends.
-    pub total_length: Option<u64>,
     /// Whether to deflate-raw compress the payload when all recipients support it.
     /// Defaults to `true` (compression opt-out). Ignored by the incremental `stream_text`.
     pub compress: Option<bool>,
@@ -166,7 +163,6 @@ impl StreamTextOptions {
             reply_to_stream_id: None,
             attached_stream_ids: vec![],
             generated: None,
-            total_length: None,
             compress: None,
             sender_identity: None,
         }
@@ -234,11 +230,6 @@ impl StreamTextOptions {
     /// Sets whether the text was machine-generated (e.g. by an agent).
     pub fn with_generated(mut self, generated: bool) -> Self {
         self.generated = Some(generated);
-        self
-    }
-    /// Sets the total byte length of the text, when known ahead of time.
-    pub fn with_total_length(mut self, total_length: u64) -> Self {
-        self.total_length = Some(total_length);
         self
     }
     /// Sets whether to deflate-raw compress the payload when all recipients support it.

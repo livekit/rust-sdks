@@ -292,7 +292,6 @@ impl From<StreamTextOptions> for ds_api::StreamTextOptions {
             reply_to_stream_id: options.reply_to_stream_id,
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated,
-            total_length: options.total_length,
             compress: options.compress,
             sender_identity: options.sender_identity.map(Into::into),
         }

@@ -3,7 +3,7 @@ livekit-data-stream: minor
 livekit-ffi: minor
 livekit: minor
 livekit-capture: patch
-livekit-rpc: minor
+livekit-rpc: patch
 ---
 
-Add an optional `total_length` to `StreamTextOptions` in the core and in the `core-modules` record, so an incremental text stream can declare its length in the header. The receiver then reports progress against it and fails the stream if the length does not match. The new public field breaks struct-literal construction of `StreamTextOptions`, which `livekit` re-exports and the `livekit-rpc` transport trait takes.
+Let an incremental text stream declare its total length in the header: the core adds `Manager::stream_text_with_total_length`, and the `core-modules` `StreamTextOptions` record gets an optional `total_length` that `stream_text` passes to it. The receiver then reports progress against it and fails the stream if the length does not match.

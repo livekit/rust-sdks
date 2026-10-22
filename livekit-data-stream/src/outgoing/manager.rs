@@ -58,16 +58,22 @@ impl Manager {
     }
 
     pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+        self.stream_text_with_total_length(options, None).await
+    }
+
+    /// Like [`Self::stream_text`], and declares `total_length`, the byte length of all the text
+    /// the writer will send, in the stream header. The receiver then reports progress against it
+    /// and fails the stream if the length does not match.
+    pub async fn stream_text_with_total_length(
+        &self,
+        options: StreamTextOptions,
+        total_length: Option<u64>,
+    ) -> StreamResult<TextStreamWriter> {
         // Incremental streams are never inlined or compressed (the content is unknown up front).
         let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
-        let (header, text_header) = build_text_header(
-            &options,
-            stream_id,
-            options.total_length,
-            None,
-            CompressionType::None,
-        );
+        let (header, text_header) =
+            build_text_header(&options, stream_id, total_length, None, CompressionType::None);
         enforce_header_size(&header, &dests)?;
 
         let open_options = RawStreamOpenOptions {
@@ -1337,7 +1343,8 @@ mod tests {
     #[tokio::test]
     async fn stream_text_declares_total_length() {
         let (m, sent) = setup();
-        let writer = m.stream_text(text_opts("chat", &[]).with_total_length(5)).await.unwrap();
+        let writer =
+            m.stream_text_with_total_length(text_opts("chat", &[]), Some(5)).await.unwrap();
         assert_eq!(writer.info().total_length, Some(5));
         assert_eq!(header(&sent.lock().unwrap()[0]).total_length, Some(5));
     }

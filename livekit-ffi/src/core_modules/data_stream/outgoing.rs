@@ -218,7 +218,10 @@ impl OutgoingDataStreamManager {
         &self,
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
-        Ok(TextStreamWriter(self.manager.stream_text(options.into()).await?))
+        let total_length = options.total_length;
+        let writer =
+            self.manager.stream_text_with_total_length(options.into(), total_length).await?;
+        Ok(TextStreamWriter(writer))
     }
 
     /// Opens an incremental byte stream writer (never compressed or inlined).
