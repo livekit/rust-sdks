@@ -138,21 +138,25 @@ impl IncomingDataStreamManager {
 /// Reader for an incoming byte data stream.
 #[derive(uniffi::Object)]
 pub struct ByteStreamReader {
-    info: ByteStreamInfo,
+    /// Shares its attribute map with the core, which merges trailer attributes into it.
+    info: ds_api::ByteStreamInfo,
     inner: Mutex<ds_api::ByteStreamReader>,
 }
 
 impl ByteStreamReader {
     fn new(reader: ds_api::ByteStreamReader) -> Self {
-        Self { info: reader.info().clone().into(), inner: Mutex::new(reader) }
+        Self { info: reader.info().clone(), inner: Mutex::new(reader) }
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ByteStreamReader {
     /// Information about the underlying stream.
+    ///
+    /// Attributes from the stream's trailer are merged in once it arrives, before the read that
+    /// ends the stream returns.
     pub fn info(&self) -> ByteStreamInfo {
-        self.info.clone()
+        self.info.clone().into()
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.
@@ -174,21 +178,25 @@ impl ByteStreamReader {
 /// Reader for an incoming text data stream.
 #[derive(uniffi::Object)]
 pub struct TextStreamReader {
-    info: TextStreamInfo,
+    /// Shares its attribute map with the core, which merges trailer attributes into it.
+    info: ds_api::TextStreamInfo,
     inner: Mutex<ds_api::TextStreamReader>,
 }
 
 impl TextStreamReader {
     fn new(reader: ds_api::TextStreamReader) -> Self {
-        Self { info: reader.info().clone().into(), inner: Mutex::new(reader) }
+        Self { info: reader.info().clone(), inner: Mutex::new(reader) }
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl TextStreamReader {
     /// Information about the underlying stream.
+    ///
+    /// Attributes from the stream's trailer are merged in once it arrives, before the read that
+    /// ends the stream returns.
     pub fn info(&self) -> TextStreamInfo {
-        self.info.clone()
+        self.info.clone().into()
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.

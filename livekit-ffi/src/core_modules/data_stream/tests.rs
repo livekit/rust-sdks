@@ -92,8 +92,12 @@ fn chunk_packet(identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
 }
 
 /// Builds an encoded trailer `DataPacket` for stream `s1`.
-fn trailer_packet(identity: &str) -> Bytes {
-    let trailer = proto::data_stream::Trailer { stream_id: "s1".to_string(), ..Default::default() };
+fn trailer_packet(identity: &str, attributes: &[(&str, &str)]) -> Bytes {
+    let trailer = proto::data_stream::Trailer {
+        stream_id: "s1".to_string(),
+        attributes: attributes.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        ..Default::default()
+    };
     let packet = proto::DataPacket {
         participant_identity: identity.to_string(),
         value: Some(proto::data_packet::Value::StreamTrailer(trailer)),
@@ -179,7 +183,7 @@ fn incoming_trailer_with_mismatched_encryption_errors_reader() {
         );
         let (reader, _) = rx.await.expect("a stream should open");
         manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::Gcm);
-        manager.handle_packet_received(trailer_packet("alice"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
 
         let result = reader.read_all().await;
         assert!(matches!(
@@ -214,6 +218,29 @@ fn incoming_open_stream_count_tracks_headers_and_aborts() {
     });
 }
 
+#[test]
+fn incoming_reader_info_shows_trailer_attributes() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::None,
+        );
+        let (reader, _) = rx.await.expect("a stream should open");
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
+        manager.handle_packet_received(
+            trailer_packet("alice", &[("summary", "done")]),
+            EncryptionType::None,
+        );
+
+        assert_eq!(reader.read_all().await.unwrap(), "hello");
+        assert_eq!(reader.info().attributes.get("summary").map(String::as_str), Some("done"));
+    });
+}
+
 /// Captures the first stream-closed notification.
 struct ClosedCapture(Mutex<Option<oneshot::Sender<(String, String)>>>);
 
@@ -241,7 +268,7 @@ fn incoming_trailer_fires_stream_closed() {
             EncryptionType::None,
         );
         manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
-        manager.handle_packet_received(trailer_packet("alice"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("alice", &[]), EncryptionType::None);
 
         let (stream_id, identity) = rx.await.expect("the stream should close");
         assert_eq!(stream_id, "s1");
