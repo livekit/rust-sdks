@@ -79,6 +79,9 @@ mod backend_tests;
 /// The device contract, end to end through the pipeline and the process-wide opt-out.
 #[cfg(test)]
 mod device_tests;
+/// Every name and enum value on the wire, pinned to the registry.
+#[cfg(test)]
+mod wire_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
