@@ -605,7 +605,7 @@ impl ManagerInner {
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
         let Self { open_streams, output_tx } = self;
-        open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
+        open_streams.retain(|id, descriptor| match checker(id, descriptor) {
             Ok(_) => true,
             Err(error) => {
                 let _ = descriptor.chunk_tx.send(Err(error));

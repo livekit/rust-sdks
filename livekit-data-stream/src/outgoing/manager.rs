@@ -458,7 +458,7 @@ fn build_text_header(
         mime_type: constants::TEXT_MIME_TYPE.to_owned(),
         total_length,
         attributes: options.attributes.clone(),
-        content_header: Some(ContentHeader::TextHeader(text_header.clone().into())),
+        content_header: Some(ContentHeader::TextHeader(text_header.clone())),
         inline_content,
         compression,
     };

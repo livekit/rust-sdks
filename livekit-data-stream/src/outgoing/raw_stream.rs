@@ -201,6 +201,7 @@ impl RawStream {
             .map_err(|_| StreamError::SendFailed) // data channel error
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_header_packet(
         header: proto::data_stream::Header,
         destination_identities: Vec<ParticipantIdentity>,
@@ -209,12 +210,13 @@ impl RawStream {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
             destination_identities: destination_identities.into_iter().map(|id| id.0).collect(),
-            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header.into())),
+            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header)),
             // TODO: placeholder for reliable data transport
             ..Default::default()
         }
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_chunk_packet(
         id: &str,
         chunk_index: u64,
@@ -236,6 +238,7 @@ impl RawStream {
         }
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_trailer_packet(
         id: &str,
         reason: Option<&str>,
@@ -246,7 +249,6 @@ impl RawStream {
             stream_id: id.to_string(),
             reason: reason.unwrap_or_default().to_owned(),
             attributes: attributes.unwrap_or_default(),
-            ..Default::default()
         };
         proto::DataPacket {
             kind: proto::data_packet::Kind::Reliable.into(),

@@ -102,8 +102,11 @@ fn trailer_packet(identity: &str) -> Bytes {
     Bytes::from(packet.encode_to_vec())
 }
 
+/// An opened text reader and the identity of its sender.
+type OpenedText = (Arc<TextStreamReader>, String);
+
 /// Captures the first opened text reader.
-struct TextCapture(Mutex<Option<oneshot::Sender<(Arc<TextStreamReader>, String)>>>);
+struct TextCapture(Mutex<Option<oneshot::Sender<OpenedText>>>);
 
 impl IncomingDataStreamManagerDelegate for TextCapture {
     fn on_byte_stream_opened(&self, _reader: Arc<ByteStreamReader>, _identity: String) {}

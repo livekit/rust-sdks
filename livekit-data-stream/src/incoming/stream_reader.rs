@@ -113,7 +113,7 @@ impl ByteStreamReader {
         name_override: Option<&str>,
     ) -> StreamResult<std::path::PathBuf> {
         let directory =
-            directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(|| std::env::temp_dir());
+            directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(std::env::temp_dir);
         let name = name_override.unwrap_or_else(|| &self.info.name);
         // The stream name comes from the remote sender: reject anything that isn't a plain
         // file name so it can't escape the target directory.
@@ -260,7 +260,7 @@ impl AnyStreamReader {
                 Self::Text(TextStreamReader { info, chunk_rx, progress_rx })
             }
         };
-        return (reader, chunk_tx, progress_tx);
+        (reader, chunk_tx, progress_tx)
     }
 }
 
