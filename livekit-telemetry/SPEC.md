@@ -1,8 +1,12 @@
 # Client telemetry spec
 
-Event names, attributes and cadences emitted by LiveKit client SDKs. Every name and enum value
-comes from the protocol's telemetry registry (`otel/` in livekit/protocol), which generates
-`livekit_protocol::semconv`, and the core uses those constants. The registry records each rename as `renamed_from` on the new name. LiveKit-defined names
+Event names, attributes and cadences emitted by LiveKit client SDKs. Every fixed name and every
+enum value that the protocol's telemetry registry (`otel/` in livekit/protocol) defines comes from
+the generated `livekit_protocol::semconv`, and `src/wire_tests.rs` pins what the core sends. Four
+values stay literals until the registry defines them: the `network.connection.type` values `vpn`,
+`bluetooth` and `other`, and the `error.type` value `timed_out`. Names that the app chooses, such
+as custom event names, and the checkpoint name patterns are not registry constants. The registry
+records each rename as `renamed_from` on the new name. LiveKit-defined names
 carry the `lk.` prefix, everything else follows
 [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions).
 
