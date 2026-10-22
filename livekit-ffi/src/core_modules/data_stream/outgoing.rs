@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
 use livekit_common as lk_common;
@@ -203,6 +203,16 @@ impl TextStreamWriter {
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
         Ok(self.0.clone().close_with_reason(&reason).await?)
     }
+
+    /// Closes the stream and sends `attributes` in its trailer, which the receiver merges into
+    /// the stream's attributes. A `reason` closes the stream abnormally.
+    pub async fn close_with_options(
+        &self,
+        reason: Option<String>,
+        attributes: HashMap<String, String>,
+    ) -> Result<(), DataStreamError> {
+        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
+    }
 }
 
 /// Writer for an open byte data stream.
@@ -234,5 +244,15 @@ impl ByteStreamWriter {
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
         Ok(self.0.clone().close_with_reason(&reason).await?)
+    }
+
+    /// Closes the stream and sends `attributes` in its trailer, which the receiver merges into
+    /// the stream's attributes. A `reason` closes the stream abnormally.
+    pub async fn close_with_options(
+        &self,
+        reason: Option<String>,
+        attributes: HashMap<String, String>,
+    ) -> Result<(), DataStreamError> {
+        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
     }
 }

@@ -22,7 +22,8 @@ use prost::Message as _;
 use tokio::sync::oneshot;
 
 use super::common::{
-    ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamTextOptions,
+    ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamByteOptions,
+    StreamTextOptions,
 };
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
@@ -373,6 +374,42 @@ fn outgoing_all_v2_text_inlines_compressed() {
         assert_eq!(header.compression(), proto::data_stream::CompressionType::DeflateRaw);
         let inline = header.inline_content.expect("inline content should be present");
         assert_ne!(inline.as_slice(), b"hello hello compressible world", "should be compressed");
+    });
+}
+
+/// Decodes the trailer packet that ends `packets`.
+fn last_trailer(packets: &[Bytes]) -> proto::data_stream::Trailer {
+    let last = packets.last().expect("a trailer should have been sent");
+    let Some(proto::data_packet::Value::StreamTrailer(trailer)) =
+        proto::DataPacket::decode(last.as_ref()).unwrap().value
+    else {
+        panic!("expected a stream trailer packet");
+    };
+    trailer
+}
+
+#[test]
+fn outgoing_writers_send_trailer_attributes() {
+    crate::runtime::runtime().block_on(async {
+        let delegate = Arc::new(PacketCapture(Mutex::new(Vec::new())));
+        let manager = OutgoingDataStreamManager::new(delegate.clone(), Arc::new(AllV2Registry));
+        let attributes: std::collections::HashMap<String, String> =
+            [("summary".to_string(), "done".to_string())].into();
+
+        let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let writer = manager.stream_text(options).await.unwrap();
+        writer.write("hello".to_string()).await.unwrap();
+        writer.close_with_options(None, attributes.clone()).await.unwrap();
+        let trailer = last_trailer(&delegate.0.lock().unwrap());
+        assert_eq!(trailer.attributes, attributes);
+        assert_eq!(trailer.reason, "");
+
+        let options = StreamByteOptions { topic: "file".to_string(), ..Default::default() };
+        let writer = manager.stream_bytes(options).await.unwrap();
+        writer.close_with_options(Some("cancelled".to_string()), attributes.clone()).await.unwrap();
+        let trailer = last_trailer(&delegate.0.lock().unwrap());
+        assert_eq!(trailer.attributes, attributes);
+        assert_eq!(trailer.reason, "cancelled");
     });
 }
 
