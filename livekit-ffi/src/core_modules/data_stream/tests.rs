@@ -543,6 +543,70 @@ fn incoming_reader_close_spares_a_later_stream_with_the_same_id() {
     });
 }
 
+#[test]
+fn incoming_progress_merges_updates_between_calls() {
+    crate::runtime::runtime().block_on(async {
+        let (manager, mut events) = manager_with_events();
+        let header = multipacket_text_header_packet("s1", "alice", "my-topic", 10);
+        manager.handle_packet_received(header, EncryptionType::None);
+        let reader = events.text.recv().await.expect("the stream should open");
+        let progress =
+            |bytes_processed| Some(StreamProgress { bytes_processed, bytes_total: Some(10) });
+        assert_eq!(reader.next_progress().await, progress(0));
+
+        // Two chunks arrive before the next call, which returns only the latest value.
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
+        assert_eq!(manager.open_stream_count().await, 1);
+        assert_eq!(reader.next_progress().await, progress(10));
+    });
+}
+
+#[test]
+fn incoming_progress_ends_when_the_stream_fails() {
+    crate::runtime::runtime().block_on(async {
+        let (manager, mut events) = manager_with_events();
+        let reader = open_text_stream(&manager, &mut events, "s1").await;
+        assert_eq!(manager.open_stream_count().await, 1);
+        let progress = Some(StreamProgress { bytes_processed: 5, bytes_total: Some(10) });
+        assert_eq!(reader.next_progress().await, progress);
+
+        // Six more bytes exceed the declared ten, which fails the stream and ends its progress.
+        let chunk = chunk_packet("s1", "alice", 1, b"world!");
+        manager.handle_packet_received(chunk, EncryptionType::None);
+        let next = tokio::time::timeout(TIMEOUT, reader.next_progress()).await;
+        assert_eq!(next.expect("progress should end"), None);
+        assert!(matches!(reader.read_all().await, Err(DataStreamError::LengthExceeded)));
+    });
+}
+
+#[test]
+fn incoming_trailer_attributes_replace_header_attributes() {
+    crate::runtime::runtime().block_on(async {
+        let (manager, mut events) = manager_with_events();
+        let header = edit_header(multipacket_text_header_packet("s1", "alice", "t", 5), |header| {
+            header.attributes = [("state", "draft"), ("kept", "yes")]
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .into();
+        });
+        manager.handle_packet_received(header, EncryptionType::None);
+        let reader = events.text.recv().await.expect("the stream should open");
+        assert_eq!(reader.info().attributes.get("state").map(String::as_str), Some("draft"));
+
+        manager
+            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
+        let trailer = trailer_packet("s1", "alice", &[("state", "final")]);
+        manager.handle_packet_received(trailer, EncryptionType::None);
+        assert_eq!(reader.read_all().await.unwrap(), "hello");
+
+        let attributes = reader.info().attributes;
+        assert_eq!(attributes.get("state").map(String::as_str), Some("final"));
+        assert_eq!(attributes.get("kept").map(String::as_str), Some("yes"));
+    });
+}
+
 /// Captures the first stream-closed notification.
 struct ClosedCapture(Mutex<Option<oneshot::Sender<(String, String)>>>);
 

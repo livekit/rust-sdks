@@ -1245,6 +1245,17 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn v2_inline_non_empty_payload_with_declared_zero_length_fails() {
+            // JS treats a declared length of 0 as unknown and skips the check. No sender inlines a
+            // non-empty payload with a length of 0, so the core holds 0 to the payload like any
+            // other length.
+            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
+                let result = read_inline_text("hello", Some(0), compression.clone()).await;
+                assert!(matches!(result, Err(StreamError::LengthExceeded)), "{compression:?}");
+            }
+        }
+
+        #[tokio::test]
         async fn v2_inline_matching_or_undeclared_length_is_accepted() {
             for compression in [CompressionType::None, CompressionType::DeflateRaw] {
                 for total_length in [Some(5), None] {
