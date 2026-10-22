@@ -176,10 +176,10 @@ impl OutgoingDataStreamManager {
 
     /// Streams a file from disk, returning info about the created stream.
     ///
-    /// `progress`, when set, gets a report after each chunk is sent. Progress counts file bytes
-    /// before compression, so the last report covers the whole file. For a compressed file,
-    /// progress counts the input the encoder consumed, which can run ahead of the chunks sent,
-    /// and the whole file is reported only after its last chunk was sent.
+    /// `progress`, when set, counts file bytes before compression. An uncompressed file reports
+    /// after each chunk is sent. A compressed file reports after each encoder drain, so it counts
+    /// the input the encoder consumed, which can run ahead of the chunks sent. Either way, the
+    /// whole file is reported only after its last chunk was sent.
     #[uniffi::method(default(progress = None))]
     pub async fn send_file(
         &self,
