@@ -97,8 +97,9 @@ impl RawStream {
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
     ///
-    /// Calls `on_progress` with the file bytes, before compression, that went out so far. An
-    /// uncompressed file reports after each chunk. A compressed file reports once per batch of
+    /// Calls `on_progress` with the file bytes, before compression, handled so far: sent for an
+    /// uncompressed file, consumed by the encoder for a compressed one, whose encoder can still
+    /// hold part of them. An uncompressed file reports after each chunk. A compressed file reports once per batch of
     /// chunks that the encoder releases while the file is still being read, then reports the
     /// whole file once, after its last chunk was sent. The values rise strictly. A file that
     /// sends no chunk (an empty, uncompressed one) reports once at the end.

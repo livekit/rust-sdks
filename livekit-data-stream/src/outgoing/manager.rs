@@ -304,7 +304,9 @@ impl Manager {
     /// Like [`Self::send_file`], and calls `on_progress` as the file goes out.
     ///
     /// Progress counts file bytes before compression, against the file size. It is reported
-    /// after each chunk is sent, so the last report covers the whole file.
+    /// after each chunk is sent, so the last report covers the whole file. For a compressed file,
+    /// progress counts the input the encoder consumed, which can run ahead of the chunks sent,
+    /// and the whole file is reported only after its last chunk was sent.
     pub async fn send_file_with_progress(
         &self,
         path: impl AsRef<Path>,
