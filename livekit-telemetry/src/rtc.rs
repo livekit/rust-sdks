@@ -12,20 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use tokio::time::Instant;
 
 use crate::{
-    event::now_unix_nanos, scope::ScopeState, store::QueuedEvent, Attribute, AttributeValue,
-    TelemetryEvent,
+    event::now_unix_nanos, scope::ScopeState, store::QueuedEvent, AttributeValue, TelemetryEvent,
 };
 
 /// Audio or video.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrackKind {
+    /// An audio track; sent as `audio`.
     Audio,
+    /// A video track; sent as `video`.
     Video,
 }
 
@@ -33,7 +38,9 @@ pub enum TrackKind {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StreamDirection {
+    /// Media this device receives; sent as `inbound`.
     Inbound,
+    /// Media this device sends; sent as `outbound`.
     Outbound,
 }
 
@@ -41,59 +48,94 @@ pub enum StreamDirection {
 ///
 /// Cumulative counters (`bytes`, `packets`, `freeze_count`, …) are passed through as reported —
 /// monotonic, paired with their denominators (the W3C webrtc-stats model) so any layer can
-/// recompute rates and a dropped window never corrupts the next. Gauges (`jitter_ms`, `rtt_ms`,
+/// recompute rates and a dropped window never corrupts the next. An outbound track whose readings
+/// name their RTP streams (`layer`) ships its bytes and packets as a running total of each
+/// stream's growth instead, so a stream that comes and goes is never counted twice. Gauges (`jitter_ms`, `rtt_ms`,
 /// `frames_per_second`, `audio_level`) are summarised per window as min/max/avg. Fields a
 /// platform or direction does not have stay `None` and are omitted from the wire.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtcStatsSample {
+    /// The track's sid (`TR_…`).
     pub track_sid: String,
+    /// Audio or video.
     pub kind: TrackKind,
+    /// Sent (outbound) or received (inbound).
     pub direction: StreamDirection,
+    /// The codec's `mimeType` (`video/VP8`), resolved through the stream's `codecId`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub codec: Option<String>,
     // Cumulative counters.
+    /// `bytesSent` (outbound) or `bytesReceived` (inbound).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub bytes: Option<u64>,
+    /// `packetsSent` (outbound) or `packetsReceived` (inbound).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub packets: Option<u64>,
+    /// `packetsLost`, inbound.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub packets_lost: Option<u64>,
+    /// `freezeCount`, inbound video: short stalls, a frame shown at least 3× the average frame
+    /// time, and at least 150 ms more than it, after the one before. A longer gap is a pause
+    /// instead.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub freeze_count: Option<u64>,
+    /// `totalFreezesDuration` in milliseconds, inbound video.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub freezes_duration_ms: Option<u64>,
+    /// `concealedSamples`, inbound audio: samples the receiver made up for lost or late packets.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub concealed_samples: Option<u64>,
+    /// `concealmentEvents`, inbound audio: how many separate runs of concealment started (one loss
+    /// burst is one event, however many samples it conceals).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub concealment_events: Option<u64>,
+    /// `jitterBufferDelay` in milliseconds, inbound: the total time emitted samples or frames spent
+    /// in the jitter buffer. Divide by `jitter_buffer_emitted_count` for the average.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub jitter_buffer_delay_ms: Option<u64>,
+    /// `jitterBufferEmittedCount`, inbound: samples or frames that left the jitter buffer.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub jitter_buffer_emitted_count: Option<u64>,
+    /// `qualityLimitationDurations.bandwidth` in milliseconds, outbound video.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub quality_limitation_bandwidth_ms: Option<u64>,
+    /// `qualityLimitationDurations.cpu` in milliseconds, outbound video: time the encoder was
+    /// limited by the CPU.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub quality_limitation_cpu_ms: Option<u64>,
+    /// `qualityLimitationDurations.other` in milliseconds, outbound video.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub quality_limitation_other_ms: Option<u64>,
+    /// `pauseCount`, inbound video: gaps of more than 5 s without a frame (usually the sender
+    /// paused). A shorter stall is a freeze instead.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub pause_count: Option<u64>,
+    /// `totalPausesDuration` in milliseconds, inbound video.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub pauses_duration_ms: Option<u64>,
+    /// `silentConcealedSamples`, inbound audio: the concealed samples that were silence, which a
+    /// listener cannot hear. Part of `concealed_samples`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub silent_concealed_samples: Option<u64>,
+    /// `interruptionCount`, inbound audio: concealment runs of 150 ms or more, long enough to hear.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub interruption_count: Option<u64>,
+    /// `totalInterruptionDuration` in milliseconds, inbound audio.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub interruptions_duration_ms: Option<u64>,
     // Gauges.
+    /// `jitter` in milliseconds, inbound.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub jitter_ms: Option<f64>,
+    /// Round-trip time in milliseconds: the `remote-inbound-rtp` `roundTripTime` (outbound), the
+    /// selected candidate pair's `currentRoundTripTime` (inbound).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub rtt_ms: Option<f64>,
+    /// `framesPerSecond`, video.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub frames_per_second: Option<f64>,
+    /// `audioLevel`, inbound audio: 0.0 to 1.0, linear (not dB).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub audio_level: Option<f64>,
     /// When the reading was taken; `None` = now.
@@ -112,11 +154,15 @@ pub struct RtcStatsSample {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtcStat {
+    /// The stat's `type`: `inbound-rtp`, `candidate-pair`, `codec`, …
     pub kind: String,
+    /// The stat's `id`, which other stats name (`codecId`, `localId`, `mediaSourceId`).
     pub id: String,
+    /// Its members by W3C name.
     pub members: HashMap<String, AttributeValue>,
 }
 
+/// A numeric member as a finite `f64`: a NaN or an infinity is no reading.
 fn num(stat: &RtcStat, key: &str) -> Option<f64> {
     match stat.members.get(key)? {
         AttributeValue::Int(i) => Some(*i as f64),
@@ -124,8 +170,10 @@ fn num(stat: &RtcStat, key: &str) -> Option<f64> {
         AttributeValue::Str(s) => s.parse().ok(),
         AttributeValue::Bool(_) => None,
     }
+    .filter(|v: &f64| v.is_finite())
 }
 
+/// A counter member as a whole number (negative readings count as 0).
 fn count(stat: &RtcStat, key: &str) -> Option<u64> {
     num(stat, key).map(|v| v.max(0.0) as u64)
 }
@@ -135,6 +183,12 @@ fn ms(stat: &RtcStat, key: &str) -> Option<u64> {
     num(stat, key).map(|s| (s.max(0.0) * 1000.0) as u64)
 }
 
+/// A duration member (seconds) as fractional milliseconds, for gauges.
+fn ms_f64(stat: &RtcStat, key: &str) -> Option<f64> {
+    num(stat, key).map(|s| s * 1000.0)
+}
+
+/// A string member.
 fn text(stat: &RtcStat, key: &str) -> Option<String> {
     match stat.members.get(key)? {
         AttributeValue::Str(s) => Some(s.clone()),
@@ -144,7 +198,7 @@ fn text(stat: &RtcStat, key: &str) -> Option<String> {
 
 /// The samples in one track's `getStats()` report: one per `outbound-rtp` (tagged with its
 /// layer) or `inbound-rtp` entry of `direction`, codec resolved through `codecId`, RTT from the
-/// `remote-inbound-rtp` that reports on the stream (outbound) or the nominated candidate pair
+/// `remote-inbound-rtp` that reports on the stream (outbound) or the selected candidate pair
 /// (inbound), durations converted from seconds to milliseconds. One mapping for every SDK.
 pub(crate) fn samples_from_report(
     track_sid: &str,
@@ -153,7 +207,9 @@ pub(crate) fn samples_from_report(
     report: &[RtcStat],
     timestamp_ns: Option<u64>,
 ) -> Vec<RtcStatsSample> {
-    let index = Index::new(report);
+    // One poll, one time: its layers then fold into one reading (see `Window::add`).
+    let timestamp_ns = Some(timestamp_ns.unwrap_or_else(now_unix_nanos));
+    let index = ReportIndex::new(report);
     index
         .rtp
         .iter()
@@ -172,7 +228,8 @@ pub(crate) fn samples_from_peer_report(
     tracks: &HashMap<String, String>,
     timestamp_ns: Option<u64>,
 ) -> Vec<RtcStatsSample> {
-    let index = Index::new(report);
+    let timestamp_ns = Some(timestamp_ns.unwrap_or_else(now_unix_nanos));
+    let index = ReportIndex::new(report);
     index
         .rtp
         .iter()
@@ -196,16 +253,16 @@ pub(crate) fn samples_from_peer_report(
 }
 
 /// A report indexed once: entries by id, the `remote-inbound-rtp` reporting on each outbound
-/// stream, the nominated candidate pair's RTT, the RTP streams with their direction. Resolving a
+/// stream, the selected candidate pair's RTT, the RTP streams with their direction. Resolving a
 /// stream's codec, RTT or media source is then a lookup, not a scan of the report.
-struct Index<'a> {
+struct ReportIndex<'a> {
     by_id: HashMap<&'a str, &'a RtcStat>,
     remote_by_local: HashMap<String, &'a RtcStat>,
     pair_rtt_ms: Option<f64>,
     rtp: Vec<(&'a RtcStat, StreamDirection)>,
 }
 
-impl<'a> Index<'a> {
+impl<'a> ReportIndex<'a> {
     fn new(report: &'a [RtcStat]) -> Self {
         let mut index = Self {
             by_id: HashMap::with_capacity(report.len()),
@@ -213,6 +270,11 @@ impl<'a> Index<'a> {
             pair_rtt_ms: None,
             rtp: Vec::new(),
         };
+        // The transport's selected pair, else the first pair that is selected, or nominated and
+        // succeeded (not every platform names the selected pair).
+        let (mut selected, mut fallback) = (None, None);
+        let flag =
+            |stat: &RtcStat, key| matches!(stat.members.get(key), Some(AttributeValue::Bool(true)));
         for stat in report {
             index.by_id.insert(stat.id.as_str(), stat);
             match stat.kind.as_str() {
@@ -223,17 +285,23 @@ impl<'a> Index<'a> {
                         index.remote_by_local.insert(local, stat);
                     }
                 }
-                "candidate-pair" if index.pair_rtt_ms.is_none() => {
-                    let nominated =
-                        matches!(stat.members.get("nominated"), Some(AttributeValue::Bool(true)))
-                            || text(stat, "state").as_deref() == Some("succeeded");
-                    if nominated {
-                        index.pair_rtt_ms = num(stat, "currentRoundTripTime").map(|s| s * 1000.0);
+                "transport" => {
+                    selected = selected.or_else(|| text(stat, "selectedCandidatePairId"))
+                }
+                "candidate-pair" if fallback.is_none() => {
+                    let succeeded = text(stat, "state").as_deref() == Some("succeeded");
+                    if flag(stat, "selected") || (flag(stat, "nominated") && succeeded) {
+                        fallback = Some(stat);
                     }
                 }
                 _ => {}
             }
         }
+        let pair = selected
+            .and_then(|id| index.by_id.get(id.as_str()).copied())
+            .filter(|pair| pair.kind == "candidate-pair")
+            .or(fallback);
+        index.pair_rtt_ms = pair.and_then(|pair| ms_f64(pair, "currentRoundTripTime"));
         index
     }
 
@@ -265,8 +333,7 @@ impl<'a> Index<'a> {
                 sample.rtt_ms = self
                     .remote_by_local
                     .get(&stat.id)
-                    .and_then(|remote| num(remote, "roundTripTime"))
-                    .map(|s| s * 1000.0);
+                    .and_then(|remote| ms_f64(remote, "roundTripTime"));
             }
             StreamDirection::Inbound => {
                 sample.bytes = count(stat, "bytesReceived");
@@ -283,7 +350,7 @@ impl<'a> Index<'a> {
                 sample.interruptions_duration_ms = ms(stat, "totalInterruptionDuration");
                 sample.jitter_buffer_delay_ms = ms(stat, "jitterBufferDelay");
                 sample.jitter_buffer_emitted_count = count(stat, "jitterBufferEmittedCount");
-                sample.jitter_ms = num(stat, "jitter").map(|s| s * 1000.0);
+                sample.jitter_ms = ms_f64(stat, "jitter");
                 sample.frames_per_second = num(stat, "framesPerSecond");
                 sample.audio_level = num(stat, "audioLevel");
                 sample.rtt_ms = self.pair_rtt_ms;
@@ -293,7 +360,44 @@ impl<'a> Index<'a> {
     }
 }
 
+/// Keep the larger of `mine` and `theirs`, whichever is known.
+fn larger<T: PartialOrd>(mine: &mut Option<T>, theirs: Option<T>) {
+    if let Some(theirs) = theirs {
+        if mine.as_ref().is_none_or(|mine| theirs > *mine) {
+            *mine = Some(theirs);
+        }
+    }
+}
+
 impl RtcStatsSample {
+    /// Merge another stream of the same poll into this reading: each field keeps the larger of
+    /// the values known, so a stream without a field never erases it and the report's order
+    /// changes nothing.
+    fn merge(&mut self, other: RtcStatsSample) {
+        larger(&mut self.codec, other.codec);
+        larger(&mut self.bytes, other.bytes);
+        larger(&mut self.packets, other.packets);
+        larger(&mut self.packets_lost, other.packets_lost);
+        larger(&mut self.freeze_count, other.freeze_count);
+        larger(&mut self.freezes_duration_ms, other.freezes_duration_ms);
+        larger(&mut self.concealed_samples, other.concealed_samples);
+        larger(&mut self.concealment_events, other.concealment_events);
+        larger(&mut self.jitter_buffer_delay_ms, other.jitter_buffer_delay_ms);
+        larger(&mut self.jitter_buffer_emitted_count, other.jitter_buffer_emitted_count);
+        larger(&mut self.quality_limitation_bandwidth_ms, other.quality_limitation_bandwidth_ms);
+        larger(&mut self.quality_limitation_cpu_ms, other.quality_limitation_cpu_ms);
+        larger(&mut self.quality_limitation_other_ms, other.quality_limitation_other_ms);
+        larger(&mut self.pause_count, other.pause_count);
+        larger(&mut self.pauses_duration_ms, other.pauses_duration_ms);
+        larger(&mut self.silent_concealed_samples, other.silent_concealed_samples);
+        larger(&mut self.interruption_count, other.interruption_count);
+        larger(&mut self.interruptions_duration_ms, other.interruptions_duration_ms);
+        larger(&mut self.jitter_ms, other.jitter_ms);
+        larger(&mut self.rtt_ms, other.rtt_ms);
+        larger(&mut self.frames_per_second, other.frames_per_second);
+        larger(&mut self.audio_level, other.audio_level);
+    }
+
     /// A sample with every optional field unset.
     pub fn new(track_sid: impl Into<String>, kind: TrackKind, direction: StreamDirection) -> Self {
         Self {
@@ -351,28 +455,32 @@ impl Gauge {
         self.n += 1;
     }
 
+    /// The average over the window; `None` without a reading.
+    fn avg(&self) -> Option<f64> {
+        (self.n > 0).then(|| self.sum / self.n as f64)
+    }
+
     fn attach(&self, event: TelemetryEvent, key: &str) -> TelemetryEvent {
-        if self.n == 0 {
-            return event;
-        }
+        let Some(avg) = self.avg() else { return event };
         event
             .with_attribute(format!("{key}.min"), self.min)
             .with_attribute(format!("{key}.max"), self.max)
-            .with_attribute(format!("{key}.avg"), self.sum / self.n as f64)
+            .with_attribute(format!("{key}.avg"), avg)
     }
 }
 
 /// Samples of one track in one direction accumulated since the window opened.
 struct Window {
+    /// The session the window ships under. A change to its project or correlation attributes
+    /// closes the window first (see `StatsWindows::split`), so the owner at close is the owner the
+    /// readings were taken under.
     session: Arc<ScopeState>,
-    /// The window's owner, captured when it opened: the session's project and its correlation
-    /// attributes then. A change to either closes the window first (see `StatsWindows::split`).
-    route: Option<String>,
-    custom: Vec<Attribute>,
     start_ns: u64,
+    /// Readings in the window: one per poll.
     samples: u32,
     /// Cumulative counters at the window's first reading, for the display body's deltas.
     first: RtcStatsSample,
+    /// The newest reading.
     last: RtcStatsSample,
     jitter: Gauge,
     rtt: Gauge,
@@ -383,28 +491,32 @@ struct Window {
 impl Window {
     fn open(start_ns: u64, first: RtcStatsSample, session: Arc<ScopeState>) -> Self {
         let mut window = Self {
-            route: session.route(),
-            custom: session.custom_snapshot(),
             session,
             start_ns,
             samples: 0,
             first: first.clone(),
-            last: first.clone(),
+            last: first,
             jitter: Gauge::default(),
             rtt: Gauge::default(),
             fps: Gauge::default(),
             audio_level: Gauge::default(),
         };
-        window.add(first);
+        window.commit();
         window
     }
 
-    /// `video outbound: 1204 kbps, loss 0.4%, rtt 48 ms, 30 fps` — deltas over the window.
-    fn summary(&self, window_ms: u64) -> String {
+    /// `video inbound: 1204 kbps, loss 0.4%, rtt 48 ms, 30 fps` — deltas between the window's
+    /// first and last reading. The bitrate is over the time between those two readings, and is
+    /// left out without two distinct reading times.
+    fn summary(&self) -> String {
         let mut parts = Vec::new();
         let delta = |a: Option<u64>, b: Option<u64>| Some(a?.saturating_sub(b?));
-        if let (Some(bytes), true) = (delta(self.last.bytes, self.first.bytes), window_ms > 0) {
-            parts.push(format!("{} kbps", bytes * 8 / window_ms));
+        let interval_ms =
+            delta(self.last.timestamp_ns, self.first.timestamp_ns).map(|ns| ns / 1_000_000);
+        if let (Some(bytes), Some(ms)) =
+            (delta(self.last.bytes, self.first.bytes), interval_ms.filter(|ms| *ms > 0))
+        {
+            parts.push(format!("{} kbps", bytes * 8 / ms));
         }
         if let (Some(lost), Some(packets)) = (
             delta(self.last.packets_lost, self.first.packets_lost),
@@ -414,11 +526,11 @@ impl Window {
                 parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / (lost + packets) as f64));
             }
         }
-        if self.rtt.n > 0 {
-            parts.push(format!("rtt {:.0} ms", self.rtt.sum / self.rtt.n as f64));
+        if let Some(rtt) = self.rtt.avg() {
+            parts.push(format!("rtt {rtt:.0} ms"));
         }
-        if self.fps.n > 0 {
-            parts.push(format!("{:.0} fps", self.fps.sum / self.fps.n as f64));
+        if let Some(fps) = self.fps.avg() {
+            parts.push(format!("{fps:.0} fps"));
         }
         if let Some(freezes) =
             delta(self.last.freeze_count, self.first.freeze_count).filter(|f| *f > 0)
@@ -433,28 +545,25 @@ impl Window {
         )
     }
 
-    /// The closed window as a queued record, with the owner it captured when it opened and its
-    /// session's attributes as of now, the window's capture time (see `QueuedEvent::new`).
+    /// The closed window as a record captured now (see `QueuedEvent::new`).
     fn into_queued(self, end_ns: u64) -> QueuedEvent {
-        let (session, route, custom) =
-            (self.session.clone(), self.route.clone(), self.custom.clone());
-        let mut event = self.into_event(end_ns);
-        for attribute in custom {
-            if !event.attributes.iter().any(|a| a.key == attribute.key) {
-                event.attributes.push(attribute);
-            }
-        }
-        session.decorate(&mut event.attributes);
-        QueuedEvent { event, session, route }
+        let session = Arc::clone(&self.session);
+        QueuedEvent::new(self.into_event(end_ns), session)
     }
 
-    fn add(&mut self, sample: RtcStatsSample) {
+    /// One more poll's reading.
+    fn add(&mut self, reading: RtcStatsSample) {
+        self.last = reading;
+        self.commit();
+    }
+
+    /// Put the newest reading into the gauges.
+    fn commit(&mut self) {
         self.samples += 1;
-        self.jitter.add(sample.jitter_ms);
-        self.rtt.add(sample.rtt_ms);
-        self.fps.add(sample.frames_per_second);
-        self.audio_level.add(sample.audio_level);
-        self.last = sample;
+        self.jitter.add(self.last.jitter_ms);
+        self.rtt.add(self.last.rtt_ms);
+        self.fps.add(self.last.frames_per_second);
+        self.audio_level.add(self.last.audio_level);
     }
 
     /// The `lk.rtc.stats.sample` event for this window, stamped at `end_ns`. Its body is the
@@ -462,7 +571,7 @@ impl Window {
     /// the attributes carry the numbers.
     fn into_event(self, end_ns: u64) -> TelemetryEvent {
         let window_ms = end_ns.saturating_sub(self.start_ns) / 1_000_000;
-        let body = self.summary(window_ms);
+        let body = self.summary();
         let last = self.last;
         let mut event = TelemetryEvent::new("lk.rtc.stats.sample")
             .with_body(body)
@@ -519,9 +628,11 @@ pub(crate) struct StatsWindows {
     /// Last cumulative `qualityLimitationDurations.cpu` per outbound track.
     limitation: HashMap<TrackKey, u64>,
     cpu_limited_until: Option<Instant>,
-    /// Last cumulative counters per simulcast layer, per outbound track: the track's counters
-    /// are their sum, so a suspended top layer cannot freeze them.
-    layers: HashMap<TrackKey, HashMap<String, LayerCounters>>,
+    /// Per track: the poll in progress and the counting state across polls.
+    tracks: HashMap<TrackKey, Track>,
+    /// Tracks with a reading since the last [`close`](Self::close): only these keep their stream
+    /// and CPU state. A window closed early (a split) does not retire its track.
+    seen: HashSet<TrackKey>,
     /// The opt-out, checked under the lock that guards the windows (see `Store`).
     revoked: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -534,22 +645,92 @@ fn track_key(session: &ScopeState, sample: &RtcStatsSample) -> TrackKey {
     (session.trace_id, sample.track_sid.clone(), sample.direction)
 }
 
+/// One track's state across polls.
+#[derive(Default)]
+struct Track {
+    /// The poll being gathered: a report's streams arrive one by one, and the poll is read as a
+    /// whole once the next poll comes or its window closes.
+    poll: Option<Poll>,
+    /// The previous poll's bytes and packets per RTP stream (`layer`): one report's streams at
+    /// most, no older ones.
+    previous: HashMap<String, StreamCounts>,
+    /// A layered outbound track's bytes and packets so far: every poll's growth, summed.
+    total: StreamCounts,
+}
+
+/// One poll's readings, as the streams of one report came in.
+struct Poll {
+    session: Arc<ScopeState>,
+    timestamp_ns: u64,
+    readings: Vec<RtcStatsSample>,
+}
+
+/// A stream's, or a track's, bytes and packets.
 #[derive(Debug, Clone, Copy, Default)]
-struct LayerCounters {
+struct StreamCounts {
     bytes: Option<u64>,
     packets: Option<u64>,
-    fps: Option<f64>,
-    limitation_bandwidth_ms: Option<u64>,
-    limitation_cpu_ms: Option<u64>,
-    limitation_other_ms: Option<u64>,
 }
 
-fn sum(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
-    values.flatten().reduce(|a, b| a + b)
+impl Track {
+    /// A poll's readings as one: each field the largest value its streams report, so their
+    /// order changes nothing. On a layered outbound track (streams named by `layer`), the bytes
+    /// and packets are the track's running total instead: each named stream adds its growth since
+    /// the previous poll. Any other track passes its counters through as reported. A stream that was not in the previous poll only sets its starting point,
+    /// so a new or returning stream's first poll is not counted (an undercount, never a double
+    /// count), and an absent counter keeps the starting point it had.
+    fn reading(&mut self, readings: Vec<RtcStatsSample>) -> Option<RtcStatsSample> {
+        // A track's readings all share its direction (it is part of the track's key).
+        let named =
+            readings.iter().any(|r| r.direction == StreamDirection::Outbound && r.layer.is_some());
+        let mut streams: HashMap<String, StreamCounts> = HashMap::new();
+        let mut reading: Option<RtcStatsSample> = None;
+        for sample in readings {
+            if named {
+                let stream = streams.entry(sample.layer.clone().unwrap_or_default()).or_default();
+                larger(&mut stream.bytes, sample.bytes);
+                larger(&mut stream.packets, sample.packets);
+            }
+            match &mut reading {
+                Some(reading) => reading.merge(sample),
+                None => reading = Some(sample),
+            }
+        }
+        let mut reading = reading?;
+        reading.layer = None;
+        if named {
+            let mut grown = StreamCounts::default();
+            for (id, now) in &mut streams {
+                let before = self.previous.get(id).copied().unwrap_or_default();
+                grow(&mut grown.bytes, now.bytes, before.bytes);
+                grow(&mut grown.packets, now.packets, before.packets);
+                now.bytes = now.bytes.or(before.bytes);
+                now.packets = now.packets.or(before.packets);
+            }
+            self.previous = streams;
+            add(&mut self.total.bytes, grown.bytes);
+            add(&mut self.total.packets, grown.packets);
+            reading.bytes = self.total.bytes;
+            reading.packets = self.total.packets;
+        }
+        Some(reading)
+    }
 }
 
-fn max_u64(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
-    values.flatten().max()
+/// Count a stream's growth into `grown`: known `now` against a known `before`. A stream with
+/// `now` known still makes the poll's count known (`Some(0)` at least), so a track's first poll
+/// reports a total.
+fn grow(grown: &mut Option<u64>, now: Option<u64>, before: Option<u64>) {
+    let Some(now) = now else { return };
+    let growth = before.map_or(0, |before| now.saturating_sub(before));
+    *grown = Some(grown.unwrap_or(0) + growth);
+}
+
+/// Add a poll's growth to a running total.
+fn add(total: &mut Option<u64>, grown: Option<u64>) {
+    if let Some(grown) = grown {
+        *total = Some(total.unwrap_or(0) + grown);
+    }
 }
 
 /// CPU starvation is sticky: stretch the cadence for a while after the last sign of it.
@@ -564,60 +745,66 @@ impl StatsWindows {
         Self { revoked, ..Self::default() }
     }
 
+    /// Add one reading to its track's poll in progress. A reading with another timestamp starts
+    /// the next poll, and the finished one goes into the track's window as one reading.
     pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<ScopeState>) {
         if self.revoked.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let key = track_key(session, &sample);
-        self.fold_layers(&key, &mut sample);
-        self.track_limitation(&key, &sample);
-        let timestamp = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
-        match self.windows.get_mut(&key) {
-            Some(window) => window.add(sample),
+        self.seen.insert(key.clone());
+        let timestamp_ns = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
+        let track = self.tracks.entry(key.clone()).or_default();
+        if track.poll.as_ref().is_some_and(|poll| poll.timestamp_ns != timestamp_ns) {
+            self.end_poll(&key);
+        }
+        self.check_limitation(&key, &sample);
+        let track = self.tracks.entry(key).or_default();
+        let poll = track.poll.get_or_insert_with(|| Poll {
+            session: session.clone(),
+            timestamp_ns,
+            readings: Vec::new(),
+        });
+        poll.readings.push(sample);
+    }
+
+    /// Read the track's poll in progress as one reading into its window, opening the window if
+    /// needed.
+    fn end_poll(&mut self, key: &TrackKey) {
+        let Some(track) = self.tracks.get_mut(key) else { return };
+        let Some(Poll { session, timestamp_ns, readings }) = track.poll.take() else { return };
+        let Some(reading) = track.reading(readings) else { return };
+        self.set_limitation_baseline(key, &reading);
+        match self.windows.get_mut(key) {
+            Some(window) => window.add(reading),
             None => {
-                self.windows.insert(key, Window::open(timestamp, sample, session.clone()));
+                self.windows.insert(key.clone(), Window::open(timestamp_ns, reading, session));
             }
         }
     }
 
-    /// Simulcast publishes one RTP stream per layer under one track sid. Remember each layer's
-    /// latest cumulative counters and rewrite the sample as the track's total, so the window
-    /// sees one monotonic series per track.
-    fn fold_layers(&mut self, key: &TrackKey, sample: &mut RtcStatsSample) {
-        let Some(layer) = sample.layer.clone() else { return };
-        let layers = self.layers.entry(key.clone()).or_default();
-        layers.insert(
-            layer,
-            LayerCounters {
-                bytes: sample.bytes,
-                packets: sample.packets,
-                fps: sample.frames_per_second,
-                limitation_bandwidth_ms: sample.quality_limitation_bandwidth_ms,
-                limitation_cpu_ms: sample.quality_limitation_cpu_ms,
-                limitation_other_ms: sample.quality_limitation_other_ms,
-            },
-        );
-        sample.bytes = sum(layers.values().map(|l| l.bytes));
-        sample.packets = sum(layers.values().map(|l| l.packets));
-        sample.frames_per_second = layers
-            .values()
-            .filter_map(|l| l.fps)
-            .fold(None, |m, v| Some(m.map_or(v, |m: f64| m.max(v))));
-        sample.quality_limitation_bandwidth_ms =
-            max_u64(layers.values().map(|l| l.limitation_bandwidth_ms));
-        sample.quality_limitation_cpu_ms = max_u64(layers.values().map(|l| l.limitation_cpu_ms));
-        sample.quality_limitation_other_ms =
-            max_u64(layers.values().map(|l| l.limitation_other_ms));
+    /// End every poll in progress that `ended` selects.
+    fn end_polls(&mut self, ended: impl Fn(&TrackKey) -> bool) {
+        let keys: Vec<TrackKey> = self
+            .tracks
+            .iter()
+            .filter(|(key, track)| track.poll.is_some() && ended(key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in keys {
+            self.end_poll(&key);
+        }
     }
 
     /// Close every open window into its event, filed under the window's session, and start fresh.
     /// A track that produced no reading for a whole window has left (unpublished, unsubscribed,
-    /// its room gone): its per-layer and CPU counters are retired with it, so memory follows the
+    /// its room gone): its stream and CPU counters are retired with it, so memory follows the
     /// live tracks rather than every track the process ever saw.
     pub fn close(&mut self) -> Vec<QueuedEvent> {
-        let windows = &self.windows;
-        self.layers.retain(|key, _| windows.contains_key(key));
-        self.limitation.retain(|key, _| windows.contains_key(key));
+        self.end_polls(|_| true);
+        let seen = std::mem::take(&mut self.seen);
+        self.tracks.retain(|key, _| seen.contains(key));
+        self.limitation.retain(|key, _| seen.contains(key));
         let end = now_unix_nanos();
         self.windows.drain().map(|(_, window)| window.into_queued(end)).collect()
     }
@@ -628,8 +815,10 @@ impl StatsWindows {
         let gone = |(trace_id, sid, _): &TrackKey| {
             *trace_id == session.trace_id && track_sid.is_none_or(|t| t == sid)
         };
-        self.layers.retain(|key, _| !gone(key));
+        self.end_polls(gone);
+        self.tracks.retain(|key, _| !gone(key));
         self.limitation.retain(|key, _| !gone(key));
+        self.seen.retain(|key| !gone(key));
         let keys: Vec<TrackKey> = self.windows.keys().filter(|k| gone(k)).cloned().collect();
         let end = now_unix_nanos();
         keys.into_iter()
@@ -641,6 +830,7 @@ impl StatsWindows {
     /// Close `session`'s open windows now — their records then carry the attributes they were
     /// captured under — keeping each track's cumulative state for the windows that follow.
     pub fn split(&mut self, session: &ScopeState) -> Vec<QueuedEvent> {
+        self.end_polls(|(trace_id, ..)| *trace_id == session.trace_id);
         let keys: Vec<TrackKey> = self
             .windows
             .keys()
@@ -654,45 +844,69 @@ impl StatsWindows {
             .collect()
     }
 
-    /// How many tracks the accumulator holds state for (windows, layers, CPU counters).
+    /// How many tracks the accumulator holds state for (windows, tracks, CPU counters), with the
+    /// polls recorded so far read into their windows.
     #[cfg(test)]
-    pub fn tracked(&self) -> (usize, usize, usize) {
-        (self.windows.len(), self.layers.len(), self.limitation.len())
+    pub fn tracked(&mut self) -> (usize, usize, usize) {
+        self.end_polls(|_| true);
+        (self.windows.len(), self.tracks.len(), self.limitation.len())
     }
 
+    /// Record a reading under the unit tests' one session.
     #[cfg(test)]
     pub fn record(&mut self, sample: RtcStatsSample) {
         self.record_in(sample, &test_session());
     }
 
+    /// Close every window and keep only the events.
     #[cfg(test)]
     pub fn close_events(&mut self) -> Vec<TelemetryEvent> {
         self.close().into_iter().map(|q| q.event).collect()
     }
 
-    /// The encoder was CPU-starved within the last minute: stretch the cadence, like thermal
-    /// pressure.
+    /// The encoder was CPU-starved within the last [`CPU_LIMITED_HOLD`]: stretch the cadence,
+    /// like thermal pressure.
     pub fn cpu_limited(&self) -> bool {
         self.cpu_limited_until.is_some_and(|t| Instant::now() < t)
     }
 
-    /// A cpu limitation counter that grew since the previous reading means the encoder was
-    /// starved in between.
-    fn track_limitation(&mut self, key: &TrackKey, sample: &RtcStatsSample) {
+    /// A cpu limitation counter that grew since the previous poll means the encoder was starved
+    /// in between. Checked as each reading arrives, against the previous poll only, so the order
+    /// of a poll's streams changes nothing.
+    fn check_limitation(&mut self, key: &TrackKey, sample: &RtcStatsSample) {
         if sample.direction != StreamDirection::Outbound {
             return;
         }
-        let current = sample.quality_limitation_cpu_ms.unwrap_or(0);
-        if let Some(previous) = self.limitation.insert(key.clone(), current) {
-            if current > previous {
-                self.cpu_limited_until = Some(Instant::now() + CPU_LIMITED_HOLD);
-            }
+        let (Some(current), Some(&previous)) =
+            (sample.quality_limitation_cpu_ms, self.limitation.get(key))
+        else {
+            return;
+        };
+        if current > previous {
+            self.cpu_limited_until = Some(Instant::now() + CPU_LIMITED_HOLD);
         }
     }
 
-    /// Drop everything (opt-out); returns how many open windows went.
+    /// A finished poll's cpu limitation counter is the baseline for the next poll. A poll without
+    /// the counter says nothing: it must not reset the baseline.
+    fn set_limitation_baseline(&mut self, key: &TrackKey, reading: &RtcStatsSample) {
+        if reading.direction != StreamDirection::Outbound {
+            return;
+        }
+        if let Some(current) = reading.quality_limitation_cpu_ms {
+            self.limitation.insert(key.clone(), current);
+        }
+    }
+
+    /// Drop everything (opt-out); returns how many RTC records went, each once: the open windows,
+    /// and the first polls that had not opened their window yet.
     pub fn clear(&mut self) -> u64 {
-        let open = self.windows.len() as u64;
+        let first_polls = self
+            .tracks
+            .iter()
+            .filter(|(key, track)| track.poll.is_some() && !self.windows.contains_key(*key))
+            .count();
+        let open = (self.windows.len() + first_polls) as u64;
         *self = Self::with_consent(self.revoked.clone());
         open
     }
@@ -726,27 +940,28 @@ impl StreamDirection {
 mod tests {
     use super::*;
 
+    /// Simulcast layers make one series per track: its bytes grow by every layer's growth, so a
+    /// stalled layer does not stall the track.
     #[test]
     fn simulcast_layers_fold_into_one_track_series() {
         let mut windows = StatsWindows::default();
-        let layer = |id: &str, bytes: u64, fps: f64| RtcStatsSample {
+        let layer = |id: &str, bytes: u64, fps: f64, second: u64| RtcStatsSample {
             bytes: Some(bytes),
             frames_per_second: Some(fps),
             layer: Some(id.into()),
+            timestamp_ns: Some(second * 1_000_000_000),
             ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
         };
-        windows.record(layer("h", 1_000, 30.0));
-        windows.record(layer("f", 4_000, 30.0));
+        windows.record(layer("h", 1_000, 30.0, 1));
+        windows.record(layer("f", 4_000, 30.0, 1));
         // The top layer stalls; the half layer keeps sending.
-        windows.record(layer("h", 3_000, 30.0));
-        windows.record(layer("f", 4_000, 0.0));
+        windows.record(layer("h", 3_000, 30.0, 2));
+        windows.record(layer("f", 4_000, 0.0, 2));
         let events = windows.close_events();
         assert_eq!(events.len(), 1, "one window per track, not per layer");
-        let bytes =
-            events[0].attributes.iter().find(|a| a.key == "lk.rtc.bytes").map(|a| a.value.clone());
-        assert_eq!(bytes, Some(AttributeValue::Int(7_000)), "last folded total");
+        assert_eq!(attr(&events[0], "lk.rtc.bytes"), Some(AttributeValue::Int(2_000)), "h grew");
         let body = events[0].body.clone().unwrap_or_default();
-        assert!(!body.contains(" 0 kbps"), "a stalled layer is not a stalled track: {body}");
+        assert!(body.contains("16 kbps"), "a stalled layer is not a stalled track: {body}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -773,7 +988,92 @@ mod tests {
         windows.record(inbound);
         assert!(!windows.cpu_limited(), "inbound counters are ignored");
     }
-    use crate::AttributeValue;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_reading_without_the_cpu_counter_keeps_the_baseline() {
+        let mut windows = StatsWindows::default();
+        let reading = |cpu_ms| RtcStatsSample {
+            quality_limitation_cpu_ms: cpu_ms,
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        for cpu_ms in [Some(5_000), None, Some(5_000)] {
+            windows.record(reading(cpu_ms));
+        }
+        assert!(!windows.cpu_limited(), "the counter did not grow");
+    }
+
+    #[test]
+    fn a_split_window_keeps_its_tracks_state_through_the_next_close() {
+        let mut windows = StatsWindows::default();
+        let session = test_session();
+        windows.record_in(
+            RtcStatsSample {
+                bytes: Some(1_000),
+                quality_limitation_cpu_ms: Some(0),
+                layer: Some("f".into()),
+                ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+            },
+            &session,
+        );
+        windows.split(&session);
+        windows.close();
+        assert_eq!(windows.tracked(), (0, 1, 1), "the track is live: it read since the last close");
+        windows.close();
+        assert_eq!(windows.tracked(), (0, 0, 0), "a whole window without a reading retires it");
+    }
+
+    fn stat(kind: &str, id: &str, members: &[(&str, AttributeValue)]) -> RtcStat {
+        RtcStat {
+            kind: kind.into(),
+            id: id.into(),
+            members: members.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        }
+    }
+
+    #[test]
+    fn inbound_rtt_comes_from_the_selected_candidate_pair() {
+        let inbound = stat("inbound-rtp", "IN", &[("bytesReceived", AttributeValue::Int(1))]);
+        let pair = |id: &str, rtt: f64, nominated: bool| {
+            stat(
+                "candidate-pair",
+                id,
+                &[
+                    ("nominated", AttributeValue::Bool(nominated)),
+                    ("state", AttributeValue::Str("succeeded".into())),
+                    ("currentRoundTripTime", AttributeValue::Double(rtt)),
+                ],
+            )
+        };
+        let rtt = |report: Vec<RtcStat>| {
+            samples_from_report("TR_1", TrackKind::Audio, StreamDirection::Inbound, &report, None)
+                [0]
+            .rtt_ms
+        };
+        // Without a name from the transport: the first pair that is nominated and succeeded.
+        let fallback = vec![inbound.clone(), pair("A", 0.3, false), pair("B", 0.04, true)];
+        assert_eq!(rtt(fallback), Some(40.0), "a stale succeeded pair listed first is skipped");
+        // The pair the transport names wins over any other.
+        let transport =
+            stat("transport", "T", &[("selectedCandidatePairId", AttributeValue::Str("B".into()))]);
+        let named = vec![inbound, pair("A", 0.3, true), pair("B", 0.04, false), transport];
+        assert_eq!(rtt(named), Some(40.0));
+    }
+
+    #[test]
+    fn non_finite_numbers_are_no_reading() {
+        let report = [stat(
+            "inbound-rtp",
+            "IN",
+            &[
+                ("jitter", AttributeValue::Str("NaN".into())),
+                ("bytesReceived", AttributeValue::Double(f64::INFINITY)),
+            ],
+        )];
+        let sample =
+            &samples_from_report("TR_1", TrackKind::Audio, StreamDirection::Inbound, &report, None)
+                [0];
+        assert_eq!((sample.jitter_ms, sample.bytes), (None, None));
+    }
 
     fn attr(event: &TelemetryEvent, key: &str) -> Option<AttributeValue> {
         event.attributes.iter().find(|a| a.key == key).map(|a| a.value.clone())
@@ -874,6 +1174,7 @@ mod tests {
                 "CP",
                 &[
                     ("nominated", AttributeValue::Bool(true)),
+                    ("state", AttributeValue::Str("succeeded".into())),
                     ("currentRoundTripTime", AttributeValue::Double(0.1)),
                 ],
             ),
@@ -1002,5 +1303,298 @@ mod tests {
             .all(|s| { s.kind == TrackKind::Video && s.direction == StreamDirection::Outbound }));
         let remote = out.iter().find(|s| s.track_sid == "TR_remote").expect("remote");
         assert_eq!((remote.kind, remote.bytes), (TrackKind::Audio, Some(7)));
+    }
+
+    /// The bitrate is the bytes between the window's first and last reading over the time between
+    /// them, not over the window: readings twice per window end before the window does.
+    #[test]
+    fn the_bitrate_spans_the_readings_not_the_window() {
+        let mut first = RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound);
+        first.bytes = Some(0);
+        first.timestamp_ns = Some(0);
+        let mut last = first.clone();
+        last.bytes = Some(300_000);
+        last.timestamp_ns = Some(30_000_000_000);
+        let mut window = Window::open(0, first.clone(), test_session());
+        window.add(last);
+        let body = window.into_event(60_000_000_000).body.unwrap_or_default();
+        assert!(body.contains("80 kbps"), "{body}");
+        let alone = Window::open(0, first, test_session()).into_event(60_000_000_000);
+        let body = alone.body.unwrap_or_default();
+        assert!(!body.contains("kbps"), "one reading has no bitrate: {body}");
+    }
+
+    /// One poll's simulcast layers are one reading: the order the report lists them in does not
+    /// change the frame-rate gauges.
+    #[test]
+    fn the_order_of_a_reports_layers_does_not_change_the_gauges() {
+        let gauges = |order: [(&str, f64); 2]| {
+            let mut windows = StatsWindows::default();
+            for (layer, fps) in order {
+                let mut sample =
+                    RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound);
+                sample.layer = Some(layer.into());
+                sample.frames_per_second = Some(fps);
+                sample.timestamp_ns = Some(1);
+                windows.record(sample);
+            }
+            let event = windows.close_events().pop().expect("a window");
+            let fps: Vec<_> =
+                event.attributes.into_iter().filter(|a| a.key.starts_with("lk.rtc.fps")).collect();
+            (fps, event.body)
+        };
+        let (h_first, body) = gauges([("h", 10.0), ("f", 30.0)]);
+        assert_eq!(h_first, gauges([("f", 30.0), ("h", 10.0)]).0);
+        assert!(body.unwrap_or_default().contains("30 fps"));
+    }
+
+    /// A poll's layers make one reading in any report order: a layer without an RTT does not
+    /// erase the RTT another layer has, and of two RTTs the larger counts.
+    #[test]
+    fn a_polls_reading_keeps_what_any_layer_reports_in_either_order() {
+        let layer = |rid: &str| {
+            stat("outbound-rtp", &format!("OUT_{rid}"), &[("rid", AttributeValue::Str(rid.into()))])
+        };
+        let rtt = |rid: &str, secs: f64| {
+            stat(
+                "remote-inbound-rtp",
+                &format!("RI_{rid}"),
+                &[
+                    ("localId", AttributeValue::Str(format!("OUT_{rid}"))),
+                    ("roundTripTime", AttributeValue::Double(secs)),
+                ],
+            )
+        };
+        let rtt_avg = |report: Vec<RtcStat>| {
+            let mut windows = StatsWindows::default();
+            let outbound = StreamDirection::Outbound;
+            for sample in samples_from_report("TR_1", TrackKind::Video, outbound, &report, Some(1))
+            {
+                windows.record(sample);
+            }
+            attr(&windows.close_events().pop().expect("a window"), "lk.rtc.rtt_ms.avg")
+        };
+        let (f, h, q) = (layer("f"), layer("h"), layer("q"));
+        for report in [vec![f.clone(), h.clone()], vec![h, f.clone()]] {
+            let report = [report, vec![rtt("f", 0.042)]].concat();
+            assert_eq!(rtt_avg(report), Some(AttributeValue::Double(42.0)), "only `f` has one");
+        }
+        for report in [vec![f.clone(), q.clone()], vec![q, f]] {
+            let report = [report, vec![rtt("f", 0.042), rtt("q", 0.05)]].concat();
+            assert_eq!(rtt_avg(report), Some(AttributeValue::Double(50.0)), "the larger one");
+        }
+    }
+
+    /// One outbound reading: stream `id` with `bytes` bytes and as many packets, at `second`.
+    fn stream(id: &str, bytes: Option<u64>, second: u64) -> RtcStatsSample {
+        RtcStatsSample {
+            layer: Some(id.into()),
+            bytes,
+            packets: bytes,
+            timestamp_ns: Some(second * 1_000_000_000),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        }
+    }
+
+    /// The track's bytes and packets in the window `windows` closes now.
+    fn totals(windows: &mut StatsWindows) -> (Option<AttributeValue>, Option<AttributeValue>) {
+        let event = windows.close_events().pop().expect("a window");
+        (attr(&event, "lk.rtc.bytes"), attr(&event, "lk.rtc.packets"))
+    }
+
+    fn both(n: i64) -> (Option<AttributeValue>, Option<AttributeValue>) {
+        (Some(AttributeValue::Int(n)), Some(AttributeValue::Int(n)))
+    }
+
+    /// A stream that leaves and reports again only sets its starting point on its return, so
+    /// nothing it sent before is counted twice; what it sends after counts.
+    #[test]
+    fn a_stream_that_reports_again_adds_only_its_growth() {
+        let mut windows = StatsWindows::default();
+        for id in 0..9 {
+            windows.record(stream(&format!("layer-{id}"), Some(1), id + 1));
+        }
+        assert_eq!(totals(&mut windows), both(0), "first polls only set starting points");
+        windows.record(stream("layer-0", Some(1), 10));
+        assert_eq!(totals(&mut windows), both(0), "no stream sent another byte");
+        windows.record(stream("layer-0", Some(3), 11));
+        assert_eq!(totals(&mut windows), both(2), "what it sent since counts");
+    }
+
+    /// A counter a stream leaves out never becomes a starting point of zero: the next value
+    /// known only sets the starting point, and growth after it counts.
+    #[test]
+    fn an_absent_counter_never_becomes_a_zero_starting_point() {
+        let mut windows = StatsWindows::default();
+        for id in 0..9 {
+            windows.record(stream(&format!("layer-{id}"), Some(1), id + 1));
+        }
+        windows.close_events();
+        windows.record(stream("layer-0", None, 10));
+        windows.close_events();
+        windows.record(stream("layer-0", Some(1), 11));
+        assert_eq!(totals(&mut windows), both(0), "no stream sent anything more");
+        windows.record(stream("layer-0", None, 12));
+        windows.record(stream("layer-0", Some(4), 13));
+        assert_eq!(totals(&mut windows), both(3), "growth across a poll without the counter");
+    }
+
+    /// The same poll in any order gives the same totals, here ten streams at once.
+    #[test]
+    fn a_polls_totals_do_not_depend_on_its_order() {
+        let totals_for = |reverse: bool| {
+            let mut windows = StatsWindows::default();
+            let mut ids: Vec<u64> = (1..=10).collect();
+            if reverse {
+                ids.reverse();
+            }
+            for second in [1, 2] {
+                for &id in &ids {
+                    windows.record(stream(&format!("layer-{id}"), Some(id * second), second));
+                }
+            }
+            totals(&mut windows)
+        };
+        assert_eq!(totals_for(false), totals_for(true), "same polls in reverse order");
+        assert_eq!(totals_for(false), both(55), "each stream grew by its own count");
+    }
+
+    /// Every order of a poll's streams gives the same window: totals, gauges and body.
+    #[test]
+    fn every_order_of_a_poll_gives_the_same_window() {
+        let poll = |second: u64| {
+            [("f", 3_000, 30.0, 0.05), ("h", 2_000, 15.0, 0.04), ("q", 1_000, 7.0, 0.06)].map(
+                |(id, bytes, fps, rtt)| RtcStatsSample {
+                    frames_per_second: Some(fps / second as f64),
+                    rtt_ms: Some(rtt * 1_000.0),
+                    ..stream(id, Some(bytes * second), second)
+                },
+            )
+        };
+        let orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+        let windows: Vec<_> = orders
+            .iter()
+            .map(|order| {
+                let mut windows = StatsWindows::default();
+                for second in [1, 2] {
+                    let readings = poll(second);
+                    for &i in order {
+                        windows.record(readings[i].clone());
+                    }
+                }
+                let event = windows.close_events().pop().expect("a window");
+                let mut attributes: Vec<_> = event
+                    .attributes
+                    .into_iter()
+                    // All but the window's length, which depends on when it closes.
+                    .filter(|a| a.key.starts_with("lk.rtc.") && a.key != "lk.rtc.window_ms")
+                    .map(|a| format!("{}={:?}", a.key, a.value))
+                    .collect();
+                attributes.sort();
+                (attributes, event.body)
+            })
+            .collect();
+        assert!(windows.iter().all(|w| *w == windows[0]), "{windows:#?}");
+    }
+
+    /// A falling frame rate comes from the current poll only, in either order of its layers.
+    #[test]
+    fn a_falling_frame_rate_comes_from_the_current_poll_only() {
+        let reading = |layer: &str, fps, timestamp_ns| RtcStatsSample {
+            layer: Some(layer.into()),
+            frames_per_second: Some(fps),
+            timestamp_ns: Some(timestamp_ns),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        for order in [[("h", 5.0), ("f", 10.0)], [("f", 10.0), ("h", 5.0)]] {
+            let mut windows = StatsWindows::default();
+            windows.record(reading("f", 30.0, 1));
+            windows.record(reading("h", 10.0, 1));
+            windows.close_events();
+            for (layer, fps) in order {
+                windows.record(reading(layer, fps, 2));
+            }
+            let event = windows.close_events().pop().expect("a window");
+            assert_eq!(attr(&event, "lk.rtc.fps.avg"), Some(AttributeValue::Double(10.0)));
+        }
+    }
+
+    /// A track keeps one report's streams at most, however many stream ids it went through.
+    #[test]
+    fn a_track_keeps_one_reports_streams() {
+        let mut windows = StatsWindows::default();
+        for id in 0..1000 {
+            windows.record(stream(&format!("outbound-rtp-{id}"), Some(1), id + 1));
+            windows.close_events();
+        }
+        let kept = windows.tracks.values().next().expect("the track").previous.len();
+        assert_eq!(kept, 1, "the previous poll's one stream");
+    }
+
+    /// Clearing forgets every stream, and the track starts over afterwards.
+    #[test]
+    fn clear_forgets_every_stream() {
+        let mut windows = StatsWindows::default();
+        for _ in 0..2 {
+            for id in 0..9 {
+                windows.record(stream(&format!("layer-{id}"), Some(1), id + 1));
+            }
+            windows.clear();
+            assert_eq!(windows.tracked(), (0, 0, 0));
+        }
+    }
+
+    /// A retired track's last window holds its session until it is sent, and clearing lets every
+    /// session go.
+    #[test]
+    fn retire_and_clear_let_the_session_go() {
+        let mut windows = StatsWindows::default();
+        let inbound =
+            |sid: &str| RtcStatsSample::new(sid, TrackKind::Audio, StreamDirection::Inbound);
+        let scope = ScopeState::new();
+        let session = Arc::downgrade(&scope);
+        windows.record_in(inbound("TR_1"), &scope);
+        let queued = windows.retire(&scope, None);
+        drop(scope);
+        assert!(session.upgrade().is_some(), "the last window holds it");
+        drop(queued);
+        assert!(session.upgrade().is_none(), "gone with the window");
+        let scope = ScopeState::new();
+        let session = Arc::downgrade(&scope);
+        windows.record_in(inbound("TR_2"), &scope);
+        drop(scope);
+        windows.clear();
+        assert!(session.upgrade().is_none(), "nothing kept after clear");
+    }
+
+    /// The running total is a layered outbound track's: an inbound track passes its counters
+    /// through as reported, whatever stream ids its readings carry, while an outbound track with
+    /// stream ids counts each stream's growth.
+    #[test]
+    fn only_a_layered_outbound_track_keeps_a_running_total() {
+        let totals_for = |direction| {
+            let mut windows = StatsWindows::default();
+            [123, 200].map(|bytes| {
+                windows
+                    .record(RtcStatsSample { direction, ..stream("ssrc-1", Some(bytes), bytes) });
+                totals(&mut windows)
+            })
+        };
+        assert_eq!(totals_for(StreamDirection::Inbound), [both(123), both(200)], "as reported");
+        assert_eq!(totals_for(StreamDirection::Outbound), [both(0), both(77)], "growth");
+    }
+
+    /// Clearing counts every RTC record it drops, each once: an open window, and a first poll
+    /// that has not opened its window yet.
+    #[test]
+    fn clear_counts_every_window_and_first_poll_once() {
+        let mut windows = StatsWindows::default();
+        windows.record(stream("f", Some(100), 1));
+        assert_eq!(windows.clear(), 1, "a pending first poll is one record");
+        // A window with a pending poll of its own, and another track with only a pending poll.
+        windows.record(stream("f", Some(100), 1));
+        windows.record(stream("f", Some(200), 2));
+        windows.record(RtcStatsSample { track_sid: "TR_2".into(), ..stream("f", Some(100), 1) });
+        assert_eq!(windows.clear(), 2, "one per track, its pending poll included");
     }
 }
