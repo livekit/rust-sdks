@@ -17,7 +17,11 @@
 
 
 PROTOCOL=${PROTOCOL:-protocol/protobufs}
+SEMCONV=${SEMCONV:-protocol/otel/gen/rust/semconv.rs}
 OUT_RUST=src
+
+# The telemetry names: generated in the protocol repository by Weaver (`otel/generate.sh`).
+cp "$SEMCONV" $OUT_RUST/semconv.rs
 
 protoc \
     -I=$PROTOCOL \

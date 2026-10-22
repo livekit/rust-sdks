@@ -41,5 +41,6 @@ jobs:
             -ignore "livekit-protocol/src/livekit.agent.serde.rs" \
             -ignore "livekit-protocol/src/logger.rs" \
             -ignore "livekit-protocol/src/logger.serde.rs" \
+            -ignore "livekit-protocol/src/semconv.rs" \
             -ignore "livekit-api/src/public_api/generated.rs" \
              **/*.{rs,cpp,c}
