@@ -131,6 +131,19 @@ impl Severity {
     }
 }
 
+impl From<log::Level> for Severity {
+    /// The severity of a `log` record at `level`.
+    fn from(level: log::Level) -> Self {
+        match level {
+            log::Level::Error => Self::Error,
+            log::Level::Warn => Self::Warn,
+            log::Level::Info => Self::Info,
+            log::Level::Debug => Self::Debug,
+            log::Level::Trace => Self::Trace,
+        }
+    }
+}
+
 /// Where a log line came from. WebRTC is chatty at warn, so only its errors become records;
 /// the SDK and the core use the configured floor.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]

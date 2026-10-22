@@ -134,19 +134,17 @@ impl Log for Logger {
 /// Never the telemetry crate's own records (`livekit_telemetry*`): a record about a failed
 /// upload must not produce another upload. The pipeline applies the same guard again.
 fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
-    let severity = match record.level() {
-        Level::Error => livekit_telemetry::Severity::Error,
-        Level::Warn => livekit_telemetry::Severity::Warn,
-        _ => return None,
-    };
+    if record.level() > Level::Warn {
+        return None;
+    }
     let target = record.target();
     if !target.starts_with("livekit") || target.starts_with("livekit_telemetry") {
         return None;
     }
     Some(livekit_telemetry::LogRecord {
-        severity,
+        severity: record.level().into(),
         source: livekit_telemetry::LogSource::Ffi,
-        body: mask_jwts(&record.args().to_string()),
+        body: mask_credentials(&record.args().to_string()),
         logger: Some(target.to_owned()),
         // `log` knows no function name; the module path is the target, already in `logger`.
         function: None,
@@ -162,7 +160,7 @@ fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
 /// compact JWT — three base64url segments whose header and payload decode to JSON objects,
 /// whatever their formatting or the punctuation around them — becomes `<jwt>`. A participant
 /// token quoted in an error must not leave the device.
-fn mask_jwts(body: &str) -> String {
+pub(crate) fn mask_credentials(body: &str) -> String {
     let body = mask_credential_values(body);
     let jwt_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     let mut out = String::with_capacity(body.len());
@@ -220,6 +218,7 @@ fn json_object(segment: &str) -> bool {
     };
     let (mut acc, mut bits) = (0u32, 0);
     for c in segment.bytes() {
+        // Keep the 12 bits that can still hold an undecoded byte.
         acc = (acc << 6 | u32::from(sextet(c))) & 0xFFF;
         bits += 6;
         if bits >= 8 {
@@ -354,7 +353,7 @@ mod tests {
             "signal transport error: HTTP 401 for request with Authorization: Bearer <redacted>; \
              token <jwt>. retrying"
         );
-        assert_eq!(mask_jwts(r#"{"token":"abc.def"}"#), r#"{"token":"<redacted>"}"#);
+        assert_eq!(mask_credentials(r#"{"token":"abc.def"}"#), r#"{"token":"<redacted>"}"#);
         // A JWT inside a punctuation-delimited run, and credential values that are quoted or
         // spaced.
         for (logged, masked) in [
@@ -373,10 +372,10 @@ mod tests {
             ),
             ("ACCESS_TOKEN = opaque-secret&x".into(), "ACCESS_TOKEN = <redacted>&x".into()),
         ] {
-            assert_eq!(mask_jwts(&logged), masked, "{logged}");
+            assert_eq!(mask_credentials(&logged), masked, "{logged}");
         }
         let unsigned = "eyAiYWxnIjoiSFMyNTYiLCJ0eXAiOiJKV1QifQ.CiAgeyJzdWIiOiJib2IifQ.";
-        assert_eq!(mask_jwts(unsigned), "<jwt>", "an unsigned token is masked too");
+        assert_eq!(mask_credentials(unsigned), "<jwt>", "an unsigned token is masked too");
         for kept in [
             "eyJ",
             "eyJabc.",
@@ -388,7 +387,7 @@ mod tests {
             "token expired, tokens: 3, token_type=x",
             "(...eyJ)",
         ] {
-            assert_eq!(mask_jwts(kept), kept);
+            assert_eq!(mask_credentials(kept), kept);
         }
     }
 

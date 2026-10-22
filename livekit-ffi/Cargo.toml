@@ -130,6 +130,7 @@ prost-build = { workspace = true, optional = true }
 webrtc-sys-build = { workspace = true, optional = true }
 
 [dev-dependencies]
+flate2 = "1"
 livekit-token = { workspace = true }
 serial_test = "3.0"
 

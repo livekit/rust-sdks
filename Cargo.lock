@@ -3906,6 +3906,7 @@ dependencies = [
  "device-info",
  "downcast-rs",
  "env_logger 0.11.11",
+ "flate2",
  "from_variants",
  "futures-util",
  "imgproc",
