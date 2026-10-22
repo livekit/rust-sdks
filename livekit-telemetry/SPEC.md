@@ -119,7 +119,7 @@ attributes:                             # counts since the previous report
   lk.telemetry.uploads.unauthorized: int # 401/403 answers: tokens the collector refused
   lk.telemetry.holds.capped: int        # soft holds that reached the 60 s cap
   lk.telemetry.cache.write_errors: int  # batches the disk refused (full, gone), kept in memory
-  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue, and spans dropped from a full span buffer
+  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue, spans dropped from a full span buffer, and tracks a session did not wait on past 256 at once
   lk.telemetry.dropped.cache_error: int # records no cache, not even memory, could take
   lk.telemetry.dropped.cache_full: int  # records evicted by the cache's size / file-count bound
   lk.telemetry.dropped.expired: int     # records in batches past the 24 h age limit
@@ -334,15 +334,20 @@ Uploads are shaped, not just batched:
   - *hard* (no escape, for as long as they last): the device is offline; no usable token
     (missing, expired, grant-less, refused); the project disabled data recording; the opt-out.
   - *soft* (at most 60 s, on its own clock rather than the next tick, then one batch goes out and
-    the hold starts over — the cap that bounds the policy when its signals lie): an `lk.connect` or `lk.reconnect` span is open (signaling
-    and ICE/DTLS own the uplink); Low Data Mode / Data Saver; battery ≤ 10 % unplugged. The cap is
-    not scheduled while a hard hold is on; it resumes when the hard hold lifts.
+    the hold starts over — the cap that bounds the policy when its signals lie; offline time
+    counts toward the cap): an `lk.connect` or `lk.reconnect` span is open (signaling and
+    ICE/DTLS own the uplink; ending the last one lifts the hold at once); Low Data Mode / Data
+    Saver; battery ≤ 10 % unplugged. The cap is not scheduled while a hard hold is on; it resumes
+    when the hard hold lifts. The first escape of a hold warns; later ones of the same hold are
+    logged at debug.
   `qualityLimitationDurations.bandwidth` is deliberately *not* a hold: WebRTC reports it for
   minutes during a normal ramp-up and for as long as an encoder stalls.
-- **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch is
-  5–10× smaller on disk and on the wire and a replay costs no CPU; a cached batch is CRC-checked
+- **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch of
+  records is typically 5× smaller on disk and on the wire (measured on a representative batch, not a
+  bound: a single small record can even grow) and a replay costs no CPU; a cached batch
+  is CRC-checked
   before it is sent. A request never carries more than `max_batch_size` (512) records, nor more
-  than `max_batch_bytes` (1 MiB) of encoded protobuf — checked on the encoded body, session
+  than `max_batch_bytes` (1 MiB) of encoded protobuf — checked on the encoded body, pipeline
   attributes and the self-report included (the report takes one of the `max_batch_size`
   places); a batch over it is halved until it fits, and a single record over it is dropped and
   counted as `oversized`. Caller strings a span or scope retains are bounded: names, keys and
@@ -362,9 +367,9 @@ Uploads are shaped, not just batched:
   finished or rolled back when the cache opens, before anything is evicted, so every record is
   there exactly once. A split that fails after its commit point has succeeded: its halves wait in
   the journal and the next listing of the cache publishes them (so they upload, and an opt-out
-  purges and counts them). Splits and recovery share a process-wide lock, so a reconfigure's
-  cache on the same directory never sees the draining pipeline's split half-done; stray files
-  are swept only when a cache opens. A crash loses what was not committed yet — records since the last tick
+  purges and counts them). Writes, splits and recovery share a process-wide lock, so a
+  reconfigure's cache on the same directory never sees the draining pipeline's write or split
+  half-done; stray files are swept only when a cache opens. A crash loses what was not committed yet — records since the last tick
   (≤ one flush interval, ≤ 2048 queued), open spans, open RTC windows. Duplicates: a crash
   between an answer and its delete sends that one batch again at the next launch; a delete that
   fails without a crash leaves the batch pending deletion (never sent again in this launch, but
@@ -396,7 +401,7 @@ Uploads are shaped, not just batched:
 | 503 with `Retry-After`/`RetryInfo` | kept | paused for that long |
 | 502, 503, 504; any error with `RetryInfo` (Cloud's retryable 500) | kept | paused for the named delay, else backoff |
 | other 5xx | dropped, counted `rejected` | — |
-| no answer: timeout, connection, DNS, TLS | kept | backoff; never a capability decision |
+| no answer: timeout, connection, DNS, TLS | kept | the transport's `retry_after_ms` when set, else backoff; never a capability decision |
 | invalid request (transport-side) | dropped, counted `rejected` | — |
 
 ## Log records
@@ -439,8 +444,11 @@ Three things an app can do; everything else is the SDK's.
   process-level set is internal, for SDK metadata.
 - **Limits:** names and keys ≤ 128 UTF-8 bytes, string values ≤ 1024 bytes, ≤ 64 attributes per
   room and per event. SDK-owned keys are reserved: `lk.*` (room, participant, track, outcome …),
-  `otel.*`, `code.*`, `session.id` and `error.type`. Anything else is rejected — never
-  truncated, a truncated id collides — and counted as `lk.telemetry.dropped.invalid`.
+  `otel.*`, `code.*`, `session.id`, `error.type` and `network.connection.type`. Anything else is
+  rejected — never truncated, a truncated id collides — and counted as
+  `lk.telemetry.dropped.invalid`. The same keys are refused on an app-defined span. The
+  internal process-level set has the same length and count limits, and refuses `session.id`,
+  `error.type` and `lk.outcome`.
 - **Opt-out** is process-wide and synchronous: when `telemetry_disable()` returns, no scope is
   handed out, every existing scope and instrument captures nothing and later configures are
   refused; the purge — cancel scheduled work, delete everything not yet sent (queue, open spans
@@ -464,51 +472,10 @@ Three things an app can do; everything else is the SDK's.
 ## Flood guard
 
 Discrete events (`emit`) are capped at `max_events_per_10min` (default 300, design doc); what
-exceeds it is dropped and reported as `lk.telemetry.dropped.rate_limited`. `lk.rtc.stats.sample`
-windows and `lk.telemetry.report` are exempt.
-
-```yaml
-event: lk.rtc.stats.sample
-area: rtc
-severity: info
-cadence: one per track and direction per stats window (default 60 s, stretched by the cadence
-         factor); closed early on background, when the track leaves (`track_ended`), at
-         disconnect and at shutdown. Produced by the core from raw readings — one getStats()
-         report per peer connection (`record_peer_stats`), polled when the core says
-         (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
-         track keep two windows.
-attributes:
-  lk.track.sid: string
-  lk.track.kind: enum(audio | video)
-  lk.track.direction: enum(inbound | outbound)
-  lk.rtc.codec: string                      # mimeType, when known
-  lk.rtc.window_ms: int                     # actual window length
-  lk.rtc.samples: int                       # readings in the window
-  # cumulative counters — the last reading's value, monotonic (W3C webrtc-stats model)
-  lk.rtc.bytes: int
-  lk.rtc.packets: int
-  lk.rtc.packets_lost: int                  # inbound
-  lk.rtc.freeze_count: int                  # inbound video
-  lk.rtc.freezes_duration_ms: int           # inbound video
-  lk.rtc.concealed_samples: int             # inbound audio
-  lk.rtc.concealment_events: int            # inbound audio
-  lk.rtc.jitter_buffer_delay_ms: int        # inbound
-  lk.rtc.jitter_buffer_emitted_count: int   # inbound
-  lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
-  lk.rtc.quality_limitation.cpu_ms: int         # outbound video
-  lk.rtc.quality_limitation.other_ms: int       # outbound video
-  lk.rtc.pause_count: int                   # inbound video
-  lk.rtc.pauses_duration_ms: int            # inbound video
-  lk.rtc.silent_concealed_samples: int      # inbound audio
-  lk.rtc.interruption_count: int            # inbound audio
-  lk.rtc.interruptions_duration_ms: int     # inbound audio
-  # gauges — min / max / avg over the window
-  lk.rtc.jitter_ms.{min,max,avg}: double
-  lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, candidate-pair for inbound
-  lk.rtc.fps.{min,max,avg}: double          # video
-  lk.rtc.audio_level.{min,max,avg}: double  # audio
-platforms: all
-```
+exceeds it is dropped and reported as `lk.telemetry.dropped.rate_limited`. Plain log records have
+a guard of their own with the same cap, so a burst of events never silences warnings, and a
+warning loop is bounded on its own. `lk.rtc.stats.sample` windows and `lk.telemetry.report` are
+exempt.
 
 ```yaml
 event: lk.room.disconnected
@@ -623,9 +590,9 @@ the policy. `Attribute { key, value }` survives only as the open bag: `emit_cust
 | `Scope::record_peer_stats(Vec<RtcStat>, tracks: {MediaStreamTrack id → sid}, ts)` | one peer connection's raw `getStats()` report → the core finds each track's RTP streams (`trackIdentifier`, or the `media-source` an `outbound-rtp` names), resolves codec / RTT, converts seconds to ms and records one sample per stream |
 | `Scope::stats_poll_interval_ms()` | when to poll `getStats()` next: 1 s while a subscribe awaits first media, else half the stretched window |
 | `Scope::record_stats_report(sid, kind, direction, Vec<RtcStat>, ts)` | the same mapping for one track's report (platforms that poll per track) |
-| `DisconnectReason::from_proto(i32)`, `ReconnectReason::from_proto(i32)` | the protocol numbers → the shared enums |
+| `DisconnectReason::from(i32)`, `ReconnectReason::from(i32)` | the protocol numbers → the shared enums (an unknown number is `Unknown`) |
 | `Scope::log(LogRecord)` | a record filed under the session without an ambient span (Dart has no task-local outside a zone); same floor and filters as `Telemetry::log` |
-| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason` — info when the client hung up, warn otherwise; pending subscribes end, the session's RTC windows ship and its state is retired |
+| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason`, once — info when the client hung up, warn otherwise; pending subscribes end, the session's RTC windows ship and its state is retired; a repeated call is a no-op until a new `lk.connect` |
 | `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
 
 Timing rule: span calls are synchronous and stamp the clock inside the core, so the only skew is

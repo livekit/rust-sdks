@@ -51,8 +51,16 @@ struct Owner {
 /// Retrying never gives up on a batch: the cache's age and size bound what is kept.
 const RETRY_BASE: Duration = Duration::from_secs(1);
 const RETRY_CAP: Duration = Duration::from_secs(60);
-/// Delays the server asks for (`Retry-After`, `RetryInfo`) are honored even beyond
-/// [`RETRY_CAP`]; clamped only to the cache's age limit, past which there is nothing to wait for.
+/// Doublings past this change nothing ([`RETRY_CAP`] is reached long before); the bound keeps the
+/// shift in range.
+const MAX_BACKOFF_DOUBLINGS: u32 = 16;
+/// How much level-1 gzip shrinks a typical batch of records, as a hint that sizes the buffers:
+/// measured on a representative batch by `gzip_shrinks_a_batch_of_records_at_least_this_much`. Not
+/// a bound: a single small record can even grow.
+const GZIP_RATIO: usize = 5;
+/// Delays the server asks for (`Retry-After`, `RetryInfo`, a transport's `retry_after_ms`) are
+/// honored even beyond [`RETRY_CAP`]; clamped only to the cache's age limit, past which there is
+/// nothing to wait for.
 const MAX_SERVER_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
 /// A cached batch older than this is dropped (`expired`) — at start and while running.
 const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -60,7 +68,7 @@ const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// anyway: the cap that bounds the policy when its signals lie. Hard holds have no such escape.
 const MAX_HOLD: Duration = Duration::from_secs(60);
 /// While one of these is open the uplink belongs to signaling and ICE/DTLS.
-const SENSITIVE_SPANS: &[&str] = &["lk.connect", "lk.reconnect"];
+pub(crate) const SENSITIVE_SPANS: &[&str] = &["lk.connect", "lk.reconnect"];
 /// RFC 9218 request priority: lowest urgency, not incremental. A hint for HTTP/2+ hops that
 /// implement it; the host transport marks the local traffic class (see `TelemetryTransport`).
 const PRIORITY: &str = "u=7";
@@ -75,7 +83,7 @@ impl Signal {
 }
 
 /// A cached batch's id, which is also its ownership record:
-/// `<unix ns>-<seq>-<records>-<l|t>-<session>-<project host>`. Sorting ids sorts batches oldest
+/// `<unix ns>-<seq>-<records>-<l|t>-<session>-<project key>`. Sorting ids sorts batches oldest
 /// first; the host and the session that produced it pick destination and token at upload time
 /// (no host: process-level, sent to the latest project). No token is ever written to disk.
 struct BatchId<'a> {
@@ -127,8 +135,6 @@ pub(crate) fn events_in(id: &str) -> u64 {
 pub(crate) enum Command {
     Flush(oneshot::Sender<()>),
     Shutdown(oneshot::Sender<()>),
-    /// Opt-out: stop without uploading and delete everything held.
-    Purge(oneshot::Sender<()>),
 }
 
 /// What one request achieved.
@@ -155,7 +161,7 @@ struct InFlight {
 
 /// One pass over the cache: the batches still to look at and the requests it may make.
 #[derive(Default)]
-struct Round {
+struct UploadPass {
     queue: VecDeque<String>,
     budget: usize,
     attempts: usize,
@@ -186,19 +192,19 @@ struct Pause {
 /// Background actor that turns stored events into OTLP requests.
 ///
 /// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place. Every tick it
-/// [`enqueue`](Self::enqueue)s: drains the queue and the finished spans, appends an
-/// `lk.telemetry.report` when something was dropped or failed since the last one, encodes and
-/// gzips one batch per destination project and writes it to the [`BatchCache`](crate::BatchCache)
-/// *before* any network is involved; then it [`begin_round`](Self::begin_round)s the cache oldest-first
-/// through the [`TelemetryTransport`], one request at a time. What the collector answers decides
-/// what happens to the batch ([`Verdict`]); a failure pauses uploads with jittered exponential
-/// backoff, a throttle for as long as the collector asked, and collection never stops meanwhile.
+/// drains the queue and the finished spans, appends an `lk.telemetry.report` when something was
+/// dropped or failed since the last one, encodes and gzips one batch per destination project and
+/// writes it to the [`BatchCache`](crate::BatchCache) *before* any network is involved; then it
+/// walks the cache oldest-first through the [`TelemetryTransport`], one request at a time. What
+/// the collector answers decides what happens to the batch; a failure pauses uploads with
+/// jittered exponential backoff, a throttle for as long as the collector asked, and collection
+/// never stops meanwhile.
 ///
 /// Telemetry must never win over media, so uploads are shaped as well as batched: at most
 /// `max_batches_per_upload` per tick while a session may be live, and none at all while the room
-/// is connecting or reconnecting or while the device asks for quiet ([`DeviceState::holds_uploads`])
-/// — bounded by [`MAX_HOLD`]. Yielding to media on the wire is the transport's job: every request
-/// carries `Priority: u=7` (RFC 9218) and a gzipped body.
+/// is connecting or reconnecting or while the device asks for quiet — at most 60 s at a time.
+/// Yielding to media on the wire is the transport's job: every request carries `Priority: u=7`
+/// (RFC 9218) and a gzipped body.
 ///
 /// The tick period is `flush_interval_ms × cadence factor`: device pressure and a CPU-limited
 /// encoder stretch it up to 4×, and entering the background flushes once immediately (the app
@@ -211,10 +217,12 @@ pub struct Exporter {
     shared: Arc<Shared>,
     transport: Arc<dyn TelemetryTransport>,
     commands: mpsc::UnboundedReceiver<Command>,
+    /// Dropped with the exporter: closes [`Shared::exporter_alive`].
+    _alive: tokio::sync::watch::Sender<()>,
     /// Per-destination pauses after failures, by destination key (the project host).
     pauses: HashMap<String, Pause>,
     /// The upload pass in progress, and its request on the wire.
-    round: Option<Round>,
+    pass: Option<UploadPass>,
     inflight: Option<InFlight>,
     /// Another pass is due when this one ends (new batches arrived meanwhile).
     rerun: bool,
@@ -240,6 +248,8 @@ pub struct Exporter {
     last_report: Snapshot,
     /// When the current upload hold began, for the [`MAX_HOLD`] cap.
     held_since: Option<Instant>,
+    /// The current hold's first escape was warned about; the hold ending resets it.
+    escape_warned: bool,
     /// Shutting down: the call is over, so only the device's own holds still apply.
     draining: bool,
     /// Append an `lk.telemetry.report` to the next batch even if nothing went wrong (the
@@ -252,13 +262,15 @@ impl Exporter {
         shared: Arc<Shared>,
         transport: Arc<dyn TelemetryTransport>,
         commands: mpsc::UnboundedReceiver<Command>,
+        alive: tokio::sync::watch::Sender<()>,
     ) -> Self {
         Self {
             shared,
             transport,
             commands,
+            _alive: alive,
             pauses: HashMap::new(),
-            round: None,
+            pass: None,
             inflight: None,
             rerun: false,
             flush_waiters: Vec::new(),
@@ -271,6 +283,7 @@ impl Exporter {
             seq: 0,
             last_report: Snapshot::default(),
             held_since: None,
+            escape_warned: false,
             draining: false,
             force_report: false,
         }
@@ -280,16 +293,20 @@ impl Exporter {
     /// demand. A request on the wire never blocks the loop: commands, ticks and deadlines are
     /// served while it is out.
     pub async fn run(mut self) {
-        self.begin_round();
+        self.begin_pass();
         // Deadlines rather than tickers: `next = last + period`, re-derived every loop, so a
         // cadence change applies to the pending tick in both directions (pressure postpones it,
         // relief brings it forward) and a missed tick never bursts. The first flush is immediate,
-        // the first window closes a full period after it opens.
-        let mut last_flush = Instant::now() - self.period(self.shared.config.flush_interval_ms);
+        // the first window closes a full period after it opens. No "last flush" yet rather than
+        // `now - period`: a monotonic clock may be younger than the period (Windows counts from
+        // boot), and that subtraction would panic.
+        let mut last_flush: Option<Instant> = None;
         let mut last_window = Instant::now();
         loop {
             self.log_cadence();
-            let next_flush = last_flush + self.period(self.shared.config.flush_interval_ms);
+            let next_flush = last_flush.map_or_else(Instant::now, |t| {
+                t + self.period(self.shared.config.flush_interval_ms)
+            });
             let next_window = last_window + self.period(self.shared.config.stats_window_ms);
             let retry = self.retry_deadline();
             let subscribe = self.subscribe_deadline();
@@ -302,9 +319,9 @@ impl Exporter {
                         last_window = Instant::now();
                     }
                     // A new interval: a new allowance of requests.
-                    self.allowance = self.shared.config.max_batches_per_upload.max(1) as usize;
+                    self.allowance = self.shared.config.max_batches_per_upload as usize;
                     self.export_pending();
-                    last_flush = Instant::now();
+                    last_flush = Some(Instant::now());
                 }
                 _ = sleep_until(next_window) => {
                     self.close_windows();
@@ -313,9 +330,18 @@ impl Exporter {
                 // A pause ran out or a soft hold reached its cap: go without waiting for a tick.
                 _ = at(retry) => {
                     self.clear_expired_pauses();
-                    self.begin_round();
+                    self.begin_pass();
                 }
                 _ = at(subscribe) => self.expire_subscribes(),
+                // The opt-out: cancel the request on the wire (its answer must not bring anything
+                // back), delete everything held and stop.
+                _ = self.shared.cancel.notified() => {
+                    self.inflight = None;
+                    self.pass = None;
+                    self.shared.clear();
+                    self.answer_flushes();
+                    return;
+                }
                 // Coalesced wake-ups. Only the queue crossing its threshold or the app going to
                 // the background encode a new batch; a lifted route, token or hold re-runs a pass
                 // over what is cached (within the interval's allowance); a subscribe or a cadence
@@ -338,7 +364,7 @@ impl Exporter {
                     if background || overflow {
                         self.export_pending();
                     } else if release {
-                        self.begin_round();
+                        self.begin_pass();
                     }
                 }
                 command = self.commands.recv() => match command {
@@ -351,22 +377,17 @@ impl Exporter {
                     }
 
                     Some(Command::Shutdown(done)) => {
-                        self.drain().await;
-                        let _ = done.send(());
-                        return;
-                    }
-                    Some(Command::Purge(done)) => {
-                        // Cancel the request on the wire: its answer must not bring anything back.
-                        self.inflight = None;
-                        self.round = None;
-                        self.shared.clear();
-                        self.answer_flushes();
-                        let _ = done.send(());
+                        let waiters = self.drain().await;
+                        for done in std::iter::once(done).chain(waiters) {
+                            let _ = done.send(());
+                        }
                         return;
                     }
                     // Every `Telemetry` handle is gone.
                     None => {
-                        self.drain().await;
+                        for done in self.drain().await {
+                            let _ = done.send(());
+                        }
                         return;
                     }
                 },
@@ -376,7 +397,7 @@ impl Exporter {
 
     /// `base_ms × cadence factor`.
     fn period(&self, base_ms: u64) -> Duration {
-        Duration::from_millis(base_ms.max(1)) * self.cadence_factor()
+        Duration::from_millis(base_ms) * self.cadence_factor()
     }
 
     fn device(&self) -> DeviceState {
@@ -448,9 +469,9 @@ impl Exporter {
     /// Ignores the failure backoff, the batch budget and the session holds (the call is over);
     /// respects server-directed delays and the device's own holds. At the deadline the request
     /// on the wire is cancelled and the actor stops: its batch stays cached for the next launch.
-    async fn drain(&mut self) {
-        let deadline =
-            Instant::now() + Duration::from_millis(self.shared.config.export_timeout_ms.max(1));
+    /// Returns the shutdowns asked for meanwhile, to be answered once the actor has stopped.
+    async fn drain(&mut self) -> Vec<oneshot::Sender<()>> {
+        let deadline = Instant::now() + self.shared.config.export_timeout();
         self.draining = true;
         self.force_report = true;
         // Pending subscribes end now and ride the last batch; nothing keeps a span afterwards.
@@ -461,33 +482,31 @@ impl Exporter {
         self.close_windows();
         self.export_pending();
         let mut commands_open = true;
-        while self.round.is_some() || self.inflight.is_some() {
+        let mut waiters = Vec::new();
+        while self.pass.is_some() || self.inflight.is_some() {
             tokio::select! {
                 outcome = answer(&mut self.inflight) => self.on_answer(outcome),
                 _ = sleep_until(deadline) => {
                     log::debug!("shutdown deadline: cancelling the upload in flight");
                     self.inflight = None;
-                    self.round = None;
+                    self.pass = None;
                     break;
                 }
-                // The opt-out reaches a draining generation too: cancel, clear, confirm.
+                // The opt-out reaches a draining generation too: cancel, clear, stop.
+                _ = self.shared.cancel.notified() => {
+                    self.inflight = None;
+                    self.pass = None;
+                    self.shared.clear();
+                    break;
+                }
                 command = self.commands.recv(), if commands_open => match command {
-                    Some(Command::Purge(done)) => {
-                        self.inflight = None;
-                        self.round = None;
-                        self.shared.clear();
-                        let _ = done.send(());
-                        break;
-                    }
                     Some(Command::Flush(done)) => self.answer_when_done(done),
-                    Some(Command::Shutdown(done)) => {
-                        let _ = done.send(());
-                    }
+                    Some(Command::Shutdown(done)) => waiters.push(done),
                     None => commands_open = false,
                 },
             }
             // A pass that ended with a request left to make (a split, the rerun) goes on.
-            if self.inflight.is_none() && self.round.is_some() {
+            if self.inflight.is_none() && self.pass.is_some() {
                 self.advance();
             }
         }
@@ -496,6 +515,7 @@ impl Exporter {
         if left > 0 {
             log::debug!("{left} batches still cached at shutdown (replayed next start)");
         }
+        waiters
     }
 
     /// Turn every open RTC stats window into its `lk.rtc.stats.sample` event. Windows bypass the
@@ -509,7 +529,7 @@ impl Exporter {
 
     fn export_pending(&mut self) {
         self.enqueue();
-        self.begin_round();
+        self.begin_pass();
     }
 
     /// Split records by owner — the project their session routes to, and the session — so each
@@ -518,24 +538,24 @@ impl Exporter {
     fn by_owner<T>(
         &self,
         items: Vec<T>,
-        owner_of: impl Fn(&T) -> (&ScopeState, Option<&String>),
+        owner_of: impl Fn(&T) -> (&ScopeState, Option<&str>),
     ) -> Vec<(Owner, Vec<T>)> {
         let destinations = self.destinations();
         let mut groups: Vec<(Owner, Vec<T>)> = Vec::new();
         for item in items {
             let (session, route) = owner_of(&item);
             let process = session.trace_id == self.shared.process.trace_id;
-            let session = if process { PROCESS_OWNER.to_owned() } else { session.hex() };
+            let session = if process { PROCESS_OWNER } else { session.hex() }.to_owned();
             // The project captured with the record, never the session's current one — or, for a
             // Room record captured before its first server, that Room's first project, so the
             // cached batch names its project and replays after a restart.
             let host = match route {
-                Some(route) => Some(route.clone()),
+                Some(route) => Some(route.to_owned()),
                 None if !process => destinations.first_project(&session),
                 None => None,
             };
             let owner = Owner { host, session };
-            if !destinations.alive(owner.host.as_deref()) {
+            if !destinations.alive(owner.host.as_deref(), Some(&owner.session)) {
                 Counters::add(&self.shared.counters.disabled, 1);
                 continue;
             }
@@ -547,18 +567,27 @@ impl Exporter {
         groups
     }
 
+    /// What the pipeline-wide attributes add to every record and span at export, counted in the
+    /// batch budget so a batch fits without being encoded, found too big and halved.
+    fn pipeline_attributes_size(&self) -> usize {
+        let global = self.shared.global.lock().unwrap_or_else(|e| e.into_inner());
+        crate::event::attributes_size_hint(&global)
+    }
+
     /// Encode everything queued — log records and finished spans — into the cache. No network.
     fn enqueue(&mut self) {
         self.enqueue_spans();
         let config = &self.shared.config;
         let (max, max_bytes) = (
-            config.max_batch_size.max(1) as usize,
-            usize::try_from(config.max_batch_bytes.max(1)).unwrap_or(usize::MAX),
+            config.max_batch_size as usize,
+            usize::try_from(config.max_batch_bytes).unwrap_or(usize::MAX),
         );
         // One report per pass at most: a report that is itself dropped (oversized) or evicts
         // another batch must not make the next report due in the same pass, or with
         // `max_batch_size` 1 it would take the only place forever and no record would move.
         let mut reported = false;
+        // Every iteration drains at least one record or returns: `room` is 0 only when a report is due
+        // with `max_batch_size` 1, and that report goes out alone and is not due again.
         loop {
             // Self-telemetry rides along with real data: never its own request, never its own
             // cadence, and only when there is something to report — plus once at shutdown. It
@@ -567,7 +596,8 @@ impl Exporter {
             let delta = now.since(&self.last_report);
             let report_due = !reported && (delta.has_problems() || self.force_report);
             let room = if report_due { max - 1 } else { max };
-            let mut batch = self.shared.store.drain(room, max_bytes);
+            let mut batch =
+                self.shared.store.drain(room, max_bytes, self.pipeline_attributes_size());
             // Real data to ride along with (with `max_batch_size` 1 the report goes first, alone);
             // the shutdown summary goes out even with nothing else queued.
             let data = !batch.is_empty() || (room == 0 && !self.shared.store.is_empty());
@@ -585,7 +615,7 @@ impl Exporter {
                 reported = true;
             }
             let global = self.shared.global.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            for (owner, records) in self.by_owner(batch, |q| (&q.session, q.route.as_ref())) {
+            for (owner, records) in self.by_owner(batch, |q| (&q.session, q.route.as_deref())) {
                 let count = records.len() as u64;
                 let body = otlp::encode_logs(&self.shared.config.resource, &global, records);
                 self.push_batch(Signal::Logs, &owner, count, &body);
@@ -597,13 +627,14 @@ impl Exporter {
     /// burst larger than a batch (or a shutdown) leaves nothing behind in memory.
     fn enqueue_spans(&mut self) {
         loop {
+            let extra = self.pipeline_attributes_size();
             let (spans, dropped) = {
                 let mut registry = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner());
                 (
                     registry.drain(
-                        self.shared.config.max_batch_size.max(1) as usize,
-                        usize::try_from(self.shared.config.max_batch_bytes.max(1))
-                            .unwrap_or(usize::MAX),
+                        self.shared.config.max_batch_size as usize,
+                        usize::try_from(self.shared.config.max_batch_bytes).unwrap_or(usize::MAX),
+                        extra,
                     ),
                     registry.take_dropped(),
                 )
@@ -613,7 +644,7 @@ impl Exporter {
                 return;
             }
             let global = self.shared.global.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            for (owner, spans) in self.by_owner(spans, |s| (&s.session, s.route.as_ref())) {
+            for (owner, spans) in self.by_owner(spans, |s| (&s.session, s.route.as_deref())) {
                 let count = spans.len() as u64;
                 let body = otlp::encode_spans(&self.shared.config.resource, &global, spans);
                 self.push_batch(Signal::Traces, &owner, count, &body);
@@ -622,14 +653,15 @@ impl Exporter {
     }
 
     /// Gzip the encoded batch and cache it. Compressed at rest as well as on the wire: the cache
-    /// holds 5–10× more, the disk write shrinks, and a replay costs no CPU.
+    /// holds several times more (5× for a representative batch of records, measured by a test),
+    /// the disk write shrinks, and a replay costs no CPU.
     ///
-    /// The record-size estimates that cut batches cannot see what encoding adds (session and
-    /// pipeline attributes, the self-report), so the real encoded size is checked here: a batch
-    /// over `max_batch_bytes` is halved until it fits, or is a single record.
+    /// The size estimates that cut batches count each record's own and session attributes, taken
+    /// at capture, and the pipeline attributes added at export, but they are estimates, so the
+    /// real encoded size is checked here: a batch over `max_batch_bytes` is halved until it fits,
+    /// or is a single record.
     fn push_batch(&mut self, signal: Signal, owner: &Owner, count: u64, body: &[u8]) {
-        let limit =
-            usize::try_from(self.shared.config.max_batch_bytes.max(1)).unwrap_or(usize::MAX);
+        let limit = usize::try_from(self.shared.config.max_batch_bytes).unwrap_or(usize::MAX);
         if body.len() > limit {
             let halves = match signal {
                 Signal::Logs => otlp::split_logs(body),
@@ -748,6 +780,7 @@ impl Exporter {
         self.log_hold(reason, backlog);
         let Some(reason) = reason else {
             self.held_since = None;
+            self.escape_warned = false;
             return (if metered { self.allowance } else { usize::MAX }, false);
         };
         let since = *self.held_since.get_or_insert_with(Instant::now);
@@ -755,7 +788,12 @@ impl Exporter {
             log::trace!("holding {backlog} batches: {reason}");
             return (0, false);
         }
-        log::warn!("held {}s ({reason}): sending one batch anyway", MAX_HOLD.as_secs());
+        // The first escape of a hold episode warns; the next ones of the same hold are routine.
+        if std::mem::replace(&mut self.escape_warned, true) {
+            log::debug!("held {}s ({reason}): sending one batch anyway", MAX_HOLD.as_secs());
+        } else {
+            log::warn!("held {}s ({reason}): sending one batch anyway", MAX_HOLD.as_secs());
+        }
         // Held long enough: one batch goes out, then the hold starts over.
         self.held_since = Some(Instant::now());
         Counters::add(&self.shared.counters.hold_cap_hits, 1);
@@ -769,13 +807,14 @@ impl Exporter {
 
     /// Whether the pass may make its next request: the hold policy is evaluated before every
     /// request, not once per pass. A hard hold stops the pass; a soft hold that began meanwhile
-    /// stops it too — unless this pass is the hold's one-batch escape (or a shutdown drain).
+    /// stops it too, a shutdown drain's included, unless this pass is the hold's one-batch escape.
     fn may_send(&mut self) -> bool {
         // The opt-out stops a pass mid-way (a second guard: `advance` checks it as well).
         if self.offline() || self.shared.revoked() {
             return false;
         }
-        if self.draining || self.round.as_ref().is_some_and(|r| r.escape) {
+        // A shutdown drain skips the connect hold (`hold_reason`), never the device's own.
+        if self.pass.as_ref().is_some_and(|r| r.escape) {
             return true;
         }
         if self.hold_reason().is_some() {
@@ -801,7 +840,7 @@ impl Exporter {
         // back when the hard hold lifts (a device change wakes the loop).
         let hold = self
             .held_since
-            .filter(|_| self.round.is_none() && !self.offline())
+            .filter(|_| self.pass.is_none() && !self.offline())
             .filter(|_| !self.shared.cache.pending().is_empty())
             .map(|since| since + MAX_HOLD);
         pause.into_iter().chain(hold).min()
@@ -817,7 +856,7 @@ impl Exporter {
 
     /// Answer a `flush()` once the pass it started is over.
     fn answer_when_done(&mut self, done: oneshot::Sender<()>) {
-        if self.round.is_some() || self.inflight.is_some() {
+        if self.pass.is_some() || self.inflight.is_some() {
             // Callers that stopped waiting are not kept.
             self.flush_waiters.retain(|waiter| !waiter.is_closed());
             self.flush_waiters.push(done);
@@ -834,13 +873,13 @@ impl Exporter {
 
     /// Start a pass over the cache: oldest first, within this tick's budget, one request at a
     /// time. A pass already running picks the new batches up in a second pass.
-    fn begin_round(&mut self) {
+    fn begin_pass(&mut self) {
         #[cfg(test)]
         self.shared.passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if self.shared.revoked() {
             return;
         }
-        if self.round.is_some() || self.inflight.is_some() {
+        if self.pass.is_some() || self.inflight.is_some() {
             self.rerun = true;
             return;
         }
@@ -863,6 +902,10 @@ impl Exporter {
         let pending = self.shared.cache.pending();
         if pending.is_empty() {
             self.held_since = None;
+            // A hold that lifted while nothing waited ends its episode too: the next one warns.
+            if self.hold_reason().is_none() {
+                self.escape_warned = false;
+            }
             self.set_status(TelemetryStatus::Ok);
             return self.answer_flushes();
         }
@@ -876,8 +919,13 @@ impl Exporter {
             return self.answer_flushes();
         }
         let metered = metered && !escape;
-        self.round =
-            Some(Round { queue: pending.into(), budget, escape, metered, ..Round::default() });
+        self.pass = Some(UploadPass {
+            queue: pending.into(),
+            budget,
+            escape,
+            metered,
+            ..UploadPass::default()
+        });
         self.advance();
     }
 
@@ -888,18 +936,18 @@ impl Exporter {
         }
         let counters = self.shared.counters.clone();
         loop {
-            let next = match self.round.as_mut() {
+            let next = match self.pass.as_mut() {
                 None => return,
-                Some(round) if round.attempts >= round.budget => None,
-                Some(round) => round.queue.pop_front(),
+                Some(pass) if pass.attempts >= pass.budget => None,
+                Some(pass) => pass.queue.pop_front(),
             };
-            let Some(id) = next else { return self.finish_round() };
+            let Some(id) = next else { return self.finish_pass() };
             if self.undeletable.contains(&id) {
                 continue;
             }
             if !self.may_send() {
-                self.mark(|round| round.held = true);
-                return self.finish_round();
+                self.mark(|pass| pass.held = true);
+                return self.finish_pass();
             }
             let (route, signal) = {
                 let batch = BatchId::parse(&id);
@@ -909,7 +957,7 @@ impl Exporter {
                 Route::Send(target) => target,
                 // A hard hold: no token that may be used (missing, expired, grant-less, refused).
                 Route::Wait => {
-                    self.mark(|round| round.waiting = true);
+                    self.mark(|pass| pass.waiting = true);
                     continue;
                 }
                 Route::Drop => {
@@ -920,7 +968,7 @@ impl Exporter {
             // The project the request goes to — and nothing else — is what its answer is about.
             let key = target.project.clone().unwrap_or_default();
             if self.pauses.get(&key).is_some_and(|p| p.until.is_some_and(|t| Instant::now() < t)) {
-                self.mark(|round| round.paused = true);
+                self.mark(|pass| pass.paused = true);
                 continue;
             }
             let body = match self.shared.cache.read(&id) {
@@ -938,12 +986,12 @@ impl Exporter {
                 // permission): not corrupt — it is left alone and tried again later.
                 Err(err) => {
                     log::debug!("cached batch {id} is inaccessible ({err}); trying later");
-                    self.mark(|round| round.waiting = true);
+                    self.mark(|pass| pass.waiting = true);
                     continue;
                 }
             };
-            self.mark(|round| round.attempts += 1);
-            if self.round.as_ref().is_some_and(|r| r.metered) {
+            self.mark(|pass| pass.attempts += 1);
+            if self.pass.as_ref().is_some_and(|r| r.metered) {
                 self.allowance = self.allowance.saturating_sub(1);
             }
             let request = self.request(&body, signal, &target);
@@ -952,15 +1000,15 @@ impl Exporter {
         }
     }
 
-    fn mark(&mut self, f: impl FnOnce(&mut Round)) {
-        if let Some(round) = self.round.as_mut() {
-            f(round);
+    fn mark(&mut self, f: impl FnOnce(&mut UploadPass)) {
+        if let Some(pass) = self.pass.as_mut() {
+            f(pass);
         }
     }
 
     /// The pass is over: report where uploads stand, then start the next pass if one is due.
-    fn finish_round(&mut self) {
-        let Some(round) = self.round.take() else { return };
+    fn finish_pass(&mut self) {
+        let Some(pass) = self.pass.take() else { return };
         let now = Instant::now();
         let paused = |server: bool| {
             self.pauses.values().any(|p| {
@@ -972,9 +1020,9 @@ impl Exporter {
             TelemetryStatus::Throttled
         } else if paused(false) {
             TelemetryStatus::Paused
-        } else if round.held {
+        } else if pass.held {
             TelemetryStatus::Held
-        } else if round.waiting && round.attempts == 0 {
+        } else if pass.waiting && pass.attempts == 0 {
             TelemetryStatus::Waiting
         } else if self.held_since.is_some() {
             TelemetryStatus::Held
@@ -985,9 +1033,9 @@ impl Exporter {
             log::debug!("waiting for a destination or a usable token");
         }
         if std::mem::take(&mut self.rerun) {
-            self.begin_round();
+            self.begin_pass();
         }
-        if self.round.is_none() && self.inflight.is_none() {
+        if self.pass.is_none() && self.inflight.is_none() {
             self.answer_flushes();
         }
     }
@@ -1000,7 +1048,7 @@ impl Exporter {
         // The app opted out while the request was out: whatever came back, nothing is written,
         // retried or rescheduled.
         if self.shared.revoked() {
-            self.round = None;
+            self.pass = None;
             return;
         }
         let counters = self.shared.counters.clone();
@@ -1026,9 +1074,9 @@ impl Exporter {
                         self.forget(&id, Some(&counters.oversized));
                     }
                     Ok(halves) => {
-                        if let Some(round) = self.round.as_mut() {
+                        if let Some(pass) = self.pass.as_mut() {
                             for half in halves.into_iter().rev() {
-                                round.queue.push_front(half);
+                                pass.queue.push_front(half);
                             }
                         }
                     }
@@ -1057,8 +1105,8 @@ impl Exporter {
                 if let Some(token) = &target.token {
                     self.destinations().refuse(token);
                 }
-                if let Some(round) = self.round.as_mut() {
-                    round.waiting = true;
+                if let Some(pass) = self.pass.as_mut() {
+                    pass.waiting = true;
                 }
             }
             Outcome::Answered(Verdict::NotFound) => {
@@ -1147,7 +1195,11 @@ impl Exporter {
     fn retire_credentials(&self) {
         let live: HashMap<String, Option<String>> = {
             let scopes = self.shared.scopes.lock().unwrap_or_else(|e| e.into_inner());
-            scopes.iter().filter_map(|s| s.upgrade()).map(|s| (s.hex(), s.route())).collect()
+            scopes
+                .iter()
+                .filter_map(|s| s.upgrade())
+                .map(|s| (s.hex().to_owned(), s.route()))
+                .collect()
         };
         let backlog = self
             .shared
@@ -1269,10 +1321,33 @@ impl Exporter {
         }
         let request =
             ExportRequest { url: target.url(signal).to_owned(), headers, body: body.to_vec() };
-        let bound = Duration::from_millis(self.shared.config.export_timeout_ms.max(1));
-        let transport = self.transport.clone();
+        let bound = self.shared.config.export_timeout();
+        let shared = self.shared.clone();
+        let mut parts = Some((self.transport.clone(), request));
+        let mut started = None;
+        // Admission: the consent check and the request's first poll (where it starts) run under
+        // the opt-out's barrier, so a request made before the opt-out never starts after it.
+        let send = std::future::poll_fn(move |cx| {
+            if started.is_none() {
+                let _admission = shared.admission.read().unwrap_or_else(|e| e.into_inner());
+                let Some((transport, request)) = parts.take().filter(|_| !shared.revoked()) else {
+                    return std::task::Poll::Ready(None);
+                };
+                let send = async move { transport.send(request).await };
+                let send = started.insert(Box::pin(timeout(bound, send)));
+                return send.as_mut().poll(cx).map(Some);
+            }
+            match started.as_mut() {
+                Some(send) => send.as_mut().poll(cx).map(Some),
+                None => std::task::Poll::Ready(None),
+            }
+        });
         Box::pin(async move {
-            match timeout(bound, transport.send(request)).await {
+            let Some(answer) = send.await else {
+                let reason = "withdrawn: the app opted out".to_owned();
+                return Outcome::NoAnswer { timed_out: false, reason };
+            };
+            match answer {
                 Ok(Ok(response)) => Outcome::Answered(Verdict::of(&response)),
                 Ok(Err(ExportError::Retryable { reason, retry_after_ms: Some(ms) })) => {
                     Outcome::Answered(Verdict::Throttled { delay_ms: ms, reason })
@@ -1283,7 +1358,6 @@ impl Exporter {
                 Ok(Err(ExportError::Rejected { reason })) => {
                     Outcome::Answered(Verdict::Rejected(reason))
                 }
-                Ok(Err(ExportError::Disabled)) => Outcome::Answered(Verdict::Disabled),
                 Err(_) => Outcome::NoAnswer { timed_out: true, reason: "timed out".to_owned() },
             }
         })
@@ -1309,7 +1383,8 @@ async fn at(deadline: Option<Instant>) {
 /// The `failures`-th consecutive failure's wait: [`RETRY_BASE`] doubling up to [`RETRY_CAP`],
 /// fully jittered: uniform in `[0, backoff]`.
 fn backoff(failures: u32) -> Duration {
-    let full = RETRY_BASE.saturating_mul(1 << failures.saturating_sub(1).min(16)).min(RETRY_CAP);
+    let doublings = failures.saturating_sub(1).min(MAX_BACKOFF_DOUBLINGS);
+    let full = RETRY_BASE.saturating_mul(1 << doublings).min(RETRY_CAP);
     full.mul_f64(rand::random::<f64>())
 }
 
@@ -1321,23 +1396,464 @@ fn intact(body: &[u8]) -> bool {
 
 fn gunzip(body: &[u8]) -> Option<Vec<u8>> {
     use std::io::Read;
-    let mut out = Vec::with_capacity(body.len() * 4);
+    let mut out = Vec::with_capacity(body.len() * GZIP_RATIO);
     flate2::read::GzDecoder::new(body).read_to_end(&mut out).ok()?;
     Some(out)
 }
 
-/// Level 1: protobuf with repeated attribute keys shrinks 5–10× already; higher levels buy little
-/// for more CPU.
+/// Level 1: a batch of records with repeated attribute keys typically shrinks [`GZIP_RATIO`]× or
+/// more already; higher levels buy little for more CPU.
 fn gzip(body: &[u8]) -> Vec<u8> {
-    let mut encoder = GzEncoder::new(Vec::with_capacity(body.len() / 4), Compression::fast());
+    let mut encoder =
+        GzEncoder::new(Vec::with_capacity(body.len() / GZIP_RATIO), Compression::fast());
     // Writing into a Vec cannot fail.
     let _ = encoder.write_all(body);
     encoder.finish().unwrap_or_default()
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+    use crate::{
+        AttributeValue, ExportResponse, LogRecord, LogSource, Severity, SpanName, SpanOutcome,
+        Telemetry, TelemetryConfig, TelemetryEvent,
+    };
+
+    /// A collector that accepts every request and keeps it.
+    #[derive(Default)]
+    pub(crate) struct Collector(Mutex<Vec<ExportRequest>>);
+
+    impl Collector {
+        pub(crate) fn count(&self) -> usize {
+            self.0.lock().expect("lock").len()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Collector {
+        async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
+            self.0.lock().expect("lock").push(request);
+            Ok(ExportResponse::accepted())
+        }
+    }
+
+    /// A transport that holds every request until the test lets one through, counting them.
+    struct Gate {
+        sent: std::sync::atomic::AtomicUsize,
+        entered: tokio::sync::Notify,
+        permits: tokio::sync::Semaphore,
+    }
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Gate {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.entered.notify_one();
+            self.permits.acquire().await.expect("open").forget();
+            Ok(ExportResponse::accepted())
+        }
+    }
+
+    /// A running pipeline whose uploads wait at a [`Gate`].
+    fn gated(config: TelemetryConfig) -> (Telemetry, Arc<Gate>, tokio::task::JoinHandle<()>) {
+        let gate = Arc::new(Gate {
+            sent: Default::default(),
+            entered: Default::default(),
+            permits: tokio::sync::Semaphore::new(0),
+        });
+        let (telemetry, exporter) = Telemetry::new(config, gate.clone());
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(Some("http://collector"));
+        (telemetry, gate, tokio::spawn(exporter.run()))
+    }
+
+    /// A second shutdown asked for while the first drains returns only once the exporter has
+    /// stopped, as the first does.
+    #[tokio::test(start_paused = true)]
+    async fn a_repeated_shutdown_waits_for_the_exporter_to_stop() {
+        let (telemetry, gate, exporter) = gated(TelemetryConfig::default());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        gate.entered.notified().await;
+        let shutdown = |telemetry: &Telemetry| {
+            let telemetry = telemetry.clone();
+            tokio::spawn(async move { telemetry.shutdown().await })
+        };
+        let first = shutdown(&telemetry);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let second = shutdown(&telemetry);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let early = second.is_finished() && !exporter.is_finished();
+        gate.permits.add_permits(100);
+        first.await.expect("first");
+        second.await.expect("second");
+        exporter.await.expect("exporter");
+        assert!(!early, "the second shutdown returned while the upload was on the wire");
+    }
+
+    /// A device hold that begins during a shutdown drain stops its next request: the drain skips
+    /// only the connect hold.
+    #[tokio::test(start_paused = true)]
+    async fn a_shutdown_drain_obeys_a_device_hold_that_begins_meanwhile() {
+        let (telemetry, gate, exporter) =
+            gated(TelemetryConfig { max_batch_size: 1, ..Default::default() });
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.emit(TelemetryEvent::new("lk.next"));
+        gate.entered.notified().await;
+        let shutdown = {
+            let telemetry = telemetry.clone();
+            tokio::spawn(async move { telemetry.shutdown().await })
+        };
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        telemetry.set_device_state(DeviceState { network_constrained: true, ..Default::default() });
+        gate.permits.add_permits(1);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let sent = gate.sent.load(std::sync::atomic::Ordering::SeqCst);
+        gate.permits.add_permits(100);
+        shutdown.await.expect("shutdown");
+        exporter.await.expect("exporter");
+        assert_eq!(sent, 1, "Low Data Mode began: the second batch stays cached");
+    }
+
+    /// The change events of a device update are captured once the device lock is released: a
+    /// quota warning on the way reaches the host logger without that lock held.
+    #[tokio::test]
+    async fn device_changes_are_logged_outside_the_device_lock() {
+        crate::test_log::capture();
+        let config = TelemetryConfig { max_events_per_10min: 1, ..Default::default() };
+        let (telemetry, _exporter) = Telemetry::new(config, Arc::new(Collector::default()));
+        let shared = Arc::downgrade(&telemetry.shared);
+        crate::test_log::mark_while(move || {
+            shared.upgrade().is_some_and(|shared| shared.device.try_lock().is_err())
+        });
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        let hot = DeviceState { thermal: crate::ThermalState::Serious, ..Default::default() };
+        telemetry.set_device_state(hot);
+        let lines = crate::test_log::take();
+        assert!(!lines.is_empty(), "the quota warning");
+        assert!(lines.iter().all(|line| !line.starts_with("held: ")), "{lines:?}");
+    }
+
+    /// A record that names a span the pipeline cannot place goes to the process session without
+    /// the link: it never points at a span of another trace.
+    #[tokio::test]
+    async fn a_record_naming_an_unknown_span_loses_the_link() {
+        let (telemetry, _exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        telemetry.emit(TelemetryEvent::new("lk.ping").in_span(12_345));
+        let queued = telemetry.shared.store.drain(10, usize::MAX, 0);
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].event.span_id, None);
+        assert_eq!(queued[0].session.trace_id, telemetry.shared.process.trace_id);
+    }
+
+    /// Pipeline-wide attributes count in the batch budget: ten records that fit four to a batch
+    /// with them go out as three full batches, not cut too large and halved into four smaller
+    /// ones (more requests).
+    #[tokio::test(start_paused = true)]
+    async fn pipeline_attributes_count_in_the_batch_budget() {
+        let config = TelemetryConfig { max_batch_bytes: 4096, ..Default::default() };
+        let cache = Arc::new(crate::MemoryCache::new(1 << 20));
+        let busy = Arc::new(Busy::default());
+        let (telemetry, exporter) = Telemetry::with_cache(config, busy, cache.clone());
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(Some("http://collector"));
+        tokio::spawn(exporter.run());
+        telemetry.set_attribute("app.meta", Some(AttributeValue::Str("x".repeat(740))));
+        for _ in 0..10 {
+            telemetry.emit(TelemetryEvent::new("lk.e"));
+        }
+        telemetry.flush().await;
+        let counts: Vec<u64> = crate::BatchCache::pending(cache.as_ref())
+            .iter()
+            .filter(|id| BatchId::parse(id).signal == Signal::Logs)
+            .map(|id| events_in(id))
+            .collect();
+        assert_eq!(counts, [4, 4, 2]);
+    }
+
+    /// A running pipeline that sends everything to a test collector.
+    fn pipeline(config: TelemetryConfig) -> (Telemetry, Arc<Collector>) {
+        let collector = Arc::new(Collector::default());
+        let (telemetry, exporter) = Telemetry::new(config, collector.clone());
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(Some("http://collector"));
+        tokio::spawn(exporter.run());
+        (telemetry, collector)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ending_the_last_connect_span_lifts_the_hold_at_once() {
+        let (telemetry, collector) = pipeline(TelemetryConfig::default());
+        let room = telemetry.begin_scope();
+        let connect = room.start(SpanName::Connect, None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(collector.count(), 0, "held while connecting");
+        connect.end(SpanOutcome::Ok, None);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(collector.count(), 1, "sent at once, not at the next tick or the hold cap");
+    }
+
+    /// Fails its first request with "try again in 10 min", then accepts.
+    #[derive(Default)]
+    struct Busy(Collector, std::sync::atomic::AtomicBool);
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Busy {
+        async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
+            if !self.1.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let reason = "busy".to_owned();
+                return Err(ExportError::Retryable { reason, retry_after_ms: Some(600_000) });
+            }
+            self.0.send(request).await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transports_retry_delay_is_honored() {
+        let busy = Arc::new(Busy::default());
+        let (telemetry, exporter) = Telemetry::new(TelemetryConfig::default(), busy.clone());
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(Some("http://collector"));
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        assert_eq!(busy.0.count(), 0, "not before the 10 min the transport named");
+        tokio::time::sleep(Duration::from_secs(301)).await;
+        assert_eq!(busy.0.count(), 1);
+    }
+
+    /// A batch lands in the cache directory under its id: a self-hosted server's key (an IPv6
+    /// address, a port) leaves nothing in the file name that Windows refuses.
+    #[tokio::test(start_paused = true)]
+    async fn cached_file_names_are_valid_on_every_platform() {
+        let refused = |c: char| c.is_control() || r#"<>:"/\|?*"#.contains(c);
+        let dir = std::env::temp_dir().join(format!("lk-file-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let storage_dir = Some(dir.to_string_lossy().into_owned());
+        let busy = Arc::new(Busy::default());
+        let (telemetry, exporter) =
+            Telemetry::new(TelemetryConfig { storage_dir, ..Default::default() }, busy.clone());
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(Some("http://collector"));
+        tokio::spawn(exporter.run());
+        let room = telemetry.begin_scope();
+        room.set_server("ws://[::1]:7880", "token");
+        room.emit_custom("ping", Vec::new());
+        telemetry.flush().await;
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .expect("the cache directory")
+            .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!names.is_empty(), "the refused batch stays cached");
+        assert!(names.iter().all(|name| !name.contains(refused)), "{names:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flush_interval_longer_than_the_clock_has_run_does_not_panic() {
+        const CENTURY_MS: u64 = 100 * 365 * 24 * 60 * 60 * 1000;
+        let (telemetry, collector) =
+            pipeline(TelemetryConfig { flush_interval_ms: CENTURY_MS, ..Default::default() });
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(collector.count(), 1, "the exporter is alive");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_hold_episode_warns_once() {
+        crate::test_log::capture();
+        let (telemetry, _collector) = pipeline(TelemetryConfig::default());
+        let quiet = DeviceState { network_constrained: true, ..Default::default() };
+        /// `n` batches into the cache.
+        async fn cache(telemetry: &Telemetry, n: usize) {
+            for _ in 0..n {
+                telemetry.emit(TelemetryEvent::new("lk.ping"));
+                telemetry.flush().await;
+            }
+        }
+        telemetry.set_device_state(quiet);
+        cache(&telemetry, 3).await;
+        tokio::time::sleep(Duration::from_secs(130)).await;
+        let warning = "held 60s (device asks for quiet): sending one batch anyway";
+        let warned = || crate::test_log::take().iter().filter(|l| *l == warning).count();
+        assert_eq!(warned(), 1, "two escapes, one warning");
+        telemetry.set_device_state(DeviceState::default());
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        telemetry.set_device_state(quiet);
+        cache(&telemetry, 2).await;
+        tokio::time::sleep(Duration::from_secs(61)).await;
+        assert_eq!(warned(), 1, "a new hold warns again");
+    }
+
+    /// A hold whose escapes send the last cached batch still warns once, on its first escape, and
+    /// ends like any other once the device lifts it, even when no flush comes before the next
+    /// hold: that hold's first escape warns again.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_that_emptied_the_cache_warns_again_next_time() {
+        crate::test_log::capture();
+        // Flushes far apart: nothing reaches the cache between the two holds.
+        let config = TelemetryConfig { flush_interval_ms: 600_000, ..Default::default() };
+        let (telemetry, _collector) = pipeline(config);
+        let quiet = DeviceState { network_constrained: true, ..Default::default() };
+        let warning = "held 60s (device asks for quiet): sending one batch anyway";
+        for hold in ["first", "second"] {
+            telemetry.set_device_state(quiet);
+            // Two escapes, each sending the only batch cached, then a pass over the emptied cache
+            // (a flush with nothing queued, as a quiet tick is) while the hold goes on.
+            for _ in 0..2 {
+                telemetry.emit(TelemetryEvent::new("lk.ping"));
+                telemetry.flush().await;
+                tokio::time::sleep(Duration::from_secs(61)).await;
+                telemetry.flush().await;
+            }
+            let warned = crate::test_log::take().iter().filter(|l| *l == warning).count();
+            assert_eq!(warned, 1, "the {hold} hold warns on its first escape only");
+            telemetry.set_device_state(DeviceState::default());
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    /// The opt-out reports the cache deleted when its last attempt deleted everything, although
+    /// an earlier attempt failed.
+    #[tokio::test]
+    async fn a_purge_whose_retry_deletes_everything_reports_success() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = crate::cache::temp_dir("purge-retry");
+        let cache = Arc::new(crate::FileCache::open(&dir, 1 << 20).expect("open"));
+        // The first delete fails, as on storage that is not ready yet.
+        let failed = AtomicBool::new(false);
+        cache.inject(move |step, _| match step {
+            crate::cache::Step::Delete if !failed.swap(true, Ordering::SeqCst) => {
+                Err(std::io::Error::other("storage not ready"))
+            }
+            _ => Ok(()),
+        });
+        // No destination: the batch stays cached and the transport is never called.
+        let busy = Arc::new(Busy::default());
+        let (telemetry, exporter) = Telemetry::with_cache(TelemetryConfig::default(), busy, cache);
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(!telemetry.shared.cache.pending().is_empty(), "a batch is cached");
+        assert!(telemetry.purge().await, "the retry deleted everything");
+        assert!(telemetry.shared.cache.pending().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn gzip_shrinks_a_batch_of_records_at_least_this_much() {
+        let session = ScopeState::new();
+        session.set_attribute("lk.room.sid", Some("RM_UpE3vYzFmJp8".into()));
+        let records = (0..100)
+            .map(|i| {
+                let event = TelemetryEvent::new("lk.rtc.stats.sample")
+                    .with_body(format!("video inbound: {i} kbps, rtt 48 ms, 30 fps"))
+                    .with_attribute("lk.track.sid", "TR_VCd8tCgNdE9h")
+                    .with_attribute("lk.rtc.bytes", i as i64 * 1_000);
+                QueuedEvent::new(event, session.clone())
+            })
+            .collect();
+        let body = otlp::encode_logs(&[], &[], records);
+        let ratio = body.len() / gzip(&body).len();
+        assert!(ratio >= GZIP_RATIO, "{ratio}×");
+    }
+
+    #[tokio::test]
+    async fn zero_periods_are_raised_to_their_floor() {
+        let config = TelemetryConfig {
+            flush_interval_ms: 0,
+            stats_window_ms: 0,
+            export_timeout_ms: 0,
+            max_batch_size: 0,
+            ..Default::default()
+        };
+        let (telemetry, _exporter) = Telemetry::new(config, Arc::new(Collector::default()));
+        let config = &telemetry.shared.config;
+        let floors = (config.flush_interval_ms, config.stats_window_ms, config.export_timeout_ms);
+        assert_eq!(floors, (1000, 1000, 1000));
+        assert_eq!(config.max_batch_size, 1);
+        assert_eq!(telemetry.begin_scope().stats_poll_interval_ms(), 500, "never a tight loop");
+    }
+
+    #[tokio::test]
+    async fn the_shutdown_bound_follows_the_raised_export_timeout() {
+        let config = TelemetryConfig { export_timeout_ms: 0, ..Default::default() };
+        let (telemetry, _exporter) = Telemetry::new(config, Arc::new(Collector::default()));
+        assert_eq!(telemetry.shutdown_bound(), Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_events_never_silences_warnings() {
+        let (telemetry, _exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        for _ in 0..=telemetry.shared.config.max_events_per_10min {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+        }
+        let limited = || telemetry.shared.counters.snapshot().rate_limited;
+        assert_eq!(limited(), 1);
+        telemetry.log(LogRecord {
+            severity: Severity::Warn,
+            source: LogSource::Sdk,
+            body: "boom".into(),
+            logger: None,
+            function: None,
+            file: None,
+            line: None,
+            timestamp_ns: None,
+            span_id: None,
+        });
+        assert_eq!(limited(), 1, "the warning has a guard of its own");
+    }
+
+    #[tokio::test]
+    async fn the_pipeline_wide_attributes_have_limits() {
+        let (telemetry, _exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let invalid = || telemetry.shared.counters.snapshot().invalid;
+        telemetry.set_attribute("session.id", Some("x".into()));
+        telemetry.set_attribute("sdk.big", Some(AttributeValue::Str("x".repeat(2000))));
+        assert_eq!(invalid(), 2);
+        for i in 0..crate::event::MAX_CUSTOM_ATTRIBUTES {
+            telemetry.set_attribute(&format!("sdk.k{i}"), Some(1i64.into()));
+        }
+        telemetry.set_attribute("sdk.extra", Some(1i64.into()));
+        assert_eq!(invalid(), 3, "one key too many");
+        telemetry.set_attribute("sdk.k0", Some(2i64.into()));
+        assert_eq!(invalid(), 3, "a replacement fits");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_dropped_room_is_freed_once_its_spans_are_exported() {
+        let (telemetry, _collector) = pipeline(TelemetryConfig::default());
+        let room = telemetry.begin_scope();
+        room.set_server("wss://p.livekit.cloud", "token");
+        let state = Arc::downgrade(&room.state);
+        room.start(SpanName::Publish, None).end(SpanOutcome::Ok, None);
+        drop(room);
+        telemetry.flush().await;
+        assert!(state.upgrade().is_none(), "no longer in a call once its spans are exported");
+    }
+
+    /// The pipeline's ownership edges: a span the platform still holds never keeps the pipeline
+    /// or its exporter alive.
+    #[tokio::test(start_paused = true)]
+    async fn dropping_every_handle_frees_the_pipeline_and_stops_the_exporter() {
+        let (telemetry, exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let run = tokio::spawn(exporter.run());
+        let room = telemetry.begin_scope();
+        let held = room.start(SpanName::Publish, None);
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop((telemetry, room));
+        run.await.expect("the exporter returns");
+        assert!(shared.upgrade().is_none());
+        held.end(SpanOutcome::Ok, None);
+    }
 
     #[test]
     fn batch_ids_carry_their_owner() {

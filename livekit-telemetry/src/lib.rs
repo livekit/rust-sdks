@@ -65,8 +65,8 @@ pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
 pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
-pub use telemetry::*;
-pub use trace::*;
+pub use telemetry::{Instrument, Sdk, Telemetry, TelemetryConfig, TelemetryResource};
+pub use trace::{ReconnectReason, Span, SpanName, SpanStep, SpanTrack, TraceContext, TrackSource};
 #[cfg(feature = "net")]
 pub use transport::NetTransport;
 pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};

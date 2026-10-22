@@ -91,7 +91,8 @@ impl TelemetryEvent {
     ///
     /// Counts the attributes the record carries: once queued, that includes its session's
     /// (`lk.room.*`, `lk.participant.*`, `session.id`) and the app's correlation attributes, all
-    /// taken at capture. Pipeline-wide attributes are added at export and are not counted.
+    /// taken at capture. Pipeline-wide attributes are added at export: the exporter's drains count
+    /// them for every record (`Store::drain`, `Spans::drain`).
     pub fn size_hint(&self) -> usize {
         RECORD_OVERHEAD_BYTES
             + 2 * self.name.len()
@@ -167,7 +168,8 @@ pub struct LogRecord {
     /// exported record.
     pub body: String,
     /// The logger: a type, module or file name (`Room`, `livekit::rtc_engine`, `sctp.cc`),
-    /// exported as `lk.log.logger` to group lines in the backend.
+    /// exported as `lk.log.logger` to group lines in the backend. An `Ffi` line from the core's
+    /// own `livekit_telemetry*` loggers is skipped.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub logger: Option<String>,
     /// The function that logged, exported as `code.function.name`.
@@ -318,11 +320,17 @@ pub(crate) fn is_reserved(key: &str) -> bool {
 
 /// Whether an app-provided attribute is within the limits and outside the SDK's namespace.
 pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
+    within_limits(key, value) && !is_reserved(key)
+}
+
+/// Whether an attribute is within the length limits: a non-empty key of at most
+/// [`MAX_KEY_BYTES`], a string value of at most [`MAX_VALUE_BYTES`].
+pub(crate) fn within_limits(key: &str, value: Option<&AttributeValue>) -> bool {
     let value_ok = match value {
         Some(AttributeValue::Str(s)) => s.len() <= MAX_VALUE_BYTES,
         _ => true,
     };
-    !key.is_empty() && key.len() <= MAX_KEY_BYTES && !is_reserved(key) && value_ok
+    !key.is_empty() && key.len() <= MAX_KEY_BYTES && value_ok
 }
 
 /// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id and the

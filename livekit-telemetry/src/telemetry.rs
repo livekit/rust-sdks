@@ -24,10 +24,14 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Instant};
 
 use crate::span::SpanKind;
+use crate::DeviceEvent;
 use crate::{
-    cache::SpillCache,
-    destination::{Destinations, ENDPOINT_OVERRIDE_ENV},
+    cache::{logged_after, SpillCache},
+    destination::{Destinations, ENDPOINT_OVERRIDE_ENV, PROCESS_OWNER},
+    device::MAX_CADENCE_FACTOR,
+    event::{now_unix_nanos, within_limits, MAX_CUSTOM_ATTRIBUTES},
     exporter::Command,
+    exporter::SENSITIVE_SPANS,
     rtc::StatsWindows,
     scope::{Scope, ScopeState},
     span::Spans,
@@ -37,18 +41,20 @@ use crate::{
     MemoryCache, RtcStatsSample, Severity, SpanOutcome, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
-use crate::{DeviceEvent, Span, SpanName};
 
 /// Pipeline configuration: storage and tuning. Where batches go is not configurable — the core
 /// derives it from the server URL and token each room hands over ([`Scope::set_server`]).
 ///
 /// Defaults are conservative, sized so a fleet cannot overload the collector: one export and
 /// one RTC stats window per minute, OTel's `BatchLogRecordProcessor` queue (2048) and batch (512).
+/// The `uniffi(default = …)` literals mirror the `DEFAULT_*` constants, because UniFFI takes only
+/// literals there. A value below its floor (1 s for the periods and the timeout, 1 for counts and
+/// byte bounds) is raised to it when the pipeline is built.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone)]
 pub struct TelemetryConfig {
     /// Resource attributes describing the emitter (`service.name`, `os.name`,
-    /// `device.model.identifier`, `session.id`, …). `telemetry.sdk.*` are filled in by the core.
+    /// `device.model.identifier`, …). `telemetry.sdk.*` are filled in by the core.
     #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub resource: Vec<Attribute>,
     /// Who is reporting, typed; the core owns the semconv keys. Extra attributes go in `resource`.
@@ -61,7 +67,7 @@ pub struct TelemetryConfig {
     /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
     #[cfg_attr(feature = "uniffi", uniffi(default = 4194304))]
     pub max_cache_bytes: u64,
-    /// Base export cadence; stretched up to 4× by [`DeviceState::cadence_factor`].
+    /// Base export cadence; stretched up to 4× under device pressure (`SPEC.md`, Cadence policy).
     #[cfg_attr(feature = "uniffi", uniffi(default = 60000))]
     pub flush_interval_ms: u64,
     /// Events buffered before the oldest are dropped.
@@ -117,25 +123,61 @@ pub enum Instrument {
     Room,
 }
 
+// Defaults, documented on the matching `TelemetryConfig` field.
+const DEFAULT_MAX_CACHE_BYTES: u64 = 4 * 1024 * 1024;
+const DEFAULT_FLUSH_INTERVAL_MS: u64 = 60_000;
+const DEFAULT_MAX_QUEUE_SIZE: u32 = 2048;
+const DEFAULT_MAX_BATCH_SIZE: u32 = 512;
+const DEFAULT_EXPORT_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_STATS_WINDOW_MS: u64 = 60_000;
+const DEFAULT_MAX_EVENTS_PER_10MIN: u32 = 300;
+const DEFAULT_MAX_BATCHES_PER_UPLOAD: u32 = 4;
+const DEFAULT_FLUSH_THRESHOLD_BYTES: u64 = 256 * 1024;
+const DEFAULT_MAX_BATCH_BYTES: u64 = 1024 * 1024;
+
+/// The floor of the flush interval, the stats window and the export timeout: a value of 0 would
+/// make the exporter tick, the host poll `getStats()` or every request time out in a tight loop.
+const MIN_PERIOD_MS: u64 = 1000;
+
 impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             resource: Vec::new(),
             sdk: None,
             storage_dir: None,
-            max_cache_bytes: 4 * 1024 * 1024,
-            flush_interval_ms: 60_000,
-            max_queue_size: 2048,
-            max_batch_size: 512,
-            export_timeout_ms: 10_000,
-            stats_window_ms: 60_000,
-            max_events_per_10min: 300,
-            max_batches_per_upload: 4,
-            flush_threshold_bytes: 256 * 1024,
-            max_batch_bytes: 1024 * 1024,
+            max_cache_bytes: DEFAULT_MAX_CACHE_BYTES,
+            flush_interval_ms: DEFAULT_FLUSH_INTERVAL_MS,
+            max_queue_size: DEFAULT_MAX_QUEUE_SIZE,
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
+            export_timeout_ms: DEFAULT_EXPORT_TIMEOUT_MS,
+            stats_window_ms: DEFAULT_STATS_WINDOW_MS,
+            max_events_per_10min: DEFAULT_MAX_EVENTS_PER_10MIN,
+            max_batches_per_upload: DEFAULT_MAX_BATCHES_PER_UPLOAD,
+            flush_threshold_bytes: DEFAULT_FLUSH_THRESHOLD_BYTES,
+            max_batch_bytes: DEFAULT_MAX_BATCH_BYTES,
             log_severity: None,
             disabled_instruments: Vec::new(),
         }
+    }
+}
+
+impl TelemetryConfig {
+    /// Every value at or above its floor; applied once, when the pipeline is built.
+    fn normalized(mut self) -> Self {
+        self.flush_interval_ms = self.flush_interval_ms.max(MIN_PERIOD_MS);
+        self.stats_window_ms = self.stats_window_ms.max(MIN_PERIOD_MS);
+        self.export_timeout_ms = self.export_timeout_ms.max(MIN_PERIOD_MS);
+        self.max_queue_size = self.max_queue_size.max(1);
+        self.max_batch_size = self.max_batch_size.max(1);
+        self.max_batches_per_upload = self.max_batches_per_upload.max(1);
+        self.flush_threshold_bytes = self.flush_threshold_bytes.max(1);
+        self.max_batch_bytes = self.max_batch_bytes.max(1);
+        self
+    }
+
+    /// The bound on one transport attempt, on `shutdown` and on the opt-out's wait.
+    pub(crate) fn export_timeout(&self) -> Duration {
+        Duration::from_millis(self.export_timeout_ms)
     }
 }
 
@@ -170,7 +212,6 @@ impl Default for TelemetryConfig {
 #[derive(Clone)]
 pub struct Telemetry {
     pub(crate) shared: Arc<Shared>,
-    guard: Arc<Mutex<FloodGuard>>,
     commands: mpsc::UnboundedSender<Command>,
 }
 
@@ -198,6 +239,10 @@ pub(crate) struct Shared {
     pub status: Mutex<TelemetryStatus>,
     /// Every room session, for the subscribe deadlines the exporter enforces.
     pub scopes: Mutex<Vec<Weak<ScopeState>>>,
+    /// The flood guard for discrete events, and a second one for plain log records: a burst of
+    /// events never silences warnings, and a warning loop is bounded on its own.
+    pub guard: Mutex<FloodGuard>,
+    pub log_guard: Mutex<FloodGuard>,
     /// The queue crossed `flush_threshold_bytes` since the exporter last looked: export now.
     pub overflowed: AtomicBool,
     /// A destination, a token or a hold changed: re-evaluate what waits (nothing is encoded).
@@ -214,8 +259,20 @@ pub(crate) struct Shared {
     /// The app went to the background since the exporter last looked.
     pub backgrounded: AtomicBool,
     /// The app opted out ([`Telemetry::purge`]). One-way: checked before anything is captured,
-    /// written or sent, so a request still in flight cannot bring anything back.
+    /// written or sent, so a request still in flight cannot bring anything back. Set through
+    /// [`Shared::revoke`].
     pub revoked: Arc<AtomicBool>,
+    /// The opt-out's barrier for requests: [`Shared::revoke`] holds it for writing, a request's
+    /// start (its consent check and first poll) for reading, so no request starts once `revoke`
+    /// has returned.
+    pub admission: std::sync::RwLock<()>,
+    /// Stops the exporter without another upload and deletes everything it holds, whether it
+    /// runs or drains (see [`Shared::purge`]).
+    pub cancel: tokio::sync::Notify,
+    /// Closed once the exporter is gone: it holds the sender, dropped with it.
+    pub exporter_alive: tokio::sync::watch::Receiver<()>,
+    /// Serializes [`Shared::clear`], so purges racing each other count what went once.
+    purging: Mutex<()>,
 }
 
 impl Shared {
@@ -247,25 +304,35 @@ impl Shared {
         if self.revoked() {
             return;
         }
-        self.spans.lock().unwrap_or_else(|e| e.into_inner()).add_event(span, name);
+        logged_after(|| self.spans.lock().unwrap_or_else(|e| e.into_inner()).add_event(span, name));
     }
 
-    /// End a span with its outcome; `error_type` becomes `error.type` when the span failed.
-    /// The span is exported with the next batch. Ending twice, or an unknown handle, is a no-op.
+    /// End a span with its outcome; `error_type` becomes `error.type` when the span failed, and
+    /// `dropped_attributes` counts what its handle could not keep. The span is exported with the
+    /// next batch. Ending twice, or an unknown handle, is a no-op. Ending the last open
+    /// `lk.connect` / `lk.reconnect` lifts the hold on uploads at once.
     pub fn end_span(
         &self,
         span: u64,
         outcome: SpanOutcome,
         error_type: Option<String>,
         attributes: Vec<Attribute>,
+        dropped_attributes: u32,
     ) {
         if self.revoked() {
             return;
         }
-        self.spans
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .end(span, outcome, error_type, attributes);
+        // The registry's warnings are logged once its lock is released.
+        let lifted = logged_after(|| {
+            let mut spans = self.spans.lock().unwrap_or_else(|e| e.into_inner());
+            let held = spans.any_open(SENSITIVE_SPANS);
+            spans.add_dropped_attributes(span, dropped_attributes);
+            spans.end(span, outcome, error_type, attributes);
+            held && !spans.any_open(SENSITIVE_SPANS)
+        });
+        if lifted {
+            self.release();
+        }
     }
 
     /// End every Room's pending subscribes (shutdown) or just forget them (opt-out): nothing
@@ -280,20 +347,48 @@ impl Shared {
         }
     }
 
-    /// Device pressure, doubled again while WebRTC reports the encoder CPU-limited; capped at 4×.
+    /// Device pressure, doubled again while WebRTC reports the encoder CPU-limited; capped at
+    /// [`MAX_CADENCE_FACTOR`].
     pub fn cadence_factor(&self) -> u32 {
+        /// A CPU-limited encoder doubles the cadence, like serious thermal pressure.
+        const CPU_LIMITED_FACTOR: u32 = 2;
         let device = self.device.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or_default();
         let cpu = self.windows.lock().unwrap_or_else(|e| e.into_inner()).cpu_limited();
-        (device.cadence_factor() * if cpu { 2 } else { 1 }).min(4)
+        let cpu = if cpu { CPU_LIMITED_FACTOR } else { 1 };
+        (device.cadence_factor() * cpu).min(MAX_CADENCE_FACTOR)
     }
 
+    /// Whether the app opted out.
     pub fn revoked(&self) -> bool {
         self.revoked.load(Ordering::SeqCst)
+    }
+
+    /// The opt-out, in effect when this returns: no capture, cache write or request starts
+    /// afterwards (a request already started is cancelled by [`purge`](Self::purge)).
+    pub fn revoke(&self) {
+        let _admission = self.admission.write().unwrap_or_else(|e| e.into_inner());
+        self.revoked.store(true, Ordering::SeqCst);
+    }
+
+    /// Opt-out: revoke, delete everything held, stop the exporter (running or draining) without
+    /// another upload and wait for it, then delete what it wrote meanwhile. Returns `false` when
+    /// the storage refused to delete something.
+    pub async fn purge(&self) -> bool {
+        self.revoke();
+        // A failure here is logged; the last attempt below tries every file again.
+        self.clear();
+        self.cancel.notify_one();
+        let mut alive = self.exporter_alive.clone();
+        let _ = timeout(self.config.export_timeout() + SHUTDOWN_GRACE, alive.changed()).await;
+        // Whatever an upload in flight put back while the exporter wound down, and whatever the
+        // first attempt left: what this attempt leaves is what stays.
+        self.clear()
     }
 
     /// Drop every record and batch, in memory and on disk, counted as `purged`. `false` when
     /// the storage refused to delete something: that data is still on disk.
     pub fn clear(&self) -> bool {
+        let _purging = self.purging.lock().unwrap_or_else(|e| e.into_inner());
         self.end_pending_subscribes(false);
         let queued = self.store.clear();
         let spans = self.spans.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -316,13 +411,22 @@ impl Shared {
     }
 }
 
-/// Fixed-window cap on discrete events (the design doc's ~300 per 10 min).
-struct FloodGuard {
+/// Fixed-window cap on records (the design doc's ~300 per 10 min).
+pub(crate) struct FloodGuard {
     max: u32,
     window_start: Instant,
     count: u32,
     /// The first drop of a window logs; the rest are counted.
     warned: bool,
+}
+
+/// What [`FloodGuard::admit`] decided.
+enum Admission {
+    Admitted,
+    /// Over the cap; `first` when this is the window's first drop (the caller warns).
+    Dropped {
+        first: bool,
+    },
 }
 
 impl FloodGuard {
@@ -332,9 +436,9 @@ impl FloodGuard {
         Self { max, window_start: Instant::now(), count: 0, warned: false }
     }
 
-    fn admit(&mut self) -> bool {
+    fn admit(&mut self) -> Admission {
         if self.max == 0 {
-            return true;
+            return Admission::Admitted;
         }
         let now = Instant::now();
         if now.duration_since(self.window_start) >= Self::WINDOW {
@@ -343,17 +447,10 @@ impl FloodGuard {
             self.warned = false;
         }
         if self.count >= self.max {
-            if !self.warned {
-                self.warned = true;
-                log::warn!(
-                    "flood: {} records in 10 min; dropping until the window moves",
-                    self.max
-                );
-            }
-            return false;
+            return Admission::Dropped { first: !std::mem::replace(&mut self.warned, true) };
         }
         self.count += 1;
-        true
+        Admission::Admitted
     }
 }
 
@@ -387,10 +484,11 @@ impl Telemetry {
 
     /// Build the pipeline around a caller-provided [`BatchCache`] (`storage_dir` is ignored).
     pub fn with_cache(
-        mut config: TelemetryConfig,
+        config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
         cache: Arc<dyn BatchCache>,
     ) -> (Self, Exporter) {
+        let mut config = config.normalized();
         add_sdk_resource(&mut config.resource, config.sdk.as_ref());
         let counters = Arc::new(Counters::default());
         let revoked = Arc::new(AtomicBool::new(false));
@@ -412,6 +510,7 @@ impl Telemetry {
         // each with a caller awaiting its answer: the queue is bounded by the callers waiting.
         // Notifications go through the coalescing `Shared::wake` instead.
         let (commands, receiver) = mpsc::unbounded_channel();
+        let (alive, exporter_alive) = tokio::sync::watch::channel(());
         let shared = Arc::new(Shared {
             store: Store::new(
                 config.max_queue_size as usize,
@@ -433,7 +532,13 @@ impl Telemetry {
             destinations: Mutex::new(Destinations::new(endpoint_override.as_deref())),
             status: Mutex::new(TelemetryStatus::Ok),
             scopes: Mutex::new(Vec::new()),
+            guard: Mutex::new(FloodGuard::new(config.max_events_per_10min)),
+            log_guard: Mutex::new(FloodGuard::new(config.max_events_per_10min)),
             revoked,
+            admission: std::sync::RwLock::new(()),
+            cancel: tokio::sync::Notify::new(),
+            exporter_alive,
+            purging: Mutex::new(()),
             #[cfg(test)]
             passes: Default::default(),
             #[cfg(test)]
@@ -444,48 +549,62 @@ impl Telemetry {
             backgrounded: AtomicBool::new(false),
             config,
         });
-        let guard = Arc::new(Mutex::new(FloodGuard::new(shared.config.max_events_per_10min)));
-        let exporter = Exporter::new(shared.clone(), transport, receiver);
-        (Self { shared, guard, commands }, exporter)
+        let exporter = Exporter::new(shared.clone(), transport, receiver, alive);
+        (Self { shared, commands }, exporter)
     }
 
     /// Route a room's records: its server URL names the project (LiveKit Cloud only), its token
     /// authorizes the upload. Called at connect and again with every refreshed token; cheap and
     /// idempotent. Everything cached for the project starts uploading once the token allows.
     pub(crate) fn set_server(&self, session: &ScopeState, url: &str, token: &str) {
-        if session.same_server(url, token) {
-            // A reconnect with the same pair still retries an ingest that answered 404 — one
-            // map lookup, no parsing.
-            let route = session.route();
-            let revived = route.is_some_and(|host| {
-                self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).revive(&host)
-            });
-            if revived {
-                self.shared.release();
+        let routed = {
+            // One change at a time per session: the pair is remembered only once its destination
+            // and route are in place, so a racing change cannot leave the pair of one change
+            // and the route of the other (and the next hand-over taken for a no-op).
+            let _transition = session.transition.lock().unwrap_or_else(|e| e.into_inner());
+            if session.same_server(url, token) {
+                // A reconnect with the same pair still retries an ingest that answered 404 — one
+                // map lookup, no parsing.
+                let route = session.route();
+                let revived = route.is_some_and(|host| {
+                    self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).revive(&host)
+                });
+                if revived {
+                    self.shared.release();
+                }
+                return;
             }
-            return;
-        }
-        let host = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).set(
-            url,
-            token,
-            &session.hex(),
-        );
-        let Some(host) = host else {
+            self.shared.before_commit();
+            let host = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).set(
+                url,
+                token,
+                session.hex(),
+            );
+            if let Some(host) = &host {
+                // A project change closes the session's RTC windows first: a window belongs to
+                // one project. Compared under the windows lock, so a concurrent change cannot
+                // slip between.
+                self.with_windows_split(
+                    session,
+                    || session.route().as_deref() != Some(host.as_str()),
+                    || session.set_route(host.clone()),
+                );
+            }
+            session.remember_server(url, token);
+            host.is_some()
+        };
+        if !routed {
             log::warn!("server url has no host; this session's telemetry stays cached");
             return;
-        };
-        // A project change closes the session's RTC windows first: a window belongs to one project.
-        if session.route().as_deref() != Some(host.as_str()) {
-            self.with_windows_split(session, || true, || session.set_route(host.clone()));
         }
         // A new route or a new token may release what waits in the cache.
         self.shared.release();
     }
 
     /// The RTC stats window right now: `stats_window_ms` stretched by device pressure and a
-    /// CPU-limited encoder (at most 4×).
+    /// CPU-limited encoder (at most [`MAX_CADENCE_FACTOR`]×).
     pub(crate) fn stats_window_ms(&self) -> u64 {
-        self.shared.config.stats_window_ms.max(1) * u64::from(self.shared.cadence_factor())
+        self.shared.config.stats_window_ms * u64::from(self.shared.cadence_factor())
     }
 
     /// An app handed over something over the limits (a custom event or attribute).
@@ -498,14 +617,6 @@ impl Telemetry {
         self.shared.wake.notify_one();
     }
 
-    /// Point every upload at `endpoint`, as [`ENDPOINT_OVERRIDE_ENV`] does.
-    #[cfg(test)]
-    #[expect(dead_code, reason = "a hook for the pipeline tests, not in place yet")]
-    pub(crate) fn override_endpoint(&self, endpoint: &str) {
-        *self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()) =
-            Destinations::new(Some(endpoint));
-    }
-
     /// Start a session — one room, one call — with its own trace id and attributes on this
     /// pipeline. Sessions do not need ending: a room's last record is simply its last.
     pub fn begin_scope(&self) -> Scope {
@@ -516,23 +627,10 @@ impl Telemetry {
         Scope { telemetry: self.clone(), state }
     }
 
-    /// A span in the pipeline's own trace: app-defined work outside any room, or the SDK before a
-    /// room exists. Stamped now; `parent` nests it.
-    pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
-        let parent = parent.and_then(|p| p.context()).map(|c| c.span_id);
-        Span::bound(name, parent, self.clone(), &self.shared.process)
-    }
-
-    /// Queue an event or log record for export. Stamps it with the current time unless it
-    /// carries one.
-    ///
-    /// A record with an empty `name` is a plain log line: only `Warn` and `Error` ones leave the
-    /// device (design doc: debug/info logs never do). Discrete events are subject to the flood
-    /// guard (`max_events_per_10min`); what it drops is counted as `rate_limited`.
     /// Something happened to the device mid-call (audio route, interruption, a denied permission):
     /// a process-level record with a display body, built here so every platform files it alike.
     pub fn device_event(&self, event: DeviceEvent) {
-        self.emit_in(event.into_event(), &self.shared.process);
+        self.emit_in(event.into(), &self.shared.process);
     }
 
     /// A captured log line. WebRTC only counts at error; the SDK and the core at the configured
@@ -562,15 +660,25 @@ impl Telemetry {
         Some(record.into())
     }
 
-    /// Queue an event or log record, filed under the session of the span it names (`span_id`),
-    /// else under the pipeline's own process session.
-    pub fn emit(&self, event: TelemetryEvent) {
+    /// Queue an event or log record for export, filed under the session of the span it names
+    /// (`span_id`), else under the pipeline's own process session. Stamped with the current time
+    /// unless it carries one.
+    ///
+    /// A record with an empty `name` is a plain log line: only one at or above `log_severity`
+    /// (default `Warn`) leaves the device. Discrete events and plain log lines each have a flood
+    /// guard (`max_events_per_10min`); what they drop is counted as `rate_limited`.
+    pub fn emit(&self, mut event: TelemetryEvent) {
         // A record emitted inside a room's span belongs to that room's session; anything else
         // is the process's own.
-        let session = event
-            .span_id
-            .and_then(|id| self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).scope_of(id))
-            .unwrap_or_else(|| self.shared.process.clone());
+        let room = event.span_id.and_then(|id| {
+            self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).scope_of(id)
+        });
+        // A span this pipeline cannot place (unknown, or long gone) is no link: the record goes
+        // to the process session without it, never pointing at a span of another trace.
+        if room.is_none() {
+            event.span_id = None;
+        }
+        let session = room.unwrap_or_else(|| self.shared.process.clone());
         self.emit_in(event, &session);
     }
 
@@ -589,7 +697,14 @@ impl Telemetry {
             Counters::add(&self.shared.counters.disabled, 1);
             return;
         }
-        if !self.guard.lock().unwrap_or_else(|e| e.into_inner()).admit() {
+        let guard = if event.name.is_empty() { &self.shared.log_guard } else { &self.shared.guard };
+        let admission = guard.lock().unwrap_or_else(|e| e.into_inner()).admit();
+        if let Admission::Dropped { first } = admission {
+            // Logged after the guard: a log line may call into the host.
+            if first {
+                let max = self.shared.config.max_events_per_10min;
+                log::warn!("flood: {max} records in 10 min; dropping until the window moves");
+            }
             Counters::add(&self.shared.counters.rate_limited, 1);
             return;
         }
@@ -598,38 +713,28 @@ impl Telemetry {
         }
     }
 
-    /// Queue a consumer-defined event, exported as `custom.<name>` (see
-    /// [`TelemetryEvent::custom`]): the stringly-typed escape hatch next to the `lk.*`
-    /// catalogue. Same flood guard, same pipeline.
-    pub fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
-        Scope { telemetry: self.clone(), state: self.shared.process.clone() }
-            .emit_custom(name, attributes);
-    }
-
-    /// Set a pipeline-wide attribute (a consumer's `enduser.id`, an `acme.tenant`), added at
-    /// export to every record and span of every session unless the record — or its session —
-    /// already carries the key, so records queued before the call get it too. `None` removes it. Scope-level identity goes through
-    /// [`Scope::set_attribute`].
+    /// Set a pipeline-wide attribute: SDK metadata, not an app API (app attributes are
+    /// room-scoped, [`Scope::set_attribute`]). It is added at export to every record and span of
+    /// every session unless the record — or its session — already carries the key, so records
+    /// queued before the call get it too. `None` removes it. Rejected and counted as `invalid`
+    /// when the key is empty or over 128 bytes, a string value is over 1024 bytes, the key is one
+    /// the core sets on every record or span (`session.id`, `error.type`, `lk.outcome`), or 64
+    /// keys are already set.
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        let core_owned = matches!(key, "session.id" | "error.type" | "lk.outcome");
+        if core_owned || !within_limits(key, value.as_ref()) {
+            return self.count_invalid();
+        }
         let mut global = self.shared.global.lock().unwrap_or_else(|e| e.into_inner());
+        let full = global.len() >= MAX_CUSTOM_ATTRIBUTES && !global.iter().any(|a| a.key == key);
+        if value.is_some() && full {
+            drop(global);
+            return self.count_invalid();
+        }
         global.retain(|a| a.key != key);
         if let Some(value) = value {
             global.push(Attribute::new(key, value));
         }
-    }
-
-    /// The session's trace id as 32 hex characters — what every span and log record of this
-    /// pipeline carries. Print it (`lkt_…`) so support can find the session.
-    pub fn trace_id(&self) -> String {
-        self.shared.process.hex()
-    }
-
-    /// Open a span: one attempt at an operation (`lk.connect`, `lk.publish`, …). Returns the
-    /// handle to record checkpoints and to end it with; `parent` nests it under another open span.
-    #[cfg(test)]
-    #[expect(dead_code, reason = "a hook for the pipeline tests, not in place yet")]
-    pub(crate) fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.begin_span_in(name, kind, parent, &self.shared.process)
     }
 
     pub(crate) fn begin_span_in(
@@ -644,38 +749,18 @@ impl Telemetry {
             return 0;
         }
         self.shared.before_commit();
-        self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).begin_in(
-            name,
-            kind,
-            parent,
-            session.clone(),
-        )
+        logged_after(|| {
+            self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).begin_in(
+                name,
+                kind,
+                parent,
+                session.clone(),
+            )
+        })
     }
 
-    #[cfg(test)]
-    #[expect(dead_code, reason = "a hook for the pipeline tests, not in place yet")]
-    pub(crate) fn add_span_event(&self, span: u64, name: &str) {
-        self.shared.add_span_event(span, name);
-    }
-
-    #[cfg(test)]
-    #[expect(dead_code, reason = "a hook for the pipeline tests, not in place yet")]
-    pub(crate) fn end_span(
-        &self,
-        span: u64,
-        outcome: SpanOutcome,
-        error_type: Option<String>,
-        attributes: Vec<Attribute>,
-    ) {
-        self.shared.end_span(span, outcome, error_type, attributes);
-    }
-
-    /// Push one `getStats()` reading. Readings are windowed on device into `lk.rtc.stats.sample`
-    /// events (see `stats_window_ms`); they never count against the flood guard.
-    pub fn record_stats(&self, sample: RtcStatsSample) {
-        self.record_stats_in(sample, &self.shared.process);
-    }
-
+    /// Window one `getStats()` reading under `session`. Readings never count against the flood
+    /// guard.
     pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<ScopeState>) {
         if self.shared.revoked() || !self.collects(session) {
             return;
@@ -689,7 +774,13 @@ impl Telemetry {
     /// dropped at the door, never written to the cache.
     fn collects(&self, session: &ScopeState) -> bool {
         let route = session.route();
-        self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).alive(route.as_deref())
+        let owner = if session.trace_id == self.shared.process.trace_id {
+            PROCESS_OWNER
+        } else {
+            session.hex()
+        };
+        let destinations = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner());
+        destinations.alive(route.as_deref(), Some(owner))
     }
 
     /// Change something a session's RTC windows captured when they opened (its correlation
@@ -738,16 +829,24 @@ impl Telemetry {
 
     /// Tell the pipeline what the device looks like. Emits the `lk.device.*.changed` events for
     /// whatever differs from the last state (everything, the first time) and re-tunes the
-    /// pipeline: pressure stretches the cadence up to 4× ([`DeviceState::cadence_factor`]), a
-    /// constrained network or a nearly empty battery holds uploads
-    /// ([`DeviceState::holds_uploads`]), and entering the background flushes once right away.
+    /// pipeline (`SPEC.md`, Cadence policy): pressure stretches the cadence up to 4×, a
+    /// constrained network or a nearly empty battery holds uploads, and entering the background
+    /// flushes once right away.
     pub fn set_device_state(&self, state: DeviceState) {
-        let mut previous = self.shared.device.lock().unwrap_or_else(|e| e.into_inner());
-        for event in state.change_events(previous.as_ref()) {
+        // The change events are made and stamped under the device lock, so two concurrent
+        // updates report their changes at the times they were applied; they are emitted once
+        // it is released, since capturing them may log, and a log line may call into the host.
+        let (events, before) = {
+            let mut previous = self.shared.device.lock().unwrap_or_else(|e| e.into_inner());
+            let mut events = state.change_events(previous.as_ref());
+            for event in &mut events {
+                event.timestamp_ns.get_or_insert_with(now_unix_nanos);
+            }
+            (events, previous.replace(state).unwrap_or_default())
+        };
+        for event in events {
             self.emit(event);
         }
-        let before = previous.replace(state).unwrap_or_default();
-        drop(previous);
         // Only three things are worth a wake-up: entering the background (export now, the app
         // may be suspended), a hold changing (re-evaluate; nothing new is encoded for it) and the
         // cadence changing (the pending tick is re-derived: relief brings it forward).
@@ -773,11 +872,15 @@ impl Telemetry {
     /// Flush, then stop the exporter, and return once it has stopped. The exporter gives the
     /// network `export_timeout_ms`, then cancels the request in flight and exits; what did not
     /// go out stays cached (with a [`FileCache`], for the next launch). Events emitted afterwards
-    /// are never exported. If the exporter is not running at all, this gives up a second after
-    /// that bound.
+    /// are never exported. If the exporter is not running at all, this gives up after
+    /// [`shutdown_bound`](Self::shutdown_bound).
     pub async fn shutdown(&self) {
-        let bound = Duration::from_millis(self.shared.config.export_timeout_ms.max(1));
-        let _ = timeout(bound + SHUTDOWN_GRACE, self.command(Command::Shutdown)).await;
+        let _ = timeout(self.shutdown_bound(), self.command(Command::Shutdown)).await;
+    }
+
+    /// The longest [`shutdown`](Self::shutdown) waits: the export timeout (1 s at least) plus 1 s.
+    pub fn shutdown_bound(&self) -> Duration {
+        self.shared.config.export_timeout() + SHUTDOWN_GRACE
     }
 
     /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
@@ -795,12 +898,7 @@ impl Telemetry {
     /// Events emitted afterwards go nowhere. Returns `false` when the storage refused to delete
     /// something (it is logged; the files stay until a later purge or configure succeeds).
     pub async fn purge(&self) -> bool {
-        self.shared.revoked.store(true, Ordering::SeqCst);
-        self.shared.clear();
-        let bound = Duration::from_millis(self.shared.config.export_timeout_ms.max(1));
-        let _ = timeout(bound, self.command(Command::Purge)).await;
-        // Whatever an upload in flight put back while the exporter wound down.
-        self.shared.clear()
+        self.shared.purge().await
     }
 
     /// A handle that can reach the exporter without keeping it alive (the opt-out uses it to
@@ -822,11 +920,17 @@ impl Telemetry {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sdk {
+    /// `client-sdk-swift`.
     Swift,
+    /// `client-sdk-android`.
     Android,
+    /// `client-sdk-flutter`.
     Flutter,
+    /// `client-sdk-react-native`.
     ReactNative,
+    /// `client-sdk-unity`.
     Unity,
+    /// The Rust SDK.
     Rust,
 }
 
@@ -848,10 +952,15 @@ impl Sdk {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelemetryResource {
+    /// The reporting SDK (`service.name`).
     pub sdk: Sdk,
+    /// Its version (`service.version`).
     pub sdk_version: String,
+    /// The OS name (`os.name`, e.g. `iOS`).
     pub os_name: String,
+    /// The OS version (`os.version`).
     pub os_version: String,
+    /// The device model (`device.model.identifier`, e.g. `iPhone15,2`), when known.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub device_model: Option<String>,
 }
