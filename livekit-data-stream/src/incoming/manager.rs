@@ -17,7 +17,7 @@ use livekit_common::{EncryptionType, ParticipantIdentity};
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    mpsc::{self, UnboundedReceiver, UnboundedSender, WeakUnboundedSender},
     watch,
 };
 
@@ -32,13 +32,15 @@ use super::{
         ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamClosed, StreamOpened,
         TrailerReceived,
     },
-    stream_reader::AnyStreamReader,
+    stream_reader::{AnyStreamReader, StreamCloser},
 };
 
 /// Max data stream payload size, defaults to 5gb
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
 struct Descriptor {
+    /// Tells this stream apart from a later stream that reuses its id; see [`StreamCloser`].
+    instance: u64,
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     /// Publishes `progress` updates to the reader's `progress()` stream.
@@ -193,6 +195,10 @@ pub struct Manager {
 struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
     output_tx: UnboundedSender<OutputEvent>,
+    /// The manager's own input, handed to each reader's [`StreamCloser`].
+    input_tx: WeakUnboundedSender<InputEvent>,
+    /// Instance number for the next stream that opens.
+    next_instance: u64,
 }
 
 impl Manager {
@@ -204,7 +210,12 @@ impl Manager {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
+            inner: ManagerInner {
+                open_streams: HashMap::new(),
+                output_tx,
+                input_tx: input_tx.downgrade(),
+                next_instance: 0,
+            },
             input_rx,
 
             max_payload_byte_length: max_payload_byte_length
@@ -238,6 +249,7 @@ impl Manager {
                 InputEvent::QueryOpenStreamCount(respond_to) => {
                     let _ = respond_to.send(self.inner.open_streams.len());
                 }
+                InputEvent::CloseStream(closer) => self.inner.close_from_reader(&closer),
                 InputEvent::Shutdown => break,
             }
         }
@@ -291,7 +303,10 @@ impl Manager {
             return;
         }
 
-        let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info);
+        let instance = self.inner.next_instance;
+        self.inner.next_instance += 1;
+        let closer = StreamCloser::new(self.inner.input_tx.clone(), id.clone(), instance);
+        let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info, closer);
         let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
                 .into(),
@@ -353,6 +368,7 @@ impl Manager {
         }
 
         let descriptor = Descriptor {
+            instance,
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             progress_tx,
@@ -604,6 +620,15 @@ impl ManagerInner {
         }
     }
 
+    /// Ends a stream on behalf of its reader (see [`StreamCloser`]), unless the stream ended
+    /// already or its id now belongs to a later stream.
+    fn close_from_reader(&mut self, closer: &StreamCloser) {
+        let id = &closer.stream_id;
+        if self.open_streams.get(id).is_some_and(|d| d.instance == closer.instance) {
+            self.close_stream_with_error(id, StreamError::AlreadyClosed);
+        }
+    }
+
     fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
@@ -615,7 +640,7 @@ impl ManagerInner {
         &mut self,
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
-        let Self { open_streams, output_tx } = self;
+        let Self { open_streams, output_tx, .. } = self;
         open_streams.retain(|id, descriptor| match checker(id, descriptor) {
             Ok(_) => true,
             Err(error) => {
@@ -794,6 +819,18 @@ mod tests {
                     _ => continue,
                 }
             }
+        }
+
+        /// Drains the outputs emitted so far and returns the ids of the streams they closed. Call it
+        /// after [`Self::open_stream_count`], which waits until the earlier events are handled.
+        fn drain_closed_ids(&mut self) -> Vec<String> {
+            let mut ids = Vec::new();
+            while let Ok(event) = self.output_rx.try_recv() {
+                if let OutputEvent::StreamClosed(closed) = event {
+                    ids.push(closed.stream_id.to_string());
+                }
+            }
+            ids
         }
 
         /// Awaits the next closed stream, returning its id, sender identity, and topic.
@@ -1786,6 +1823,81 @@ mod tests {
             // `read_all` consumes the reader while its progress stream is still held.
             assert_eq!(reader.read_all().await.unwrap().len(), 4);
             assert_progress_completes(&collect_progress(progress).await, 4);
+        }
+    }
+
+    mod closer {
+        use super::*;
+        use crate::incoming::TextStreamReader;
+
+        fn open_text_stream(h: &Harness, id: &str) {
+            h.send_packet(Packet::Header {
+                header: text_header(id, Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Chunk {
+                chunk: chunk(id, 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+        }
+
+        async fn next_text_reader(h: &mut Harness) -> TextStreamReader {
+            let (AnyStreamReader::Text(reader), _) = h.next_opened().await else {
+                panic!("expected a text reader");
+            };
+            reader
+        }
+
+        #[tokio::test]
+        async fn closer_ends_an_open_stream_once() {
+            let mut h = Harness::new();
+            open_text_stream(&h, "s1");
+            let reader = next_text_reader(&mut h).await;
+
+            let closer = reader.closer();
+            closer.close();
+            closer.close();
+            assert_eq!(h.open_stream_count().await, 0);
+            assert_eq!(h.drain_closed_ids(), vec!["s1"]);
+
+            // A read that is still going fails rather than ending as if complete.
+            assert!(matches!(reader.read_all().await, Err(StreamError::AlreadyClosed)));
+        }
+
+        #[tokio::test]
+        async fn closer_spares_a_later_stream_with_the_same_id() {
+            let mut h = Harness::new();
+            open_text_stream(&h, "s1");
+            let first = next_text_reader(&mut h).await;
+            let first_closer = first.closer();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(first.read_all().await.unwrap(), "helloworld");
+            assert_eq!(h.open_stream_count().await, 0);
+            assert_eq!(h.drain_closed_ids(), vec!["s1"]);
+
+            // A new stream reuses the id, and then the first stream's closer is used late.
+            open_text_stream(&h, "s1");
+            let second = next_text_reader(&mut h).await;
+            first_closer.close();
+            assert_eq!(h.open_stream_count().await, 1);
+            assert!(h.drain_closed_ids().is_empty());
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(second.read_all().await.unwrap(), "helloworld");
         }
     }
 

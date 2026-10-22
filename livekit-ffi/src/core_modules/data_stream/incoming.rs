@@ -145,6 +145,8 @@ pub struct ByteStreamReader {
     inner: Arc<Mutex<Option<ds_api::ByteStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
+    /// Ends the stream in the incoming manager, even while a read holds `inner`.
+    closer: ds_api::StreamCloser,
 }
 
 impl ByteStreamReader {
@@ -152,6 +154,7 @@ impl ByteStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
+            closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
         }
@@ -193,6 +196,7 @@ impl ByteStreamReader {
 
     /// Stops reading the stream. See [`TextStreamReader::close`].
     pub fn close(&self) {
+        self.closer.close();
         close_reader(&self.inner, &self.closed);
     }
 }
@@ -206,6 +210,8 @@ pub struct TextStreamReader {
     inner: Arc<Mutex<Option<ds_api::TextStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
+    /// Ends the stream in the incoming manager, even while a read holds `inner`.
+    closer: ds_api::StreamCloser,
 }
 
 impl TextStreamReader {
@@ -213,6 +219,7 @@ impl TextStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
+            closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
         }
@@ -257,16 +264,19 @@ impl TextStreamReader {
     /// Stops reading the stream and releases the data it buffered.
     ///
     /// A pending or later `next()` or `read_all()` fails with
-    /// [`DataStreamError::AlreadyClosed`], and `next_progress()` returns `None`. Other streams are
-    /// not affected. Returns at once, so it is safe to call from a cancellation handler.
+    /// [`DataStreamError::AlreadyClosed`], and `next_progress()` returns `None`. The incoming
+    /// manager drops the stream at once, even if the sender sends nothing more, and reports it
+    /// closed through `on_stream_closed` exactly once. Other streams, including a later one that
+    /// reuses this stream's id, are not affected. Returns at once, so it is safe to call from a
+    /// cancellation handler.
     pub fn close(&self) {
+        self.closer.close();
         close_reader(&self.inner, &self.closed);
     }
 }
 
 /// Reads the next chunk, unless the reader is closed first. A read that sees the close drops the
-/// core reader, which releases its buffered chunks; the manager then drops the stream at its next
-/// packet.
+/// core reader, which releases its buffered chunks.
 async fn next_chunk<R: ds_api::StreamReader + Unpin>(
     reader: &mut Option<R>,
     closed: &CancellationToken,
