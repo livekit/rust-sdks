@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The node flow is large enough to read badly inline — it owns more tasks than
+# any other language here — so it lives beside the files it drives. cargo-make
+# resolves `extend` relative to this file and runs everything from this
+# directory, so paths in the extended file are written as if they were here.
+extend = "support/node/Makefile.node.toml"
+
 [env]
 PACKAGES_DIR = "./packages"
 SUPPORT_DIR = "./support"
@@ -170,11 +176,18 @@ dependencies = [
 source = "${CARGO_MAKE_RUST_TARGET_OS}"
 mapping = { linux = "so", macos = "dylib", windows = "dll" }
 
+# Windows cdylibs carry no `lib` prefix.
+[tasks.locate-lib.env.LIB_PREFIX]
+source = "${CARGO_MAKE_RUST_TARGET_OS}"
+mapping = { linux = "lib", macos = "lib", windows = "" }
+
 [tasks.locate-lib]
 private = true
 script_runner = "@duckscript"
 script = """
-path = join_path ${TARGET_DIR} ${TARGET} release/ ${LIB_NAME}.${LIB_EXT}
+name = concat "${LIB_PREFIX}" "${CARGO_MAKE_CRATE_FS_NAME}" "." "${LIB_EXT}"
+set_env LIB_FILENAME "${name}"
+path = join_path ${TARGET_DIR} ${TARGET} release/ ${name}
 set_env LIB_PATH "${path}"
 """
 
