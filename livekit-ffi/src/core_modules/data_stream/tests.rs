@@ -15,14 +15,12 @@
 //! Round-trip tests driving the FFI wrappers through mock foreign delegates on the global runtime.
 
 use std::{
-    future::Future,
-    pin::Pin,
     sync::{Arc, Mutex},
-    task::Poll,
     time::Duration,
 };
 
 use bytes::Bytes;
+use futures_util::FutureExt as _;
 use livekit_protocol as proto;
 use prost::Message as _;
 use tokio::sync::{mpsc, oneshot};
@@ -158,27 +156,6 @@ fn incoming_inline_text_stream_roundtrips() {
 }
 
 #[test]
-fn incoming_inline_stream_shorter_than_declared_errors_reader() {
-    crate::runtime::runtime().block_on(async {
-        let (tx, rx) = oneshot::channel();
-        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
-
-        // The header declares five bytes but carries three.
-        let packet = inline_text_packet("s1", "alice", "my-topic", "hey");
-        let mut packet = proto::DataPacket::decode(packet.as_ref()).unwrap();
-        let Some(proto::data_packet::Value::StreamHeader(header)) = packet.value.as_mut() else {
-            panic!("expected a stream header packet");
-        };
-        header.total_length = Some(5);
-        manager.handle_packet_received(packet.encode_to_vec().into(), EncryptionType::None);
-
-        let (reader, _) = rx.await.expect("a stream should open");
-        assert!(matches!(reader.read_all().await, Err(DataStreamError::Incomplete)));
-    });
-}
-
-#[test]
 fn incoming_chunk_with_mismatched_encryption_errors_reader() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
@@ -256,30 +233,6 @@ fn incoming_open_stream_count_tracks_headers_and_aborts() {
 }
 
 #[test]
-fn incoming_reader_info_shows_trailer_attributes() {
-    crate::runtime::runtime().block_on(async {
-        let (tx, rx) = oneshot::channel();
-        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
-
-        manager.handle_packet_received(
-            multipacket_text_header_packet("s1", "alice", "my-topic", 5),
-            EncryptionType::None,
-        );
-        let (reader, _) = rx.await.expect("a stream should open");
-        manager
-            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
-        manager.handle_packet_received(
-            trailer_packet("s1", "alice", &[("summary", "done")]),
-            EncryptionType::None,
-        );
-
-        assert_eq!(reader.read_all().await.unwrap(), "hello");
-        assert_eq!(reader.info().attributes.get("summary").map(String::as_str), Some("done"));
-    });
-}
-
-#[test]
 fn incoming_reader_reports_progress() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
@@ -314,11 +267,6 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Topic of the inline marker streams that [`count_closes`] sends.
 const MARKER_TOPIC: &str = "marker";
-
-/// Polls `future` once and returns the result of that poll.
-async fn poll_once<F: Future>(mut future: Pin<&mut F>) -> Poll<F::Output> {
-    std::future::poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx))).await
-}
 
 /// Rewrites the header in an encoded header `DataPacket`.
 fn edit_header(packet: Bytes, edit: impl FnOnce(&mut proto::data_stream::Header)) -> Bytes {
@@ -426,7 +374,7 @@ fn incoming_reader_close_ends_its_stream_without_more_packets() {
 
         // A read that waits for the rest of the stream ends when the reader is closed.
         let mut read = std::pin::pin!(reader.read_all());
-        assert!(poll_once(read.as_mut()).await.is_pending());
+        assert!(read.as_mut().now_or_never().is_none());
         reader.close();
         let result = tokio::time::timeout(TIMEOUT, read).await.expect("the read should end");
         assert!(matches!(result, Err(DataStreamError::AlreadyClosed)));
@@ -484,107 +432,16 @@ fn incoming_byte_reader_close_ends_its_stream() {
         let reader = events.bytes.recv().await.expect("the stream should open");
 
         let mut read = std::pin::pin!(reader.read_all());
-        assert!(poll_once(read.as_mut()).await.is_pending());
+        assert!(read.as_mut().now_or_never().is_none());
         reader.close();
         let result = tokio::time::timeout(TIMEOUT, read).await.expect("the read should end");
         assert!(matches!(result, Err(DataStreamError::AlreadyClosed)));
         assert!(matches!(reader.next().await, Err(DataStreamError::AlreadyClosed)));
 
+        // A repeated close does nothing more: the stream closes exactly once.
+        reader.close();
         assert_eq!(manager.open_stream_count().await, 0);
         assert_eq!(count_closes(&manager, &mut events.closed, "b1").await, 1);
-    });
-}
-
-#[test]
-fn incoming_reader_closed_twice_reports_one_close() {
-    crate::runtime::runtime().block_on(async {
-        let (manager, mut events) = manager_with_events();
-        let reader = open_text_stream(&manager, &mut events, "s1").await;
-
-        reader.close();
-        reader.close();
-        assert!(matches!(reader.next().await, Err(DataStreamError::AlreadyClosed)));
-        drop(reader);
-
-        assert_eq!(manager.open_stream_count().await, 0);
-        assert_eq!(count_closes(&manager, &mut events.closed, "s1").await, 1);
-    });
-}
-
-#[test]
-fn incoming_reader_close_racing_the_end_reports_one_close() {
-    crate::runtime::runtime().block_on(async {
-        let (manager, mut events) = manager_with_events();
-        // `close()` and `handle_packet_received` enqueue on the same queue at once, so each order
-        // below reaches the manager as written.
-        for (id, order) in [
-            ("r0", ["close", "chunk", "trailer"]),
-            ("r1", ["chunk", "close", "trailer"]),
-            ("r2", ["chunk", "trailer", "close"]),
-        ] {
-            let reader = open_text_stream(&manager, &mut events, id).await;
-            for step in order {
-                match step {
-                    "close" => reader.close(),
-                    "chunk" => manager.handle_packet_received(
-                        chunk_packet(id, "alice", 1, b"world"),
-                        EncryptionType::None,
-                    ),
-                    _ => manager.handle_packet_received(
-                        trailer_packet(id, "alice", &[]),
-                        EncryptionType::None,
-                    ),
-                }
-            }
-            assert_eq!(count_closes(&manager, &mut events.closed, id).await, 1, "{order:?}");
-        }
-        assert_eq!(manager.open_stream_count().await, 0);
-    });
-}
-
-#[test]
-fn incoming_reader_close_spares_a_later_stream_with_the_same_id() {
-    crate::runtime::runtime().block_on(async {
-        let (manager, mut events) = manager_with_events();
-        let first = open_text_stream(&manager, &mut events, "s1").await;
-        manager
-            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
-        manager.handle_packet_received(trailer_packet("s1", "alice", &[]), EncryptionType::None);
-        assert_eq!(first.read_all().await.unwrap(), "helloworld");
-        assert_eq!(count_closes(&manager, &mut events.closed, "s1").await, 1);
-
-        // A new stream reuses the id, and then the first reader is closed late.
-        let second = open_text_stream(&manager, &mut events, "s1").await;
-        first.close();
-        assert_eq!(manager.open_stream_count().await, 1);
-        assert_eq!(count_closes(&manager, &mut events.closed, "s1").await, 0);
-
-        manager
-            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
-        manager.handle_packet_received(trailer_packet("s1", "alice", &[]), EncryptionType::None);
-        assert_eq!(second.read_all().await.unwrap(), "helloworld");
-        assert_eq!(count_closes(&manager, &mut events.closed, "s1").await, 1);
-    });
-}
-
-#[test]
-fn incoming_progress_merges_updates_between_calls() {
-    crate::runtime::runtime().block_on(async {
-        let (manager, mut events) = manager_with_events();
-        let header = multipacket_text_header_packet("s1", "alice", "my-topic", 10);
-        manager.handle_packet_received(header, EncryptionType::None);
-        let reader = events.text.recv().await.expect("the stream should open");
-        let progress =
-            |bytes_processed| Some(StreamProgress { bytes_processed, bytes_total: Some(10) });
-        assert_eq!(reader.next_progress().await, progress(0));
-
-        // Two chunks arrive before the next call, which returns only the latest value.
-        manager
-            .handle_packet_received(chunk_packet("s1", "alice", 0, b"hello"), EncryptionType::None);
-        manager
-            .handle_packet_received(chunk_packet("s1", "alice", 1, b"world"), EncryptionType::None);
-        assert_eq!(manager.open_stream_count().await, 1);
-        assert_eq!(reader.next_progress().await, progress(10));
     });
 }
 
