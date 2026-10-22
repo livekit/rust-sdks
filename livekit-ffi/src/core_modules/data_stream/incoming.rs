@@ -206,8 +206,7 @@ impl ByteStreamReader {
 
     /// Stops reading the stream. See [`TextStreamReader::close`].
     pub fn close(&self) {
-        self.closer.close();
-        close_reader(&self.inner, &self.closed);
+        close_reader(&self.inner, &self.closed, &self.closer);
     }
 }
 
@@ -290,8 +289,7 @@ impl TextStreamReader {
     /// reuses this stream's id, are not affected. Returns at once, so it is safe to call from a
     /// cancellation handler.
     pub fn close(&self) {
-        self.closer.close();
-        close_reader(&self.inner, &self.closed);
+        close_reader(&self.inner, &self.closed, &self.closer);
     }
 }
 
@@ -329,8 +327,17 @@ async fn next_progress(
     }
 }
 
-/// Wakes pending reads and drops the core reader.
-fn close_reader<R: Send + 'static>(reader: &Arc<Mutex<Option<R>>>, closed: &CancellationToken) {
+/// Ends the stream in the manager, wakes pending reads and drops the core reader. Does nothing
+/// once the reader is closed, so a repeated close queues no message and spawns no task.
+fn close_reader<R: Send + 'static>(
+    reader: &Arc<Mutex<Option<R>>>,
+    closed: &CancellationToken,
+    closer: &ds_api::StreamCloser,
+) {
+    if closed.is_cancelled() {
+        return;
+    }
+    closer.close();
     closed.cancel();
     // A read in progress holds the lock until it sees the cancellation. Drop the reader after it
     // in a task, because `close` must not block its caller.
