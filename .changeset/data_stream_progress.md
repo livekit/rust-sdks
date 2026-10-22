@@ -1,7 +1,7 @@
 ---
-livekit-data-stream: patch
+livekit-data-stream: minor
 livekit-ffi: minor
-livekit: patch
+livekit: minor
 livekit-capture: patch
 livekit-rpc: patch
 ---
