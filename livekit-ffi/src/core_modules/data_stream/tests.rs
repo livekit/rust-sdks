@@ -442,6 +442,43 @@ fn outgoing_writers_send_trailer_attributes() {
     });
 }
 
+/// Sends `text` on a text stream that declares `total_length`, and returns the stream's reader on
+/// the receiving side once every packet was delivered.
+async fn stream_text_with_total_length(text: &str, total_length: u64) -> Arc<TextStreamReader> {
+    let delegate = Arc::new(PacketCapture(Mutex::new(Vec::new())));
+    let outgoing = OutgoingDataStreamManager::new(delegate.clone(), Arc::new(AllV2Registry));
+    let options = StreamTextOptions {
+        topic: "chat".to_string(),
+        total_length: Some(total_length),
+        ..Default::default()
+    };
+    let writer = outgoing.stream_text(options).await.unwrap();
+    assert_eq!(writer.info().total_length, Some(total_length));
+    writer.write(text.to_string()).await.unwrap();
+    writer.close().await.unwrap();
+
+    let (tx, rx) = oneshot::channel();
+    let incoming =
+        IncomingDataStreamManager::new(Arc::new(TextCapture(Mutex::new(Some(tx)))), None);
+    for packet in delegate.0.lock().unwrap().drain(..) {
+        incoming.handle_packet_received(packet, EncryptionType::None);
+    }
+    rx.await.expect("a stream should open").0
+}
+
+#[test]
+fn outgoing_text_stream_declares_total_length() {
+    crate::runtime::runtime().block_on(async {
+        let reader = stream_text_with_total_length("hello", 5).await;
+        assert_eq!(reader.info().total_length, Some(5));
+        assert_eq!(reader.read_all().await.unwrap(), "hello");
+
+        // The receiver holds the stream to its declared length.
+        let reader = stream_text_with_total_length("hi", 5).await;
+        assert!(matches!(reader.read_all().await, Err(DataStreamError::Incomplete)));
+    });
+}
+
 /// A transport delegate that accepts a fixed number of calls, then fails every subsequent one.
 struct FailingTransport(std::sync::atomic::AtomicUsize);
 

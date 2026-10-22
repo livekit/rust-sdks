@@ -61,8 +61,13 @@ impl Manager {
         // Incremental streams are never inlined or compressed (the content is unknown up front).
         let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
-        let (header, text_header) =
-            build_text_header(&options, stream_id, None, None, CompressionType::None);
+        let (header, text_header) = build_text_header(
+            &options,
+            stream_id,
+            options.total_length,
+            None,
+            CompressionType::None,
+        );
         enforce_header_size(&header, &dests)?;
 
         let open_options = RawStreamOpenOptions {
@@ -1327,6 +1332,14 @@ mod tests {
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 3);
         assert_trailer(&p[2]);
+    }
+
+    #[tokio::test]
+    async fn stream_text_declares_total_length() {
+        let (m, sent) = setup();
+        let writer = m.stream_text(text_opts("chat", &[]).with_total_length(5)).await.unwrap();
+        assert_eq!(writer.info().total_length, Some(5));
+        assert_eq!(header(&sent.lock().unwrap()[0]).total_length, Some(5));
     }
 
     #[tokio::test]

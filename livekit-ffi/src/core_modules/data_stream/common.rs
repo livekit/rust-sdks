@@ -270,6 +270,10 @@ pub struct StreamTextOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
+    /// Total byte length of the text, when known ahead of time. Used by `stream_text`;
+    /// `send_text` sets it from the text it sends.
+    #[uniffi(default = None)]
+    pub total_length: Option<u64>,
 }
 
 impl From<StreamTextOptions> for ds_api::StreamTextOptions {
@@ -288,6 +292,7 @@ impl From<StreamTextOptions> for ds_api::StreamTextOptions {
             reply_to_stream_id: options.reply_to_stream_id,
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated,
+            total_length: options.total_length,
             compress: options.compress,
             sender_identity: options.sender_identity.map(Into::into),
         }
