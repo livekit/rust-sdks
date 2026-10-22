@@ -326,6 +326,17 @@ impl Manager {
                 }
                 content
             };
+            // Hold the payload to its declared length, as the trailer does for a chunked stream.
+            let length_error = match bytes_total {
+                Some(total) if (content.len() as u64) < total => Some(StreamError::Incomplete),
+                Some(total) if (content.len() as u64) > total => Some(StreamError::LengthExceeded),
+                _ => None,
+            };
+            if let Some(error) = length_error {
+                let _ = chunk_tx.send(Err(error));
+                self.inner.emit_stream_closed(&id, participant_identity, topic);
+                return;
+            }
             // The whole payload arrives at once, so publish a single completed progress update.
             let _ = progress_tx.send(StreamProgress {
                 chunk_index: 0,
@@ -1159,6 +1170,51 @@ mod tests {
             });
             let (reader, _) = h.next_opened().await;
             assert!(matches!(read_bytes(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        /// Reads an inline text stream that carries `text` and declares `total_length`.
+        async fn read_inline_text(
+            text: &str,
+            total_length: Option<u64>,
+            compression: CompressionType,
+        ) -> StreamResult<String> {
+            let mut h = Harness::new();
+            let content = match compression {
+                CompressionType::DeflateRaw => deflate_raw(text.as_bytes()).await,
+                _ => text.as_bytes().to_vec(),
+            };
+            h.send_packet(Packet::Header {
+                header: text_header("s1", total_length, HashMap::new(), Some(content), compression),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            read_text(reader).await
+        }
+
+        #[tokio::test]
+        async fn v2_inline_shorter_than_declared_is_incomplete() {
+            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
+                let result = read_inline_text("hello", Some(6), compression.clone()).await;
+                assert!(matches!(result, Err(StreamError::Incomplete)), "{compression:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn v2_inline_longer_than_declared_exceeds_length() {
+            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
+                let result = read_inline_text("hello", Some(4), compression.clone()).await;
+                assert!(matches!(result, Err(StreamError::LengthExceeded)), "{compression:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn v2_inline_matching_or_undeclared_length_is_accepted() {
+            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
+                for total_length in [Some(5), None] {
+                    let result = read_inline_text("hello", total_length, compression.clone()).await;
+                    assert_eq!(result.unwrap(), "hello", "{compression:?}, {total_length:?}");
+                }
+            }
         }
 
         #[tokio::test]

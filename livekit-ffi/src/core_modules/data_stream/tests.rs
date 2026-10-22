@@ -152,6 +152,27 @@ fn incoming_inline_text_stream_roundtrips() {
 }
 
 #[test]
+fn incoming_inline_stream_shorter_than_declared_errors_reader() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        // The header declares five bytes but carries three.
+        let packet = inline_text_packet("s1", "alice", "my-topic", "hey");
+        let mut packet = proto::DataPacket::decode(packet.as_ref()).unwrap();
+        let Some(proto::data_packet::Value::StreamHeader(header)) = packet.value.as_mut() else {
+            panic!("expected a stream header packet");
+        };
+        header.total_length = Some(5);
+        manager.handle_packet_received(packet.encode_to_vec().into(), EncryptionType::None);
+
+        let (reader, _) = rx.await.expect("a stream should open");
+        assert!(matches!(reader.read_all().await, Err(DataStreamError::Incomplete)));
+    });
+}
+
+#[test]
 fn incoming_chunk_with_mismatched_encryption_errors_reader() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
