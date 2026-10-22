@@ -62,9 +62,8 @@ pub enum VideoBufferType {
 
 /// One plane of a [`VideoBuffer`], as a range of the bytes the buffer owns.
 ///
-/// This is the shape difference the migration forces: the protobuf path describes a plane
-/// with a raw pointer, because the pixels stay in the handle map and only their address
-/// crosses. A uniffi buffer carries the pixels, so a plane is an offset into them.
+/// An offset from [`VideoBufferData::ptr`] rather than an address of its own, so a
+/// plane says nothing about where the buffer lives.
 #[derive(uniffi::Record)]
 pub struct VideoBufferComponent {
     pub offset: u64,
@@ -73,13 +72,6 @@ pub struct VideoBufferComponent {
 }
 
 /// Pixel data, and the layout describing it.
-///
-/// A record, so uniffi copies every frame's pixels across the boundary — ~3MB per 1080p
-/// I420 frame, where the protobuf path passes a pointer. Nothing is copied on the Rust
-/// side (`colorcvt` already allocated the box), so this is the boundary's own memcpy.
-///
-/// TODO: make this an object holding the bytes, with plane accessors, if a profile of a
-/// real video call says the copy matters.
 #[derive(uniffi::Record)]
 pub struct VideoBuffer {
     pub r#type: VideoBufferType,
@@ -89,7 +81,32 @@ pub struct VideoBuffer {
     pub stride: Option<u32>,
     /// Empty for packed formats.
     pub components: Vec<VideoBufferComponent>,
-    pub data: Vec<u8>,
+    pub data: Arc<VideoBufferData>,
+}
+
+/// The bytes of a [`VideoBuffer`], read in place rather than copied across.
+///
+/// An object because uniffi copies any bytes it hands over, and a 1080p I420 frame is
+/// ~3MB. The pixels stay where `colorcvt` put them, valid for as long as this object is
+/// alive and freed with it.
+#[derive(uniffi::Object)]
+pub struct VideoBufferData {
+    pub(crate) bytes: Box<[u8]>,
+}
+
+#[uniffi::export]
+impl VideoBufferData {
+    /// Address of the first byte.
+    ///
+    /// Valid only while this object is alive: a foreign view over it must not outlive it.
+    pub fn ptr(&self) -> u64 {
+        self.bytes.as_ptr() as u64
+    }
+
+    /// Length in bytes.
+    pub fn size(&self) -> u64 {
+        self.bytes.len() as u64
+    }
 }
 
 impl VideoBuffer {
@@ -111,7 +128,7 @@ impl VideoBuffer {
                     size: component.size,
                 })
                 .collect(),
-            data: data.into_vec(),
+            data: Arc::new(VideoBufferData { bytes: data }),
         }
     }
 }

@@ -31,22 +31,19 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::server::utils;
 use crate::server::video_stream::{
-    VideoBuffer, VideoBufferType, VideoFrame, VideoStream, VideoStreamError,
+    VideoBuffer, VideoBufferData, VideoBufferType, VideoFrame, VideoStream, VideoStreamError,
 };
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 crate::migrate_from_ffi!(VideoStream);
 
+impl server::FfiHandle for Arc<VideoBufferData> {}
+
 impl VideoBuffer {
-    /// Publishes the pixels to the FFI handle map, and describes them the way the
-    /// protobuf path expects: a pointer per plane, into bytes the returned handle keeps
-    /// alive. They are boxed first, so the pointers are only as stable as that handle.
-    fn into_ffi(
-        mut self,
-        server: &'static server::FfiServer,
-    ) -> (FfiHandleId, proto::VideoBufferInfo) {
-        let data = std::mem::take(&mut self.data).into_boxed_slice();
-        let base = data.as_ptr() as u64;
+    /// Publishes the bytes to the FFI handle map, and describes them the way the protobuf
+    /// path expects: a pointer per plane, into bytes the returned handle keeps alive.
+    fn into_ffi(self, server: &'static server::FfiServer) -> (FfiHandleId, proto::VideoBufferInfo) {
+        let base = self.data.ptr();
         let info = proto::VideoBufferInfo {
             r#type: proto::VideoBufferType::from(self.r#type) as i32,
             width: self.width,
@@ -64,7 +61,7 @@ impl VideoBuffer {
                 .collect(),
         };
         let handle_id = server.next_id();
-        server.store_handle(handle_id, data);
+        server.store_handle(handle_id, self.data);
         (handle_id, info)
     }
 }
@@ -371,7 +368,7 @@ mod migration_tests {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let frame = stream.next().await.expect("the stream ended");
-                if frame.buffer.data[0] != 0 {
+                if frame.buffer.data.bytes[0] != 0 {
                     return frame;
                 }
             }
@@ -415,14 +412,14 @@ mod migration_tests {
             // one NativeVideoStream, so the pull through `stream` takes the frame out from
             // under `same`.
             capture(&source, 0, 10);
-            assert_eq!(next_tagged(&stream).await.buffer.data[0], 10);
+            assert_eq!(next_tagged(&stream).await.buffer.data.bytes[0], 10);
             assert!(
                 tokio::time::timeout(Duration::from_millis(500), next_tagged(&same)).await.is_err(),
                 "the frame `stream` consumed is gone from `same`"
             );
             // `rival` is what the assertion above would look like if they were two objects:
             // a separate stream is its own sink, and still holds its own copy of that frame.
-            assert_eq!(next_tagged(&rival).await.buffer.data[0], 10);
+            assert_eq!(next_tagged(&rival).await.buffer.data.bytes[0], 10);
 
             // The FFI side lets go, and the uniffi side carries on alone.
             stream.take_ffi_handle_id().expect("the FFI side co-owned the stream");
@@ -431,7 +428,7 @@ mod migration_tests {
                 "a released handle is absent from the map until it is published again"
             );
             capture(&source, 200_000, 30);
-            assert_eq!(next_tagged(&stream).await.buffer.data[0], 30);
+            assert_eq!(next_tagged(&stream).await.buffer.data.bytes[0], 30);
 
             // Publishing again restores the handle, id and all, over the same live stream.
             assert_eq!(stream.clone().ffi_handle_id(), handle, "republishing keeps the id");
@@ -439,43 +436,44 @@ mod migration_tests {
                 VideoStream::from_ffi_handle_id(handle).expect("the republished handle resolves");
             assert!(Arc::ptr_eq(&republished, &stream));
             capture(&source, 300_000, 40);
-            assert_eq!(next_tagged(&republished).await.buffer.data[0], 40);
+            assert_eq!(next_tagged(&republished).await.buffer.data.bytes[0], 40);
 
             FFI_SERVER.drop_handle(handle);
             FFI_SERVER.drop_handle(track_handle);
         });
     }
 
-    /// A [`VideoBuffer`] has no handle of its own — it is a record, so the pixels are what
-    /// crosses rather than a reference to an object both sides share. What the FFI side
-    /// gets is a handle owning those very bytes, with the info addressing them in place.
+    /// The FFI side gets a handle owning the very bytes the uniffi side would have read,
+    /// with the info addressing them in place: nothing is copied either way.
     #[serial_test::parallel]
     #[test]
     fn a_buffer_publishes_the_very_bytes_it_carried() {
+        let data = Arc::new(VideoBufferData { bytes: (0u8..48).collect() });
         let buffer = VideoBuffer {
             r#type: VideoBufferType::I420,
             width: 8,
             height: 4,
             stride: None,
             components: vec![VideoBufferComponent { offset: 32, stride: 4, size: 8 }],
-            data: (0u8..48).collect(),
+            data: data.clone(),
         };
-        let carried = buffer.data.clone();
 
         let (handle, info) = buffer.into_ffi(&FFI_SERVER);
 
-        let owned =
-            FFI_SERVER.retrieve_handle::<Box<[u8]>>(handle).expect("the bytes are published");
-        assert_eq!(&**owned, &carried[..], "the handle owns the bytes the record carried");
-        assert_eq!(info.data_ptr, owned.as_ptr() as u64, "the info addresses them in place");
+        let owned = FFI_SERVER
+            .retrieve_handle::<Arc<VideoBufferData>>(handle)
+            .expect("the bytes are published");
+        assert!(Arc::ptr_eq(&owned, &data), "the handle owns the bytes themselves");
+        assert_eq!(info.data_ptr, data.ptr(), "the info addresses them in place");
 
         // ...and the foreign side reads a plane back through the pointer it was handed.
         let plane =
             unsafe { std::slice::from_raw_parts(info.components[0].data_ptr as *const u8, 8) };
-        assert_eq!(plane, &carried[32..40]);
+        assert_eq!(plane, &data.bytes[32..40]);
         drop(owned);
 
         FFI_SERVER.drop_handle(handle);
+        assert_eq!(Arc::strong_count(&data), 1, "dropping the handle releases the bytes");
     }
 
     /// An 8x4 I420 buffer: 32 bytes of luma, then 4x2 U and V planes of 8 bytes each.
@@ -501,6 +499,6 @@ mod migration_tests {
 
         let offsets: Vec<u64> = buffer.components.iter().map(|c| c.offset).collect();
         assert_eq!(offsets, vec![0, 32, 40]);
-        assert_eq!(&buffer.data[40..48], &[40, 41, 42, 43, 44, 45, 46, 47]);
+        assert_eq!(&buffer.data.bytes[40..48], &[40, 41, 42, 43, 44, 45, 46, 47]);
     }
 }
