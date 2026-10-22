@@ -172,7 +172,20 @@ message CaptureFinished {
   required CaptureExit exit = 2;
 }
 
-message CaptureError { required string error = 1; }
+// Why a capture ended with an error.
+enum CaptureErrorKind {
+  // The capture source failed or violated its contract.
+  CAPTURE_ERROR_KIND_SOURCE = 0;
+  // The RTC video source rejected a frame.
+  CAPTURE_ERROR_KIND_RTC = 1;
+  // The pump thread panicked.
+  CAPTURE_ERROR_KIND_PANICKED = 2;
+}
+
+message CaptureError {
+  required string error = 1;
+  required CaptureErrorKind kind = 2;
+}
 
 // Delivered exactly once when a started capture ends, regardless of why
 // (stop request, end of stream, or failure).
