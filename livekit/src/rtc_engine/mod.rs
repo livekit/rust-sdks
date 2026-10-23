@@ -1077,6 +1077,9 @@ impl EngineInner {
             // this wait so the next attempt fires immediately; a close signals
             // close_notifier to break out of the loop early (the next iteration's
             // `is_closed` check then returns) instead of waiting out the backoff.
+            if i == RECONNECT_ATTEMPTS {
+                break; // no attempt left to wait for
+            }
             let backoff = reconnect_strategy::delay(i);
             tokio::select! {
                 _ = tokio::time::sleep(backoff) => {}
