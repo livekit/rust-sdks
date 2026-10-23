@@ -415,13 +415,16 @@ never. Only plain records at or above `log_severity` (default `warn`) leave the 
 are dropped in `emit`.
 
 The core's own warnings and errors (Rust `log` records from `livekit*` targets, never
-`livekit_telemetry*`) reach the pipeline by themselves through `livekit-uniffi`'s log forwarder:
-it copies them as `ffi` records — every JWT-shaped substring (`eyJ…` `.` … `.` …) masked as
-`<jwt>`, so a token quoted in an error never leaves the device — and forwards the console entry
-unchanged. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
+`livekit_telemetry*`) reach the pipeline by themselves through `livekit-ffi`'s log forwarder:
+it copies them as `ffi` records, with credentials masked so a token quoted in an error never
+leaves the device: every compact JWT (three base64url segments whose header and payload decode
+to JSON objects, wherever it sits) becomes `<jwt>`, and the value after `Bearer` or after a
+`token` key (`token=`, `access_token=`, `"token": …`) becomes `<redacted>`. The console entry is
+forwarded unchanged. Platform lines handed to `telemetry_log` or `TelemetryScope.log` are masked
+the same way. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
 default `OSLogger` with `ffi: true` does), whatever level it passes: that level filters only what
-is forwarded to the platform's console (the global `log` level is kept at `warn` or looser) — Rust allows one logger per process, and without the
-forwarder the core's records go nowhere. Platforms must not feed forwarded Rust log entries
+is forwarded to the platform's console (the global `log` level is kept at `warn` or looser) —
+Rust allows one logger per process, and without the forwarder the core's records go nowhere. Platforms must not feed forwarded Rust log entries
 (what `log_forward_receive` returns) to `telemetry_log` / `log(record)`: the core already copied
 them, so they would be counted twice. `telemetry_log` is for the platform's own and WebRTC's
 lines.

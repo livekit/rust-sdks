@@ -166,8 +166,10 @@ pub fn install(
     previous.map(|p| p.telemetry)
 }
 
-/// Stop the instruments and remove the process pipeline; the caller shuts it down.
-fn uninstall() -> Option<Telemetry> {
+/// Stop the instruments and remove the process pipeline; the caller shuts it down. With
+/// [`install`], the synchronous half of [`shutdown`]: a caller that orders installs and uninstalls
+/// itself drains the pipeline it gets back when it is ready to.
+pub fn uninstall() -> Option<Telemetry> {
     let _lifecycle = lifecycle();
     stop_installed_instruments();
     INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take().map(|i| i.telemetry)

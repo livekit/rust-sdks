@@ -3906,6 +3906,7 @@ dependencies = [
  "device-info",
  "downcast-rs",
  "env_logger 0.11.11",
+ "flate2",
  "from_variants",
  "futures-util",
  "imgproc",
@@ -3919,6 +3920,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-telemetry",
  "livekit-token",
  "log",
  "once_cell",
@@ -7254,6 +7256,16 @@ name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
+
+[[package]]
+name = "telemetry_ping"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.11.11",
+ "livekit-net",
+ "livekit-telemetry",
+ "tokio",
+]
 
 [[package]]
 name = "tempfile"
