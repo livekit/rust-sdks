@@ -140,4 +140,26 @@ mod tests {
             assert_eq!(VideoEncoderBackend::from(expected), backend);
         }
     }
+
+    /// A sender without a track (here an audio transceiver added by media type) reports
+    /// `None` instead of crashing.
+    #[tokio::test]
+    async fn sender_without_track_has_no_track() {
+        use crate::{
+            peer_connection_factory::{PeerConnectionFactory, RtcConfiguration},
+            rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
+            MediaType,
+        };
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::SendRecv,
+            stream_ids: vec![],
+            send_encodings: vec![],
+        };
+        let transceiver = pc.add_transceiver_for_media(MediaType::Audio, init).unwrap();
+        assert!(transceiver.sender().track().is_none());
+        pc.close();
+    }
 }
