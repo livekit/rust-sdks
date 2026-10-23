@@ -74,9 +74,6 @@ pub struct SignalOptions {
     /// Timeout for each individual connection attempt. `None` uses the crate default.
     #[uniffi(default = None)]
     pub connect_timeout: Option<Duration>,
-    /// Advertise only legacy data stream support.
-    #[uniffi(default = false)]
-    pub use_legacy_data_streams: bool,
 }
 
 impl From<SignalOptions> for signaling::SignalOptions {
@@ -88,7 +85,6 @@ impl From<SignalOptions> for signaling::SignalOptions {
         out.adaptive_stream = options.adaptive_stream;
         out.sdk_options = options.sdk_options.into();
         out.single_peer_connection = options.single_peer_connection;
-        out.use_legacy_data_streams = options.use_legacy_data_streams;
         if let Some(connect_timeout) = options.connect_timeout {
             out.connect_timeout = connect_timeout;
         }
@@ -658,7 +654,6 @@ mod tests {
             },
             single_peer_connection: false,
             connect_timeout: None,
-            use_legacy_data_streams: false,
         }
     }
 
