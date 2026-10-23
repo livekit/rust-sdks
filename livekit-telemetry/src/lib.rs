@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 /// Event data model: what SDKs push in.
 mod event;
 
@@ -29,12 +31,13 @@ mod store;
 )]
 mod stats;
 
-/// Spans: one attempt at an operation, with explicit handles across the FFI.
+/// Session identity: the trace id, attributes and route of one Room.
 #[expect(
     dead_code,
     reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
 )]
 mod scope;
+/// Spans: one attempt at an operation, with explicit handles across the FFI.
 #[expect(
     dead_code,
     reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
@@ -51,9 +54,30 @@ mod otlp;
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
 
+/// Transport seam: how encoded batches leave the device.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+    )
+)]
+mod transport;
+
+/// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
+mod destination;
+
+pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use event::*;
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+#[cfg(feature = "net")]
+pub use transport::NetTransport;
+pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
@@ -61,10 +85,16 @@ uniffi::setup_scaffolding!();
 /// Warnings logged by the tests, so a test can assert the ones it caused.
 #[cfg(test)]
 pub(crate) mod test_log {
+    use std::cell::RefCell;
     use std::sync::{Mutex, Once};
     use std::thread::{self, ThreadId};
 
     static LINES: Mutex<Vec<(ThreadId, String)>> = Mutex::new(Vec::new());
+
+    thread_local! {
+        /// Asked at every line this thread logs; a `true` marks the line `held: `.
+        static HELD: RefCell<Option<Box<dyn Fn() -> bool>>> = const { RefCell::new(None) };
+    }
 
     struct Capture;
 
@@ -75,7 +105,9 @@ pub(crate) mod test_log {
 
         fn log(&self, record: &log::Record) {
             if self.enabled(record.metadata()) {
-                let line = (thread::current().id(), record.args().to_string());
+                let held = HELD.with(|held| held.borrow().as_ref().is_some_and(|held| held()));
+                let line = format!("{}{}", if held { "held: " } else { "" }, record.args());
+                let line = (thread::current().id(), line);
                 LINES.lock().unwrap_or_else(|e| e.into_inner()).push(line);
             }
         }
@@ -90,6 +122,12 @@ pub(crate) mod test_log {
             log::set_logger(&Capture).expect("the only logger in tests");
             log::set_max_level(log::LevelFilter::Warn);
         });
+    }
+
+    /// Mark every line this thread logs while `held` returns `true` (a lock taken, say) with a
+    /// `held: ` prefix: the host logger would have run at that moment.
+    pub fn mark_while(held: impl Fn() -> bool + 'static) {
+        HELD.with(|slot| *slot.borrow_mut() = Some(Box::new(held)));
     }
 
     /// The warnings logged on this thread since the last call: this test's own, since every
