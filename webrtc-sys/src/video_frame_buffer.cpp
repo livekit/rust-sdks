@@ -16,6 +16,8 @@
 
 #include "livekit/video_frame_buffer.h"
 
+#include "livekit/encoded_video_frame_buffer.h"
+
 #include "api/make_ref_counted.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
 
@@ -27,6 +29,36 @@ VideoFrameBuffer::VideoFrameBuffer(
 
 VideoFrameBufferType VideoFrameBuffer::buffer_type() const {
   return static_cast<VideoFrameBufferType>(buffer_->type());
+}
+
+EncodedBufferInfo VideoFrameBuffer::encoded_info() const {
+  EncodedBufferInfo info{};
+  auto* encoded = livekit::EncodedVideoFrameBuffer::FromNative(buffer_.get());
+  if (!encoded) {
+    return info;
+  }
+  info.is_encoded = true;
+  info.codec = static_cast<int32_t>(encoded->codec());
+  info.keyframe = encoded->frame_type() == livekit::EncodedFrameType::kKey;
+  info.stream_id = reinterpret_cast<size_t>(encoded->stream_id());
+  info.sequence_number = encoded->sequence_number();
+  return info;
+}
+
+rust::Slice<const uint8_t> VideoFrameBuffer::encoded_payload() const {
+  auto* encoded = livekit::EncodedVideoFrameBuffer::FromNative(buffer_.get());
+  if (!encoded) {
+    return rust::Slice<const uint8_t>();
+  }
+  return rust::Slice<const uint8_t>(encoded->payload_data(),
+                                    encoded->payload_size());
+}
+
+void VideoFrameBuffer::request_encoded_keyframe() const {
+  if (auto* encoded =
+          livekit::EncodedVideoFrameBuffer::FromNative(buffer_.get())) {
+    encoded->request_keyframe();
+  }
 }
 
 unsigned int VideoFrameBuffer::width() const {

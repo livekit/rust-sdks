@@ -59,6 +59,12 @@ pub struct RtcConfiguration {
     /// `enable_sctp_snap` RTCConfiguration field, so it must be set the same at
     /// PeerConnection creation and every set_configuration.
     pub enable_sctp_snap: bool,
+    /// libwebrtc's pre-render smoothing: a queue that holds decoded frames until
+    /// their render time and drops stale or superseded ones. `None` keeps the
+    /// default: on, except for factories created with
+    /// [`VideoDecoderBackend::PassThrough`], where dropping a frame would drop an
+    /// access unit the application needs. Applied at creation only.
+    pub prerenderer_smoothing: Option<bool>,
 }
 
 impl Default for RtcConfiguration {
@@ -68,8 +74,28 @@ impl Default for RtcConfiguration {
             continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
             ice_transport_type: IceTransportsType::All,
             enable_sctp_snap: false,
+            prerenderer_smoothing: None,
         }
     }
+}
+
+/// How a [`PeerConnectionFactory`] handles received video.
+///
+/// ```
+/// use libwebrtc::peer_connection_factory::{PeerConnectionFactory, VideoDecoderBackend};
+///
+/// assert_eq!(VideoDecoderBackend::default(), VideoDecoderBackend::Auto);
+/// let _factory = PeerConnectionFactory::with_video_decoder_backend(VideoDecoderBackend::PassThrough);
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VideoDecoderBackend {
+    /// Decode received video with the SDK's decoders.
+    #[default]
+    Auto,
+    /// Do not decode: deliver each received access unit unchanged, in an encoded
+    /// frame buffer, for the application to decode.
+    PassThrough,
 }
 
 #[derive(Clone, Default)]
@@ -98,6 +124,13 @@ impl PeerConnectionFactory {
         Self {
             handle: imp_pcf::PeerConnectionFactory::with_options(zero_playout_delay, enable_warp),
         }
+    }
+
+    /// Creates a native peer connection factory whose received video is handled
+    /// by `backend`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_video_decoder_backend(backend: VideoDecoderBackend) -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::with_video_decoder_backend(backend) }
     }
 
     pub fn create_peer_connection(

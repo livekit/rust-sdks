@@ -43,7 +43,7 @@ EncodedVideoFrameBuffer::EncodedVideoFrameBuffer(
     int height,
     EncodedVideoCodec codec,
     EncodedFrameType frame_type,
-    webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
+    webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> payload,
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag,
     std::shared_ptr<EncodedRateControlState> rate_control_state)
     : width_(width),

@@ -52,6 +52,7 @@ pub mod ffi {
         include!("livekit/audio_track.h");
 
         type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
+        type VideoDecoderBackend = crate::webrtc::ffi::VideoDecoderBackend;
         type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;
         type SignalingState = crate::peer_connection::ffi::SignalingState;
         type IceConnectionState = crate::peer_connection::ffi::IceConnectionState;
@@ -89,6 +90,9 @@ pub mod ffi {
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
         fn create_peer_connection_factory_with_zero_playout_delay(
+        ) -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_video_decoder_backend(
+            backend: VideoDecoderBackend,
         ) -> SharedPtr<PeerConnectionFactory>;
         fn create_peer_connection_factory_with_options(
             zero_playout_delay: bool,

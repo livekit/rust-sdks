@@ -62,6 +62,10 @@ class VideoFrameBuffer {
 
   VideoFrameBufferType buffer_type() const;
 
+  EncodedBufferInfo encoded_info() const;
+  rust::Slice<const uint8_t> encoded_payload() const;
+  void request_encoded_keyframe() const;
+
   unsigned int width() const;
   unsigned int height() const;
 
