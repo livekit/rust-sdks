@@ -12,6 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use livekit_protocol::semconv::{
+    self, event, lk_device_app_state as app_state, lk_device_audio_interruption as interruption,
+    lk_device_audio_route_reason as route_reason, lk_device_capture_device as capture_device,
+    lk_device_capture_reason as capture_reason, lk_device_memory_pressure as memory,
+    lk_device_thermal_state as thermal, upstream, upstream::network_connection_type as network,
+};
+
 use crate::TelemetryEvent;
 
 /// Thermal pressure as the OS reports it (`ProcessInfo.thermalState`, `PowerManager` thermal
@@ -201,9 +208,9 @@ impl DeviceState {
             && previous.is_none_or(|p| p.thermal != self.thermal)
         {
             events.push(
-                TelemetryEvent::new("lk.device.thermal.changed")
+                TelemetryEvent::new(event::LK_DEVICE_THERMAL_CHANGED)
                     .with_body(format!("thermal: {}", self.thermal.as_str()))
-                    .with_attribute("lk.device.thermal.state", self.thermal.as_str()),
+                    .with_attribute(semconv::LK_DEVICE_THERMAL_STATE, self.thermal.as_str()),
             );
         }
         if let Some(low_power) = self
@@ -211,23 +218,23 @@ impl DeviceState {
             .filter(|_| previous.is_none_or(|p| p.low_power_mode != self.low_power_mode))
         {
             events.push(
-                TelemetryEvent::new("lk.device.low_power.changed")
+                TelemetryEvent::new(event::LK_DEVICE_LOW_POWER_CHANGED)
                     .with_body(format!("low power mode: {}", if low_power { "on" } else { "off" }))
-                    .with_attribute("lk.device.low_power.enabled", low_power),
+                    .with_attribute(semconv::LK_DEVICE_LOW_POWER_ENABLED, low_power),
             );
         }
         if previous.is_none_or(|p| p.app_state != self.app_state) {
             events.push(
-                TelemetryEvent::new("lk.device.app_state.changed")
+                TelemetryEvent::new(event::LK_DEVICE_APP_STATE_CHANGED)
                     .with_body(format!("app: {}", self.app_state.as_str()))
-                    .with_attribute("lk.device.app_state", self.app_state.as_str()),
+                    .with_attribute(semconv::LK_DEVICE_APP_STATE, self.app_state.as_str()),
             );
         }
         if previous.is_none_or(|p| p.memory != self.memory) {
             events.push(
-                TelemetryEvent::new("lk.device.memory.changed")
+                TelemetryEvent::new(event::LK_DEVICE_MEMORY_CHANGED)
                     .with_body(format!("memory pressure: {}", self.memory.as_str()))
-                    .with_attribute("lk.device.memory.pressure", self.memory.as_str()),
+                    .with_attribute(semconv::LK_DEVICE_MEMORY_PRESSURE, self.memory.as_str()),
             );
         }
         if previous.is_none_or(|p| {
@@ -235,16 +242,19 @@ impl DeviceState {
                 != (self.network, self.network_expensive, self.network_constrained)
         }) {
             events.push(
-                TelemetryEvent::new("lk.device.network.changed")
+                TelemetryEvent::new(event::LK_DEVICE_NETWORK_CHANGED)
                     .with_body(format!(
                         "network: {}{}{}",
                         self.network.as_str(),
                         if self.network_expensive { ", expensive" } else { "" },
                         if self.network_constrained { ", constrained" } else { "" }
                     ))
-                    .with_attribute("network.connection.type", self.network.as_str())
-                    .with_attribute("lk.device.network.expensive", self.network_expensive)
-                    .with_attribute("lk.device.network.constrained", self.network_constrained),
+                    .with_attribute(upstream::NETWORK_CONNECTION_TYPE, self.network.as_str())
+                    .with_attribute(semconv::LK_DEVICE_NETWORK_EXPENSIVE, self.network_expensive)
+                    .with_attribute(
+                        semconv::LK_DEVICE_NETWORK_CONSTRAINED,
+                        self.network_constrained,
+                    ),
             );
         }
         // Per-percent updates are noise; report charging flips and bucket crossings.
@@ -256,13 +266,13 @@ impl DeviceState {
             })
         }) {
             events.push(
-                TelemetryEvent::new("lk.device.battery.changed")
+                TelemetryEvent::new(event::LK_DEVICE_BATTERY_CHANGED)
                     .with_body(format!(
                         "battery: {level}%{}",
                         if self.battery_charging { ", charging" } else { "" }
                     ))
-                    .with_attribute("lk.device.battery.level", i64::from(level))
-                    .with_attribute("lk.device.battery.charging", self.battery_charging),
+                    .with_attribute(semconv::LK_DEVICE_BATTERY_LEVEL, i64::from(level))
+                    .with_attribute(semconv::LK_DEVICE_BATTERY_CHARGING, self.battery_charging),
             );
         }
         events
@@ -272,11 +282,12 @@ impl DeviceState {
 impl ThermalState {
     fn as_str(self) -> &'static str {
         match self {
+            // Never sent: an unknown reading makes no change event.
             ThermalState::Unknown => "unknown",
-            ThermalState::Nominal => "nominal",
-            ThermalState::Fair => "fair",
-            ThermalState::Serious => "serious",
-            ThermalState::Critical => "critical",
+            ThermalState::Nominal => thermal::NOMINAL,
+            ThermalState::Fair => thermal::FAIR,
+            ThermalState::Serious => thermal::SERIOUS,
+            ThermalState::Critical => thermal::CRITICAL,
         }
     }
 }
@@ -284,8 +295,8 @@ impl ThermalState {
 impl AppState {
     fn as_str(self) -> &'static str {
         match self {
-            AppState::Foreground => "foreground",
-            AppState::Background => "background",
+            AppState::Foreground => app_state::FOREGROUND,
+            AppState::Background => app_state::BACKGROUND,
         }
     }
 }
@@ -293,9 +304,9 @@ impl AppState {
 impl MemoryPressure {
     fn as_str(self) -> &'static str {
         match self {
-            MemoryPressure::Normal => "normal",
-            MemoryPressure::Warning => "warning",
-            MemoryPressure::Critical => "critical",
+            MemoryPressure::Normal => memory::NORMAL,
+            MemoryPressure::Warning => memory::WARNING,
+            MemoryPressure::Critical => memory::CRITICAL,
         }
     }
 }
@@ -303,14 +314,15 @@ impl MemoryPressure {
 impl NetworkType {
     fn as_str(self) -> &'static str {
         match self {
-            NetworkType::Unknown => "unknown",
-            NetworkType::Wifi => "wifi",
-            NetworkType::Cell => "cell",
-            NetworkType::Wired => "wired",
+            NetworkType::Unknown => network::UNKNOWN,
+            NetworkType::Wifi => network::WIFI,
+            NetworkType::Cell => network::CELL,
+            NetworkType::Wired => network::WIRED,
+            // Not OTel members; the registry notes that clients send them.
             NetworkType::Vpn => "vpn",
             NetworkType::Bluetooth => "bluetooth",
             NetworkType::Other => "other",
-            NetworkType::Unavailable => "unavailable",
+            NetworkType::Unavailable => network::UNAVAILABLE,
         }
     }
 }
@@ -418,9 +430,46 @@ pub enum DeviceEvent {
     },
 }
 
-/// A variant's wire value: its `Debug` name in snake case (`OldDeviceUnavailable` →
-/// `old_device_unavailable`). Variant names are therefore the wire contract: renaming a variant
-/// changes what ships, and the tests pin every value to `SPEC.md`.
+impl AudioRouteReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NewDevice => route_reason::NEW_DEVICE,
+            Self::OldDeviceUnavailable => route_reason::OLD_DEVICE_UNAVAILABLE,
+            Self::CategoryChange => route_reason::CATEGORY_CHANGE,
+            Self::Override => route_reason::OVERRIDE,
+            Self::WakeFromSleep => route_reason::WAKE_FROM_SLEEP,
+            Self::NoSuitableRoute => route_reason::NO_SUITABLE_ROUTE,
+            Self::RouteConfigurationChange => route_reason::ROUTE_CONFIGURATION_CHANGE,
+            Self::Unknown => route_reason::UNKNOWN,
+        }
+    }
+}
+
+impl CaptureDevice {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Camera => capture_device::CAMERA,
+            Self::Microphone => capture_device::MICROPHONE,
+            Self::ScreenShare => capture_device::SCREEN_SHARE,
+        }
+    }
+}
+
+impl CaptureFailure {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => capture_reason::PERMISSION_DENIED,
+            Self::NotFound => capture_reason::NOT_FOUND,
+            Self::InUse => capture_reason::IN_USE,
+            Self::Disconnected => capture_reason::DISCONNECTED,
+            Self::Other => capture_reason::OTHER,
+        }
+    }
+}
+
+/// A variant's `Debug` name in snake case (`WiredHeadset` → `wired_headset`): the wire value of
+/// an [`AudioOutput`], which the registry does not enumerate, and the display bodies. Renaming
+/// such a variant changes what ships; the tests pin every value to `SPEC.md`.
 pub(crate) fn snake_case(debug: impl std::fmt::Debug) -> String {
     let mut out = String::new();
     for (i, c) in format!("{debug:?}").chars().enumerate() {
@@ -438,25 +487,25 @@ impl From<DeviceEvent> for TelemetryEvent {
         match event {
             DeviceEvent::AudioRouteChanged { outputs, reason } => {
                 let outputs = outputs.into_iter().map(snake_case).collect::<Vec<_>>().join(",");
-                let reason = snake_case(reason);
-                TelemetryEvent::new("lk.device.audio_route.changed")
+                let reason = reason.as_str();
+                TelemetryEvent::new(event::LK_DEVICE_AUDIO_ROUTE_CHANGED)
                     .with_body(format!("audio route: {outputs} ({reason})"))
-                    .with_attribute("lk.device.audio_route.outputs", outputs)
-                    .with_attribute("lk.device.audio_route.reason", reason)
+                    .with_attribute(semconv::LK_DEVICE_AUDIO_ROUTE_OUTPUTS, outputs)
+                    .with_attribute(semconv::LK_DEVICE_AUDIO_ROUTE_REASON, reason)
             }
             DeviceEvent::AudioInterruption { began } => {
-                let phase = if began { "began" } else { "ended" };
-                TelemetryEvent::new("lk.device.audio.interruption")
+                let phase = if began { interruption::BEGAN } else { interruption::ENDED };
+                TelemetryEvent::new(event::LK_DEVICE_AUDIO_INTERRUPTION)
                     .with_body(format!("audio interruption {phase}"))
-                    .with_attribute("lk.device.audio.interruption", phase)
+                    .with_attribute(semconv::LK_DEVICE_AUDIO_INTERRUPTION, phase)
             }
             DeviceEvent::CaptureFailed { device, reason } => {
-                let (device, reason) = (snake_case(device), snake_case(reason));
-                TelemetryEvent::new("lk.device.capture.failed")
+                let (device, reason) = (device.as_str(), reason.as_str());
+                TelemetryEvent::new(event::LK_DEVICE_CAPTURE_FAILED)
                     .with_severity(crate::Severity::Warn)
                     .with_body(format!("capture failed: {device} ({reason})"))
-                    .with_attribute("lk.device.capture.device", device)
-                    .with_attribute("lk.device.capture.reason", reason)
+                    .with_attribute(semconv::LK_DEVICE_CAPTURE_DEVICE, device)
+                    .with_attribute(semconv::LK_DEVICE_CAPTURE_REASON, reason)
             }
         }
     }
@@ -598,7 +647,7 @@ mod tests {
             R::Unknown,
         ];
         assert_eq!(
-            names(reasons.into_iter().map(snake_case).collect()),
+            names(reasons.into_iter().map(|r| r.as_str().to_owned()).collect()),
             "new_device | old_device_unavailable | category_change | override | wake_from_sleep \
              | no_suitable_route | route_configuration_change | unknown"
         );
@@ -622,13 +671,13 @@ mod tests {
         let devices =
             [CaptureDevice::Camera, CaptureDevice::Microphone, CaptureDevice::ScreenShare];
         assert_eq!(
-            names(devices.into_iter().map(snake_case).collect()),
+            names(devices.into_iter().map(|d| d.as_str().to_owned()).collect()),
             "camera | microphone | screen_share"
         );
         use CaptureFailure as F;
         let failures = [F::PermissionDenied, F::NotFound, F::InUse, F::Disconnected, F::Other];
         assert_eq!(
-            names(failures.into_iter().map(snake_case).collect()),
+            names(failures.into_iter().map(|f| f.as_str().to_owned()).collect()),
             "permission_denied | not_found | in_use | disconnected | other"
         );
     }

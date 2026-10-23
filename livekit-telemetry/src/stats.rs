@@ -14,6 +14,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use livekit_protocol::semconv::{self, event};
+
 use crate::TelemetryEvent;
 
 /// Declares the pipeline's health counters once: the shared atomics ([`Counters`]), their
@@ -143,7 +145,7 @@ impl Snapshot {
     /// persisted on its own, never an extra request — plus one at shutdown, so every session
     /// leaves a summary the fleet's success rates can be computed from.
     pub fn report(&self, cached_batches: u64) -> TelemetryEvent {
-        let mut event = TelemetryEvent::new("lk.telemetry.report")
+        let mut event = TelemetryEvent::new(event::LK_TELEMETRY_REPORT)
             .with_body(format!(
                 "telemetry: {} batches sent ({} B), {} failed, {} dropped, {} cached",
                 self.uploads_sent,
@@ -152,25 +154,25 @@ impl Snapshot {
                 self.problem_drops(),
                 cached_batches
             ))
-            .with_attribute("lk.telemetry.uploads.sent", int(self.uploads_sent))
-            .with_attribute("lk.telemetry.uploads.bytes", int(self.upload_bytes))
-            .with_attribute("lk.telemetry.uploads.failed", int(self.upload_failures))
-            .with_attribute("lk.telemetry.cache.batches", int(cached_batches));
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_SENT, int(self.uploads_sent))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_BYTES, int(self.upload_bytes))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_FAILED, int(self.upload_failures))
+            .with_attribute(semconv::LK_TELEMETRY_CACHE_BATCHES, int(cached_batches));
         for (key, value) in [
-            ("lk.telemetry.uploads.timeouts", self.upload_timeouts),
-            ("lk.telemetry.uploads.unauthorized", self.auth_denied),
-            ("lk.telemetry.holds.capped", self.hold_cap_hits),
-            ("lk.telemetry.cache.write_errors", self.cache_write_errors),
-            ("lk.telemetry.dropped.queue_full", self.queue_full),
-            ("lk.telemetry.dropped.cache_error", self.cache_error),
-            ("lk.telemetry.dropped.cache_full", self.cache_full),
-            ("lk.telemetry.dropped.expired", self.expired),
-            ("lk.telemetry.dropped.corrupt", self.corrupt),
-            ("lk.telemetry.dropped.invalid", self.invalid),
-            ("lk.telemetry.dropped.rejected", self.rejected),
-            ("lk.telemetry.dropped.oversized", self.oversized),
-            ("lk.telemetry.dropped.throttled", self.throttled),
-            ("lk.telemetry.dropped.rate_limited", self.rate_limited),
+            (semconv::LK_TELEMETRY_UPLOADS_TIMEOUTS, self.upload_timeouts),
+            (semconv::LK_TELEMETRY_UPLOADS_UNAUTHORIZED, self.auth_denied),
+            (semconv::LK_TELEMETRY_HOLDS_CAPPED, self.hold_cap_hits),
+            (semconv::LK_TELEMETRY_CACHE_WRITE_ERRORS, self.cache_write_errors),
+            (semconv::LK_TELEMETRY_DROPPED_QUEUE_FULL, self.queue_full),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_ERROR, self.cache_error),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_FULL, self.cache_full),
+            (semconv::LK_TELEMETRY_DROPPED_EXPIRED, self.expired),
+            (semconv::LK_TELEMETRY_DROPPED_CORRUPT, self.corrupt),
+            (semconv::LK_TELEMETRY_DROPPED_INVALID, self.invalid),
+            (semconv::LK_TELEMETRY_DROPPED_REJECTED, self.rejected),
+            (semconv::LK_TELEMETRY_DROPPED_OVERSIZED, self.oversized),
+            (semconv::LK_TELEMETRY_DROPPED_THROTTLED, self.throttled),
+            (semconv::LK_TELEMETRY_DROPPED_RATE_LIMITED, self.rate_limited),
         ] {
             if value > 0 {
                 event = event.with_attribute(key, int(value));

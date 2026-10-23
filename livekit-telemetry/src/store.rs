@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn queued_bytes_count_the_sessions_attributes() {
         let session = ScopeState::new();
-        session.set_attribute("lk.room.name", Some("r".repeat(100).into()));
+        session.set_attribute("lk.pii.room_name", Some("r".repeat(100).into()));
         let store = Store::new(10, usize::MAX, Arc::default());
         store.push(QueuedEvent::new(TelemetryEvent::new("lk.ping"), session));
         let bare = TelemetryEvent::new("lk.ping").size_hint();
