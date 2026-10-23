@@ -34,6 +34,11 @@ void* lk_jetson_dlopen(const char* lib_name);
 // libraries are absent.
 int lk_jetson_runtime_libs_available(void);
 
+// Like lk_jetson_runtime_libs_available(), and additionally requires
+// libnvbufsurftransform, which the decoder uses to convert its block-linear
+// output into pitch-linear frames.
+int lk_jetson_decoder_runtime_libs_available(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

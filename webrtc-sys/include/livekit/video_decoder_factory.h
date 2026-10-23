@@ -19,6 +19,9 @@
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "absl/strings/match.h"
+#ifdef LIVEKIT_TEST
+#include "rust/cxx.h"
+#endif
 
 namespace livekit_ffi {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
@@ -37,4 +40,24 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
   const bool internal_h264_decoder_works_;
 };
+
+#ifdef LIVEKIT_TEST
+// Status, the first value returned by jetson_h265_decode_for_test().
+constexpr uint32_t kJetsonDecodeUnsupported = 0;
+constexpr uint32_t kJetsonDecodeOk = 1;
+constexpr uint32_t kJetsonDecodeConfigureFailed = 2;
+
+// Decodes `access_units` (each prefixed with its little-endian u32 size) with
+// the Jetson hardware H.265 decoder, giving access unit i the RTP timestamp
+// (i + 1) * 3000. The access unit at `corrupt_index` has its payload
+// scrambled first. With `release_immediately` the decoder is released right
+// after the last access unit is queued, instead of after its pictures arrive.
+//
+// Returns [status, accepted, rejected] followed by [width, height,
+// rtp_timestamp] for every decoded picture, in delivery order.
+rust::Vec<uint32_t> jetson_h265_decode_for_test(
+    rust::Slice<const uint8_t> access_units,
+    uint32_t corrupt_index,
+    bool release_immediately);
+#endif
 }  // namespace livekit_ffi

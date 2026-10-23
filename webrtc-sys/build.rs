@@ -48,6 +48,7 @@ fn main() {
         "src/webrtc.rs",
         "src/video_frame.rs",
         "src/video_frame_buffer.rs",
+        "src/video_decoder_factory.rs",
         "src/helper.rs",
         "src/yuv_helper.rs",
         "src/audio_resampler.rs",
@@ -242,6 +243,9 @@ fn main() {
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .file("src/jetson/av1_encoder_impl.cpp")
                         .file("src/jetson/jetson_encoder_factory.cpp")
+                        .file("src/jetson/jetson_mmapi_decoder.cpp")
+                        .file("src/jetson/h265_decoder_impl.cpp")
+                        .file("src/jetson/jetson_decoder_factory.cpp")
                         .flag("-DUSE_JETSON_VIDEO_CODEC=1");
 
                     let mmapi_sources = [
@@ -249,6 +253,8 @@ fn main() {
                         "NvV4l2Element.cpp",
                         "NvV4l2ElementPlane.cpp",
                         "NvVideoEncoder.cpp",
+                        "NvVideoDecoder.cpp",
+                        "NvBufSurface.cpp",
                         "NvBuffer.cpp",
                         "NvLogging.cpp",
                         "NvElementProfiler.cpp",
@@ -265,14 +271,15 @@ fn main() {
                         }
                     }
 
-                    // libv4l2/libnvv4l2 and libnvbufsurface are dlopened at
-                    // runtime (see src/jetson/jetson_runtime_loader.cpp), so
-                    // the same aarch64 binary loads on non-Jetson systems
-                    // where those libraries are absent.
+                    // libv4l2/libnvv4l2, libnvbufsurface and
+                    // libnvbufsurftransform are dlopened at runtime (see
+                    // src/jetson/jetson_runtime_loader.cpp), so the same
+                    // aarch64 binary loads on non-Jetson systems where those
+                    // libraries are absent.
                     add_lazy_load_so(
                         &mut builder,
                         "jetson",
-                        ["v4l2", "nvbufsurface"].map(String::from).to_vec(),
+                        ["v4l2", "nvbufsurface", "nvbufsurftransform"].map(String::from).to_vec(),
                     );
                 }
             }
