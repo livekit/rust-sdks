@@ -28,7 +28,7 @@ use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_rpc::api::{RpcError, RpcErrorCode};
-use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
+use livekit_signaling::{InitialPublish, SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -39,7 +39,9 @@ use tokio::sync::{
 };
 use tokio::{task::JoinHandle, time::sleep};
 
-use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use super::{
+    rtc_events, EngineError, EngineOptions, EngineResult, PrePublishTrack, SimulateScenario,
+};
 use crate::{
     id::ParticipantIdentity,
     rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
@@ -54,7 +56,7 @@ use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::TrackKind,
-    room::{e2ee::manager::E2eeManager, DisconnectReason},
+    room::{e2ee::manager::E2eeManager, participant::configure_sender, DisconnectReason},
     rtc_engine::{
         lk_runtime::LkRuntime,
         peer_transport::PeerTransport,
@@ -79,6 +81,7 @@ pub struct PcGenerationSnapshot {
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+const JOIN_TRACK_CONFIRM_TIMEOUT: Duration = Duration::from_secs(1);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
@@ -517,14 +520,37 @@ struct SessionHandle {
     dt_sender_task: JoinHandle<()>,
 }
 
+/// Publisher transport created before joining, whose offer travels with the join request.
+struct EarlyPublisher {
+    pc: PeerTransport,
+    data_channels: (DataChannel, DataChannel, DataChannel),
+    initial_publish: InitialPublish,
+}
+
+impl EarlyPublisher {
+    /// Closes the transport and detaches the join-time tracks from its transceivers.
+    fn discard(self, publish_tracks: &[PrePublishTrack]) {
+        for pt in publish_tracks {
+            pt.track.set_transceiver(None);
+        }
+        self.pc.close();
+    }
+}
+
 impl RtcSession {
     /// Connect to a LiveKit room.
-    pub async fn connect(
+    pub(crate) async fn connect(
         url: &str,
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        publish_tracks: &[PrePublishTrack],
+    ) -> EngineResult<(
+        Self,
+        proto::JoinResponse,
+        SessionEvents,
+        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+    )> {
         let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
@@ -535,45 +561,28 @@ impl RtcSession {
 
         let use_single_pc = options.signal_options.single_peer_connection;
 
-        let mut publisher_offer = None;
-        let early_publisher_pc = if use_single_pc {
-            let publisher_pc = PeerTransport::new(
-                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
-                proto::SignalTarget::Publisher,
-                true,
-            );
-
-            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
-
-            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
-
-            match publisher_pc.create_initial_offer().await {
-                Ok(Some(offer)) => {
-                    publisher_offer = Some(proto::SessionDescription {
-                        r#type: "offer".to_string(),
-                        sdp: offer.to_string(),
-                        id: 0,
-                        mid_to_track_id: Default::default(),
-                    });
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    log::warn!("failed to create initial publisher offer: {:?}", err);
-                }
-            }
-
-            Some((publisher_pc, dcs))
+        let early_publisher = if use_single_pc {
+            Self::create_early_publisher(&options.rtc_config, &emitter, publish_tracks).await?
         } else {
             None
         };
 
-        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
+        let connected = SignalClient::connect(
             url,
             token,
             options.signal_options.clone(),
-            publisher_offer.clone(),
+            early_publisher.as_ref().map(|early| early.initial_publish.clone()),
         )
-        .await?;
+        .await;
+        let (signal_client, mut join_response, signal_events) = match connected {
+            Ok(connected) => connected,
+            Err(err) => {
+                if let Some(early) = early_publisher {
+                    early.discard(publish_tracks);
+                }
+                return Err(err.into());
+            }
+        };
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -593,20 +602,21 @@ impl RtcSession {
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
-        let sent_publisher_offer;
+        let early_publisher = match early_publisher {
+            Some(early) if !single_pc_mode => {
+                // The v1 path was unavailable, so the server never saw the initial publish.
+                early.discard(publish_tracks);
+                None
+            }
+            early => early,
+        };
+        let sent_publisher_offer = early_publisher.is_some();
         let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, dcs)) = early_publisher_pc {
-                if single_pc_mode {
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = publisher_offer.is_some();
-                } else {
-                    pub_pc.clear_pending_initial_offer().await;
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = false;
-                }
-                (pub_pc, dcs.0, dcs.1, dcs.2)
+            if let Some(early) = early_publisher {
+                early.pc.peer_connection().set_configuration(rtc_config.clone())?;
+                let (reliable_dc, lossy_dc, data_track_dc) = early.data_channels;
+                (early.pc, reliable_dc, lossy_dc, data_track_dc)
             } else {
-                sent_publisher_offer = false;
                 let publisher_pc = PeerTransport::new(
                     lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
                     proto::SignalTarget::Publisher,
@@ -714,6 +724,20 @@ impl RtcSession {
             })));
         }
 
+        // Tracks without a receiver were not sent with the join and must be published normally.
+        let pre_publish_receivers: Vec<(String, oneshot::Receiver<proto::TrackInfo>)> =
+            if sent_publisher_offer {
+                publish_tracks
+                    .iter()
+                    .filter_map(|pt| {
+                        let cid = &pt.request.cid;
+                        inner.register_pending_track(cid).ok().map(|rx| (cid.clone(), rx))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
@@ -737,7 +761,68 @@ impl RtcSession {
             inner.publisher_negotiation_needed();
         }
 
-        Ok((Self { inner, handle }, join_response, session_events))
+        Ok((Self { inner, handle }, join_response, session_events, pre_publish_receivers))
+    }
+
+    /// Creates the publisher transport and its offer before joining, so both can travel with the
+    /// join request. Returns `None` if the offer could not be prepared, in which case the session
+    /// negotiates normally after joining.
+    async fn create_early_publisher(
+        rtc_config: &RtcConfiguration,
+        emitter: &mpsc::UnboundedSender<SessionEvent>,
+        publish_tracks: &[PrePublishTrack],
+    ) -> EngineResult<Option<EarlyPublisher>> {
+        let pc = PeerTransport::new(
+            LkRuntime::instance().pc_factory().create_peer_connection(rtc_config.clone())?,
+            proto::SignalTarget::Publisher,
+            true,
+        );
+
+        let prepared = async {
+            let data_channels = Self::create_data_channels(&pc, emitter)?;
+            Self::add_recv_media_sections(&pc.peer_connection(), 3, 3)?;
+
+            // The offer must carry a media section for every track sent with the join.
+            for pt in publish_tracks {
+                let transceiver = SessionInner::create_sender_for_pc(
+                    &pc,
+                    &pt.track,
+                    &pt.options,
+                    pt.encodings.clone(),
+                )
+                .await?;
+                pt.track.set_transceiver(Some(transceiver));
+            }
+
+            let Some(offer) = pc.create_initial_offer().await? else {
+                return Err(EngineError::Internal("publisher is not in single PC mode".into()));
+            };
+            EngineResult::Ok((data_channels, offer))
+        }
+        .await;
+
+        let (data_channels, offer) = match prepared {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                log::warn!("failed to prepare initial publisher offer: {:?}", err);
+                for pt in publish_tracks {
+                    pt.track.set_transceiver(None);
+                }
+                pc.close();
+                return Ok(None);
+            }
+        };
+
+        let initial_publish = InitialPublish {
+            offer: proto::SessionDescription {
+                r#type: "offer".to_string(),
+                sdp: offer.to_string(),
+                id: 0,
+                mid_to_track_id: Default::default(),
+            },
+            add_track_requests: publish_tracks.iter().map(|pt| pt.request.clone()).collect(),
+        };
+        Ok(Some(EarlyPublisher { pc, data_channels, initial_publish }))
     }
 
     fn create_data_channels(
@@ -808,6 +893,14 @@ impl RtcSession {
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
+    }
+
+    pub(crate) async fn wait_track_published_by_cid(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<proto::TrackInfo>,
+    ) -> EngineResult<proto::TrackInfo> {
+        self.inner.wait_track_published_by_cid(cid, rx).await
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
@@ -1943,23 +2036,42 @@ impl SessionInner {
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
-        let (tx, rx) = oneshot::channel();
         let cid = req.cid.clone();
-        {
-            let mut pendings_tracks = self.pending_tracks.lock();
-            if pendings_tracks.contains_key(&req.cid) {
-                Err(EngineError::Internal("track already published".into()))?;
-            }
-
-            pendings_tracks.insert(cid.clone(), tx);
-        }
-
+        let rx = self.register_pending_track(&cid)?;
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
+        self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await
+    }
 
-        // Wait the result from the server (TrackInfo)
+    async fn wait_track_published_by_cid(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<proto::TrackInfo>,
+    ) -> EngineResult<proto::TrackInfo> {
+        self.wait_track_published(cid, rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
+    }
+
+    fn register_pending_track(
+        &self,
+        cid: &str,
+    ) -> EngineResult<oneshot::Receiver<proto::TrackInfo>> {
+        let (tx, rx) = oneshot::channel();
+        let mut pending_tracks = self.pending_tracks.lock();
+        if pending_tracks.contains_key(cid) {
+            Err(EngineError::Internal("track already published".into()))?;
+        }
+        pending_tracks.insert(cid.to_string(), tx);
+        Ok(rx)
+    }
+
+    async fn wait_track_published(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<proto::TrackInfo>,
+        timeout: Duration,
+    ) -> EngineResult<proto::TrackInfo> {
         tokio::select! {
             Ok(info) = rx => Ok(info),
-            _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
+            _ = sleep(timeout) => {
                 self.pending_tracks.lock().remove(&cid);
                 Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },
@@ -1992,6 +2104,16 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        Self::create_sender_for_pc(&self.publisher_pc, &track, &options, encodings).await
+    }
+
+    /// Also used before the session exists, to add join-time tracks to the initial offer.
+    async fn create_sender_for_pc(
+        publisher_pc: &PeerTransport,
+        track: &LocalTrack,
+        options: &TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
         // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
         // Must be done before encodings is moved into RtpTransceiverInit.
         if track.kind() == TrackKind::Video {
@@ -2000,7 +2122,7 @@ impl SessionInner {
                 (sum > 0).then_some(sum)
             };
             let is_screen_share = options.source == TrackSource::Screenshare;
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
+            publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {
@@ -2010,7 +2132,7 @@ impl SessionInner {
         };
 
         let transceiver =
-            self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
+            publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
@@ -2047,6 +2169,9 @@ impl SessionInner {
 
             transceiver.set_codec_preferences(matched)?;
         }
+
+        // Before the transceiver can be negotiated, so no frame is sent without these settings.
+        configure_sender(track, options, &transceiver.sender());
 
         Ok(transceiver)
     }

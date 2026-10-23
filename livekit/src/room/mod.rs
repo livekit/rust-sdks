@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::e2ee::EncryptionType;
 pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
@@ -65,8 +66,8 @@ use crate::{
     prelude::*,
     registered_audio_filter_plugins,
     rtc_engine::{
-        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, PrePublishTrack,
+        RtcEngine, SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
     utils::{observer::Dispatcher, promise::Promise},
 };
@@ -440,6 +441,41 @@ impl RoomDataStreamOptions {
     }
 }
 
+/// A local track to publish while connecting, see [`RoomOptions::publish_tracks`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct InitialTrack {
+    /// The track to publish.
+    pub track: LocalTrack,
+    /// Options to publish the track with.
+    pub options: TrackPublishOptions,
+}
+
+impl InitialTrack {
+    /// Creates a track to publish while connecting, with default [`TrackPublishOptions`].
+    pub fn new(track: LocalTrack) -> Self {
+        Self { track, options: TrackPublishOptions::default() }
+    }
+
+    /// Sets the options to publish the track with.
+    pub fn with_options(mut self, options: TrackPublishOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
+impl From<LocalTrack> for InitialTrack {
+    fn from(track: LocalTrack) -> Self {
+        Self::new(track)
+    }
+}
+
+impl From<(LocalTrack, TrackPublishOptions)> for InitialTrack {
+    fn from((track, options): (LocalTrack, TrackPublishOptions)) -> Self {
+        Self::new(track).with_options(options)
+    }
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomOptions {
@@ -460,6 +496,15 @@ pub struct RoomOptions {
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
     pub data_stream: RoomDataStreamOptions,
+    /// Tracks to publish while connecting.
+    ///
+    /// With `single_peer_connection`, they are sent with the join request, saving the round
+    /// trips of publishing after [`Room::connect`] returns. Otherwise, with end-to-end
+    /// encryption enabled, or if the server does not support it, they are published normally
+    /// before `connect` returns. If any of them
+    /// fails to publish, the room is closed and `connect` returns the error. Each track may be
+    /// listed only once.
+    pub publish_tracks: Vec<InitialTrack>,
 }
 
 impl Default for RoomOptions {
@@ -478,6 +523,7 @@ impl Default for RoomOptions {
             single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             data_stream: Default::default(),
+            publish_tracks: Vec::new(),
         }
     }
 }
@@ -588,7 +634,32 @@ impl Room {
         signal_options.connect_timeout = options.connect_timeout;
         signal_options.use_legacy_data_streams =
             options.data_stream.use_legacy_client_implementation;
-        let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
+
+        let encryption_type = e2ee_manager.encryption_type();
+        let pre_publish_tracks: Vec<PrePublishTrack> = std::mem::take(&mut options.publish_tracks)
+            .into_iter()
+            .map(|InitialTrack { track, options }| {
+                let (request, encodings) =
+                    participant::prepare_publish(&track, &options, encryption_type, None);
+                PrePublishTrack { track, options, encodings, request }
+            })
+            .collect();
+        // Requests and their responses are matched by track cid.
+        let mut cids = HashSet::new();
+        if !pre_publish_tracks.iter().all(|pt| cids.insert(pt.request.cid.as_str())) {
+            return Err(RoomError::Internal(
+                "publish_tracks contains the same track more than once".into(),
+            ));
+        }
+
+        // A join-time sender can send media as soon as the connection is up, before the E2EE
+        // frame cryptor (which needs the identity from the join response) is attached. Encrypted
+        // rooms therefore publish these tracks normally instead.
+        let join_publish_tracks: &[PrePublishTrack] = match encryption_type {
+            EncryptionType::None => &pre_publish_tracks,
+            _ => &[],
+        };
+        let (rtc_engine, join_response, engine_events, pre_publish_receivers) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
@@ -598,6 +669,7 @@ impl Room {
                 single_peer_connection: options.single_peer_connection,
             },
             Some(e2ee_manager.clone()),
+            join_publish_tracks,
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
@@ -875,7 +947,41 @@ impl Room {
         };
         inner.handle.lock().await.replace(handle);
 
-        Ok((Self { inner }, events))
+        let room = Self { inner };
+        if let Err(err) = room.complete_pre_publish(pre_publish_tracks, pre_publish_receivers).await
+        {
+            room.inner.close(DisconnectReason::JoinFailure).await?;
+            return Err(err);
+        }
+
+        Ok((room, events))
+    }
+
+    /// Completes the join-time publishes; tracks the server never saw are published normally.
+    async fn complete_pre_publish(
+        &self,
+        tracks: Vec<PrePublishTrack>,
+        receivers: Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+    ) -> RoomResult<()> {
+        let mut receivers: HashMap<_, _> = receivers.into_iter().collect();
+        let local_participant = &self.inner.local_participant;
+        for pt in tracks {
+            let Some(rx) = receivers.remove(&pt.request.cid) else {
+                local_participant.publish_track(pt.track, pt.options).await?;
+                continue;
+            };
+            let track_info =
+                self.inner.rtc_engine.wait_track_published_by_cid(pt.request.cid, rx).await;
+            let track_info = match track_info {
+                Ok(track_info) => track_info,
+                Err(err) => {
+                    log::error!("failed to publish track {} with join: {}", pt.track.name(), err);
+                    return Err(err.into());
+                }
+            };
+            local_participant.complete_publish(pt.track, pt.options, track_info);
+        }
+        Ok(())
     }
 
     pub async fn close(&self) -> RoomResult<()> {
