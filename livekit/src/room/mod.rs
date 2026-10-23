@@ -922,6 +922,13 @@ impl Room {
         self.inner.rtc_engine.session().publisher_connection_state()
     }
 
+    /// Test-only: the publisher's RTP senders. A sender that keeps its track after teardown
+    /// keeps the track's native source alive with it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.rtc_engine.session().publisher_senders()
+    }
+
     /// Test-only: returns a probe that reports whether the room session has been dropped.
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {

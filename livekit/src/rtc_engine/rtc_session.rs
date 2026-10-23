@@ -885,6 +885,13 @@ impl RtcSession {
         self.inner.publisher_pc.peer_connection().connection_state()
     }
 
+    /// Test-only: the publisher PeerConnection's senders. A closed PeerConnection reports none,
+    /// so tests take these before teardown to inspect what the senders still hold afterwards.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.publisher_pc.peer_connection().senders()
+    }
+
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
