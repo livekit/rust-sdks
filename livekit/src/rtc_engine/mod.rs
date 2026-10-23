@@ -484,6 +484,13 @@ impl RtcEngine {
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.session().drop_disconnected_updates(enabled);
     }
+
+    /// Test-only: hold a server `Leave` on the current session before acting on it, so the
+    /// publisher data channels are seen closing first.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn delay_leave_processing(&self, delay: Duration) {
+        self.session().delay_leave_processing(delay);
+    }
 }
 
 impl EngineInner {
@@ -992,7 +999,7 @@ impl EngineInner {
                     let _ = rx.await;
                 }
 
-                log::error!("restarting connection... attempt: {}", i);
+                log::info!("restarting connection... attempt: {}", i);
                 match self
                     .try_restart_connection(
                         &url,
@@ -1038,7 +1045,7 @@ impl EngineInner {
                     let _ = rx.await;
                 }
 
-                log::error!("resuming connection... attempt: {}", i);
+                log::info!("resuming connection... attempt: {}", i);
                 match self.try_resume_connection().await {
                     Ok(()) => {
                         let (tx, rx) = oneshot::channel();
