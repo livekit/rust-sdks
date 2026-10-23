@@ -50,4 +50,4 @@ url = "2.3"
 # The signal_* integration tests mint an access token to connect with.
 livekit-token = { workspace = true }
 async-trait = "0.1"
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util", "test-util"] }
