@@ -137,15 +137,16 @@ impl Store {
     /// Remove and return the oldest events: at most `min(max, len)` of them and about `max_bytes`
     /// in total. Each pass stops or removes one event, so there is at most one extra, stopping
     /// pass. `max == 0` returns nothing; on a non-empty queue with `max > 0`, `max_bytes == 0`
-    /// returns one event, and an oversized head event goes out alone.
-    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<QueuedEvent> {
+    /// returns one event, and an oversized head event goes out alone. Each event counts `extra`
+    /// more bytes: what export adds to every record (the pipeline-wide attributes).
+    pub fn drain(&self, max: usize, max_bytes: usize, extra: usize) -> Vec<QueuedEvent> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.full_warned = false;
         let mut out = Vec::new();
         let mut bytes = 0;
         while out.len() < max {
             let Some(next) = queue.events.front() else { break };
-            let size = next.event.size_hint();
+            let size = next.event.size_hint() + extra;
             if !out.is_empty() && bytes + size > max_bytes {
                 break;
             }
@@ -204,10 +205,11 @@ mod tests {
         }
         let warning = "queue full (2 records): dropping oldest until the exporter drains";
         assert_eq!(crate::test_log::take(), [warning], "two drops, one warning");
-        let names: Vec<_> = store.drain(10, usize::MAX).into_iter().map(|q| q.event.name).collect();
+        let names: Vec<_> =
+            store.drain(10, usize::MAX, 0).into_iter().map(|q| q.event.name).collect();
         assert_eq!(names, ["c", "d"]);
         assert_eq!(counters.snapshot().queue_full, 2);
-        assert!(store.drain(10, usize::MAX).is_empty());
+        assert!(store.drain(10, usize::MAX, 0).is_empty());
         for name in ["e", "f", "g"] {
             store.push(queued(TelemetryEvent::new(name)));
         }
@@ -220,7 +222,7 @@ mod tests {
         let store = Store::new(0, 0, counters.clone());
         assert!(store.push(queued(TelemetryEvent::new("a"))), "any record crosses one byte");
         store.push(queued(TelemetryEvent::new("b")));
-        assert_eq!(store.drain(10, usize::MAX).len(), 1);
+        assert_eq!(store.drain(10, usize::MAX, 0).len(), 1);
         assert_eq!(counters.snapshot().queue_full, 1, "no drop counted for an empty queue");
     }
 
@@ -253,8 +255,8 @@ mod tests {
         assert!(!store.push(event()), "160 < 200");
         assert!(store.push(event()), "320 crosses 200");
         assert!(!store.push(event()), "already above: no second wake-up");
-        assert_eq!(store.drain(10, 330).len(), 2, "two fit in 330 bytes");
-        assert_eq!(store.drain(10, 1).len(), 1, "an oversized event still ships alone");
-        assert!(store.drain(10, usize::MAX).is_empty());
+        assert_eq!(store.drain(10, 330, 0).len(), 2, "two fit in 330 bytes");
+        assert_eq!(store.drain(10, 1, 0).len(), 1, "an oversized event still ships alone");
+        assert!(store.drain(10, usize::MAX, 0).is_empty());
     }
 }
