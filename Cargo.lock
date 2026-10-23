@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "bytes",
  "chrono",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.2"
+version = "0.13.3"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3990,7 +3990,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "base64 0.21.7",

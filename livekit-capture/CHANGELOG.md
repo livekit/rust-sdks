@@ -1,3 +1,9 @@
+## 0.1.8 (2026-10-23)
+
+### Features
+
+- Create the well-known data channels as negotiated (fixed IDs) when the server supports it (protocol 18), saving the data channel open handshake round trip. Falls back to in-band channels against older servers.
+
 ## 0.1.7 (2026-10-23)
 
 ### Fixes
