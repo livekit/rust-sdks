@@ -209,7 +209,8 @@ pub enum SignalEvent {
     /// Received a message from the server
     Message(Box<proto::signal_response::Message>),
 
-    /// Signal connection closed, SignalClient::restart() can be called to reconnect
+    /// Signal connection lost, SignalClient::restart() can be called to reconnect.
+    /// Not emitted for a close the client asked for (`close` or `restart`).
     Close(Cow<'static, str>),
 }
 
@@ -526,7 +527,8 @@ impl SignalInner {
         let attempt = async {
             let (stream, mut events, single_pc_mode_active) =
                 Self::open_transport(url, token, &options, publisher_offer.as_ref()).await?;
-            let join_response = get_join_response(&mut events).await?;
+            let (stream, join_response) =
+                close_on_err(stream, get_join_response(&mut events)).await?;
             SignalResult::Ok((stream, events, single_pc_mode_active, join_response))
         };
         let (stream, events, single_pc_mode_active, join_response) = match attempt.await {
@@ -708,7 +710,8 @@ impl SignalInner {
         let attempt = async {
             let (new_stream, mut events) =
                 SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
-            let reconnect_response = get_reconnect_response(&mut events).await?;
+            let (new_stream, reconnect_response) =
+                close_on_err(new_stream, get_reconnect_response(&mut events)).await?;
             SignalResult::Ok((new_stream, reconnect_response, events))
         };
         match attempt.await {
@@ -748,10 +751,18 @@ impl SignalInner {
         let _ = self.state.write().await.transition(SignalInput::CloseComplete);
     }
 
-    /// The transport died on its own (remote close or ping timeout): release it and go `Offline`.
-    async fn transport_failed(&self) {
-        let released = self.state.write().await.transition(SignalInput::TransportFailed);
-        if let Ok(Some(stream)) = released {
+    /// The transport died on its own (remote close or ping timeout): report `Close`, release
+    /// the transport and go `Offline`.
+    ///
+    /// Refused when the close was requested (`close` or `restart`): the requester already
+    /// knows, and a host that reads `Close` as "resume" would otherwise reconnect inside its
+    /// own reconnect.
+    async fn transport_failed(&self, emitter: &SignalEmitter, reason: &'static str) {
+        let Ok(released) = self.state.write().await.transition(SignalInput::TransportFailed) else {
+            return;
+        };
+        let _ = emitter.send(SignalEvent::Close(reason.into()));
+        if let Some(stream) = released {
             stream.close(true).await;
         }
     }
@@ -823,7 +834,7 @@ async fn signal_task(
 
     let mut rtt = 0; // TODO(theomonnom): Should we expose SignalClient rtt?
 
-    loop {
+    let reason = loop {
         tokio::select! {
             signal = internal_events.recv() => {
                 if let Some(signal) = signal {
@@ -849,8 +860,7 @@ async fn signal_task(
 
                     let _ = emitter.send(SignalEvent::Message(signal));
                 } else {
-                    let _ = emitter.send(SignalEvent::Close("stream closed".into()));
-                    break; // Stream closed
+                    break "stream closed";
                 }
             }
             _ = ping_interval.tick() => {
@@ -871,15 +881,14 @@ async fn signal_task(
                 // if the OS hasn't told us yet. Tear down the stream and emit
                 // Close; the engine layer reads that as a trigger to drive
                 // a resume reconnect (see SignalEvent::Close docs).
-                let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
-                break;
+                break "ping timeout";
             }
         }
-    }
+    };
 
-    // The loop only ends when the transport is gone or unresponsive. Refused, and so a no-op,
+    // The loop only ends when the transport is gone or unresponsive. Refused, and so silent,
     // when the transport was closed on request.
-    inner.transport_failed().await;
+    inner.transport_failed(&emitter, reason).await;
 }
 
 /// Returns true for signals that must NOT be queued during a reconnect — they
@@ -1181,6 +1190,21 @@ fn get_validate_url(mut ws_url: url::Url) -> url::Url {
         segs.push("validate");
     }
     ws_url
+}
+
+/// Await the server's first answer on a fresh `stream`, closing the stream if it fails.
+/// `SignalStream` has no `Drop`, so a dropped stream would leave its tasks holding the socket.
+async fn close_on_err<T>(
+    stream: SignalStream,
+    answer: impl std::future::Future<Output = SignalResult<T>>,
+) -> SignalResult<(SignalStream, T)> {
+    match answer.await {
+        Ok(answer) => Ok((stream, answer)),
+        Err(err) => {
+            stream.close(true).await;
+            Err(err)
+        }
+    }
 }
 
 macro_rules! get_async_message {
@@ -1606,6 +1630,98 @@ mod tests {
             matches!(*inner.state.read().await, SignalState::Offline),
             "a failed restart must leave the state offline"
         );
+    }
+
+    /// A join response `restart` and `signal_task` can run on: a participant sid to resume,
+    /// and a nonzero ping interval (`tokio::time::interval` panics on zero).
+    fn resumable_join() -> proto::JoinResponse {
+        proto::JoinResponse {
+            participant: Some(proto::ParticipantInfo {
+                sid: "PA_test".into(),
+                ..Default::default()
+            }),
+            ping_interval: 10,
+            ping_timeout: 20,
+            ..Default::default()
+        }
+    }
+
+    /// A transport that opens but never answers must be closed when the join or reconnect
+    /// response times out. Dropping the stream instead leaves its tasks holding the socket.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_transport_is_released_on_timeout() {
+        use crate::test_transport::{install_mock_transport, SILENT_CONNS};
+        install_mock_transport();
+        const SILENT_URL: &str = "wss://silent.localhost";
+
+        let err = SignalInner::connect(SILENT_URL, "", SignalOptions::default(), None)
+            .await
+            .err()
+            .expect("connect must fail without a join response");
+        assert!(matches!(err, SignalError::Timeout(_)), "expected a timeout, got {err:?}");
+        assert_eq!(SILENT_CONNS.load(Ordering::SeqCst), 0, "a timed-out join left the socket open");
+
+        let mut inner = make_stub_inner_with(resumable_join());
+        Arc::get_mut(&mut inner).expect("no other owner yet").url = SILENT_URL.into();
+        let err = inner
+            .restart(proto::ReconnectReason::RrUnknown)
+            .await
+            .err()
+            .expect("restart must fail without a reconnect response");
+        assert!(matches!(err, SignalError::Timeout(_)), "expected a timeout, got {err:?}");
+        assert_eq!(
+            SILENT_CONNS.load(Ordering::SeqCst),
+            0,
+            "a timed-out reconnect left the socket open"
+        );
+    }
+
+    /// A connection whose peer is already gone: the first read ends the stream.
+    struct EndedConn;
+
+    #[async_trait::async_trait]
+    impl livekit_net::WsConnection for EndedConn {
+        async fn send(&self, _frame: Vec<u8>) -> Result<(), livekit_net::TransportError> {
+            Ok(())
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, livekit_net::TransportError> {
+            Ok(None)
+        }
+        async fn close(&self) {}
+    }
+
+    /// A connected client with its signal task running over `conn`.
+    fn client_over(conn: Arc<dyn livekit_net::WsConnection>) -> (SignalClient, SignalEvents) {
+        let (stream, stream_events) = SignalStream::spawn(conn);
+        let inner = make_stub_inner_with(resumable_join());
+        *inner.state.try_write().expect("no other owner yet") = SignalState::Connected(stream);
+        let (emitter, events) = mpsc::unbounded_channel();
+        let handle = tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+        (SignalClient { inner, emitter, handle: Mutex::new(Some(handle)) }, events)
+    }
+
+    /// Only a lost transport reports `Close`. A host reads `Close` as "resume", so one from a
+    /// requested `close` or `restart` would start a reconnect inside its own reconnect.
+    #[tokio::test]
+    async fn close_is_reported_for_a_lost_transport_only() {
+        // `restart` dials the shared mock, which ends before any ReconnectResponse.
+        crate::test_transport::install_mock_transport();
+        let open = || Arc::new(RecordingConn { sent: Mutex::new(Vec::new()) });
+
+        // Both return only after the old signal task finished, so any Close is already queued.
+        let (client, mut events) = client_over(open());
+        client.close().await;
+        assert!(events.try_recv().is_err(), "close() reported a Close");
+
+        let (client, mut events) = client_over(open());
+        let _ = client.restart(proto::ReconnectReason::RrUnknown).await;
+        assert!(events.try_recv().is_err(), "restart() reported a Close");
+
+        let (_client, mut events) = client_over(Arc::new(EndedConn));
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("a lost transport must report Close");
+        assert!(matches!(event, Some(SignalEvent::Close(_))), "expected a Close event");
     }
 
     async fn state_named(name: &str) -> SignalState {

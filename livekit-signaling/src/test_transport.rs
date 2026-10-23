@@ -21,6 +21,9 @@
 //! MockConn::recv() yields one canned `proto::SignalResponse { Pong }` frame
 //! and then returns `Ok(None)`.
 //!
+//! MockTransport::connect to a URL containing `silent` instead yields a SilentConn,
+//! which stays open and never sends a frame.
+//!
 //! MockTransport::request dispatches deterministically on the request inputs:
 //!
 //! 1. If the request has NO `Authorization: Bearer <non-empty>` header →
@@ -39,7 +42,10 @@ use livekit_net::{
 };
 use livekit_protocol as proto;
 use prost::Message as _;
-use std::sync::{Arc, Once};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Once,
+};
 use tokio::sync::Mutex as AsyncMutex;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +69,39 @@ impl WsConnection for MockConn {
     async fn close(&self) {}
 }
 
+/// Open connections to a URL containing `silent`. Only one test dials that marker, so the
+/// count is not shared with concurrent tests.
+pub static SILENT_CONNS: AtomicUsize = AtomicUsize::new(0);
+
+/// Stays open and never answers, so a join or reconnect response never arrives.
+struct SilentConn;
+
+impl SilentConn {
+    fn new() -> Self {
+        SILENT_CONNS.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for SilentConn {
+    fn drop(&mut self) {
+        SILENT_CONNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait::async_trait]
+impl WsConnection for SilentConn {
+    async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        std::future::pending().await
+    }
+
+    async fn close(&self) {}
+}
+
 // ---------------------------------------------------------------------------
 // MockTransport: creates a MockConn pre-loaded with one Pong frame
 // ---------------------------------------------------------------------------
@@ -73,10 +112,13 @@ pub struct MockTransport;
 impl WsClient for MockTransport {
     async fn connect(
         &self,
-        _url: String,
+        url: String,
         _headers: Vec<Header>,
         _timeout_ms: u64,
     ) -> Result<WsConnectResult, TransportError> {
+        if url.contains("silent") {
+            return Ok(WsConnectResult { connection: Arc::new(SilentConn::new()) });
+        }
         let pong = proto::SignalResponse {
             message: Some(proto::signal_response::Message::PongResp(proto::Pong::default())),
         };
