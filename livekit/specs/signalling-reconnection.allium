@@ -238,6 +238,16 @@ config {
     -- timeout, or a transport whose far end is gone still reads connected when
     -- checked. Resume-only; full reconnect builds new PCs.
     pc_reconnect_settle_delay: Duration = 3.seconds
+    -- How long a PeerConnection may sit in `disconnected` before it is treated
+    -- as failed (PC_DISCONNECTED_GRACE). Long enough to absorb a transient
+    -- disturbance, far short of ICE consent expiry.
+    pc_disconnected_grace: Duration = 5.seconds
+    -- How many grace windows a transport may spend *visibly repairing* before
+    -- it is escalated anyway (PC_DISCONNECTED_GRACE_WINDOWS). One window is the
+    -- right bar for `disconnected`, where nothing is being done; it is the wrong
+    -- bar for `connecting`, where an ICE restart is in progress and gathering,
+    -- checks and DTLS can exceed one window on a relayed or lossy path.
+    pc_disconnected_grace_windows: Integer = 2
 }
 
 ------------------------------------------------------------
@@ -420,6 +430,48 @@ rule ReconnectOnPeerConnectionFailure {
         retry_now: false,
         cause: peer_connection_failed
     )
+    @guidance
+        -- `failed` is not the earliest signal that a transport has died: ICE
+        -- reports `disconnected` within seconds, but does not escalate to
+        -- `failed` until consent expires, tens of seconds later. Reacting only
+        -- to `failed` left a session "connected" and deaf for that whole
+        -- window. See PeerConnectionDisconnectedBeyondGrace.
+}
+
+rule PeerConnectionDisconnectedBeyondGrace {
+    when: PeerConnectionDisconnected(engine, for: config.pc_disconnected_grace)
+    requires: engine.reconnect_permission = permitted
+    -- A reconnect already in flight owns the verdict; see the guidance below.
+    requires: engine.reconnecting = false
+    -- `connecting` is a repair in progress, not a death. It buys another window
+    -- (up to config.pc_disconnected_grace_windows in total) rather than
+    -- escalating here.
+    requires: engine.peer_connection_state != connecting
+    ensures: ReconnectNeeded(
+        engine,
+        full_reconnect: false,
+        retry_now: false,
+        cause: peer_connection_failed
+    )
+    @guidance
+        -- `disconnected` alone is NOT actionable: ordinary network disturbance
+        -- produces brief disconnects that recover on their own, and tearing
+        -- down a session for one would be worse than the disturbance. So the
+        -- transport is given a grace period and judged on its state when that
+        -- elapses, not on the transition that started it -- a connection that
+        -- recovered needs no cancellation, it simply reads as connected.
+        -- Concurrent transitions collapse onto the running countdown.
+        --
+        -- The countdown covers a transport NOBODY is watching. Once a reconnect
+        -- is in flight, ResumeAwaitsPeerConnections is watching the same
+        -- transport with better evidence (transition counts, not a level read)
+        -- and its own deadline, on whose expiry ResumeAttemptEscalates fires
+        -- anyway. Reporting a failure here too would not add a
+        -- second opinion but a worse-informed one on a shorter fuse: a failure
+        -- arriving mid-cycle latches a full reconnect (see ReconnectNeeded's
+        -- already-reconnecting branch), turning a merely slow resume into a
+        -- track-republishing rebuild -- on exactly the degraded networks this
+        -- rule exists to help.
 }
 
 rule ServerRequestsReconnect {
@@ -753,6 +805,7 @@ surface MediaRecovery {
     provides:
         EngineSessionConnected(media)
         PeerConnectionFailed(media)
+        PeerConnectionDisconnected(media)
         PublisherRepublished(media)
         PeerConnectionsReconnected(media)
         RestartAttemptSucceeded(media)
