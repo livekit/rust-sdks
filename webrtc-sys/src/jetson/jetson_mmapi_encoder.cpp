@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
@@ -48,12 +49,61 @@ constexpr int kDefaultOutputBufferCount = 4;
 constexpr int kDefaultCaptureBufferCount = 4;
 constexpr int kMinBitstreamBufferSize = 1024 * 1024;
 
+/// Checks whether a path identifies an accessible character device.
+///
+/// A character device is a special filesystem node, typically under `/dev`,
+/// through which a process communicates with a kernel driver as a byte stream.
+/// Requiring this device type rejects regular files or directories that happen
+/// to exist at the expected path but cannot represent an encoder interface.
+///
+/// Returns true when the path exists, is a character device, and is readable
+/// and writable by the current process.
 bool DeviceExists(const char* path) {
   struct stat st = {};
-  return stat(path, &st) == 0;
+  return stat(path, &st) == 0 && S_ISCHR(st.st_mode) &&
+         access(path, R_OK | W_OK) == 0;
 }
 
-bool IsOrinPlatform() {
+// The device-tree compatible property is a sequence of NUL-delimited strings,
+// not one textual value. Match a complete entry so similarly named future SoCs
+// or board-specific strings containing "nvidia,tegra234" do not accidentally
+// advertise Orin-only capabilities.
+//
+// Example input: "nvidia,p3767-0000\0nvidia,tegra234\0".
+// Output: true for "nvidia,tegra234", false for "nvidia,tegra23".
+constexpr bool CompatibleListContains(std::string_view contents,
+                                      std::string_view expected) {
+  std::size_t offset = 0;
+  while (offset < contents.size()) {
+    const std::size_t end = contents.find('\0', offset);
+    const std::size_t length =
+        (end == std::string_view::npos ? contents.size() : end) - offset;
+    if (contents.substr(offset, length) == expected) {
+      return true;
+    }
+    if (end == std::string_view::npos) {
+      break;
+    }
+    offset = end + 1;
+  }
+  return false;
+}
+
+// Some built-in compile-time assertions for the CompatibleListContains() parser.
+// Can remote once have proper unit testing 
+constexpr char kCompatibleFixture[] = "nvidia,p3767-0000\0nvidia,tegra234\0";
+static_assert(CompatibleListContains(
+    std::string_view(kCompatibleFixture, sizeof(kCompatibleFixture) - 1),
+    "nvidia,tegra234"));
+static_assert(!CompatibleListContains("nvidia,tegra2340", "nvidia,tegra234"));
+static_assert(!CompatibleListContains("vendor,nvidia,tegra234-suffix",
+                                      "nvidia,tegra234"));
+
+// Tegra234 identifies the Orin generation where AV1 hardware encoding was
+// introduced. This check is intentionally combined with DeviceExists() by
+// IsCodecSupported(): Tegra234 alone is insufficient because Orin Nano uses
+// the same SoC generation but does not contain an NVENC engine.
+bool IsTegra234Platform() {
   std::ifstream compatible("/proc/device-tree/compatible",
                            std::ios::in | std::ios::binary);
   if (!compatible) {
@@ -61,7 +111,7 @@ bool IsOrinPlatform() {
   }
   const std::string contents((std::istreambuf_iterator<char>(compatible)),
                              std::istreambuf_iterator<char>());
-  return contents.find("nvidia,tegra234") != std::string::npos;
+  return CompatibleListContains(contents, "nvidia,tegra234");
 }
 
 void CopyPlane(uint8_t* dst,
@@ -187,16 +237,10 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
            "libraries (libnvbufsurface/libv4l2) could not be loaded.";
     return false;
   }
-  // Do not create a temporary NvVideoEncoder here. NvVideoEncoder uses
-  // libv4l2, whose v4l2_close() unloads NVIDIA's nvvideocodec plugin on
-  // JetPack. That unload invalidates GLib thread-local state used by a
-  // subsequently-created nvarguscamerasrc pipeline. Capability discovery must
-  // therefore remain passive; Initialize() performs the authoritative check
-  // when an encoder is actually needed and keeps it alive for the session.
-  //
-  // H.264 and H.265 are supported by every Jetson encoder exposed through
-  // these device nodes. AV1 encoding starts with Orin (Tegra234).
-  return codec != JetsonCodec::kAV1 || IsOrinPlatform();
+
+  // Return true for H.264 and H.265 are supported by every Jetson encoder
+  // exposed through these device nodes. AV1 encoding starts with Orin (Tegra234).
+  return codec != JetsonCodec::kAV1 || IsTegra234Platform();
 }
 
 std::optional<std::string> JetsonMmapiEncoder::FindEncoderDevice() {
