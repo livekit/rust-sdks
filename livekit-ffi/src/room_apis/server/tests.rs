@@ -430,3 +430,20 @@ fn dispose_cleans_up_resources() {
     assert!(FFI_SERVER.ffi_handles.is_empty());
     assert!(!FFI_SERVER.is_setup());
 }
+
+/// Taking a handle ends its id the same way dropping it does, so watchers fire:
+/// a protobuf pump watching a stream must stop once uniffi takes the stream.
+#[serial_test::parallel]
+#[test]
+fn take_handle_notifies_dropped_watchers() {
+    let handle = FFI_SERVER.next_id();
+    FFI_SERVER.store_handle(handle, ());
+    let mut dropped_rx = FFI_SERVER.watch_handle_dropped(handle);
+
+    FFI_SERVER.take_handle::<()>(handle).unwrap();
+
+    assert!(matches!(
+        dropped_rx.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+    ));
+}
