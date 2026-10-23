@@ -1,16 +1,7 @@
 name: Rust Formatting
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,7 +10,6 @@ jobs:
   formatting:
     name: Check Formatting
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout the repo
