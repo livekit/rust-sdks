@@ -25,7 +25,9 @@ mod utils;
 
 /// Public API re-exported by client SDKs (surfaced to end users through the `livekit` crate).
 pub mod api {
-    pub use crate::incoming::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
+    pub use crate::incoming::{
+        AnyStreamReader, ByteStreamReader, StreamCloser, StreamReader, TextStreamReader,
+    };
     pub use crate::info::{ByteStreamInfo, TextStreamInfo};
     pub use crate::outgoing::{
         ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,

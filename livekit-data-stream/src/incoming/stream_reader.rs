@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::{
+    incoming::manager::ManagerMessage,
     info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo},
+    types::StreamId,
     utils::{StreamError, StreamProgress, StreamResult},
 };
 use bytes::{Bytes, BytesMut};
@@ -24,7 +26,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    mpsc::{self, UnboundedReceiver, UnboundedSender, WeakUnboundedSender},
     watch,
 };
 use tokio_stream::wrappers::WatchStream;
@@ -61,6 +63,7 @@ pub struct ByteStreamReader {
     info: ByteStreamInfo,
     chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     progress_rx: watch::Receiver<StreamProgress>,
+    closer: StreamCloser,
 }
 
 /// Reader for an incoming text data stream.
@@ -68,6 +71,40 @@ pub struct TextStreamReader {
     info: TextStreamInfo,
     chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     progress_rx: watch::Receiver<StreamProgress>,
+    closer: StreamCloser,
+}
+
+/// Ends an incoming stream from outside its reader, for example while another task reads it.
+///
+/// Get one from [`ByteStreamReader::closer`] or [`TextStreamReader::closer`].
+#[derive(Clone, Debug)]
+pub struct StreamCloser {
+    /// The incoming manager's input. Weak, so a closer does not keep the manager running.
+    pub(crate) input: WeakUnboundedSender<ManagerMessage>,
+    pub(crate) stream_id: StreamId,
+    /// Tells this stream apart from a later stream that reuses its id.
+    pub(crate) instance: u64,
+}
+
+impl StreamCloser {
+    /// A closer that does nothing, for readers made outside a manager.
+    #[cfg(any(test, feature = "test-utils"))]
+    fn detached() -> Self {
+        let (input, _) = mpsc::unbounded_channel();
+        Self { input: input.downgrade(), stream_id: StreamId::from(""), instance: 0 }
+    }
+
+    /// Ends the stream on the receiving side. The incoming manager drops the stream's state and
+    /// reports it closed, and a read in progress fails with [`StreamError::AlreadyClosed`] after
+    /// the chunks that already arrived.
+    ///
+    /// Does nothing once the stream has ended, and never affects a later stream that reuses its
+    /// id.
+    pub fn close(&self) {
+        if let Some(input) = self.input.upgrade() {
+            let _ = input.send(ManagerMessage::CloseStream(self.clone()));
+        }
+    }
 }
 
 impl StreamReader for ByteStreamReader {
@@ -79,7 +116,7 @@ impl StreamReader for ByteStreamReader {
     }
 
     fn progress(&self) -> impl Stream<Item = StreamProgress> {
-        WatchStream::new(self.progress_rx.clone())
+        self.progress_stream()
     }
 
     async fn read_all(mut self) -> StreamResult<Bytes> {
@@ -95,6 +132,17 @@ impl StreamReader for ByteStreamReader {
 }
 
 impl ByteStreamReader {
+    /// Like [`StreamReader::progress`], but the stream does not borrow the reader, so it can be
+    /// polled while the reader is read or after the reader is consumed.
+    pub fn progress_stream(&self) -> impl Stream<Item = StreamProgress> + Send + Unpin + 'static {
+        WatchStream::new(self.progress_rx.clone())
+    }
+
+    /// Returns a handle that ends this stream from outside the reader. See [`StreamCloser`].
+    pub fn closer(&self) -> StreamCloser {
+        self.closer.clone()
+    }
+
     /// Reads incoming chunks from the byte stream, writing them to a file as they are received.
     ///
     /// Parameters:
@@ -113,7 +161,7 @@ impl ByteStreamReader {
         name_override: Option<&str>,
     ) -> StreamResult<std::path::PathBuf> {
         let directory =
-            directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(|| std::env::temp_dir());
+            directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(std::env::temp_dir);
         let name = name_override.unwrap_or_else(|| &self.info.name);
         // The stream name comes from the remote sender: reject anything that isn't a plain
         // file name so it can't escape the target directory.
@@ -153,6 +201,19 @@ impl Stream for ByteStreamReader {
     }
 }
 
+impl TextStreamReader {
+    /// Like [`StreamReader::progress`], but the stream does not borrow the reader, so it can be
+    /// polled while the reader is read or after the reader is consumed.
+    pub fn progress_stream(&self) -> impl Stream<Item = StreamProgress> + Send + Unpin + 'static {
+        WatchStream::new(self.progress_rx.clone())
+    }
+
+    /// Returns a handle that ends this stream from outside the reader. See [`StreamCloser`].
+    pub fn closer(&self) -> StreamCloser {
+        self.closer.clone()
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 impl TextStreamReader {
     /// Create a TextStreamReader for testing purposes.
@@ -166,7 +227,7 @@ impl TextStreamReader {
         // The progress channel is unused by these tests; seed it and drop the sender so the
         // progress stream simply ends after the initial value.
         let (_, progress_rx) = watch::channel(StreamProgress::default());
-        Self { info, chunk_rx, progress_rx }
+        Self { info, chunk_rx, progress_rx, closer: StreamCloser::detached() }
     }
 }
 
@@ -179,7 +240,7 @@ impl StreamReader for TextStreamReader {
     }
 
     fn progress(&self) -> impl Stream<Item = StreamProgress> {
-        WatchStream::new(self.progress_rx.clone())
+        self.progress_stream()
     }
 
     async fn read_all(mut self) -> StreamResult<String> {
@@ -243,9 +304,10 @@ impl AnyStreamReader {
     /// Returns the reader along with the sender halves the manager uses to feed it: the chunk
     /// channel for received content, and the progress channel for [`StreamProgress`] updates. The
     /// progress channel is seeded with the initial progress (0 bytes, plus the total length when
-    /// the stream is finite).
+    /// the stream is finite). `closer` is what the reader's [`StreamCloser`] sends.
     pub(super) fn from(
         info: AnyStreamInfo,
+        closer: StreamCloser,
     ) -> (Self, UnboundedSender<StreamResult<Bytes>>, watch::Sender<StreamProgress>) {
         let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
         let (progress_tx, progress_rx) = watch::channel(StreamProgress {
@@ -254,13 +316,13 @@ impl AnyStreamReader {
         });
         let reader = match info {
             AnyStreamInfo::Byte(info) => {
-                Self::Byte(ByteStreamReader { info, chunk_rx, progress_rx })
+                Self::Byte(ByteStreamReader { info, chunk_rx, progress_rx, closer })
             }
             AnyStreamInfo::Text(info) => {
-                Self::Text(TextStreamReader { info, chunk_rx, progress_rx })
+                Self::Text(TextStreamReader { info, chunk_rx, progress_rx, closer })
             }
         };
-        return (reader, chunk_tx, progress_tx);
+        (reader, chunk_tx, progress_tx)
     }
 }
 
@@ -290,7 +352,10 @@ mod tests {
         };
         let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
         let (_, progress_rx) = watch::channel(StreamProgress::default());
-        (ByteStreamReader { info, chunk_rx, progress_rx }, chunk_tx)
+        (
+            ByteStreamReader { info, chunk_rx, progress_rx, closer: StreamCloser::detached() },
+            chunk_tx,
+        )
     }
 
     #[tokio::test]

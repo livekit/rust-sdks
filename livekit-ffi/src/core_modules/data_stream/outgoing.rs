@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
 use livekit_common as lk_common;
@@ -22,7 +22,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{
     ByteStreamInfo, ClientCapability, DataStreamError, PacketDeliveryError, StreamByteOptions,
-    StreamTextOptions, TextStreamInfo,
+    StreamProgress, StreamTextOptions, TextStreamInfo,
 };
 use ds_api::StreamWriter as _;
 
@@ -65,6 +65,17 @@ pub trait RemoteParticipantRegistryDelegate: Send + Sync {
 
     /// The identities of every remote participant, used to resolve a broadcast send.
     fn remote_identities(&self) -> Vec<String>;
+}
+
+/// Receives the progress of an outgoing send, implemented by the foreign side.
+#[uniffi::export(with_foreign)]
+pub trait StreamProgressDelegate: Send + Sync {
+    /// Reports how much of the payload was sent. Called on the thread that polls the send, so it
+    /// must return quickly.
+    ///
+    /// It must not throw. The method returns no error, so UniFFI turns an exception from a Kotlin
+    /// or Dart implementation into a Rust panic, and the release profile aborts the process.
+    fn on_progress(&self, progress: StreamProgress);
 }
 
 /// Adapts the foreign [`RemoteParticipantRegistryDelegate`] to the crate-internal
@@ -130,30 +141,62 @@ impl OutgoingDataStreamManager {
     }
 
     /// Sends a complete text payload, returning info about the created stream.
+    ///
+    /// The whole stream goes to the transport in one delegate call, so `progress`, when set, gets
+    /// one report, when the send completes.
+    #[uniffi::method(default(progress = None))]
     pub async fn send_text(
         &self,
         text: String,
         options: StreamTextOptions,
+        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<TextStreamInfo, DataStreamError> {
-        Ok(self.manager.send_text(&text, options.into(), &*self.registry).await?.into())
+        let length = text.len() as u64;
+        let info = self.manager.send_text(&text, options.into(), &*self.registry).await?;
+        report_completion(progress, length);
+        Ok(info.into())
     }
 
     /// Sends a complete byte payload, returning info about the created stream.
+    ///
+    /// The whole stream goes to the transport in one delegate call, so `progress`, when set, gets
+    /// one report, when the send completes.
+    #[uniffi::method(default(progress = None))]
     pub async fn send_bytes(
         &self,
         data: Bytes,
         options: StreamByteOptions,
+        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        Ok(self.manager.send_bytes(data, options.into(), &*self.registry).await?.into())
+        let length = data.len() as u64;
+        let info = self.manager.send_bytes(data, options.into(), &*self.registry).await?;
+        report_completion(progress, length);
+        Ok(info.into())
     }
 
     /// Streams a file from disk, returning info about the created stream.
+    ///
+    /// `progress`, when set, counts file bytes before compression. An uncompressed file reports
+    /// after each chunk is sent. A compressed file reports after each encoder drain, so it counts
+    /// the input the encoder consumed, which can run ahead of the chunks sent. Either way, the
+    /// whole file is reported only after its last chunk was sent.
+    #[uniffi::method(default(progress = None))]
     pub async fn send_file(
         &self,
         path: String,
         options: StreamByteOptions,
+        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        Ok(self.manager.send_file(path, options.into(), &*self.registry).await?.into())
+        let on_progress = |p: ds_api::StreamProgress| {
+            if let Some(progress) = &progress {
+                progress.on_progress(p.into());
+            }
+        };
+        let info = self
+            .manager
+            .send_file_with_progress(path, options.into(), &*self.registry, on_progress)
+            .await?;
+        Ok(info.into())
     }
 
     /// Opens an incremental text stream writer (never compressed or inlined).
@@ -161,7 +204,10 @@ impl OutgoingDataStreamManager {
         &self,
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
-        Ok(TextStreamWriter(self.manager.stream_text(options.into()).await?))
+        let total_length = options.total_length;
+        let writer =
+            self.manager.stream_text_with_total_length(options.into(), total_length).await?;
+        Ok(TextStreamWriter(writer))
     }
 
     /// Opens an incremental byte stream writer (never compressed or inlined).
@@ -194,9 +240,15 @@ impl TextStreamWriter {
         Ok(self.0.write(&text).await?)
     }
 
-    /// Closes the stream normally.
-    pub async fn close(&self) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close().await?)
+    /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
+    /// where the receiver merges them into the stream's attributes.
+    #[uniffi::method(default(reason = None, attributes))]
+    pub async fn close(
+        &self,
+        reason: Option<String>,
+        attributes: HashMap<String, String>,
+    ) -> Result<(), DataStreamError> {
+        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
     }
 
     /// Closes the stream abnormally with a reason.
@@ -226,13 +278,26 @@ impl ByteStreamWriter {
         Ok(self.0.write(data.as_ref()).await?)
     }
 
-    /// Closes the stream normally.
-    pub async fn close(&self) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close().await?)
+    /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
+    /// where the receiver merges them into the stream's attributes.
+    #[uniffi::method(default(reason = None, attributes))]
+    pub async fn close(
+        &self,
+        reason: Option<String>,
+        attributes: HashMap<String, String>,
+    ) -> Result<(), DataStreamError> {
+        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
     }
 
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
         Ok(self.0.clone().close_with_reason(&reason).await?)
+    }
+}
+
+/// Reports a one-shot send of `length` bytes as complete, when the caller asked for progress.
+fn report_completion(progress: Option<Arc<dyn StreamProgressDelegate>>, length: u64) {
+    if let Some(progress) = progress {
+        progress.on_progress(StreamProgress { bytes_processed: length, bytes_total: Some(length) });
     }
 }

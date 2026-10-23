@@ -26,7 +26,7 @@ use crate::{
     info::{ByteStreamInfo, TextStreamInfo},
     types::{ByteHeader, CompressionType, ContentHeader, Header, StreamId, TextHeader},
     utf8_chunk::Utf8AwareChunkExt,
-    utils::{SendError, StreamError, StreamResult},
+    utils::{SendError, StreamError, StreamProgress, StreamResult},
 };
 
 use super::{
@@ -58,11 +58,22 @@ impl Manager {
     }
 
     pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+        self.stream_text_with_total_length(options, None).await
+    }
+
+    /// Like [`Self::stream_text`], and declares `total_length`, the byte length of all the text
+    /// the writer will send, in the stream header. The receiver then reports progress against it
+    /// and fails the stream if the length does not match.
+    pub async fn stream_text_with_total_length(
+        &self,
+        options: StreamTextOptions,
+        total_length: Option<u64>,
+    ) -> StreamResult<TextStreamWriter> {
         // Incremental streams are never inlined or compressed (the content is unknown up front).
         let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
         let (header, text_header) =
-            build_text_header(&options, stream_id, None, None, CompressionType::None);
+            build_text_header(&options, stream_id, total_length, None, CompressionType::None);
         enforce_header_size(&header, &dests)?;
 
         let open_options = RawStreamOpenOptions {
@@ -287,6 +298,22 @@ impl Manager {
         options: StreamByteOptions,
         remote_participant_registry: &dyn RemoteParticipantRegistry,
     ) -> StreamResult<ByteStreamInfo> {
+        self.send_file_with_progress(path, options, remote_participant_registry, |_| {}).await
+    }
+
+    /// Like [`Self::send_file`], and calls `on_progress` as the file goes out.
+    ///
+    /// Progress counts file bytes before compression, against the file size. An uncompressed file
+    /// reports after each chunk is sent. A compressed file reports after each encoder drain, so it
+    /// counts the input the encoder consumed, which can run ahead of the chunks sent. Either way,
+    /// the whole file is reported only after its last chunk was sent.
+    pub async fn send_file_with_progress(
+        &self,
+        path: impl AsRef<Path>,
+        options: StreamByteOptions,
+        remote_participant_registry: &dyn RemoteParticipantRegistry,
+        mut on_progress: impl FnMut(StreamProgress) + Send,
+    ) -> StreamResult<ByteStreamInfo> {
         let path = path.as_ref();
         let file_size = tokio::fs::metadata(path)
             .await
@@ -315,7 +342,7 @@ impl Manager {
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
-        stream.write_file(path, should_compress).await?;
+        stream.write_file(path, should_compress, &mut on_progress).await?;
         stream.close(None, None).await?;
         Ok(info)
     }
@@ -458,7 +485,7 @@ fn build_text_header(
         mime_type: constants::TEXT_MIME_TYPE.to_owned(),
         total_length,
         attributes: options.attributes.clone(),
-        content_header: Some(ContentHeader::TextHeader(text_header.clone().into())),
+        content_header: Some(ContentHeader::TextHeader(text_header.clone())),
         inline_content,
         compression,
     };
@@ -1069,6 +1096,116 @@ mod tests {
                 assert_trailer(&p[2]);
             }
 
+            /// Sends `bytes` as a file to a compression-capable recipient and returns every
+            /// progress report as `(bytes_processed, bytes_total)`.
+            async fn send_file_progress(bytes: &[u8], compress: bool) -> Vec<(u64, Option<u64>)> {
+                let (m, _sent) = setup();
+                let path = write_temp_file(bytes).await;
+                let mut reports = Vec::new();
+                m.send_file_with_progress(
+                    &path,
+                    byte_opts("file", &["alice"]).with_compress(compress),
+                    &all_v2_room(),
+                    |p| reports.push((p.bytes_processed(), p.bytes_total())),
+                )
+                .await
+                .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+                reports
+            }
+
+            #[tokio::test]
+            async fn send_file_reports_progress_after_each_chunk() {
+                let reports = send_file_progress(&vec![0x07u8; 20_000], false).await;
+                assert_eq!(reports, vec![(15_000, Some(20_000)), (20_000, Some(20_000))]);
+            }
+
+            /// What the transport and the progress callback saw, in order.
+            #[derive(Debug, PartialEq)]
+            enum Seen {
+                Chunk,
+                Progress(u64),
+            }
+
+            /// Sends `bytes` as a compressed file over a transport that fails request
+            /// `fail_request` (request 1 is the header). Returns what was seen, in order, and the
+            /// result of the send.
+            async fn compressed_send_file(
+                bytes: &[u8],
+                fail_request: Option<usize>,
+            ) -> (Vec<Seen>, StreamResult<ByteStreamInfo>) {
+                let (m, mut packet_rx) = Manager::new();
+                let seen = Arc::new(StdMutex::new(Vec::new()));
+                let transport_seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut request = 0;
+                    while let Ok((packets, responder)) = packet_rx.recv().await {
+                        request += 1;
+                        if Some(request) == fail_request {
+                            let _ = responder.respond(Err(SendError));
+                            continue;
+                        }
+                        let is_chunk = |p: &proto::DataPacket| {
+                            matches!(p.value, Some(proto::data_packet::Value::StreamChunk(_)))
+                        };
+                        if packets.iter().any(is_chunk) {
+                            transport_seen.lock().unwrap().push(Seen::Chunk);
+                        }
+                        let _ = responder.respond(Ok(()));
+                    }
+                });
+                let path = write_temp_file(bytes).await;
+                let progress_seen = seen.clone();
+                let result = m
+                    .send_file_with_progress(
+                        &path,
+                        byte_opts("file", &["alice"]),
+                        &all_v2_room(),
+                        |p| progress_seen.lock().unwrap().push(Seen::Progress(p.bytes_processed())),
+                    )
+                    .await;
+                let _ = tokio::fs::remove_file(&path).await;
+                let seen = std::mem::take(&mut *seen.lock().unwrap());
+                (seen, result)
+            }
+
+            #[tokio::test]
+            async fn compressed_send_file_reports_rising_progress_and_the_total_last() {
+                // Incompressible, so the compressed stream spans several chunks.
+                let (seen, result) = compressed_send_file(&random_bytes(50_000), None).await;
+                result.unwrap();
+                let reports: Vec<u64> = seen
+                    .iter()
+                    .filter_map(|s| match s {
+                        Seen::Progress(bytes) => Some(*bytes),
+                        Seen::Chunk => None,
+                    })
+                    .collect();
+                assert!(reports.len() >= 2, "{seen:?}");
+                assert!(reports.windows(2).all(|pair| pair[0] < pair[1]), "{seen:?}");
+                // The total is reported once, after the last chunk was sent.
+                assert_eq!(seen.last(), Some(&Seen::Progress(50_000)), "{seen:?}");
+                assert_eq!(seen[seen.len() - 2], Seen::Chunk, "{seen:?}");
+            }
+
+            #[tokio::test]
+            async fn compressed_send_file_without_its_last_chunk_never_reports_the_total() {
+                let data = random_bytes(50_000);
+                let (seen, _) = compressed_send_file(&data, None).await;
+                let chunks = seen.iter().filter(|s| **s == Seen::Chunk).count();
+
+                // Request 1 is the header, so request `1 + chunks` carries the last chunk.
+                let (seen, result) = compressed_send_file(&data, Some(1 + chunks)).await;
+                assert!(matches!(result, Err(StreamError::SendFailed)));
+                assert!(!seen.contains(&Seen::Progress(50_000)), "{seen:?}");
+            }
+
+            #[tokio::test]
+            async fn send_file_reports_progress_for_empty_file() {
+                assert_eq!(send_file_progress(&[], false).await, vec![(0, Some(0))]);
+                assert_eq!(send_file_progress(&[], true).await, vec![(0, Some(0))]);
+            }
+
             #[tokio::test]
             async fn send_file_empty_file() {
                 let (m, sent) = setup();
@@ -1254,6 +1391,27 @@ mod tests {
         assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
     }
 
+    #[tokio::test]
+    async fn compressed_send_file_with_progress_targets_every_packet() {
+        let (m, sent) = setup();
+        let path = std::env::temp_dir().join(format!("lk_ds_dest_{}.bin", create_random_uuid()));
+        // Incompressible, so chunks go out both while the file is read and in the tail.
+        tokio::fs::write(&path, random_bytes(50_000)).await.unwrap();
+        let mut reports = 0;
+        m.send_file_with_progress(&path, byte_opts("file", &["alice"]), &all_v2_room(), |_| {
+            reports += 1
+        })
+        .await
+        .unwrap();
+        let _ = tokio::fs::remove_file(&path).await;
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::DeflateRaw);
+        assert!(p.len() >= 5, "header, at least 3 chunks, trailer: {}", p.len());
+        assert_trailer(p.last().unwrap());
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice"]));
+        assert!(reports >= 2);
+    }
+
     // --- Incremental writers never compress or inline ------------------------------------
 
     #[tokio::test]
@@ -1274,6 +1432,15 @@ mod tests {
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 3);
         assert_trailer(&p[2]);
+    }
+
+    #[tokio::test]
+    async fn stream_text_declares_total_length() {
+        let (m, sent) = setup();
+        let writer =
+            m.stream_text_with_total_length(text_opts("chat", &[]), Some(5)).await.unwrap();
+        assert_eq!(writer.info().total_length, Some(5));
+        assert_eq!(header(&sent.lock().unwrap()[0]).total_length, Some(5));
     }
 
     #[tokio::test]

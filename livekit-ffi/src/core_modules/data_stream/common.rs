@@ -187,6 +187,23 @@ impl From<ds_api::TextStreamInfo> for TextStreamInfo {
     }
 }
 
+// MARK: - Progress
+
+/// Progress of a data stream. FFI wrapper around [`ds_api::StreamProgress`].
+#[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamProgress {
+    /// Bytes received or sent so far, counted before compression.
+    pub bytes_processed: u64,
+    /// Total bytes expected, or `None` for a stream of unknown length.
+    pub bytes_total: Option<u64>,
+}
+
+impl From<ds_api::StreamProgress> for StreamProgress {
+    fn from(progress: ds_api::StreamProgress) -> Self {
+        Self { bytes_processed: progress.bytes_processed(), bytes_total: progress.bytes_total() }
+    }
+}
+
 // MARK: - Option records
 
 /// Options for sending a byte stream. FFI wrapper around [`ds_api::StreamByteOptions`].
@@ -253,6 +270,10 @@ pub struct StreamTextOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
+    /// Total byte length of the text, when known ahead of time. Used by `stream_text`;
+    /// `send_text` sets it from the text it sends.
+    #[uniffi(default = None)]
+    pub total_length: Option<u64>,
 }
 
 impl From<StreamTextOptions> for ds_api::StreamTextOptions {
