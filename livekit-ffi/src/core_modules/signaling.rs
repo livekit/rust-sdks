@@ -74,6 +74,10 @@ pub struct SignalOptions {
     /// Timeout for each individual connection attempt. `None` uses the crate default.
     #[uniffi(default = None)]
     pub connect_timeout: Option<Duration>,
+    /// Retry a failed connect on the other regions of a LiveKit Cloud project. Turn off when the
+    /// caller runs its own region failover, so the two retry loops do not stack.
+    #[uniffi(default = true)]
+    pub region_failover: bool,
 }
 
 impl From<SignalOptions> for signaling::SignalOptions {
@@ -85,6 +89,7 @@ impl From<SignalOptions> for signaling::SignalOptions {
         out.adaptive_stream = options.adaptive_stream;
         out.sdk_options = options.sdk_options.into();
         out.single_peer_connection = options.single_peer_connection;
+        out.region_failover = options.region_failover;
         if let Some(connect_timeout) = options.connect_timeout {
             out.connect_timeout = connect_timeout;
         }
@@ -122,7 +127,10 @@ impl From<ReconnectReason> for proto::ReconnectReason {
 pub enum SignalEvent {
     /// An encoded `livekit.SignalResponse` from the server.
     Signal { payload: Bytes },
-    /// The signalling link went away. [`SignalSession::restart`] can resume the session.
+    /// The signalling link was lost: start a resume with [`SignalSession::restart`].
+    ///
+    /// Never sent for a requested [`SignalSession::close`] or [`SignalSession::restart`], so a
+    /// host can treat every `Closed` as a lost link without filtering its own teardown.
     Closed { reason: String },
 }
 
@@ -654,6 +662,7 @@ mod tests {
             },
             single_peer_connection: false,
             connect_timeout: None,
+            region_failover: true,
         }
     }
 
