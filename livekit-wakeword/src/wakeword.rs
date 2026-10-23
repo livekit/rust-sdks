@@ -23,8 +23,8 @@ use resampler::{Attenuation, Latency, ResamplerFir, SampleRate};
 use crate::embedding::EmbeddingModel;
 use crate::melspectrogram::MelspectrogramModel;
 use crate::{
-    build_session_from_file, to_resampler_rate, WakeWordError, EMBEDDING_STRIDE, EMBEDDING_WINDOW,
-    MIN_EMBEDDINGS,
+    build_session_from_file, to_resampler_rate, SessionOptions, WakeWordError, EMBEDDING_STRIDE,
+    EMBEDDING_WINDOW, MIN_EMBEDDINGS,
 };
 
 struct Resampler {
@@ -45,6 +45,7 @@ pub struct WakeWordModel {
     emb_model: EmbeddingModel,
     classifiers: HashMap<String, Session>,
     resampler: Option<Resampler>,
+    session_options: SessionOptions,
 }
 
 impl WakeWordModel {
@@ -53,7 +54,23 @@ impl WakeWordModel {
     /// The recommended sample rate is 16 kHz. Other supported rates
     /// (22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 384000 Hz)
     /// are resampled internally to 16 kHz.
+    ///
+    /// ONNX sessions are created with [`SessionOptions::default`]; use
+    /// [`with_session_options`](Self::with_session_options) to tune them.
     pub fn new(models: &[impl AsRef<Path>], sample_rate: u32) -> Result<Self, WakeWordError> {
+        Self::with_session_options(models, sample_rate, SessionOptions::default())
+    }
+
+    /// Create a new wake word model, tuning the ONNX sessions it creates.
+    ///
+    /// `session_options` applies to the bundled feature extraction models, to every
+    /// classifier in `models`, and to any classifier a later
+    /// [`load_model`](Self::load_model) call adds.
+    pub fn with_session_options(
+        models: &[impl AsRef<Path>],
+        sample_rate: u32,
+        session_options: SessionOptions,
+    ) -> Result<Self, WakeWordError> {
         let resampler = if sample_rate != 16000 {
             let input_rate = to_resampler_rate(sample_rate)?;
             // FIR resampler: 64-sample latency (~1.3ms at 48kHz) with 90dB
@@ -72,10 +89,11 @@ impl WakeWordModel {
         };
 
         let mut wakeword = Self {
-            mel_model: MelspectrogramModel::new()?,
-            emb_model: EmbeddingModel::new()?,
+            mel_model: MelspectrogramModel::new(&session_options)?,
+            emb_model: EmbeddingModel::new(&session_options)?,
             classifiers: HashMap::new(),
             resampler,
+            session_options,
         };
 
         for path in models {
@@ -87,7 +105,8 @@ impl WakeWordModel {
 
     /// Load a wake word classifier ONNX model from disk.
     ///
-    /// If `model_name` is `None`, the file stem is used as the classifier name.
+    /// If `model_name` is `None`, the file stem is used as the classifier name. The
+    /// session is created with the [`SessionOptions`] this model was built with.
     pub fn load_model(
         &mut self,
         model_path: impl AsRef<Path>,
@@ -103,7 +122,7 @@ impl WakeWordModel {
             None => path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
         };
 
-        let session = build_session_from_file(path)?;
+        let session = build_session_from_file(path, &self.session_options)?;
         self.classifiers.insert(name, session);
         Ok(())
     }
