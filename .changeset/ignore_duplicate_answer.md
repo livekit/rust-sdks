@@ -1,5 +1,7 @@
 ---
 livekit: patch
+livekit-capture: patch
+livekit-ffi: patch
 ---
 
 Ignore a duplicated server answer. `PeerTransport::set_remote_description` applied every answer it was given, so a second copy — one duplicated by a proxy, or a server retry — was applied again with no local offer left to answer. libwebrtc rejects that (`Failed to set remote answer sdp: Called in wrong state: stable`), and `rtc_session` propagates the error with `?` out of the signal handler, failing a renegotiation that had in fact succeeded.
