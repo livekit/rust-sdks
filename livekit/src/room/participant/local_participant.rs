@@ -662,6 +662,26 @@ impl LocalParticipant {
         sid: &TrackSid,
         // _stop_on_unpublish: bool,
     ) -> RoomResult<LocalTrackPublication> {
+        self.unpublish_track_with_negotiation(sid, true).await
+    }
+
+    /// Like [`Self::unpublish_track`], for a room that is closing. The publisher is not
+    /// renegotiated: the engine is about to close it, and the server removes the tracks of a
+    /// participant that leaves.
+    pub(crate) async fn unpublish_track_on_close(
+        &self,
+        sid: &TrackSid,
+    ) -> RoomResult<LocalTrackPublication> {
+        self.unpublish_track_with_negotiation(sid, false).await
+    }
+
+    /// Removes the publication and releases its track, then renegotiates the publisher when
+    /// `negotiate` is set and the sender was removed.
+    async fn unpublish_track_with_negotiation(
+        &self,
+        sid: &TrackSid,
+        negotiate: bool,
+    ) -> RoomResult<LocalTrackPublication> {
         let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
@@ -682,7 +702,7 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
-            if remove_result.is_ok() {
+            if negotiate && remove_result.is_ok() {
                 self.inner.rtc_engine.publisher_negotiation_needed();
             }
 
