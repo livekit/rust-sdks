@@ -189,6 +189,8 @@ pub struct SignalOptions {
     /// Signal protocol version sent to the server. Defaults to [`PROTOCOL_VERSION`].
     ///
     /// Lower it when the caller's media stack does not implement what a newer version implies.
+    /// Supported range: 13 to [`PROTOCOL_VERSION`]. Below 13, the server does not set
+    /// `LeaveRequest.action`, and this crate reads it on resume.
     pub protocol_version: u32,
     /// Capabilities advertised to the server in `ClientInfo`.
     ///
@@ -1902,23 +1904,34 @@ mod tests {
         assert_eq!(validate_url.scheme(), "https");
     }
 
+    /// The defaults advertise what the Rust SDK implements, on both signalling paths.
     #[test]
-    fn livekit_url_includes_client_capabilities() {
+    fn livekit_url_reports_the_default_protocol_and_capabilities() {
         let io = SignalOptions::default();
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
 
-        let capabilities = lk_url
-            .query_pairs()
-            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
-            .unwrap();
+        let v0 =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let query: std::collections::HashMap<_, _> = v0.query_pairs().into_owned().collect();
         let expected = CLIENT_CAPABILITIES
             .iter()
             .map(|capability| capability.as_str_name())
             .collect::<Vec<_>>()
             .join(",");
+        assert_eq!(query.get("protocol"), Some(&PROTOCOL_VERSION.to_string()));
+        assert_eq!(query.get("capabilities"), Some(&expected));
 
-        assert_eq!(capabilities, expected);
+        let v1 = get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = v1
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let client_info =
+            decode_join_request_param_for_test(&join_request_param).client_info.unwrap();
+        assert_eq!(client_info.protocol, PROTOCOL_VERSION as i32);
+        assert_eq!(
+            client_info.capabilities,
+            CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect::<Vec<_>>()
+        );
     }
 
     // -----------------------------------------------------------------------
