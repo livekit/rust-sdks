@@ -1385,7 +1385,17 @@ async fn at(deadline: Option<Instant>) {
 fn backoff(failures: u32) -> Duration {
     let doublings = failures.saturating_sub(1).min(MAX_BACKOFF_DOUBLINGS);
     let full = RETRY_BASE.saturating_mul(1 << doublings).min(RETRY_CAP);
-    full.mul_f64(rand::random::<f64>())
+    full.mul_f64(jitter())
+}
+
+/// A uniform draw in `[0, 1)` for full jitter; a test can script the draws on its thread
+/// (`tests::script_jitter`), so every wait is known exactly.
+fn jitter() -> f64 {
+    #[cfg(test)]
+    if let Some(draw) = tests::JITTER.with(|draws| draws.borrow_mut().pop_front()) {
+        return draw;
+    }
+    rand::random::<f64>()
 }
 
 /// A cached batch is intact when it is one complete gzip member (RFC 1952) whose CRC checks
@@ -1872,13 +1882,35 @@ pub(crate) mod tests {
         assert_eq!((events_in(&a), BatchId::parse(&b).host), (6, parsed.host));
     }
 
+    thread_local! {
+        /// Scripted jitter draws for this thread, used before any random one.
+        pub(crate) static JITTER: std::cell::RefCell<VecDeque<f64>> =
+            const { std::cell::RefCell::new(VecDeque::new()) };
+    }
+
+    /// The next jitter draws on this thread (and on an exporter running on it).
+    pub(crate) fn script_jitter(draws: impl IntoIterator<Item = f64>) {
+        JITTER.with(|scripted| scripted.borrow_mut().extend(draws));
+    }
+
+    /// Every failure's envelope, exactly — 1 s doubling to the 60 s cap — and the wait anywhere
+    /// in it the draw says: a draw from each half of every envelope, scripted, so neither a fixed
+    /// delay nor a wait without jitter passes.
     #[test]
     fn backoff_doubles_with_full_jitter_up_to_a_minute() {
-        for (failures, full) in [(1, 1), (2, 2), (3, 4), (6, 32), (7, 60), (40, 60)] {
+        let envelopes = [1, 2, 4, 8, 16, 32, 60, 60];
+        for (failures, full) in (1..).zip(envelopes).chain([(40, 60)]) {
             let full = Duration::from_secs(full);
-            let waits: Vec<Duration> = (0..64).map(|_| backoff(failures)).collect();
-            assert!(waits.iter().all(|w| *w <= full), "{failures}: {waits:?} vs {full:?}");
-            assert!(waits.iter().any(|w| *w < full / 2), "{failures}: jitter spans the range");
+            for draw in [0.0, 0.25, 0.75, 0.999] {
+                script_jitter([draw]);
+                assert_eq!(
+                    backoff(failures),
+                    full.mul_f64(draw),
+                    "failure {failures}, draw {draw}"
+                );
+            }
         }
+        let draws: Vec<f64> = (0..64).map(|_| jitter()).collect();
+        assert!(draws.iter().all(|d| (0.0..1.0).contains(d)), "{draws:?}");
     }
 }
