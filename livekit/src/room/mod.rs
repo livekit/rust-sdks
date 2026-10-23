@@ -482,6 +482,7 @@ impl Default for RoomOptions {
     }
 }
 
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomSession>,
 }
