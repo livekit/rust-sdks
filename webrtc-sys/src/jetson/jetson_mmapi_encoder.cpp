@@ -99,19 +99,41 @@ static_assert(!CompatibleListContains("nvidia,tegra2340", "nvidia,tegra234"));
 static_assert(!CompatibleListContains("vendor,nvidia,tegra234-suffix",
                                       "nvidia,tegra234"));
 
+/// @brief Reads the first whitespace-delimited value from a system file.
+/// @param path Filesystem path to read.
+/// @return The value, or std::nullopt when the file cannot be read.
+std::optional<std::string> ReadSystemValue(const char* path) {
+  std::ifstream input(path);
+  std::string value;
+  if (!(input >> value)) {
+    return std::nullopt;
+  }
+  return value;
+}
+
 // Tegra234 identifies the Orin generation where AV1 hardware encoding was
-// introduced. This check is intentionally combined with DeviceExists() by
+// introduced. Containers commonly hide /proc/device-tree while leaving the
+// SoC driver's sysfs identity available, so check both representations. The
+// Tegra SoC ID 35 is the decimal representation of chip ID 0x23 (Tegra234).
+//
+// This check is intentionally combined with DeviceExists() by
 // IsCodecSupported(): Tegra234 alone is insufficient because Orin Nano uses
 // the same SoC generation but does not contain an NVENC engine.
 bool IsTegra234Platform() {
   std::ifstream compatible("/proc/device-tree/compatible",
                            std::ios::in | std::ios::binary);
-  if (!compatible) {
-    return false;
+  if (compatible) {
+    const std::string contents((std::istreambuf_iterator<char>(compatible)),
+                               std::istreambuf_iterator<char>());
+    if (CompatibleListContains(contents, "nvidia,tegra234")) {
+      return true;
+    }
   }
-  const std::string contents((std::istreambuf_iterator<char>(compatible)),
-                             std::istreambuf_iterator<char>());
-  return CompatibleListContains(contents, "nvidia,tegra234");
+
+  // Fallback if docker --privileged is not used
+  const auto family = ReadSystemValue("/sys/devices/soc0/family");
+  const auto soc_id = ReadSystemValue("/sys/devices/soc0/soc_id");
+  return family == "Tegra" && soc_id == "35";
 }
 
 void CopyPlane(uint8_t* dst,
