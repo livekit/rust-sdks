@@ -33,6 +33,8 @@ use livekit_signaling as signaling;
 use prost::Message;
 use tokio_util::sync::CancellationToken;
 
+use crate::data_stream::common::ClientCapability;
+
 // MARK: - Options
 
 /// Identifies the calling SDK to the server. FFI wrapper around
@@ -78,6 +80,13 @@ pub struct SignalOptions {
     /// caller runs its own region failover, so the two retry loops do not stack.
     #[uniffi(default = true)]
     pub region_failover: bool,
+    /// Signal protocol version sent to the server. `None` uses the crate default.
+    #[uniffi(default = None)]
+    pub protocol_version: Option<u32>,
+    /// Capabilities advertised to the server. `None` uses the crate default, which includes
+    /// [`ClientCapability::PacketTrailer`].
+    #[uniffi(default = None)]
+    pub client_capabilities: Option<Vec<ClientCapability>>,
 }
 
 impl From<SignalOptions> for signaling::SignalOptions {
@@ -90,6 +99,12 @@ impl From<SignalOptions> for signaling::SignalOptions {
         out.sdk_options = options.sdk_options.into();
         out.single_peer_connection = options.single_peer_connection;
         out.region_failover = options.region_failover;
+        if let Some(protocol_version) = options.protocol_version {
+            out.protocol_version = protocol_version;
+        }
+        if let Some(capabilities) = options.client_capabilities {
+            out.client_capabilities = capabilities.into_iter().map(Into::into).collect();
+        }
         if let Some(connect_timeout) = options.connect_timeout {
             out.connect_timeout = connect_timeout;
         }
@@ -98,6 +113,16 @@ impl From<SignalOptions> for signaling::SignalOptions {
 }
 
 // MARK: - Enums
+
+impl From<ClientCapability> for proto::client_info::Capability {
+    fn from(capability: ClientCapability) -> Self {
+        match capability {
+            ClientCapability::Unused => Self::CapUnused,
+            ClientCapability::PacketTrailer => Self::CapPacketTrailer,
+            ClientCapability::CompressionDeflateRaw => Self::CapCompressionDeflateRaw,
+        }
+    }
+}
 
 /// Why the client is resuming its session, reported to the server. Mirrors
 /// [`proto::ReconnectReason`].
@@ -663,6 +688,8 @@ mod tests {
             single_peer_connection: false,
             connect_timeout: None,
             region_failover: true,
+            protocol_version: None,
+            client_capabilities: None,
         }
     }
 
