@@ -2090,18 +2090,13 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
-        //
-        // Ordering defect: on a server-initiated disconnect this `close()` runs BEFORE
-        // `RoomSession::close`'s unpublish loop. Closing the publisher PC with tracks
-        // still attached leaves every RtpSender holding its MediaStreamTrack for the
-        // life of the process: libwebrtc refuses RemoveTrack/SetTrack on a closed
-        // PeerConnection (INVALID_STATE) and `RtpSenderBase::Stop()` never releases
-        // `track_`, so the later `unpublish_track` cannot detach it and (for audio) the
-        // AudioSourceCapture thread behind the native track is stranded. Detach every
-        // sender while the PC is still open so the tracks are released.
-        let publisher_pc = self.publisher_pc.peer_connection();
-        for sender in publisher_pc.senders() {
-            if let Err(err) = publisher_pc.remove_track(sender) {
+
+        // Detach the senders while the publisher PC is still open: libwebrtc refuses
+        // RemoveTrack on a closed PC and `RtpSenderBase::Stop()` keeps the track, so a
+        // server-initiated disconnect (which closes here before the room unpublishes)
+        // would otherwise leave every local track attached to its sender.
+        for sender in self.publisher_pc.peer_connection().senders() {
+            if let Err(err) = self.remove_track(sender) {
                 log::warn!("failed to remove sender from publisher pc before close: {:?}", err);
             }
         }
