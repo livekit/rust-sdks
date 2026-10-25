@@ -773,7 +773,7 @@ async fn test_data_channel_impl(mode: SignalingMode) -> Result<()> {
             let Some(event) = events2.recv().await else {
                 return Err(anyhow!("Event channel closed"));
             };
-            if let RoomEvent::DataReceived { payload, topic, kind: _, participant: _ } = event {
+            if let RoomEvent::DataReceived { payload, topic, .. } = event {
                 if topic == Some(test_topic.clone()) {
                     return Ok(payload);
                 }

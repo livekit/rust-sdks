@@ -209,6 +209,7 @@ pub enum RoomEvent {
         topic: Option<String>,
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
+        participant_identity: Option<ParticipantIdentity>,
     },
     TranscriptionReceived {
         participant: Option<Participant>,
@@ -1880,6 +1881,7 @@ impl RoomSession {
             topic,
             kind,
             participant,
+            participant_identity,
         });
     }
 
