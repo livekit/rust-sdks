@@ -2024,6 +2024,17 @@ export declare class RoomDataStreamOptions extends Message<RoomDataStreamOptions
    */
   maxPayloadByteLength?: bigint;
 
+  /**
+   * Deprecated: no client SDK uses this anymore, and it is ignored. It was a
+   * temporary migration aid for SDKs that implemented data streams in their
+   * own client-side code on top of the FFI; data streams v2 support is now
+   * always advertised. Kept only so the field number is not reused.
+   *
+   * @generated from field: optional bool use_legacy_client_implementation = 2 [deprecated = true];
+   * @deprecated
+   */
+  useLegacyClientImplementation?: boolean;
+
   constructor(data?: PartialMessage<RoomDataStreamOptions>);
 
   static readonly runtime: typeof proto2;
