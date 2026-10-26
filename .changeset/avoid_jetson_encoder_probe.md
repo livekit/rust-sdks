@@ -6,4 +6,4 @@ livekit-ffi: patch
 webrtc-sys: patch
 ---
 
-Avoid creating and destroying a temporary Jetson MMAPI encoder during capability discovery, preventing NVIDIA plugin teardown from breaking subsequent GStreamer capture.
+Keep NVIDIA's Jetson video codec plugin loaded while probing MMAPI encoder capabilities, preventing probe teardown from breaking subsequent GStreamer capture.
