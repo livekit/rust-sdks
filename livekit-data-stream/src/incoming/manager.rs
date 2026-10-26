@@ -21,7 +21,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
     watch,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::{
     info::AnyStreamInfo,
@@ -43,7 +43,7 @@ const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 struct Descriptor {
     /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it as well, so the
     /// manager's wait on it always ends.
-    close_guard: tokio_util::sync::DropGuard,
+    close_guard: DropGuard,
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     /// Publishes `progress` updates to the reader's `progress()` stream.
@@ -159,15 +159,16 @@ async fn inflate_raw(data: &[u8], max_byte_length: usize) -> StreamResult<Vec<u8
 #[derive(Clone)]
 pub struct ManagerInput {
     input_tx: UnboundedSender<InputEvent>,
-    _drop_guard: Arc<DropGuard>,
+    _shutdown_on_drop: Arc<ShutdownOnDrop>,
 }
 
-/// Sends [`InputEvent::Shutdown`] when the last [`ManagerInput`] is dropped.
-struct DropGuard {
+/// Shared by every clone of a [`ManagerInput`]. Sends [`InputEvent::Shutdown`] when the last
+/// clone is dropped.
+struct ShutdownOnDrop {
     input_tx: UnboundedSender<InputEvent>,
 }
 
-impl Drop for DropGuard {
+impl Drop for ShutdownOnDrop {
     fn drop(&mut self) {
         let _ = self.input_tx.send(InputEvent::Shutdown);
     }
@@ -175,7 +176,10 @@ impl Drop for DropGuard {
 
 impl ManagerInput {
     fn new(input_tx: UnboundedSender<InputEvent>) -> Self {
-        Self { input_tx: input_tx.clone(), _drop_guard: Arc::new(DropGuard { input_tx }) }
+        Self {
+            input_tx: input_tx.clone(),
+            _shutdown_on_drop: Arc::new(ShutdownOnDrop { input_tx }),
+        }
     }
 
     /// Feeds an event to the manager's run loop. Fails only if the loop has already stopped.

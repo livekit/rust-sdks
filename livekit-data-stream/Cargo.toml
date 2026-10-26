@@ -24,7 +24,7 @@ parking_lot = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt", "macros"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.19"
+tokio-util = { workspace = true }
 futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = { workspace = true }
 chrono = { workspace = true }
