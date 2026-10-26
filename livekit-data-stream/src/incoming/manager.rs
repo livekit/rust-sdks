@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use bytes::Bytes;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use livekit_common::{EncryptionType, ParticipantIdentity};
 use parking_lot::RwLock;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender, WeakUnboundedSender},
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
     watch,
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     info::AnyStreamInfo,
@@ -39,8 +41,9 @@ use super::{
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
 struct Descriptor {
-    /// Tells this stream apart from a later stream that reuses its id; see [`StreamCloser`].
-    instance: u64,
+    /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it as well, so the
+    /// manager's wait on it always ends.
+    close_guard: tokio_util::sync::DropGuard,
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     /// Publishes `progress` updates to the reader's `progress()` stream.
@@ -149,46 +152,35 @@ async fn inflate_raw(data: &[u8], max_byte_length: usize) -> StreamResult<Vec<u8
     Ok(out)
 }
 
-/// What the manager's input queue carries. A close from a [`StreamCloser`] shares the queue with
-/// the [`InputEvent`]s, so it stays in order with the packets of its stream, without being a
-/// public [`InputEvent`] variant.
-#[allow(clippy::large_enum_variant)] // Boxing the event would allocate for every inbound packet.
-pub(crate) enum ManagerMessage {
-    Event(InputEvent),
-    /// End one open stream on behalf of its reader. Ignored unless that exact stream, not a later
-    /// one that reuses its id, is still open.
-    CloseStream(StreamCloser),
-}
-
 /// Cheap, cloneable, `Send + Sync` handle used to feed [`InputEvent`]s into the manager's run
 /// loop.
 ///
 /// Dropping the last handle stops the loop (via [`InputEvent::Shutdown`]).
 #[derive(Clone)]
 pub struct ManagerInput {
-    input_tx: UnboundedSender<ManagerMessage>,
+    input_tx: UnboundedSender<InputEvent>,
     _drop_guard: Arc<DropGuard>,
 }
 
 /// Sends [`InputEvent::Shutdown`] when the last [`ManagerInput`] is dropped.
 struct DropGuard {
-    input_tx: UnboundedSender<ManagerMessage>,
+    input_tx: UnboundedSender<InputEvent>,
 }
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        let _ = self.input_tx.send(ManagerMessage::Event(InputEvent::Shutdown));
+        let _ = self.input_tx.send(InputEvent::Shutdown);
     }
 }
 
 impl ManagerInput {
-    fn new(input_tx: UnboundedSender<ManagerMessage>) -> Self {
+    fn new(input_tx: UnboundedSender<InputEvent>) -> Self {
         Self { input_tx: input_tx.clone(), _drop_guard: Arc::new(DropGuard { input_tx }) }
     }
 
     /// Feeds an event to the manager's run loop. Fails only if the loop has already stopped.
     pub fn send(&self, event: InputEvent) -> StreamResult<()> {
-        self.input_tx.send(ManagerMessage::Event(event)).map_err(|_| StreamError::Internal)
+        self.input_tx.send(event).map_err(|_| StreamError::Internal)
     }
 }
 
@@ -197,7 +189,10 @@ impl ManagerInput {
 /// `.await` decompression on the run-loop task.
 pub struct Manager {
     inner: ManagerInner,
-    input_rx: UnboundedReceiver<ManagerMessage>,
+    input_rx: UnboundedReceiver<InputEvent>,
+    /// One future per open stream, which yields the stream's id once its close token is
+    /// cancelled. The futures are `Sync`, so the manager stays `Sync`.
+    closes: FuturesUnordered<Pin<Box<dyn Future<Output = StreamId> + Send + Sync>>>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
@@ -206,10 +201,6 @@ pub struct Manager {
 struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
     output_tx: UnboundedSender<OutputEvent>,
-    /// The manager's own input, handed to each reader's [`StreamCloser`].
-    input_tx: WeakUnboundedSender<ManagerMessage>,
-    /// Instance number for the next stream that opens.
-    next_instance: u64,
 }
 
 impl Manager {
@@ -221,13 +212,9 @@ impl Manager {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner {
-                open_streams: HashMap::new(),
-                output_tx,
-                input_tx: input_tx.downgrade(),
-                next_instance: 0,
-            },
+            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
             input_rx,
+            closes: FuturesUnordered::new(),
 
             max_payload_byte_length: max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
@@ -240,13 +227,18 @@ impl Manager {
     /// still-open stream is aborted so its reader errors with [`StreamError::AbnormalEnd`]
     /// rather than ending cleanly with whatever partial content had arrived.
     pub async fn run(mut self) {
-        while let Some(message) = self.input_rx.recv().await {
-            let event = match message {
-                ManagerMessage::Event(event) => event,
-                ManagerMessage::CloseStream(closer) => {
-                    self.inner.close_from_reader(&closer);
+        loop {
+            let event = tokio::select! {
+                // Closes first, so an event sent after `close()` finds the stream gone.
+                biased;
+                Some(id) = self.closes.next() => {
+                    self.inner.close_from_reader(&id);
                     continue;
                 }
+                event = self.input_rx.recv() => match event {
+                    Some(event) => event,
+                    None => break,
+                },
             };
             match event {
                 InputEvent::PacketReceived(PacketReceived { packet, participant_identity }) => {
@@ -320,10 +312,8 @@ impl Manager {
             return;
         }
 
-        let instance = self.inner.next_instance;
-        self.inner.next_instance += 1;
-        let closer =
-            StreamCloser { input: self.inner.input_tx.clone(), stream_id: id.clone(), instance };
+        let token = CancellationToken::new();
+        let closer = StreamCloser { token: token.clone() };
         let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info, closer);
         let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
@@ -385,8 +375,14 @@ impl Manager {
             return;
         }
 
+        let closed = token.clone().cancelled_owned();
+        let closed_id = id.clone();
+        self.closes.push(Box::pin(async move {
+            closed.await;
+            closed_id
+        }));
         let descriptor = Descriptor {
-            instance,
+            close_guard: token.drop_guard(),
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             progress_tx,
@@ -641,10 +637,9 @@ impl ManagerInner {
     }
 
     /// Ends a stream on behalf of its reader (see [`StreamCloser`]), unless the stream ended
-    /// already or its id now belongs to a later stream.
-    fn close_from_reader(&mut self, closer: &StreamCloser) {
-        let id = &closer.stream_id;
-        if self.open_streams.get(id).is_some_and(|d| d.instance == closer.instance) {
+    /// already or its id now belongs to a later stream, whose own token is not cancelled.
+    fn close_from_reader(&mut self, id: &StreamId) {
+        if self.open_streams.get(id).is_some_and(|d| d.close_guard.token().is_cancelled()) {
             self.close_stream_with_error(id, StreamError::AlreadyClosed);
         }
     }
@@ -1884,13 +1879,13 @@ mod tests {
             let stopped = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
             stopped.expect("the run loop should stop").expect("the run loop should not panic");
 
-            // `close()` is synchronous, so each call returning shows it did not block. With the
-            // input kept, the closer reaches the queue, but the send fails: nothing receives.
+            // `close()` is synchronous, so each call returning shows it did not block. The stopped
+            // manager watches no token, so the closes change nothing, with the input kept or
+            // dropped.
             let closer = reader.closer();
             closer.close();
             closer.close();
             assert!(input.send(InputEvent::AbortAllStreams).is_err());
-            // With the last input dropped, the closer's weak handle cannot upgrade.
             drop(input);
             closer.close();
 
@@ -1906,9 +1901,9 @@ mod tests {
         #[tokio::test]
         async fn closer_ends_an_open_stream_once() {
             let mut h = Harness::new();
-            // The closer and the packets share one queue, so each order reaches the manager as
-            // written: a second close, then a close before the final chunk and one between that
-            // chunk and the trailer.
+            // Each order is sent before the manager runs: a second close, then a close before the
+            // final chunk and one between that chunk and the trailer. The close wins over the
+            // packets still in the input queue, so every order ends the stream once.
             for (id, steps) in [
                 ("s1", &["close", "close"][..]),
                 ("s2", &["close", "chunk", "trailer"]),

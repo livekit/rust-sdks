@@ -327,7 +327,7 @@ async fn next_progress(
 }
 
 /// Ends the stream in the manager, wakes pending reads and drops the core reader. Does nothing
-/// once the reader is closed, so a repeated close queues no message and spawns no task.
+/// once the reader is closed, so a repeated close spawns no second task.
 fn close_reader<R: Send + 'static>(
     reader: &Arc<Mutex<Option<R>>>,
     closed: &CancellationToken,

@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    incoming::manager::ManagerMessage,
     info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo},
-    types::StreamId,
     utils::{StreamError, StreamProgress, StreamResult},
 };
 use bytes::{Bytes, BytesMut};
@@ -26,10 +24,11 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender, WeakUnboundedSender},
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
     watch,
 };
 use tokio_stream::wrappers::WatchStream;
+use tokio_util::sync::CancellationToken;
 
 /// Reader for an incoming data stream.
 ///
@@ -79,31 +78,27 @@ pub struct TextStreamReader {
 /// Get one from [`ByteStreamReader::closer`] or [`TextStreamReader::closer`].
 #[derive(Clone, Debug)]
 pub struct StreamCloser {
-    /// The incoming manager's input. Weak, so a closer does not keep the manager running.
-    pub(crate) input: WeakUnboundedSender<ManagerMessage>,
-    pub(crate) stream_id: StreamId,
-    /// Tells this stream apart from a later stream that reuses its id.
-    pub(crate) instance: u64,
+    /// Cancelled to end this stream. The incoming manager watches it apart from its input queue.
+    pub(crate) token: CancellationToken,
 }
 
 impl StreamCloser {
     /// A closer that does nothing, for readers made outside a manager.
     #[cfg(any(test, feature = "test-utils"))]
     fn detached() -> Self {
-        let (input, _) = mpsc::unbounded_channel();
-        Self { input: input.downgrade(), stream_id: StreamId::from(""), instance: 0 }
+        Self { token: CancellationToken::new() }
     }
 
-    /// Ends the stream on the receiving side. The incoming manager drops the stream's state and
-    /// reports it closed, and a read in progress fails with [`StreamError::AlreadyClosed`] after
-    /// the chunks that already arrived.
+    /// Ends the stream on the receiving side. The incoming manager drops the stream's state at
+    /// once and reports it closed. A read in progress fails with [`StreamError::AlreadyClosed`]
+    /// after the chunks that the manager already handed to the reader. Packets of this stream
+    /// that the manager has not processed yet are discarded, so a trailer still in its queue does
+    /// not merge its attributes.
     ///
     /// Does nothing once the stream has ended, and never affects a later stream that reuses its
     /// id.
     pub fn close(&self) {
-        if let Some(input) = self.input.upgrade() {
-            let _ = input.send(ManagerMessage::CloseStream(self.clone()));
-        }
+        self.token.cancel();
     }
 }
 
