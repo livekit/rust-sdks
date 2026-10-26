@@ -1936,6 +1936,26 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn closer_discards_packets_still_queued() {
+            let mut h = Harness::new();
+            open_text_stream(&h, "s1");
+            let mut reader = next_text_reader(&mut h).await;
+            // Answered after the first chunk, so that chunk is in the reader's channel.
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            reader.closer().close();
+            assert_eq!(h.open_stream_count().await, 0);
+
+            assert_eq!(reader.next().await.unwrap().unwrap(), "hello");
+            assert!(matches!(reader.next().await, Some(Err(StreamError::AlreadyClosed))));
+            assert!(reader.next().await.is_none());
+        }
+
+        #[tokio::test]
         async fn closer_spares_a_later_stream_with_the_same_id() {
             let mut h = Harness::new();
             open_text_stream(&h, "s1");
