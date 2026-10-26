@@ -3991,6 +3991,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-session"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "livekit",
+ "livekit-token-source",
+]
+
+[[package]]
 name = "livekit-signaling"
 version = "0.1.8"
 dependencies = [

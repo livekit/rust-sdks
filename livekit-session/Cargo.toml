@@ -1,0 +1,34 @@
+[package]
+name = "livekit-session"
+description = "Agent sessions for the LiveKit Rust SDK"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+default = ["native"]
+
+# Backend and TLS pass-throughs, forwarded to both the room connection
+# (livekit) and the token fetch (livekit-token-source).
+native = ["livekit/native", "livekit-token-source/native"]
+native-tls = ["livekit/native-tls", "livekit-token-source/native-tls"]
+native-tls-vendored = ["livekit/native-tls-vendored", "livekit-token-source/native-tls-vendored"]
+rustls-tls-native-roots = [
+    "livekit/rustls-tls-native-roots",
+    "livekit-token-source/rustls-tls-native-roots",
+]
+rustls-tls-webpki-roots = [
+    "livekit/rustls-tls-webpki-roots",
+    "livekit-token-source/rustls-tls-webpki-roots",
+]
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
+[dependencies]
+chrono = { workspace = true }
+livekit = { workspace = true }
+livekit-token-source = { workspace = true }
