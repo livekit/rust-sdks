@@ -3994,9 +3994,18 @@ dependencies = [
 name = "livekit-session"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "chrono",
+ "futures-util",
  "livekit",
+ "livekit-api",
+ "livekit-protocol",
+ "livekit-token",
  "livekit-token-source",
+ "log",
+ "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

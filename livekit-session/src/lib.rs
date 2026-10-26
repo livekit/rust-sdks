@@ -19,14 +19,21 @@
 //! agent is doing as [`AgentState`], and merges chat and transcripts into one
 //! ordered feed of [`Message`]s.
 
-// The pure modules land before the session that drives them.
-#![allow(dead_code)]
-
+mod actor;
 mod agent;
 mod constants;
+mod dispatcher;
+mod error;
 mod messages;
 mod session;
 
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+mod e2e_tests;
+
 pub use agent::{AgentFailure, AgentState};
+pub use error::{MessageSendError, SessionEndError, SessionStartError};
 pub use messages::{Message, MessageOrigin};
-pub use session::{SessionConnectionState, SessionSnapshot};
+pub use session::{
+    Session, SessionConnectionState, SessionEvent, SessionOptions, SessionSnapshot,
+    SessionTokenSource,
+};

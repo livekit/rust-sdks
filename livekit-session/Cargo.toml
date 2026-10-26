@@ -23,6 +23,9 @@ rustls-tls-webpki-roots = [
     "livekit-token-source/rustls-tls-webpki-roots",
 ]
 
+# End-to-end tests against a running `livekit-server --dev`.
+__lk-e2e-test = []
+
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
 [package.metadata.feature-combinations]
@@ -30,5 +33,17 @@ mode = "powerset"
 
 [dependencies]
 chrono = { workspace = true }
+futures-util = { workspace = true, features = ["std"] }
 livekit = { workspace = true }
 livekit-token-source = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1"
+livekit-api = { workspace = true }
+livekit-protocol = { workspace = true }
+livekit-token = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
