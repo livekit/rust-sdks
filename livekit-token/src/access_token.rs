@@ -228,10 +228,11 @@ impl AgentThreadGrants {
     }
 }
 
+/// Grants for LiveKit Inference, set with [`AccessToken::with_inference_grants`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct InferenceGrants {
-    // use LiveKit Inference (LLM, STT, TTS)
+    /// Use LiveKit Inference (LLM, STT, TTS).
     #[serde(skip_serializing_if = "is_default")]
     pub perform: bool,
 }
