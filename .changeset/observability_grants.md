@@ -1,7 +1,7 @@
 ---
-livekit-token: patch
+livekit-token: major
 livekit: patch
-livekit-api: patch
+livekit-api: major
 livekit-capture: patch
 livekit-ffi: patch
 livekit-signaling: patch
