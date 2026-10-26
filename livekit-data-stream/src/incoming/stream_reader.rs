@@ -299,7 +299,7 @@ impl AnyStreamReader {
     /// Returns the reader along with the sender halves the manager uses to feed it: the chunk
     /// channel for received content, and the progress channel for [`StreamProgress`] updates. The
     /// progress channel is seeded with the initial progress (0 bytes, plus the total length when
-    /// the stream is finite). `closer` is what the reader's [`StreamCloser`] sends.
+    /// the stream is finite). The reader keeps `closer` to cancel the stream.
     pub(super) fn from(
         info: AnyStreamInfo,
         closer: StreamCloser,

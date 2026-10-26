@@ -41,8 +41,8 @@ use super::{
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
 struct Descriptor {
-    /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it as well, so the
-    /// manager's wait on it always ends.
+    /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it too, which ends
+    /// the stream's future in the manager's `closes`.
     close_guard: DropGuard,
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
@@ -194,8 +194,9 @@ impl ManagerInput {
 pub struct Manager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
-    /// One future per open stream, which yields the stream's id once its close token is
-    /// cancelled. The futures are `Sync`, so the manager stays `Sync`.
+    /// Yields a stream's id once its close token is cancelled. Each future ends when its
+    /// descriptor is dropped and is removed on the next loop pass, so the set cannot accumulate,
+    /// and shutdown drops it. The futures are `Sync`, so the manager stays `Sync`.
     closes: FuturesUnordered<Pin<Box<dyn Future<Output = StreamId> + Send + Sync>>>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
