@@ -183,6 +183,30 @@ async fn invalidate_clears_cache() {
 }
 
 #[tokio::test]
+async fn invalidate_forwards_through_nested_caches() {
+    let (source, calls, _) = CountingSource::new(valid_jwt());
+    let cached = source.cached().cached();
+    let options = TokenSourceFetchOptions::new();
+
+    cached.fetch(&options).await.unwrap();
+    cached.fetch(&options).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // Through the trait, as code generic over the source would call it.
+    async fn invalidate(source: &(dyn TokenSourceConfigurable + Send + Sync)) {
+        source.invalidate().await;
+    }
+    invalidate(&cached).await;
+    cached.fetch(&options).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "inner cache must be cleared as well");
+
+    // The inherent method forwards the same way.
+    cached.invalidate().await;
+    cached.fetch(&options).await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
 async fn cached_response_reflects_store() {
     let (source, _, _) = CountingSource::new(expired_jwt());
     let cached = source.cached();

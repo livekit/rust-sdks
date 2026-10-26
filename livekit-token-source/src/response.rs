@@ -62,14 +62,36 @@ impl TokenSourceResponse {
             claims.exp.is_some_and(|exp| now.saturating_add(tolerance.as_secs()) < exp);
         active && not_expired
     }
+
+    /// Reports whether the participant token dispatches an agent into the
+    /// room, i.e. whether its `roomConfig.agents` claim is non-empty.
+    ///
+    /// Like [`TokenSourceResponse::has_valid_token`], this decodes the token
+    /// **without verifying its signature**. A token that does not parse as a
+    /// JWT is treated as dispatching no agent.
+    pub fn dispatches_agent(&self) -> bool {
+        decode_claims(&self.participant_token)
+            .and_then(|claims| claims.room_config)
+            .is_some_and(|room_config| !room_config.agents.is_empty())
+    }
 }
 
-/// The JWT claims relevant for validity checking. LiveKit tokens use integer
-/// `NumericDate` values, so fractional timestamps are rejected as unparseable.
+/// The JWT claims this crate reads. LiveKit tokens use integer `NumericDate`
+/// values, so fractional timestamps are rejected as unparseable.
 #[derive(serde::Deserialize)]
 struct Claims {
     exp: Option<u64>,
     nbf: Option<u64>,
+    #[serde(rename = "roomConfig")]
+    room_config: Option<RoomConfigClaims>,
+}
+
+/// The part of the `roomConfig` claim this crate reads. Agent entries are kept
+/// opaque: only their presence matters.
+#[derive(serde::Deserialize)]
+struct RoomConfigClaims {
+    #[serde(default)]
+    agents: Vec<serde_json::Value>,
 }
 
 /// Decodes the payload of a JWT without verifying its signature.
@@ -162,5 +184,28 @@ mod tests {
         let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
         let bad_json = format!("{0}.{1}.{0}", engine.encode("header"), engine.encode("not json"));
         assert!(!response_with_token(bad_json).has_valid_token());
+    }
+
+    #[test]
+    fn token_with_agents_dispatches_agent() {
+        let response = response_with_token(jwt(
+            r#"{"roomConfig":{"agents":[{"agentName":"my-agent","metadata":"{}"}]}}"#,
+        ));
+        assert!(response.dispatches_agent());
+    }
+
+    #[test]
+    fn token_with_empty_agents_dispatches_no_agent() {
+        let response = response_with_token(jwt(r#"{"roomConfig":{"agents":[]}}"#));
+        assert!(!response.dispatches_agent());
+        let response = response_with_token(jwt(r#"{"roomConfig":{"name":"room"}}"#));
+        assert!(!response.dispatches_agent());
+    }
+
+    #[test]
+    fn token_without_room_config_dispatches_no_agent() {
+        let response = response_with_token(jwt(r#"{"sub":"identity"}"#));
+        assert!(!response.dispatches_agent());
+        assert!(!response_with_token("opaque-token".into()).dispatches_agent());
     }
 }

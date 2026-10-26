@@ -110,19 +110,22 @@ impl<S> TokenSourceCached<S> {
         self
     }
 
-    /// Removes the stored credentials, forcing the next fetch to hit the
-    /// underlying source.
-    ///
-    /// A fetch already in flight is unaffected: it still resolves and stores
-    /// its response afterwards, repopulating the cache (last writer wins).
-    pub async fn invalidate(&self) {
-        self.store.clear().await;
-    }
-
     /// Returns the last stored response, if any — without checking its
     /// validity or which options it was fetched with, so it may be expired.
     pub async fn cached_response(&self) -> Option<TokenSourceResponse> {
         self.store.retrieve().await.map(|(_, response)| response)
+    }
+}
+
+impl<S: TokenSourceConfigurable + Send + Sync> TokenSourceCached<S> {
+    /// Removes the stored credentials, forcing the next fetch to hit the
+    /// underlying source, and invalidates that source as well (see
+    /// [`TokenSourceConfigurable::invalidate`]).
+    ///
+    /// A fetch already in flight is unaffected: it still resolves and stores
+    /// its response afterwards, repopulating the cache (last writer wins).
+    pub async fn invalidate(&self) {
+        TokenSourceConfigurable::invalidate(self).await;
     }
 }
 
@@ -141,5 +144,10 @@ impl<S: TokenSourceConfigurable + Send + Sync> TokenSourceConfigurable for Token
         let response = self.source.fetch(options).await?;
         self.store.store(options.clone(), response.clone()).await;
         Ok(response)
+    }
+
+    async fn invalidate(&self) {
+        self.store.clear().await;
+        self.source.invalidate().await;
     }
 }
