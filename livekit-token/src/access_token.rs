@@ -231,10 +231,19 @@ impl AgentThreadGrants {
 /// Grants for LiveKit Inference, set with [`AccessToken::with_inference_grants`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct InferenceGrants {
     /// Use LiveKit Inference (LLM, STT, TTS).
     #[serde(skip_serializing_if = "is_default")]
     pub perform: bool,
+}
+
+impl InferenceGrants {
+    /// Allows using LiveKit Inference (LLM, STT, TTS).
+    pub fn with_perform(mut self) -> Self {
+        self.perform = true;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
@@ -710,7 +719,7 @@ mod tests {
     #[test]
     fn test_inference_grants_claim_name() {
         let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
-            .with_inference_grants(InferenceGrants { perform: true })
+            .with_inference_grants(InferenceGrants::default().with_perform())
             .to_jwt()
             .unwrap();
         let p =
