@@ -412,12 +412,11 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 #[derive(Debug, Clone)]
 pub struct RoomDataStreamOptions {
     max_payload_byte_length: Option<usize>,
-    use_legacy_client_implementation: bool,
 }
 
 impl Default for RoomDataStreamOptions {
     fn default() -> Self {
-        Self { max_payload_byte_length: None, use_legacy_client_implementation: false }
+        Self { max_payload_byte_length: None }
     }
 }
 
@@ -428,14 +427,6 @@ impl RoomDataStreamOptions {
     /// be thrown.
     pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
         self.max_payload_byte_length = Some(byte_length);
-        self
-    }
-
-    /// Advertise only legacy (v1) data stream support. Temporary migration aid for SDKs
-    /// implementing data streams in their own client-side code on top of the FFI.
-    #[doc(hidden)]
-    pub fn with_legacy_client_implementation(mut self, enabled: bool) -> Self {
-        self.use_legacy_client_implementation = enabled;
         self
     }
 }
@@ -586,8 +577,6 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
-        signal_options.use_legacy_data_streams =
-            options.data_stream.use_legacy_client_implementation;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
