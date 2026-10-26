@@ -228,6 +228,24 @@ impl AgentThreadGrants {
     }
 }
 
+/// Grants for LiveKit Inference, set with [`AccessToken::with_inference_grants`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct InferenceGrants {
+    /// Use LiveKit Inference (LLM, STT, TTS).
+    #[serde(skip_serializing_if = "is_default")]
+    pub perform: bool,
+}
+
+impl InferenceGrants {
+    /// Allows using LiveKit Inference (LLM, STT, TTS).
+    pub fn with_perform(mut self) -> Self {
+        self.perform = true;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -252,6 +270,8 @@ pub struct Claims {
     pub agent_endpoint: AgentEndpointGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub agent_thread: AgentThreadGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub inference: InferenceGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub sha256: String, // Used to verify the integrity of the message body
     #[serde(skip_serializing_if = "is_default")]
@@ -305,6 +325,7 @@ impl AccessToken {
                 agent: AgentGrants::default(),
                 agent_endpoint: AgentEndpointGrants::default(),
                 agent_thread: AgentThreadGrants::default(),
+                inference: InferenceGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
                 attributes: HashMap::new(),
@@ -352,6 +373,11 @@ impl AccessToken {
 
     pub fn with_agent_thread_grants(mut self, grants: AgentThreadGrants) -> Self {
         self.claims.agent_thread = grants;
+        self
+    }
+
+    pub fn with_inference_grants(mut self, grants: InferenceGrants) -> Self {
+        self.claims.inference = grants;
         self
     }
 
@@ -462,8 +488,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, SIPGrants,
-        TokenVerifier, VideoGrants,
+        AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, InferenceGrants,
+        SIPGrants, TokenVerifier, VideoGrants,
     };
 
     const TEST_API_KEY: &str = "myapikey";
@@ -688,5 +714,17 @@ mod tests {
         assert!(claims.agent_thread.can_list("s") && claims.agent_thread.can_read("t"));
         assert!(!claims.agent_thread.can_read("u") && !claims.agent_thread.can_create("s"));
         assert!(claims.agent_endpoint.allows("a", "default"));
+    }
+
+    #[test]
+    fn test_inference_grants_claim_name() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_inference_grants(InferenceGrants::default().with_perform())
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["inference"], serde_json::json!({"perform": true}));
+        assert!(Claims::from_unverified(&token).unwrap().inference.perform);
     }
 }
