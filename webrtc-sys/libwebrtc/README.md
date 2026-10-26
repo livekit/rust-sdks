@@ -27,3 +27,16 @@ LK_CUSTOM_WEBRTC = { value = "webrtc-sys/libwebrtc/linux-x64-release", relative 
 
 Note that `linux-x64-debug` should be replaced with the artifact
 directory appropriate for your configuration.
+
+# Downloading a custom WebRTC release
+
+A release of the same libwebrtc built with other options (e.g. without the
+bundled FFmpeg, or with an Objective-C class prefix) is downloaded as LiveKit's
+is when `LK_WEBRTC_RELEASE` names its download URL. It must hold
+`webrtc-{triple}.zip` archives laid out as LiveKit's releases, e.g.
+`webrtc-linux-x64-release.zip` with `linux-x64-release/` at its root:
+
+```toml
+[env]
+LK_WEBRTC_RELEASE = "https://github.com/<owner>/<repo>/releases/download/<tag>"
+```

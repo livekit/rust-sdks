@@ -90,20 +90,30 @@ pub fn custom_dir() -> Option<path::PathBuf> {
 /// This also has the benefit of not re-downloading the binaries for each crate
 pub fn prebuilt_dir() -> path::PathBuf {
     let target_dir = scratch::path(SCRATH_PATH);
+    // A custom release gets a directory of its own, so neither build is ever taken for the other
+    let release = custom_release().map_or(WEBRTC_TAG.to_owned(), |url| {
+        url.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+    });
     path::Path::new(&target_dir).join(format!(
         "livekit/{}-{}/{}",
         webrtc_triple(),
-        WEBRTC_TAG,
+        release,
         webrtc_triple()
     ))
 }
 
+/// The download URL of a release to use in place of LiveKit's WEBRTC_TAG one, e.g. a build of the
+/// same libwebrtc with other options: archives named and laid out as LiveKit's, `webrtc-{triple}.zip`
+pub fn custom_release() -> Option<String> {
+    println!("cargo:rerun-if-env-changed=LK_WEBRTC_RELEASE");
+    env::var("LK_WEBRTC_RELEASE").ok()
+}
+
 pub fn download_url() -> String {
-    format!(
-        "https://github.com/livekit/rust-sdks/releases/download/{}/{}.zip",
-        WEBRTC_TAG,
-        format!("webrtc-{}", webrtc_triple())
-    )
+    let release = custom_release().unwrap_or_else(|| {
+        format!("https://github.com/livekit/rust-sdks/releases/download/{}", WEBRTC_TAG)
+    });
+    format!("{}/webrtc-{}.zip", release.trim_end_matches('/'), webrtc_triple())
 }
 
 /// Used location of libwebrtc depending on whether it's a custom build or not
