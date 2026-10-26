@@ -162,6 +162,20 @@ impl PeerTransport {
     ) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
+        // A proxy can deliver a second copy of an answer that was already applied, and there is
+        // no local offer left for it to answer. Offers are not numbered here, so the signaling
+        // state is what says whether an answer is still wanted. An offer deferred from the JOIN
+        // leaves the connection `Stable` until it is applied just below, so that counts as a
+        // pending offer too. Holding `inner` across the check means a copy arriving mid-apply
+        // waits and then sees the state the first one left behind.
+        if remote_description.sdp_type() == SdpType::Answer
+            && inner.pending_initial_offer.is_none()
+            && self.peer_connection.signaling_state() == SignalingState::Stable
+        {
+            log::warn!("{:?}: ignoring duplicate answer", self.signal_target);
+            return Ok(());
+        }
+
         if let Some(pending_offer) = inner.pending_initial_offer.take() {
             self.peer_connection.set_local_description(pending_offer).await?;
         }
@@ -683,6 +697,66 @@ mod tests {
     use std::time::Duration;
 
     use super::PeerTransport;
+
+    /// A proxy can deliver a second copy of an answer that was already applied. By then the
+    /// connection is back in `Stable` with no local offer left to answer, so applying it again
+    /// is an invalid transition: `set_remote_description` fails, and in `rtc_session` that
+    /// error is propagated with `?` out of the signal handler for a renegotiation that had in
+    /// fact succeeded.
+    ///
+    /// Before the fix the second call returns `Err`; after it, the copy is dropped and the
+    /// transport is left exactly as the first answer left it.
+    #[tokio::test]
+    async fn duplicate_answer_is_ignored() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let mut config = RtcConfiguration::default();
+        config.continual_gathering_policy = ContinualGatheringPolicy::GatherOnce;
+        config.enable_sctp_snap = true;
+
+        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
+        let bob_pc = factory.create_peer_connection(config).unwrap();
+
+        let _dc = alice_pc.create_data_channel("dup", DataChannelInit::default()).unwrap();
+
+        let transport = PeerTransport::new(
+            alice_pc,
+            proto::SignalTarget::Publisher,
+            /* single_pc_mode= */ true,
+        );
+
+        let offers = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let emitted_offers = offers.clone();
+        transport.on_offer(Some(Box::new(move |offer| {
+            emitted_offers.lock().expect("offers lock poisoned").push(offer);
+        })));
+
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+
+        let offer = offers
+            .lock()
+            .expect("offers lock poisoned")
+            .first()
+            .cloned()
+            .expect("first offer was not emitted");
+
+        bob_pc.set_remote_description(offer).await.unwrap();
+        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
+        bob_pc.set_local_description(answer.clone()).await.unwrap();
+
+        transport.set_remote_description(answer.clone()).await.expect("first answer should apply");
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::Stable);
+
+        transport
+            .set_remote_description(answer)
+            .await
+            .expect("a duplicated answer should be ignored, not reported as an error");
+
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::Stable);
+    }
 
     /// Reproduces the publisher-transport self-deadlock.
     ///
