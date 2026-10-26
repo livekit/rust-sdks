@@ -246,6 +246,24 @@ impl InferenceGrants {
     }
 }
 
+/// Grants for LiveKit observability, set with [`AccessToken::with_observability_grants`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ObservabilityGrants {
+    /// Publish observability data.
+    #[serde(skip_serializing_if = "is_default")]
+    pub write: bool,
+}
+
+impl ObservabilityGrants {
+    /// Allows publishing observability data.
+    pub fn with_write(mut self) -> Self {
+        self.write = true;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -272,6 +290,8 @@ pub struct Claims {
     pub agent_thread: AgentThreadGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub inference: InferenceGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub observability: ObservabilityGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub sha256: String, // Used to verify the integrity of the message body
     #[serde(skip_serializing_if = "is_default")]
@@ -326,6 +346,7 @@ impl AccessToken {
                 agent_endpoint: AgentEndpointGrants::default(),
                 agent_thread: AgentThreadGrants::default(),
                 inference: InferenceGrants::default(),
+                observability: ObservabilityGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
                 attributes: HashMap::new(),
@@ -378,6 +399,11 @@ impl AccessToken {
 
     pub fn with_inference_grants(mut self, grants: InferenceGrants) -> Self {
         self.claims.inference = grants;
+        self
+    }
+
+    pub fn with_observability_grants(mut self, grants: ObservabilityGrants) -> Self {
+        self.claims.observability = grants;
         self
     }
 
@@ -489,7 +515,7 @@ mod tests {
 
     use super::{
         AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, InferenceGrants,
-        SIPGrants, TokenVerifier, VideoGrants,
+        ObservabilityGrants, SIPGrants, TokenVerifier, VideoGrants,
     };
 
     const TEST_API_KEY: &str = "myapikey";
@@ -726,5 +752,17 @@ mod tests {
             jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
         assert_eq!(p["inference"], serde_json::json!({"perform": true}));
         assert!(Claims::from_unverified(&token).unwrap().inference.perform);
+    }
+
+    #[test]
+    fn test_observability_grants_claim_name() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_observability_grants(ObservabilityGrants::default().with_write())
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["observability"], serde_json::json!({"write": true}));
+        assert!(Claims::from_unverified(&token).unwrap().observability.write);
     }
 }
