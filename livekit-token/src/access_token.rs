@@ -402,6 +402,7 @@ impl AccessToken {
         self
     }
 
+    /// Sets the observability grants for this token.
     pub fn with_observability_grants(mut self, grants: ObservabilityGrants) -> Self {
         self.claims.observability = grants;
         self
