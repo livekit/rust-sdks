@@ -1722,14 +1722,16 @@ impl RoomSession {
     }
 
     fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+        // Report Reconnecting first, so observers can tell the participant
+        // removals below apart from participants actually leaving.
+        if self.update_connection_state(ConnectionState::Reconnecting) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
+        }
+
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.remote_participants.read().clone();
         for (_, participant) in participants.iter() {
             self.clone().handle_participant_disconnect(participant.clone());
-        }
-
-        if self.update_connection_state(ConnectionState::Reconnecting) {
-            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
 
         let _ = tx.send(());
