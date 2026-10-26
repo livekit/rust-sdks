@@ -293,6 +293,18 @@ impl TextStreamReader {
     }
 }
 
+/// Awaits `operation`, or returns `None` once `closed` is cancelled. The close wins a tie.
+async fn unless_closed<T>(
+    closed: &CancellationToken,
+    operation: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        biased;
+        _ = closed.cancelled() => None,
+        output = operation => Some(output),
+    }
+}
+
 /// Reads the next chunk, unless the reader is closed first.
 async fn next_chunk<R: ds_api::StreamReader + Unpin>(
     reader: &mut Option<R>,
@@ -301,11 +313,8 @@ async fn next_chunk<R: ds_api::StreamReader + Unpin>(
     let Some(reader) = reader.as_mut() else {
         return Err(DataStreamError::AlreadyClosed);
     };
-    tokio::select! {
-        biased;
-        _ = closed.cancelled() => Err(DataStreamError::AlreadyClosed),
-        chunk = reader.next() => Ok(chunk.transpose()?),
-    }
+    let chunk = unless_closed(closed, reader.next()).await.ok_or(DataStreamError::AlreadyClosed)?;
+    Ok(chunk.transpose()?)
 }
 
 /// Waits for the next progress update, unless the reader is closed first.
@@ -314,11 +323,7 @@ async fn next_progress(
     closed: &CancellationToken,
 ) -> Option<StreamProgress> {
     let mut progress = progress.lock().await;
-    tokio::select! {
-        biased;
-        _ = closed.cancelled() => None,
-        update = progress.next() => update.map(Into::into),
-    }
+    unless_closed(closed, progress.next()).await.flatten().map(Into::into)
 }
 
 /// Ends the stream in the manager, wakes pending reads and drops the core reader. Does nothing
