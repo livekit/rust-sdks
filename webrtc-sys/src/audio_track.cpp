@@ -149,6 +149,7 @@ AudioTrackSource::InternalSource::InternalSource(
   int samples10ms = sample_rate / 100 * num_channels;
 
   silence_buffer_.assign(samples10ms, 0);
+  padded_buffer_.assign(samples10ms, 0);
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
   notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
                                                     // using x2 the queue size
@@ -170,6 +171,17 @@ AudioTrackSource::InternalSource::InternalSource(
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
+        } else if (!buffer_.empty()) {
+          // Less than 10ms left: send it padded with silence rather than
+          // holding it until the next push, which may never come.
+          std::copy(buffer_.begin(), buffer_.end(), padded_buffer_.begin());
+          std::fill(padded_buffer_.begin() + buffer_.size(),
+                    padded_buffer_.end(), 0);
+          for (auto sink : sinks_)
+            sink->OnData(padded_buffer_.data(), kBitsPerSample, sample_rate_,
+                         num_channels_, samples10ms / num_channels_);
+
+          buffer_.clear();
         } else {
           // Always provide a 10ms frame to avoid playout underruns.
           for (auto sink : sinks_)
