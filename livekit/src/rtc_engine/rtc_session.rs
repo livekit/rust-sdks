@@ -927,6 +927,13 @@ impl RtcSession {
         self.inner.publisher_pc.peer_connection().connection_state()
     }
 
+    /// Test-only: the publisher PeerConnection's senders. A closed PeerConnection reports none,
+    /// so tests take these before teardown to inspect what the senders still hold afterwards.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.publisher_pc.peer_connection().senders()
+    }
+
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
@@ -2125,6 +2132,16 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
+
+        // Detach the senders while the publisher PC is still open: libwebrtc refuses
+        // RemoveTrack on a closed PC and `RtpSenderBase::Stop()` keeps the track, so a
+        // server-initiated disconnect (which closes here before the room unpublishes)
+        // would otherwise leave every local track attached to its sender.
+        for sender in self.publisher_pc.peer_connection().senders() {
+            if let Err(err) = self.remove_track(sender) {
+                log::warn!("failed to remove sender from publisher pc before close: {:?}", err);
+            }
+        }
         self.publisher_pc.close();
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.close();
