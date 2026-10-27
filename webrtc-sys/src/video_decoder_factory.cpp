@@ -39,6 +39,24 @@
 #include "nvidia/nvidia_decoder_factory.h"
 #endif
 
+#if defined(USE_JETSON_VIDEO_CODEC)
+#include "jetson/jetson_decoder_factory.h"
+#endif
+
+#if defined(LIVEKIT_TEST) && defined(USE_JETSON_VIDEO_CODEC)
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
+#include <mutex>
+
+#include "api/video/encoded_image.h"
+#include "api/video/video_frame.h"
+#include "jetson/h265_decoder_impl.h"
+#include "modules/video_coding/include/video_error_codes.h"
+#endif
+
 namespace livekit_ffi {
 
 namespace {
@@ -77,6 +95,12 @@ VideoDecoderFactory::VideoDecoderFactory()
 
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoDecoderFactory());
+#endif
+
+#if defined(USE_JETSON_VIDEO_CODEC)
+  if (webrtc::JetsonVideoDecoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::JetsonVideoDecoderFactory>());
+  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
@@ -183,5 +207,145 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   RTC_LOG(LS_ERROR) << "No VideoDecoder found for " << format.name;
   return nullptr;
 }
+
+#ifdef LIVEKIT_TEST
+#if defined(USE_JETSON_VIDEO_CODEC)
+namespace {
+
+class RecordingDecodedCallback final : public webrtc::DecodedImageCallback {
+ public:
+  int32_t Decoded(webrtc::VideoFrame& frame) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pictures_.push_back({static_cast<uint32_t>(frame.width()),
+                         static_cast<uint32_t>(frame.height()),
+                         frame.rtp_timestamp()});
+    arrived_.notify_all();
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+
+  // Pictures arrive in decode order, so waiting for the last one waits for
+  // all of them.
+  void WaitFor(uint32_t rtp_timestamp) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    arrived_.wait_for(lock, std::chrono::seconds(5), [&] {
+      return std::any_of(pictures_.begin(), pictures_.end(),
+                         [&](const auto& p) { return p[2] == rtp_timestamp; });
+    });
+  }
+
+  std::vector<std::array<uint32_t, 3>> Pictures() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return pictures_;
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable arrived_;
+  std::vector<std::array<uint32_t, 3>> pictures_;
+};
+
+bool IsH265Keyframe(const std::vector<uint8_t>& access_unit) {
+  for (size_t i = 0; i + 3 < access_unit.size(); ++i) {
+    if (access_unit[i] == 0 && access_unit[i + 1] == 0 &&
+        access_unit[i + 2] == 1) {
+      const int nal_type = (access_unit[i + 3] >> 1) & 0x3f;
+      if (nal_type >= 16 && nal_type <= 23) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+}  // namespace
+#endif
+
+rust::Vec<uint32_t> jetson_h265_decode_for_test(
+    rust::Slice<const uint8_t> access_units,
+    uint32_t corrupt_index,
+    bool release_immediately) {
+  rust::Vec<uint32_t> result;
+#if defined(USE_JETSON_VIDEO_CODEC)
+  // Surface decoder warnings in test output.
+  webrtc::LogMessage::LogToDebug(webrtc::LS_WARNING);
+  if (!webrtc::JetsonVideoDecoderFactory::IsSupported()) {
+    result.push_back(kJetsonDecodeUnsupported);
+    return result;
+  }
+
+  RecordingDecodedCallback callback;
+  uint32_t accepted = 0;
+  uint32_t rejected = 0;
+  {
+    webrtc::JetsonH265DecoderImpl decoder;
+    decoder.RegisterDecodeCompleteCallback(&callback);
+    webrtc::VideoDecoder::Settings settings;
+    settings.set_codec_type(webrtc::kVideoCodecH265);
+    settings.set_max_render_resolution({1920, 1080});
+    if (!decoder.Configure(settings)) {
+      result.push_back(kJetsonDecodeConfigureFailed);
+      return result;
+    }
+
+    uint32_t last_accepted_rtp = 0;
+    size_t offset = 0;
+    for (uint32_t index = 0; offset + 4 <= access_units.size(); ++index) {
+      uint32_t size = 0;
+      std::memcpy(&size, access_units.data() + offset, sizeof(size));
+      offset += sizeof(size);
+      if (size > access_units.size() - offset) {
+        break;
+      }
+      std::vector<uint8_t> access_unit(access_units.data() + offset,
+                                       access_units.data() + offset + size);
+      offset += size;
+
+      const bool keyframe = IsH265Keyframe(access_unit);
+      if (index == corrupt_index) {
+        // Keep the leading start code and NAL header so it still reads as
+        // H.265, and scramble the slice data after it.
+        for (size_t i = 8; i < access_unit.size(); ++i) {
+          access_unit[i] ^= 0x5a;
+        }
+      }
+
+      const uint32_t rtp_timestamp = (index + 1) * 3000;
+      webrtc::EncodedImage image;
+      image.SetEncodedData(webrtc::EncodedImageBuffer::Create(
+          access_unit.data(), access_unit.size()));
+      image.SetRtpTimestamp(rtp_timestamp);
+      image.SetFrameType(keyframe ? webrtc::VideoFrameType::kVideoFrameKey
+                                  : webrtc::VideoFrameType::kVideoFrameDelta);
+      if (decoder.Decode(image, false, 0) == WEBRTC_VIDEO_CODEC_OK) {
+        ++accepted;
+        last_accepted_rtp = rtp_timestamp;
+      } else {
+        ++rejected;
+      }
+    }
+
+    if (!release_immediately && accepted > 0) {
+      callback.WaitFor(last_accepted_rtp);
+    }
+    decoder.Release();
+  }
+
+  result.push_back(kJetsonDecodeOk);
+  result.push_back(accepted);
+  result.push_back(rejected);
+  for (const auto& picture : callback.Pictures()) {
+    for (uint32_t value : picture) {
+      result.push_back(value);
+    }
+  }
+#else
+  (void)access_units;
+  (void)corrupt_index;
+  (void)release_immediately;
+  result.push_back(kJetsonDecodeUnsupported);
+#endif
+  return result;
+}
+#endif
 
 }  // namespace livekit_ffi
