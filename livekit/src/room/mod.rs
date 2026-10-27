@@ -2496,6 +2496,7 @@ async fn incoming_data_stream_task(
                 // The Rust SDK observes completion through the reader itself; the explicit
                 // closed signal exists for FFI hosts sequencing handlers on ordered topics.
                 ds::incoming::OutputEvent::StreamClosed(_) => {}
+                _ => log::debug!("ignoring an unknown incoming data stream event"),
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);

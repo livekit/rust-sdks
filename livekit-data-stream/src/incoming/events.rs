@@ -36,6 +36,7 @@ impl PacketReceived {
 /// process it without reaching back into room state.
 #[derive(FromVariants)]
 #[allow(clippy::large_enum_variant)]
+#[non_exhaustive]
 pub enum InputEvent {
     PacketReceived(PacketReceived),
     /// Abort every open stream sent by this participant (they disconnected mid-send).
@@ -101,6 +102,7 @@ pub struct TrailerReceived {
 /// An event emitted by [`IncomingStreamManager::run`] for the host crate to surface. The manager
 /// stays decoupled from `RoomEvent`; the host maps these onto its own event types.
 #[derive(FromVariants)]
+#[non_exhaustive]
 pub enum OutputEvent {
     StreamOpened(StreamOpened),
     StreamClosed(StreamClosed),

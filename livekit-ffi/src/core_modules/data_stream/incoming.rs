@@ -395,6 +395,7 @@ impl DelegateForwardTask {
             // Deprecated v1 raw chunk/trailer notifications are not surfaced over the FFI boundary.
             ds::incoming::OutputEvent::ChunkReceived(_)
             | ds::incoming::OutputEvent::TrailerReceived(_) => {}
+            _ => log::debug!("ignoring an unknown incoming data stream event"),
         }
     }
 }
