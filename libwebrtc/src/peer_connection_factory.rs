@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use crate::{
     imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
-    rtp_parameters::RtpCapabilities, MediaType, RtcError,
+    rtp_parameters::RtpCapabilities, rtp_sender::VideoEncoderBackend, MediaType, RtcError,
 };
 
 #[derive(Debug, Clone)]
@@ -114,11 +114,83 @@ impl PeerConnectionFactory {
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_receiver_capabilities(media_type)
     }
+
+    /// SDP codec names (`VP8`, `VP9`, `AV1`, `H264`, `H265`) that `backend` can
+    /// produce with this factory's video encoders.
+    ///
+    /// For [`VideoEncoderBackend::Auto`] this is every codec a real encoder on
+    /// this host produces, which is also what a sender falls back to when its
+    /// requested backend is unavailable. For [`VideoEncoderBackend::PreEncoded`]
+    /// it is every codec the pass-through can forward, whether or not a local
+    /// encoder exists for it.
+    ///
+    /// ```
+    /// use libwebrtc::{peer_connection_factory::PeerConnectionFactory, rtp_sender::VideoEncoderBackend};
+    ///
+    /// let factory = PeerConnectionFactory::default();
+    /// let codecs = factory.video_encoder_codecs(VideoEncoderBackend::Software);
+    /// assert!(codecs.iter().any(|codec| codec == "VP8"));
+    /// ```
+    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<String> {
+        self.handle.video_encoder_codecs(backend)
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::PeerConnectionFactory;
+    use crate::rtp_sender::VideoEncoderBackend;
+
+    fn has_codec(codecs: &[String], name: &str) -> bool {
+        codecs.iter().any(|codec| codec.eq_ignore_ascii_case(name))
+    }
+
+    #[test]
+    fn pre_encoded_backend_forwards_every_codec_on_every_host() {
+        // Pre-encoded publishing must not depend on a real encoder existing
+        // for the codec, so the pass-through set is the same on every host.
+        let codecs =
+            PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::PreEncoded);
+        for name in ["VP8", "VP9", "AV1", "H264", "H265"] {
+            assert!(has_codec(&codecs, name), "pass-through is missing {name}: {codecs:?}");
+        }
+        // HEVC is reported under its canonical H265 name only.
+        assert!(!has_codec(&codecs, "HEVC"), "{codecs:?}");
+    }
+
+    #[test]
+    fn software_backend_has_no_h265_encoder() {
+        // libvpx/libaom/OpenH264 never produce H265; the software set is
+        // what a normal session falls back to when no hardware encoder exists.
+        let codecs =
+            PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::Software);
+        assert!(has_codec(&codecs, "VP8"), "{codecs:?}");
+        assert!(!has_codec(&codecs, "H265"), "{codecs:?}");
+    }
+
+    #[test]
+    fn auto_backend_is_a_superset_of_software() {
+        let factory = PeerConnectionFactory::default();
+        let auto = factory.video_encoder_codecs(VideoEncoderBackend::Auto);
+        let software = factory.video_encoder_codecs(VideoEncoderBackend::Software);
+        for codec in &software {
+            assert!(has_codec(&auto, codec), "auto is missing {codec}: {auto:?}");
+        }
+    }
+
+    #[test]
+    fn video_encoder_codecs_are_released_with_their_factory() {
+        // The codec query borrows the encoder factory the peer connection
+        // factory owns, so repeated create/query/drop must fully tear the
+        // native factory down each time instead of retaining encoders.
+        for _ in 0..3 {
+            let factory = PeerConnectionFactory::default();
+            assert!(has_codec(&factory.video_encoder_codecs(VideoEncoderBackend::Auto), "VP8"));
+            let native = factory.handle.sys_handle.downgrade();
+            drop(factory);
+            assert!(native.upgrade().is_null(), "peer connection factory outlived its owner");
+        }
+    }
 
     #[test]
     fn zero_playout_delay_factory_uses_force_playout_delay_field_trial() {
