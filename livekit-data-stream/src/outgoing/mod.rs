@@ -17,7 +17,10 @@
 use livekit_common::ParticipantIdentity;
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use crate::{types::OperationType, utils::StreamProgress};
+use crate::{
+    types::{OperationType, StreamId, TextHeader},
+    utils::StreamProgress,
+};
 
 pub(crate) mod manager;
 
@@ -30,6 +33,7 @@ pub use stream_writer::{ByteStreamWriter, StreamWriter, TextStreamWriter};
 /// Receives outgoing send progress on the thread polling the send; callbacks should return quickly.
 ///
 /// Clones share the callback, and equality compares callback identity rather than behavior.
+/// `Debug` prints the placeholder `StreamProgressCallback` without inspecting the closure.
 #[derive(Clone)]
 pub struct StreamProgressCallback(Arc<dyn Fn(StreamProgress) + Send + Sync>);
 
@@ -109,6 +113,21 @@ macro_rules! common_setters {
 
 macro_rules! text_setters {
     () => {
+        pub(crate) fn text_header(&self) -> TextHeader {
+            TextHeader {
+                operation_type: self.operation_type.unwrap_or_default(),
+                version: self.version.unwrap_or_default(),
+                reply_to_stream_id: self.reply_to_stream_id.clone().map(StreamId::from),
+                attached_stream_ids: self
+                    .attached_stream_ids
+                    .clone()
+                    .into_iter()
+                    .map(StreamId::from)
+                    .collect(),
+                generated: self.generated.unwrap_or_default(),
+            }
+        }
+
         /// Sets the operation this text stream represents (e.g. create or update).
         pub fn with_operation_type(mut self, operation_type: OperationType) -> Self {
             self.operation_type = Some(operation_type);
@@ -165,8 +184,7 @@ macro_rules! send_setters {
             self.compress = Some(compress);
             self
         }
-        /// Sets the progress callback. One-shot text and byte sends report once after the
-        /// transport acknowledges the complete send. Files report as chunks are sent.
+        /// Sets the progress callback; see [`Self::on_progress`] for reporting semantics.
         pub fn with_on_progress(
             mut self,
             callback: impl Fn(StreamProgress) + Send + Sync + 'static,
@@ -214,7 +232,7 @@ pub struct SendTextOptions {
     pub sender_identity: Option<ParticipantIdentity>,
     /// Whether to deflate-raw compress when all recipients support it. Defaults to true.
     pub compress: Option<bool>,
-    /// Progress callback, counting payload bytes before compression.
+    /// Reports payload byte length once after the complete send is acknowledged.
     pub on_progress: Option<StreamProgressCallback>,
 }
 
@@ -244,9 +262,7 @@ impl SendTextOptions {
 
 /// Options for [`send_bytes`](manager::Manager::send_bytes) and [`send_file`](manager::Manager::send_file).
 ///
-/// Byte sends report progress once after completion. Files report after each chunk or compressed
-/// encoder drain, counting input bytes which can run ahead of chunks sent. The whole file is
-/// reported only after its last chunk was sent.
+/// See [`Self::on_progress`] for progress reporting semantics.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SendByteOptions {
@@ -267,7 +283,10 @@ pub struct SendByteOptions {
     pub sender_identity: Option<ParticipantIdentity>,
     /// Whether to deflate-raw compress when all recipients support it. Defaults to true.
     pub compress: Option<bool>,
-    /// Progress callback, counting payload bytes before compression.
+    /// Byte sends report once after the complete send is acknowledged. Files report input bytes
+    /// before compression, against the file size, after each chunk is sent or each encoder drain.
+    /// Compressed progress can run ahead of chunks sent; the whole file is reported only after
+    /// its last chunk was sent.
     pub on_progress: Option<StreamProgressCallback>,
 }
 

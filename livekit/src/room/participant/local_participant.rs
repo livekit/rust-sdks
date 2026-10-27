@@ -972,10 +972,7 @@ impl LocalParticipant {
     /// to participants in the room as a byte stream, and the method returns information
     /// about the stream used to send the file.
     ///
-    /// `options.on_progress` counts file bytes before compression. Uncompressed files report
-    /// after each chunk is sent; compressed files report after each encoder drain, counting
-    /// input that can run ahead of chunks sent. The whole file is reported only after its last
-    /// chunk was sent.
+    /// `options.on_progress` reports progress as described by [`SendByteOptions::on_progress`].
     ///
     /// # Arguments
     ///

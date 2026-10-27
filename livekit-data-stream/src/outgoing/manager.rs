@@ -65,7 +65,7 @@ impl Manager {
         let (header, text_header) = build_text_header(
             &options.topic,
             &options.attributes,
-            (&options).into(),
+            options.text_header(),
             stream_id,
             options.total_length,
             None,
@@ -147,7 +147,7 @@ impl Manager {
             build_text_header(
                 &options.topic,
                 &options.attributes,
-                (&options).into(),
+                options.text_header(),
                 stream_id.clone(),
                 Some(total_length),
                 Some(maybe_compressed.as_bytes().await?.to_owned()),
@@ -157,7 +157,7 @@ impl Manager {
             build_text_header(
                 &options.topic,
                 &options.attributes,
-                (&options).into(),
+                options.text_header(),
                 stream_id.clone(),
                 Some(total_length),
                 Some(text_bytes.to_vec()),
@@ -303,10 +303,8 @@ impl Manager {
     /// Never uses the inline single-packet path (deciding inline-eligibility would require
     /// buffering and compressing the whole file up front). Compresses when every recipient
     /// supports it. The whole file is never buffered in memory at once.
-    /// Progress counts file bytes before compression, against the file size. An uncompressed file
-    /// reports after each chunk is sent. A compressed file reports after each encoder drain, so it
-    /// counts the input the encoder consumed, which can run ahead of the chunks sent. Either way,
-    /// the whole file is reported only after its last chunk was sent.
+    ///
+    /// `options.on_progress` reports progress as described by [`SendByteOptions::on_progress`].
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,
@@ -471,24 +469,6 @@ fn enforce_header_size(header: &Header, destinations: &[ParticipantIdentity]) ->
         Err(StreamError::HeaderTooLarge)
     }
 }
-
-macro_rules! text_header_from_options {
-    ($($options:ty),+ $(,)?) => {
-        $(impl From<&$options> for TextHeader {
-            fn from(options: &$options) -> Self {
-                Self {
-                    operation_type: options.operation_type.unwrap_or_default(),
-                    version: options.version.unwrap_or_default(),
-                    reply_to_stream_id: options.reply_to_stream_id.clone().map(StreamId::from),
-                    attached_stream_ids: options.attached_stream_ids.clone().into_iter().map(StreamId::from).collect(),
-                    generated: options.generated.unwrap_or_default(),
-                }
-            }
-        })+
-    };
-}
-
-text_header_from_options!(SendTextOptions, StreamTextOptions);
 
 fn report_complete(callback: &Option<StreamProgressCallback>, length: u64) {
     if let Some(callback) = callback {
@@ -659,11 +639,11 @@ mod tests {
         list.iter().map(|s| ParticipantIdentity(s.to_string())).collect()
     }
 
-    fn send_text_opts(topic: &str, dests: &[&str]) -> SendTextOptions {
+    fn text_opts(topic: &str, dests: &[&str]) -> SendTextOptions {
         SendTextOptions::new_with_topic(topic).with_destination_identities(ids(dests))
     }
 
-    fn send_byte_opts(topic: &str, dests: &[&str]) -> SendByteOptions {
+    fn byte_opts(topic: &str, dests: &[&str]) -> SendByteOptions {
         SendByteOptions::new_with_topic(topic).with_destination_identities(ids(dests))
     }
 
@@ -689,11 +669,11 @@ mod tests {
                         });
                         let send = async {
                             if is_text {
-                                let mut options = send_text_opts("chat", &[]);
+                                let mut options = text_opts("chat", &[]);
                                 options.on_progress = Some(callback);
                                 manager.send_text(text, options, &registry).await.map(|_| ())
                             } else {
-                                let mut options = send_byte_opts("blob", &[]);
+                                let mut options = byte_opts("blob", &[]);
                                 options.on_progress = Some(callback);
                                 manager
                                     .send_bytes(text.as_bytes(), options, &registry)
@@ -773,7 +753,7 @@ mod tests {
         #[tokio::test]
         async fn pre_v2_short_text_is_legacy_multipacket() {
             let (m, sent) = setup();
-            m.send_text("hello world", send_text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            m.send_text("hello world", text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 3);
             let h = header(&p[0]);
@@ -791,7 +771,7 @@ mod tests {
         async fn pre_v2_long_text_splits_at_mtu() {
             let (m, sent) = setup();
             let text = "A".repeat(40_000);
-            m.send_text(&text, send_text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            m.send_text(&text, text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 5); // header + 3 chunks + trailer
             assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
@@ -806,9 +786,7 @@ mod tests {
         #[tokio::test]
         async fn pre_v2_bytes_is_legacy_multipacket() {
             let (m, sent) = setup();
-            m.send_bytes([0u8, 1, 2, 3], send_byte_opts("blob", &[]), &pre_v2_room())
-                .await
-                .unwrap();
+            m.send_bytes([0u8, 1, 2, 3], byte_opts("blob", &[]), &pre_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 3);
             let h = header(&p[0]);
@@ -822,7 +800,7 @@ mod tests {
         #[tokio::test]
         async fn pre_v2_empty_text_sends_header_and_trailer() {
             let (m, sent) = setup();
-            m.send_text("", send_text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            m.send_text("", text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
             // A well-formed (if contentless) stream: header declaring zero length, then the trailer.
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 2);
@@ -841,7 +819,7 @@ mod tests {
             async fn v2_short_compressible_text_inlines_compressed() {
                 let (m, sent) = setup();
                 let text = "hello hello compressible world";
-                m.send_text(text, send_text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                m.send_text(text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -856,7 +834,7 @@ mod tests {
             #[tokio::test]
             async fn v2_short_incompressible_text_inlines_raw() {
                 let (m, sent) = setup();
-                m.send_text("short", send_text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                m.send_text("short", text_opts("chat", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -870,7 +848,7 @@ mod tests {
             async fn v2_no_compression_cap_inlines_raw() {
                 let (m, sent) = setup();
                 let text = "hello hello compressible world";
-                m.send_text(text, send_text_opts("chat", &["noCompression"]), &all_v2_room())
+                m.send_text(text, text_opts("chat", &["noCompression"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -884,7 +862,7 @@ mod tests {
             async fn v2_large_highly_compressible_text_still_inlines() {
                 let (m, sent) = setup();
                 let text = "hello world".repeat(20_000);
-                m.send_text(&text, send_text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -898,7 +876,7 @@ mod tests {
             async fn v2_somewhat_compressible_text_is_compressed_multipacket() {
                 let (m, sent) = setup();
                 let text = somewhat_compressible(50_000);
-                m.send_text(&text, send_text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -920,7 +898,7 @@ mod tests {
             async fn v2_compress_false_short_inlines_raw() {
                 let (m, sent) = setup();
                 let text = "hello hello compressible world";
-                let opts = send_text_opts("chat", &["alice", "bob"]).with_compress(false);
+                let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
                 m.send_text(text, opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1);
@@ -933,7 +911,7 @@ mod tests {
             async fn v2_compress_false_large_is_uncompressed_multipacket() {
                 let (m, sent) = setup();
                 let text = "B".repeat(50_000);
-                let opts = send_text_opts("chat", &["alice", "bob"]).with_compress(false);
+                let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
                 m.send_text(&text, opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 6); // header + 4 chunks + trailer
@@ -944,8 +922,7 @@ mod tests {
             #[tokio::test]
             async fn v2_send_text_with_attachments_never_inlines() {
                 let (m, sent) = setup();
-                let opts =
-                    send_text_opts("chat", &["alice", "bob"]).with_attached_stream_id("att1");
+                let opts = text_opts("chat", &["alice", "bob"]).with_attached_stream_id("att1");
                 m.send_text("hello hello compressible world", opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
                 // Attachments disable the single-packet path even when every recipient is v2.
@@ -960,7 +937,7 @@ mod tests {
             async fn v2_large_text_to_uncapable_recipient_is_uncompressed_multipacket() {
                 let (m, sent) = setup();
                 let text = "A".repeat(40_000);
-                m.send_text(&text, send_text_opts("chat", &["noCompression"]), &all_v2_room())
+                m.send_text(&text, text_opts("chat", &["noCompression"]), &all_v2_room())
                     .await
                     .unwrap();
                 // Inline is attempted (recipient is v2) but the raw payload overflows the MTU, and
@@ -980,7 +957,7 @@ mod tests {
             #[tokio::test]
             async fn v2_empty_text_sends_single_inline_packet() {
                 let (m, sent) = setup();
-                m.send_text("", send_text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                m.send_text("", text_opts("chat", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -999,13 +976,9 @@ mod tests {
             #[tokio::test]
             async fn v2_send_bytes_short_incompressible_inlines_raw() {
                 let (m, sent) = setup();
-                m.send_bytes(
-                    [0u8, 1, 2, 3],
-                    send_byte_opts("blob", &["alice", "bob"]),
-                    &all_v2_room(),
-                )
-                .await
-                .unwrap();
+                m.send_bytes([0u8, 1, 2, 3], byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
@@ -1018,7 +991,7 @@ mod tests {
             async fn v2_send_bytes_no_compression_cap_inlines_raw() {
                 let (m, sent) = setup();
                 let payload = "hello hello compressible world".as_bytes();
-                m.send_bytes(payload, send_byte_opts("blob", &["noCompression"]), &all_v2_room())
+                m.send_bytes(payload, byte_opts("blob", &["noCompression"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -1032,7 +1005,7 @@ mod tests {
             async fn v2_send_bytes_large_highly_compressible_inlines() {
                 let (m, sent) = setup();
                 let payload = vec![0x01u8; 50_000];
-                m.send_bytes(&payload, send_byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                m.send_bytes(&payload, byte_opts("blob", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -1047,7 +1020,7 @@ mod tests {
             async fn v2_send_bytes_somewhat_compressible_is_compressed_multipacket() {
                 let (m, sent) = setup();
                 let payload = somewhat_compressible(50_000).into_bytes();
-                m.send_bytes(&payload, send_byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                m.send_bytes(&payload, byte_opts("blob", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -1066,7 +1039,7 @@ mod tests {
             async fn v2_send_bytes_compress_false_large_is_uncompressed_multipacket() {
                 let (m, sent) = setup();
                 let payload = vec![0x07u8; 40_000];
-                let opts = send_byte_opts("blob", &["alice", "bob"]).with_compress(false);
+                let opts = byte_opts("blob", &["alice", "bob"]).with_compress(false);
                 m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 5); // header + 15k/15k/10k chunks + trailer
@@ -1084,7 +1057,7 @@ mod tests {
             async fn v2_send_bytes_short_compressible_inlines_compressed() {
                 let (m, sent) = setup();
                 let payload = "hello hello compressible world".as_bytes().to_vec();
-                let mut opts = send_byte_opts("blob", &["alice", "bob"]);
+                let mut opts = byte_opts("blob", &["alice", "bob"]);
                 opts.attributes.insert("foo".to_string(), "bar".to_string());
                 let info = m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
@@ -1114,7 +1087,7 @@ mod tests {
             async fn send_file_never_inlines_and_compresses_when_eligible() {
                 let (m, sent) = setup();
                 let path = write_temp_file(&vec![0x01u8; 10_000]).await;
-                m.send_file(&path, send_byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let _ = tokio::fs::remove_file(&path).await;
@@ -1132,13 +1105,9 @@ mod tests {
             async fn send_file_uncompressed_splits_at_mtu() {
                 let (m, sent) = setup();
                 let path = write_temp_file(&vec![0x07u8; 20_000]).await;
-                m.send_file(
-                    &path,
-                    send_byte_opts("file", &[]).with_compress(false),
-                    &all_v2_room(),
-                )
-                .await
-                .unwrap();
+                m.send_file(&path, byte_opts("file", &[]).with_compress(false), &all_v2_room())
+                    .await
+                    .unwrap();
                 let _ = tokio::fs::remove_file(&path).await;
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 4); // header + 15000 + 5000 + trailer
@@ -1154,7 +1123,7 @@ mod tests {
                 let (m, sent) = setup();
                 let data = random_bytes(50_000);
                 let path = write_temp_file(&data).await;
-                m.send_file(&path, send_byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let _ = tokio::fs::remove_file(&path).await;
@@ -1176,7 +1145,7 @@ mod tests {
             async fn send_file_to_no_compression_recipient_is_uncompressed() {
                 let (m, sent) = setup();
                 let path = write_temp_file(&vec![0x07u8; 10_000]).await;
-                m.send_file(&path, send_byte_opts("file", &["noCompression"]), &all_v2_room())
+                m.send_file(&path, byte_opts("file", &["noCompression"]), &all_v2_room())
                     .await
                     .unwrap();
                 let _ = tokio::fs::remove_file(&path).await;
@@ -1204,7 +1173,7 @@ mod tests {
                 let callback_reports = reports.clone();
                 m.send_file(
                     &path,
-                    send_byte_opts("file", &["alice"]).with_compress(compress).with_on_progress(
+                    byte_opts("file", &["alice"]).with_compress(compress).with_on_progress(
                         move |p| {
                             callback_reports
                                 .lock()
@@ -1266,7 +1235,7 @@ mod tests {
                 let result = m
                     .send_file(
                         &path,
-                        send_byte_opts("file", &["alice"]).with_on_progress(move |p| {
+                        byte_opts("file", &["alice"]).with_on_progress(move |p| {
                             progress_seen.lock().unwrap().push(Seen::Progress(p.bytes_processed()));
                         }),
                         &all_v2_room(),
@@ -1318,7 +1287,7 @@ mod tests {
             async fn send_file_empty_file() {
                 let (m, sent) = setup();
                 let path = write_temp_file(&[]).await;
-                m.send_file(&path, send_byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
                     .await
                     .unwrap();
                 let _ = tokio::fs::remove_file(&path).await;
@@ -1340,7 +1309,7 @@ mod tests {
             // No destinations: eligibility is evaluated over every remote participant.
             m.send_text(
                 "hello hello compressible world",
-                send_text_opts("chat", &[]),
+                text_opts("chat", &[]),
                 &all_v2_capable_room(),
             )
             .await
@@ -1358,7 +1327,7 @@ mod tests {
             let (m, sent) = setup();
             let text = "hello hello compressible world";
             // all_v2_room includes "noCompression": inline still applies, compression does not.
-            m.send_text(text, send_text_opts("chat", &[]), &all_v2_room()).await.unwrap();
+            m.send_text(text, text_opts("chat", &[]), &all_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
@@ -1372,7 +1341,7 @@ mod tests {
             // Nobody to receive it, so nothing gates the v2 fast path.
             m.send_text(
                 "hello hello compressible world",
-                send_text_opts("chat", &[]),
+                text_opts("chat", &[]),
                 &FakeRegistry::new(),
             )
             .await
@@ -1392,7 +1361,7 @@ mod tests {
         #[tokio::test]
         async fn mixed_broadcast_falls_back_to_legacy() {
             let (m, sent) = setup();
-            m.send_text("hello world", send_text_opts("chat", &[]), &mixed_room()).await.unwrap();
+            m.send_text("hello world", text_opts("chat", &[]), &mixed_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 3);
             assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
@@ -1404,9 +1373,7 @@ mod tests {
         async fn mixed_targeted_v2_subset_inlines_compressed() {
             let (m, sent) = setup();
             let text = "hello hello compressible world";
-            m.send_text(text, send_text_opts("chat", &["bob", "jim"]), &mixed_room())
-                .await
-                .unwrap();
+            m.send_text(text, text_opts("chat", &["bob", "jim"]), &mixed_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
@@ -1418,13 +1385,9 @@ mod tests {
         async fn mixed_targeted_subset_missing_cap_inlines_uncompressed() {
             let (m, sent) = setup();
             let text = "hello hello compressible world";
-            m.send_text(
-                text,
-                send_text_opts("chat", &["bob", "jim", "noCompression"]),
-                &mixed_room(),
-            )
-            .await
-            .unwrap();
+            m.send_text(text, text_opts("chat", &["bob", "jim", "noCompression"]), &mixed_room())
+                .await
+                .unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
@@ -1450,7 +1413,7 @@ mod tests {
     #[tokio::test]
     async fn send_text_inline_with_sender_identity_stamps_packet() {
         let (m, sent) = setup();
-        let opts = send_text_opts("chat", &["alice", "bob"]).with_sender_identity("impostor");
+        let opts = text_opts("chat", &["alice", "bob"]).with_sender_identity("impostor");
         m.send_text("hello hello compressible world", opts, &all_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 1);
@@ -1475,9 +1438,7 @@ mod tests {
     async fn one_shot_send_text_targets_every_packet() {
         let (m, sent) = setup();
         let text = "A".repeat(20_000);
-        m.send_text(&text, send_text_opts("chat", &["alice", "bob"]), &pre_v2_room())
-            .await
-            .unwrap();
+        m.send_text(&text, text_opts("chat", &["alice", "bob"]), &pre_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 4); // header + 2 chunks + trailer
         assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice", "bob"]));
@@ -1499,7 +1460,7 @@ mod tests {
         let (m, sent) = setup();
         let path = std::env::temp_dir().join(format!("lk_ds_dest_{}.bin", create_random_uuid()));
         tokio::fs::write(&path, vec![0x07u8; 20_000]).await.unwrap();
-        let opts = send_byte_opts("file", &["bob"]).with_compress(false);
+        let opts = byte_opts("file", &["bob"]).with_compress(false);
         m.send_file(&path, opts, &all_v2_room()).await.unwrap();
         let _ = tokio::fs::remove_file(&path).await;
         let p = sent.lock().unwrap().clone();
@@ -1517,7 +1478,7 @@ mod tests {
         let callback_reports = reports.clone();
         m.send_file(
             &path,
-            send_byte_opts("file", &["alice"]).with_on_progress(move |_| {
+            byte_opts("file", &["alice"]).with_on_progress(move |_| {
                 *callback_reports.lock().unwrap() += 1;
             }),
             &all_v2_room(),
@@ -1589,7 +1550,7 @@ mod tests {
         #[tokio::test]
         async fn oversized_attributes_on_chunked_path_errors() {
             let (m, _sent) = setup();
-            let mut opts = send_text_opts("chat", &[]); // pre-v2 below => chunked path
+            let mut opts = text_opts("chat", &[]); // pre-v2 below => chunked path
             opts.attributes.insert("big".to_string(), "x".repeat(20_000));
             let result = m.send_text("hello", opts, &pre_v2_room()).await;
             assert!(matches!(result, Err(StreamError::HeaderTooLarge)));
@@ -1683,7 +1644,7 @@ mod tests {
             // 40 KB uncompressed to a pre-v2 room: header + 3 chunks (15k/15k/10k) + trailer,
             // delivered as ONE transport request rather than one per packet.
             let text = "A".repeat(40_000);
-            m.send_text(&text, send_text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            m.send_text(&text, text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
             let batches = sent.lock().unwrap().clone();
             assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![5]);
             let batch = &batches[0];
@@ -1698,7 +1659,7 @@ mod tests {
         async fn one_shot_send_bytes_is_a_single_transport_request() {
             let (m, sent) = setup_batched();
             let payload = vec![0x07u8; 40_000];
-            let opts = send_byte_opts("blob", &["alice", "bob"]).with_compress(false);
+            let opts = byte_opts("blob", &["alice", "bob"]).with_compress(false);
             m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
             let batches = sent.lock().unwrap().clone();
             assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![5]);
@@ -1707,7 +1668,7 @@ mod tests {
         #[tokio::test]
         async fn one_shot_send_with_sender_identity_stamps_every_packet() {
             let (m, sent) = setup_batched();
-            let opts = send_text_opts("chat", &[]).with_sender_identity("impostor");
+            let opts = text_opts("chat", &[]).with_sender_identity("impostor");
             m.send_text(&"A".repeat(20_000), opts, &pre_v2_room()).await.unwrap();
             let batches = sent.lock().unwrap().clone();
             assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![4]);
@@ -1734,7 +1695,7 @@ mod tests {
             let path =
                 std::env::temp_dir().join(format!("lk_ds_batch_{}.bin", create_random_uuid()));
             tokio::fs::write(&path, vec![0x07u8; 20_000]).await.unwrap();
-            m.send_file(&path, send_byte_opts("file", &[]).with_compress(false), &all_v2_room())
+            m.send_file(&path, byte_opts("file", &[]).with_compress(false), &all_v2_room())
                 .await
                 .unwrap();
             let _ = tokio::fs::remove_file(&path).await;

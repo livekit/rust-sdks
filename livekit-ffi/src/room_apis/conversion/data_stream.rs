@@ -56,69 +56,69 @@ impl From<ByteStreamInfo> for proto::ByteStreamInfo {
 }
 
 impl From<proto::StreamTextOptions> for SendTextOptions {
-    fn from(options: proto::StreamTextOptions) -> Self {
-        let operation_type = options.operation_type().into();
-        let mut stream = Self::new_with_topic(options.topic);
-        stream.attributes = options.attributes;
-        stream.destination_identities =
-            options.destination_identities.into_iter().map(Into::into).collect();
-        stream.id = options.id;
-        stream.sender_identity = options.sender_identity.map(Into::into);
-        stream.operation_type = Some(operation_type);
-        stream.version = options.version;
-        stream.reply_to_stream_id = options.reply_to_stream_id;
-        stream.attached_stream_ids = options.attached_stream_ids;
-        stream.generated = options.generated;
-        stream.compress = options.compress;
-        stream
+    fn from(value: proto::StreamTextOptions) -> Self {
+        let operation_type = value.operation_type().into();
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.operation_type = Some(operation_type);
+        options.version = value.version;
+        options.reply_to_stream_id = value.reply_to_stream_id;
+        options.attached_stream_ids = value.attached_stream_ids;
+        options.generated = value.generated;
+        options.compress = value.compress;
+        options
     }
 }
 
 impl From<proto::StreamTextOptions> for StreamTextOptions {
-    fn from(options: proto::StreamTextOptions) -> Self {
-        let operation_type = options.operation_type().into();
-        let mut stream = Self::new_with_topic(options.topic);
-        stream.attributes = options.attributes;
-        stream.destination_identities =
-            options.destination_identities.into_iter().map(Into::into).collect();
-        stream.id = options.id;
-        stream.sender_identity = options.sender_identity.map(Into::into);
-        stream.operation_type = Some(operation_type);
-        stream.version = options.version;
-        stream.reply_to_stream_id = options.reply_to_stream_id;
-        stream.attached_stream_ids = options.attached_stream_ids;
-        stream.generated = options.generated;
-        stream
+    fn from(value: proto::StreamTextOptions) -> Self {
+        let operation_type = value.operation_type().into();
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.operation_type = Some(operation_type);
+        options.version = value.version;
+        options.reply_to_stream_id = value.reply_to_stream_id;
+        options.attached_stream_ids = value.attached_stream_ids;
+        options.generated = value.generated;
+        options
     }
 }
 
 impl From<proto::StreamByteOptions> for SendByteOptions {
-    fn from(options: proto::StreamByteOptions) -> Self {
-        let mut stream = Self::new_with_topic(options.topic);
-        stream.attributes = options.attributes;
-        stream.destination_identities =
-            options.destination_identities.into_iter().map(Into::into).collect();
-        stream.id = options.id;
-        stream.sender_identity = options.sender_identity.map(Into::into);
-        stream.mime_type = options.mime_type;
-        stream.name = options.name;
-        stream.compress = options.compress;
-        stream
+    fn from(value: proto::StreamByteOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.mime_type = value.mime_type;
+        options.name = value.name;
+        options.compress = value.compress;
+        options
     }
 }
 
 impl From<proto::StreamByteOptions> for StreamByteOptions {
-    fn from(options: proto::StreamByteOptions) -> Self {
-        let mut stream = Self::new_with_topic(options.topic);
-        stream.attributes = options.attributes;
-        stream.destination_identities =
-            options.destination_identities.into_iter().map(Into::into).collect();
-        stream.id = options.id;
-        stream.sender_identity = options.sender_identity.map(Into::into);
-        stream.mime_type = options.mime_type;
-        stream.name = options.name;
-        stream.total_length = options.total_length;
-        stream
+    fn from(value: proto::StreamByteOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.mime_type = value.mime_type;
+        options.name = value.name;
+        options.total_length = value.total_length;
+        options
     }
 }
 
