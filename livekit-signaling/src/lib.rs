@@ -189,6 +189,9 @@ pub struct SignalOptions {
     /// Retry a failed [`SignalClient::connect`] on the other regions of a LiveKit Cloud project.
     ///
     /// Turn off when the caller runs its own region failover, so the two retry loops do not stack.
+    ///
+    /// Defaults to `true`. When off, `connect` returns the first error unchanged and does not
+    /// use the region cache. When on, every error, including a 401, starts the region fallback.
     pub region_failover: bool,
     /// Advertise only legacy data stream support: caps ClientInfo.client_protocol at
     /// [`CLIENT_PROTOCOL_DATA_STREAM_RPC`] instead of [`CLIENT_PROTOCOL_DATA_STREAM_V2`].
