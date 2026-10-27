@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     convert::TryInto,
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
@@ -468,6 +469,7 @@ struct SessionInner {
     emitter: SessionEmitter,
 
     options: EngineOptions,
+    close_rx: watch::Receiver<bool>,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
     negotiation_queue: NegotiationQueue,
 
@@ -707,6 +709,7 @@ impl RtcSession {
             disconnecting: Default::default(),
             emitter,
             options,
+            close_rx: close_rx.clone(),
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
@@ -2544,6 +2547,10 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+
         let fast_publish = self.fast_publish.load(Ordering::Acquire);
         self.has_published.store(true, Ordering::Release);
 
@@ -2578,8 +2585,19 @@ impl SessionInner {
                 drop(state);
 
                 let session = self.clone();
+                let mut close_rx = self.close_rx.clone();
                 tokio::spawn(async move {
-                    session.execute_negotiation_with_retry().await;
+                    let completed =
+                        cancel_on_close(&mut close_rx, session.execute_negotiation_with_retry())
+                            .await
+                            .is_some();
+                    if !completed {
+                        session
+                            .negotiation_queue
+                            .waiting_for_answer
+                            .store(false, Ordering::Release);
+                        *session.negotiation_queue.state.lock() = NegotiationState::Idle;
+                    }
                     session.negotiation_queue.task_running.store(false, Ordering::Release);
                 });
             }
@@ -2643,12 +2661,14 @@ impl SessionInner {
         // call() returns an error if the debouncer has finished
         if debouncer.is_none() || debouncer.as_ref().unwrap().call().is_err() {
             let session = self.clone();
+            let mut close_rx = self.close_rx.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
-                log::debug!("negotiating the publisher (debounced)");
-                if let Err(err) =
+                let negotiate = async {
+                    log::debug!("negotiating the publisher (debounced)");
                     session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
-                {
+                };
+                if let Some(Err(err)) = cancel_on_close(&mut close_rx, negotiate).await {
                     log::error!("failed to negotiate the publisher: {:?}", err);
                 }
             }));
@@ -2796,6 +2816,20 @@ impl<T> Drop for PendingResponseGuard<'_, T> {
     }
 }
 
+async fn cancel_on_close<T>(
+    close_rx: &mut watch::Receiver<bool>,
+    future: impl Future<Output = T>,
+) -> Option<T> {
+    if *close_rx.borrow() {
+        return None;
+    }
+
+    tokio::select! {
+        result = future => Some(result),
+        _ = close_rx.changed() => None,
+    }
+}
+
 /// Emit incoming data track packets as session events.
 pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<SessionEvent>) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
@@ -2874,10 +2908,40 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+    use std::{future, sync::Arc, time::Duration};
+
+    use tokio::{
+        sync::{oneshot, watch},
+        time::timeout,
+    };
+
+    use super::{
+        cancel_on_close, parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE,
+    };
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
+
+    #[tokio::test]
+    async fn close_signal_releases_owner_held_by_pending_task() {
+        let (close_tx, mut close_rx) = watch::channel(false);
+        let owner = Arc::new(());
+        let owner_dropped = Arc::downgrade(&owner);
+        let (started_tx, started_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let pending = async move {
+                let _owner = owner;
+                started_tx.send(()).unwrap();
+                future::pending::<()>().await;
+            };
+            assert!(cancel_on_close(&mut close_rx, pending).await.is_none());
+        });
+
+        started_rx.await.unwrap();
+        close_tx.send(true).unwrap();
+        timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+        assert!(owner_dropped.upgrade().is_none());
+    }
 
     /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
     /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so
