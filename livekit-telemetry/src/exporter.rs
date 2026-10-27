@@ -22,6 +22,7 @@ use std::{
 };
 
 use flate2::{write::GzEncoder, Compression};
+use livekit_protocol::semconv::span;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, timeout, Instant};
 
@@ -68,7 +69,7 @@ const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// anyway: the cap that bounds the policy when its signals lie. Hard holds have no such escape.
 const MAX_HOLD: Duration = Duration::from_secs(60);
 /// While one of these is open the uplink belongs to signaling and ICE/DTLS.
-pub(crate) const SENSITIVE_SPANS: &[&str] = &["lk.connect", "lk.reconnect"];
+pub(crate) const SENSITIVE_SPANS: &[&str] = &[span::LK_CONNECT, span::LK_RECONNECT];
 /// RFC 9218 request priority: lowest urgency, not incremental. A hint for HTTP/2+ hops that
 /// implement it; the host transport marks the local traffic class (see `TelemetryTransport`).
 const PRIORITY: &str = "u=7";
@@ -1758,12 +1759,12 @@ pub(crate) mod tests {
     #[test]
     fn gzip_shrinks_a_batch_of_records_at_least_this_much() {
         let session = ScopeState::new();
-        session.set_attribute("lk.room.sid", Some("RM_UpE3vYzFmJp8".into()));
+        session.set_attribute("lk.room_sid", Some("RM_UpE3vYzFmJp8".into()));
         let records = (0..100)
             .map(|i| {
                 let event = TelemetryEvent::new("lk.rtc.stats.sample")
                     .with_body(format!("video inbound: {i} kbps, rtt 48 ms, 30 fps"))
-                    .with_attribute("lk.track.sid", "TR_VCd8tCgNdE9h")
+                    .with_attribute("lk.track_sid", "TR_VCd8tCgNdE9h")
                     .with_attribute("lk.rtc.bytes", i as i64 * 1_000);
                 QueuedEvent::new(event, session.clone())
             })

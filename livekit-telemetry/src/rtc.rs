@@ -18,6 +18,9 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{
+    self, event, lk_track_direction as direction, lk_track_kind as kind,
+};
 use tokio::time::Instant;
 
 use crate::{
@@ -460,12 +463,13 @@ impl Gauge {
         (self.n > 0).then(|| self.sum / self.n as f64)
     }
 
-    fn attach(&self, event: TelemetryEvent, key: &str) -> TelemetryEvent {
+    /// The `.min`, `.max` and `.avg` keys, in that order.
+    fn attach(&self, event: TelemetryEvent, [min, max, avg_key]: [&str; 3]) -> TelemetryEvent {
         let Some(avg) = self.avg() else { return event };
         event
-            .with_attribute(format!("{key}.min"), self.min)
-            .with_attribute(format!("{key}.max"), self.max)
-            .with_attribute(format!("{key}.avg"), avg)
+            .with_attribute(min, self.min)
+            .with_attribute(max, self.max)
+            .with_attribute(avg_key, avg)
     }
 }
 
@@ -573,44 +577,64 @@ impl Window {
         let window_ms = end_ns.saturating_sub(self.start_ns) / 1_000_000;
         let body = self.summary();
         let last = self.last;
-        let mut event = TelemetryEvent::new("lk.rtc.stats.sample")
+        let mut event = TelemetryEvent::new(event::LK_RTC_STATS_SAMPLE)
             .with_body(body)
-            .with_attribute("lk.track.sid", last.track_sid)
-            .with_attribute("lk.track.kind", last.kind.as_str())
-            .with_attribute("lk.track.direction", last.direction.as_str())
-            .with_attribute("lk.rtc.window_ms", window_ms as i64)
-            .with_attribute("lk.rtc.samples", self.samples as i64);
+            .with_attribute(semconv::LK_TRACK_SID, last.track_sid)
+            .with_attribute(semconv::LK_TRACK_KIND, last.kind.as_str())
+            .with_attribute(semconv::LK_TRACK_DIRECTION, last.direction.as_str())
+            .with_attribute(semconv::LK_RTC_WINDOW_MS, window_ms as i64)
+            .with_attribute(semconv::LK_RTC_SAMPLES, self.samples as i64);
         if let Some(codec) = last.codec {
-            event = event.with_attribute("lk.rtc.codec", codec);
+            event = event.with_attribute(semconv::LK_RTC_CODEC, codec);
         }
         let counters = [
-            ("lk.rtc.bytes", last.bytes),
-            ("lk.rtc.packets", last.packets),
-            ("lk.rtc.packets_lost", last.packets_lost),
-            ("lk.rtc.freeze_count", last.freeze_count),
-            ("lk.rtc.freezes_duration_ms", last.freezes_duration_ms),
-            ("lk.rtc.concealed_samples", last.concealed_samples),
-            ("lk.rtc.concealment_events", last.concealment_events),
-            ("lk.rtc.jitter_buffer_delay_ms", last.jitter_buffer_delay_ms),
-            ("lk.rtc.jitter_buffer_emitted_count", last.jitter_buffer_emitted_count),
-            ("lk.rtc.quality_limitation.bandwidth_ms", last.quality_limitation_bandwidth_ms),
-            ("lk.rtc.quality_limitation.cpu_ms", last.quality_limitation_cpu_ms),
-            ("lk.rtc.quality_limitation.other_ms", last.quality_limitation_other_ms),
-            ("lk.rtc.pause_count", last.pause_count),
-            ("lk.rtc.pauses_duration_ms", last.pauses_duration_ms),
-            ("lk.rtc.silent_concealed_samples", last.silent_concealed_samples),
-            ("lk.rtc.interruption_count", last.interruption_count),
-            ("lk.rtc.interruptions_duration_ms", last.interruptions_duration_ms),
+            (semconv::LK_RTC_BYTES, last.bytes),
+            (semconv::LK_RTC_PACKETS, last.packets),
+            (semconv::LK_RTC_PACKETS_LOST, last.packets_lost),
+            (semconv::LK_RTC_FREEZE_COUNT, last.freeze_count),
+            (semconv::LK_RTC_FREEZES_DURATION_MS, last.freezes_duration_ms),
+            (semconv::LK_RTC_CONCEALED_SAMPLES, last.concealed_samples),
+            (semconv::LK_RTC_CONCEALMENT_EVENTS, last.concealment_events),
+            (semconv::LK_RTC_JITTER_BUFFER_DELAY_MS, last.jitter_buffer_delay_ms),
+            (semconv::LK_RTC_JITTER_BUFFER_EMITTED_COUNT, last.jitter_buffer_emitted_count),
+            (semconv::LK_RTC_QUALITY_LIMITATION_BANDWIDTH_MS, last.quality_limitation_bandwidth_ms),
+            (semconv::LK_RTC_QUALITY_LIMITATION_CPU_MS, last.quality_limitation_cpu_ms),
+            (semconv::LK_RTC_QUALITY_LIMITATION_OTHER_MS, last.quality_limitation_other_ms),
+            (semconv::LK_RTC_PAUSE_COUNT, last.pause_count),
+            (semconv::LK_RTC_PAUSES_DURATION_MS, last.pauses_duration_ms),
+            (semconv::LK_RTC_SILENT_CONCEALED_SAMPLES, last.silent_concealed_samples),
+            (semconv::LK_RTC_INTERRUPTION_COUNT, last.interruption_count),
+            (semconv::LK_RTC_INTERRUPTIONS_DURATION_MS, last.interruptions_duration_ms),
         ];
         for (key, value) in counters {
             if let Some(value) = value {
                 event = event.with_attribute(key, value as i64);
             }
         }
-        event = self.jitter.attach(event, "lk.rtc.jitter_ms");
-        event = self.rtt.attach(event, "lk.rtc.rtt_ms");
-        event = self.fps.attach(event, "lk.rtc.fps");
-        event = self.audio_level.attach(event, "lk.rtc.audio_level");
+        event = self.jitter.attach(
+            event,
+            [
+                semconv::LK_RTC_JITTER_MS_MIN,
+                semconv::LK_RTC_JITTER_MS_MAX,
+                semconv::LK_RTC_JITTER_MS_AVG,
+            ],
+        );
+        event = self.rtt.attach(
+            event,
+            [semconv::LK_RTC_RTT_MS_MIN, semconv::LK_RTC_RTT_MS_MAX, semconv::LK_RTC_RTT_MS_AVG],
+        );
+        event = self.fps.attach(
+            event,
+            [semconv::LK_RTC_FPS_MIN, semconv::LK_RTC_FPS_MAX, semconv::LK_RTC_FPS_AVG],
+        );
+        event = self.audio_level.attach(
+            event,
+            [
+                semconv::LK_RTC_AUDIO_LEVEL_MIN,
+                semconv::LK_RTC_AUDIO_LEVEL_MAX,
+                semconv::LK_RTC_AUDIO_LEVEL_AVG,
+            ],
+        );
         event.timestamp_ns = Some(end_ns);
         event
     }
@@ -919,10 +943,10 @@ fn test_session() -> Arc<ScopeState> {
 }
 
 impl TrackKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
-            TrackKind::Audio => "audio",
-            TrackKind::Video => "video",
+            TrackKind::Audio => kind::AUDIO,
+            TrackKind::Video => kind::VIDEO,
         }
     }
 }
@@ -930,8 +954,8 @@ impl TrackKind {
 impl StreamDirection {
     fn as_str(self) -> &'static str {
         match self {
-            StreamDirection::Inbound => "inbound",
-            StreamDirection::Outbound => "outbound",
+            StreamDirection::Inbound => direction::INBOUND,
+            StreamDirection::Outbound => direction::OUTBOUND,
         }
     }
 }
