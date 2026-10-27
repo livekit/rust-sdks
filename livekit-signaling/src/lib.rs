@@ -189,6 +189,12 @@ pub struct SignalOptions {
     /// which asks the server to forward video frames with their trailers. Leave it out when the
     /// caller's media stack cannot strip them.
     pub client_capabilities: Vec<proto::client_info::Capability>,
+    /// Client protocol advertised to other participants in `ClientInfo.client_protocol`.
+    /// Defaults to [`CLIENT_PROTOCOL_DATA_STREAM_V2`].
+    ///
+    /// Advertise-only: other participants read it to decide what to send this client, but
+    /// nothing in this crate changes behavior on it.
+    pub client_protocol: i32,
 }
 
 impl Default for SignalOptions {
@@ -201,6 +207,7 @@ impl Default for SignalOptions {
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             protocol_version: PROTOCOL_VERSION,
             client_capabilities: CLIENT_CAPABILITIES.to_vec(),
+            client_protocol: CLIENT_PROTOCOL_VERSION,
         }
     }
 }
@@ -951,7 +958,7 @@ fn create_join_request_param(
         os_version,
         device_model,
         capabilities: options.client_capabilities.iter().map(|c| *c as i32).collect(),
-        client_protocol: CLIENT_PROTOCOL_VERSION,
+        client_protocol: options.client_protocol,
         other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
     };
@@ -1071,7 +1078,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", options.protocol_version.to_string().as_str())
-            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("client_protocol", options.client_protocol.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
@@ -1761,6 +1768,7 @@ mod tests {
         let mut io = SignalOptions::default();
         io.protocol_version = 16;
         io.client_capabilities = vec![Capability::CapCompressionDeflateRaw];
+        io.client_protocol = 3;
 
         let v0 =
             get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
@@ -1770,6 +1778,7 @@ mod tests {
             query.get("capabilities").map(String::as_str),
             Some("CAP_COMPRESSION_DEFLATE_RAW")
         );
+        assert_eq!(query.get("client_protocol").map(String::as_str), Some("3"));
 
         let v1 = get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
         let join_request_param = v1
@@ -1780,6 +1789,7 @@ mod tests {
             decode_join_request_param_for_test(&join_request_param).client_info.unwrap();
         assert_eq!(client_info.protocol, 16);
         assert_eq!(client_info.capabilities, vec![Capability::CapCompressionDeflateRaw as i32]);
+        assert_eq!(client_info.client_protocol, 3);
     }
 
     #[test]
@@ -1876,6 +1886,7 @@ mod tests {
             .join(",");
         assert_eq!(query.get("protocol"), Some(&PROTOCOL_VERSION.to_string()));
         assert_eq!(query.get("capabilities"), Some(&expected));
+        assert_eq!(query.get("client_protocol"), Some(&CLIENT_PROTOCOL_VERSION.to_string()));
 
         let v1 = get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
         let join_request_param = v1
@@ -1885,6 +1896,7 @@ mod tests {
         let client_info =
             decode_join_request_param_for_test(&join_request_param).client_info.unwrap();
         assert_eq!(client_info.protocol, PROTOCOL_VERSION as i32);
+        assert_eq!(client_info.client_protocol, CLIENT_PROTOCOL_VERSION);
         assert_eq!(
             client_info.capabilities,
             CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect::<Vec<_>>()
