@@ -203,3 +203,45 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{borrow::Cow, time::Duration};
+
+    use tokio_stream::StreamExt;
+
+    use crate::{
+        audio_frame::AudioFrame,
+        audio_source::{native::NativeAudioSource, AudioSourceOptions},
+        audio_stream::native::NativeAudioStream,
+        peer_connection_factory::{native::PeerConnectionFactoryExt, PeerConnectionFactory},
+    };
+
+    // The source hands audio on in 10 ms chunks. A push that doesn't end on a
+    // chunk boundary must still play out in full once the queue runs dry,
+    // rather than waiting for the next push.
+    #[tokio::test]
+    async fn queued_audio_plays_out_when_push_is_not_chunk_aligned() {
+        let factory = PeerConnectionFactory::default();
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 1, 100);
+        let track = factory.create_audio_track("test", source.clone());
+        let mut stream = NativeAudioStream::new(track, 48000, 1);
+
+        // 15 ms: one full chunk and half of the next.
+        let samples = 720;
+        let frame = AudioFrame {
+            data: Cow::Owned(vec![1000; samples]),
+            sample_rate: 48000,
+            num_channels: 1,
+            samples_per_channel: samples as u32,
+        };
+        source.capture_frame(&frame).await.unwrap();
+
+        let mut played = 0;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+        while let Ok(Some(out)) = tokio::time::timeout_at(deadline, stream.next()).await {
+            played += out.data.iter().filter(|&&s| s != 0).count();
+        }
+        assert_eq!(played, samples);
+    }
+}
