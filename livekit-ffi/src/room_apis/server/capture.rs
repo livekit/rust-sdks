@@ -133,9 +133,21 @@ async fn create_capture_source(
         }
     };
 
-    let (kind, resolution, codec, publish_options, rtc_source, stop) = match &pump {
+    Ok(register_capture_source(server, pump))
+}
+
+/// Stores the capture source and its RTC video source as client-owned
+/// handles.
+fn register_capture_source(
+    server: &'static FfiServer,
+    pump: CapturePump,
+) -> proto::OwnedCaptureSource {
+    // The source type must match how the pump built the RTC source, so the
+    // FFI video source accepts the matching frame and feedback requests.
+    let (kind, source_type, resolution, codec, publish_options, rtc_source, stop) = match &pump {
         CapturePump::Pixel(pump) => (
             proto::CaptureSourceKind::CaptureSourcePixel,
+            proto::VideoSourceType::VideoSourceNative,
             pump.source().resolution(),
             None,
             pump.publish_options(),
@@ -144,6 +156,7 @@ async fn create_capture_source(
         ),
         CapturePump::Encoded(pump) => (
             proto::CaptureSourceKind::CaptureSourceEncoded,
+            proto::VideoSourceType::VideoSourceEncoded,
             pump.source().resolution(),
             Some(pump.source().codec()),
             pump.publish_options(),
@@ -155,11 +168,8 @@ async fn create_capture_source(
     // The RTC source is a regular client-owned handle, used with the
     // existing CreateVideoTrack request.
     let source_handle_id = server.next_id();
-    let video_source = FfiVideoSource {
-        handle_id: source_handle_id,
-        source_type: proto::VideoSourceType::VideoSourceNative,
-        source: rtc_source,
-    };
+    let video_source =
+        FfiVideoSource { handle_id: source_handle_id, source_type, source: rtc_source };
     let video_source_info = proto::VideoSourceInfo::from(&video_source);
     server.store_handle(source_handle_id, video_source);
 
@@ -187,7 +197,7 @@ async fn create_capture_source(
         },
     );
 
-    Ok(proto::OwnedCaptureSource { handle: proto::FfiOwnedHandle { id: capture_handle_id }, info })
+    proto::OwnedCaptureSource { handle: proto::FfiOwnedHandle { id: capture_handle_id }, info }
 }
 
 /// Maps the pump-derived publish options into the proto options the client
@@ -332,7 +342,11 @@ mod tests {
     use super::*;
     use crate::{server::FfiConfig, FFI_SERVER};
     use livekit::webrtc::video_frame::BoxVideoFrame;
-    use livekit_capture::{error::SourceError, primitive::VideoResolution};
+    use livekit_capture::{
+        encoded::{EncodedVideoCodec, OwnedEncodedAccessUnit},
+        error::SourceError,
+        primitive::VideoResolution,
+    };
     use std::{
         sync::{mpsc, Arc},
         time::Duration,
@@ -368,6 +382,79 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             Ok(None)
         }
+    }
+
+    struct IdleEncodedSource;
+
+    impl EncodedVideoSource for IdleEncodedSource {
+        fn resolution(&self) -> VideoResolution {
+            VideoResolution { width: 64, height: 36 }
+        }
+
+        fn codec(&self) -> EncodedVideoCodec {
+            EncodedVideoCodec::H264
+        }
+
+        fn next_access_unit(
+            &mut self,
+            _stop: &PumpStop,
+        ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+            Ok(None)
+        }
+    }
+
+    #[serial_test::serial]
+    #[test]
+    fn capture_video_source_type_matches_pump_kind() {
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(|_| {}),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
+        let (pixel, encoded) = server().async_runtime.block_on(async {
+            let (entered, _) = mpsc::channel();
+            let (dropped, _) = mpsc::channel();
+            let pixel: Box<dyn PixelVideoSource> =
+                Box::new(DropObservedSource { entered: Some(entered), dropped });
+            let encoded: Box<dyn EncodedVideoSource> = Box::new(IdleEncodedSource);
+            (
+                register_capture_source(server(), CapturePump::Pixel(PixelVideoPump::new(pixel))),
+                register_capture_source(
+                    server(),
+                    CapturePump::Encoded(EncodedVideoPump::new(encoded)),
+                ),
+            )
+        });
+
+        assert_eq!(pixel.info.kind(), proto::CaptureSourceKind::CaptureSourcePixel);
+        assert_eq!(
+            pixel.info.video_source.info.r#type(),
+            proto::VideoSourceType::VideoSourceNative
+        );
+        assert_eq!(encoded.info.kind(), proto::CaptureSourceKind::CaptureSourceEncoded);
+        assert_eq!(
+            encoded.info.video_source.info.r#type(),
+            proto::VideoSourceType::VideoSourceEncoded
+        );
+
+        // The stored handles must accept only the requests that match their
+        // source type.
+        let pixel_video =
+            server().retrieve_handle::<FfiVideoSource>(pixel.info.video_source.handle.id).unwrap();
+        assert!(pixel_video.take_encoded_feedback().is_err());
+        let encoded_video = server()
+            .retrieve_handle::<FfiVideoSource>(encoded.info.video_source.handle.id)
+            .unwrap();
+        assert!(encoded_video.take_encoded_feedback().is_ok());
+        drop((pixel_video, encoded_video));
+
+        for source in [pixel, encoded] {
+            server().drop_handle(source.handle.id);
+            server().drop_handle(source.info.video_source.handle.id);
+        }
+        *server().config.lock() = None;
     }
 
     #[serial_test::serial]
