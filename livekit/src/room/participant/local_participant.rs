@@ -431,6 +431,15 @@ impl LocalParticipant {
                         layers: req.layers.clone(),
                         ..Default::default()
                     }];
+                } else {
+                    // Single-layer tracks still announce their codec: the
+                    // server prefers it in the answer, and without it falls
+                    // back to its default (VP8) for this transceiver.
+                    req.simulcast_codecs = vec![proto::SimulcastCodec {
+                        codec: options.video_codec.as_str().to_string(),
+                        cid: track.rtc_track().id(),
+                        ..Default::default()
+                    }];
                 }
             }
             LocalTrack::Audio(_audio_track) => {
