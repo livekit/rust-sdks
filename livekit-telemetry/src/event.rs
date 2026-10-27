@@ -25,10 +25,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct TelemetryEvent {
     /// Event name. LiveKit-defined events use the `lk.` prefix (e.g. `lk.ping`); see `SPEC.md`.
     pub name: String,
+    /// How serious it is (OTLP severity number and text).
     pub severity: Severity,
     /// Optional human-readable message (the OTLP log record body).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub body: Option<String>,
+    /// The record's own attributes; the session's are added when it is captured.
     pub attributes: Vec<Attribute>,
     /// Wall-clock time in nanoseconds since the Unix epoch. `None` is stamped when the record is
     /// queued, never at export.
@@ -43,14 +45,7 @@ pub struct TelemetryEvent {
 impl TelemetryEvent {
     /// An `Info` event without attributes, stamped when emitted.
     pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            severity: Severity::Info,
-            body: None,
-            attributes: Vec::new(),
-            timestamp_ns: None,
-            span_id: None,
-        }
+        Self { name: name.into(), ..Self::default() }
     }
 
     /// Link this record to an in-flight span.
@@ -109,12 +104,30 @@ impl TelemetryEvent {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Severity {
+    /// OTel `TRACE` (1).
     Trace,
+    /// OTel `DEBUG` (5).
     Debug,
+    /// OTel `INFO` (9).
     #[default]
     Info,
+    /// OTel `WARN` (13).
     Warn,
+    /// OTel `ERROR` (17).
     Error,
+}
+
+impl Severity {
+    /// The OTel severity text (`WARN`).
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+        }
+    }
 }
 
 /// Where a log line came from. WebRTC is chatty at warn, so only its errors become records;
@@ -122,8 +135,11 @@ pub enum Severity {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogSource {
+    /// The platform SDK's own code (Swift, Kotlin, Dart, JS).
     Sdk,
+    /// The Rust core, through the FFI.
     Ffi,
+    /// libwebrtc.
     WebRtc,
 }
 
@@ -143,20 +159,28 @@ impl LogSource {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogRecord {
+    /// How serious the line is; the core applies the source's floor to it.
     pub severity: Severity,
+    /// Who wrote the line: it picks the floor, and is exported as `lk.log.source`.
     pub source: LogSource,
     /// The line itself (the OTLP log body). Not `message`: AGENTS.md keeps that name off every
     /// exported record.
     pub body: String,
-    /// The logger: a type, module or file name (`Room`, `livekit::rtc_engine`, `sctp.cc`).
+    /// The logger: a type, module or file name (`Room`, `livekit::rtc_engine`, `sctp.cc`),
+    /// exported as `lk.log.logger` to group lines in the backend.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub logger: Option<String>,
+    /// The function that logged, exported as `code.function.name`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub function: Option<String>,
+    /// The source file, exported as `code.file.path`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub file: Option<String>,
+    /// The line in `file`, exported as `code.line.number` (0 is no line).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub line: Option<u32>,
+    /// When the line was logged, in nanoseconds since the Unix epoch; `None` is stamped when the
+    /// record is queued.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
     /// The in-flight span this line was logged under, if any.
@@ -180,7 +204,7 @@ impl From<LogRecord> for TelemetryEvent {
             event = event.with_attribute("code.file.path", file);
         }
         if let Some(line) = record.line.filter(|l| *l > 0) {
-            event = event.with_attribute("code.line.number", line as i64);
+            event = event.with_attribute("code.line.number", i64::from(line));
         }
         event.timestamp_ns = record.timestamp_ns;
         event.span_id = record.span_id;
@@ -192,7 +216,9 @@ impl From<LogRecord> for TelemetryEvent {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
+    /// The attribute's name (`lk.room.sid`, `acme.checkout.step`).
     pub key: String,
+    /// Its value.
     pub value: AttributeValue,
 }
 
@@ -207,9 +233,13 @@ impl Attribute {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
+    /// A string (OTLP `string_value`).
     Str(String),
+    /// A 64-bit integer (OTLP `int_value`).
     Int(i64),
+    /// A 64-bit float (OTLP `double_value`).
     Double(f64),
+    /// A boolean (OTLP `bool_value`).
     Bool(bool),
 }
 
@@ -245,8 +275,10 @@ impl From<bool> for AttributeValue {
 
 /// Current wall-clock time in nanoseconds since the Unix epoch (0 if the clock is before 1970).
 pub(crate) fn now_unix_nanos() -> u64 {
-    let now =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| {
+        // Past the year 2554 a u64 of nanoseconds runs out: saturate rather than wrap.
+        u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
+    });
     #[cfg(test)]
     let now = now.saturating_add_signed(CLOCK_JUMP_NS.with(|jump| jump.get()));
     now
@@ -254,7 +286,9 @@ pub(crate) fn now_unix_nanos() -> u64 {
 
 #[cfg(test)]
 thread_local! {
-    /// How far a test moved the wall clock, on this (current-thread runtime) thread.
+    /// How far a test moved the wall clock, on this (current-thread runtime) thread: the
+    /// capture-time test (`queued_records_carry_their_capture_time_not_their_export_time`) moves
+    /// it between capture and export, which no real clock does on demand.
     pub(crate) static CLOCK_JUMP_NS: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
 }
 
@@ -263,7 +297,9 @@ thread_local! {
 /// truncated id silently collides with another.
 #[expect(dead_code, reason = "enforced by the pipeline, not in place yet")]
 pub(crate) const MAX_NAME_BYTES: usize = 128;
+/// The longest attribute key an app may hand over, in bytes.
 pub(crate) const MAX_KEY_BYTES: usize = 128;
+/// The longest string attribute value an app may hand over, in bytes.
 pub(crate) const MAX_VALUE_BYTES: usize = 1024;
 /// Custom attributes per room, and per custom event.
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 64;
@@ -271,7 +307,7 @@ pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 64;
 /// Keys the SDK owns: an app can neither set nor override them — `lk.*` (room, participant,
 /// track, outcome), `otel.*` (OTel's own, `otel.event.name` among them), `code.*` (where a log
 /// line was written), `session.id` and `error.type`.
-pub(crate) fn reserved(key: &str) -> bool {
+pub(crate) fn is_reserved(key: &str) -> bool {
     key.starts_with("lk.")
         || key.starts_with("otel.")
         || key.starts_with("code.")
@@ -285,7 +321,7 @@ pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
         Some(AttributeValue::Str(s)) => s.len() <= MAX_VALUE_BYTES,
         _ => true,
     };
-    !key.is_empty() && key.len() <= MAX_KEY_BYTES && !reserved(key) && value_ok
+    !key.is_empty() && key.len() <= MAX_KEY_BYTES && !is_reserved(key) && value_ok
 }
 
 /// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id and the
@@ -294,6 +330,9 @@ pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
 const RECORD_OVERHEAD_BYTES: usize = 78;
 /// Encoded bytes of an attribute beyond its key and string value: tags, lengths and wrappers.
 const ATTRIBUTE_OVERHEAD_BYTES: usize = 8;
+/// Encoded bytes of a number or boolean value: a varint takes 1 to 10 and a double 8, so 8 is
+/// the round figure the encoder test calibrates.
+const NUMBER_VALUE_BYTES: usize = 8;
 
 /// Rough encoded size of `attributes`.
 pub(crate) fn attributes_size_hint(attributes: &[Attribute]) -> usize {
@@ -305,7 +344,7 @@ impl AttributeValue {
     fn size_hint(&self) -> usize {
         match self {
             AttributeValue::Str(s) => s.len(),
-            _ => 8,
+            _ => NUMBER_VALUE_BYTES,
         }
     }
 }
