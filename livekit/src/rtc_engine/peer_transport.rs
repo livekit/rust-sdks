@@ -39,7 +39,7 @@ struct TransportInner {
     max_send_bitrate_bps: Option<u64>,
     // Whether the target above belongs to a screen share, which is exempt from the
     // start bitrate cap.
-    max_send_bitrate_is_screen_share: bool,
+    max_send_bitrate_uncapped_start: bool,
     // How long this peer connection took to set up, set once the initial connect succeeds.
     // `compute_start_bitrate_kbps` lowers the hint for slow connections.
     connection_setup_time: Option<Duration>,
@@ -84,7 +84,7 @@ impl PeerTransport {
                 restarting_ice: false,
                 single_pc_mode,
                 max_send_bitrate_bps: None,
-                max_send_bitrate_is_screen_share: false,
+                max_send_bitrate_uncapped_start: false,
                 connection_setup_time: None,
                 start_bitrate_applied: false,
                 pending_initial_offer: None,
@@ -257,10 +257,10 @@ impl PeerTransport {
         inner.pending_initial_offer = None;
     }
 
-    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, is_screen_share: bool) {
+    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, uncapped_start: bool) {
         let mut inner = self.inner.lock().await;
         inner.max_send_bitrate_bps = bps;
-        inner.max_send_bitrate_is_screen_share = is_screen_share;
+        inner.max_send_bitrate_uncapped_start = uncapped_start;
     }
 
     /// Maximum x-google-start-bitrate (kbps).
@@ -294,7 +294,8 @@ impl PeerTransport {
     /// multiplier is used for every codec because the target already reflects the codec's
     /// efficiency. Camera is capped at [`Self::MAX_START_BITRATE_KBPS`] so the estimator does
     /// not open too aggressively on a high-bitrate track; screen share is exempt, because its
-    /// content needs the bitrate immediately to stay legible.
+    /// content needs the bitrate immediately to stay legible, and so are pre-encoded tracks,
+    /// whose bitrate is set upstream and only queues in the pacer behind a low estimate.
     ///
     /// Connection setup time (signaling join plus ICE/DTLS) is the only network signal there
     /// is before the first video offer, since libwebrtc cannot probe the path until a video
@@ -635,7 +636,7 @@ impl PeerTransport {
         if has_video && !inner.start_bitrate_applied {
             if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
                 inner.max_send_bitrate_bps,
-                inner.max_send_bitrate_is_screen_share,
+                inner.max_send_bitrate_uncapped_start,
                 inner.connection_setup_time,
             ) {
                 log::info!(
