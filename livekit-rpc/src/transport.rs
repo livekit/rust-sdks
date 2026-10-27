@@ -15,7 +15,7 @@
 //! The seam between the RPC managers and whatever actually moves bytes.
 
 use livekit_common::RemoteParticipantRegistry;
-use livekit_data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
+use livekit_data_stream::api::{SendTextOptions, StreamResult, TextStreamInfo};
 use livekit_protocol as proto;
 use std::future::Future;
 
@@ -50,7 +50,7 @@ pub trait RpcTransport: RemoteParticipantRegistry {
     fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> impl Future<Output = StreamResult<TextStreamInfo>> + Send;
 
     /// Get the server version string, if available.

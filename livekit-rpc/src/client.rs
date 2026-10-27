@@ -19,7 +19,7 @@ use crate::constants::{
 use crate::transport::{RpcTransport, RpcTransportError};
 use crate::types::{PerformRpcData, RpcError, RpcErrorCode, MAX_V1_PAYLOAD_BYTES};
 use livekit_common::{ParticipantIdentity, CLIENT_PROTOCOL_DATA_STREAM_RPC};
-use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
+use livekit_data_stream::api::{SendTextOptions, StreamReader, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use semver::Version;
@@ -307,7 +307,7 @@ impl RpcClientManager {
             .insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), response_timeout.as_millis().to_string());
         attributes.insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
-        let options = StreamTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
+        let options = SendTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
             .with_attributes(attributes)
             .with_destination_identity(destination_identity);
 

@@ -28,7 +28,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn run_sender(room: Room) -> Result<(), Box<dyn Error>> {
     println!("Running as sender");
     loop {
-        let options = StreamTextOptions::new_with_topic(TOPIC);
+        let options = StreamTextOptions::new_with_topic(TOPIC)
+            .with_total_length(WORDS.iter().map(|word| word.len() as u64).sum());
         let writer = room.local_participant().stream_text(options).await?;
         println!("Opened new stream");
 

@@ -30,7 +30,8 @@ pub mod api {
     };
     pub use crate::info::{ByteStreamInfo, TextStreamInfo};
     pub use crate::outgoing::{
-        ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,
+        ByteStreamWriter, SendByteOptions, SendTextOptions, StreamByteOptions,
+        StreamProgressCallback, StreamTextOptions, StreamWriter, TextStreamWriter,
     };
     pub use crate::types::OperationType;
     pub use crate::utils::{SendError, StreamError, StreamProgress, StreamResult};

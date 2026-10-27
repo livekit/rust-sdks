@@ -204,6 +204,10 @@ impl From<ds_api::StreamProgress> for StreamProgress {
     }
 }
 
+fn identities(identities: Vec<String>) -> Vec<common::ParticipantIdentity> {
+    identities.into_iter().map(Into::into).collect()
+}
+
 // MARK: - Option records
 
 /// Options for sending a byte stream. FFI wrapper around [`ds_api::StreamByteOptions`].
@@ -227,23 +231,33 @@ pub struct StreamByteOptions {
     pub sender_identity: Option<String>,
 }
 
+/// Converts to send options, keeping `compress`; the send derives the payload length.
+impl From<StreamByteOptions> for ds_api::SendByteOptions {
+    fn from(options: StreamByteOptions) -> Self {
+        let mut stream = Self::new_with_topic(options.topic);
+        stream.attributes = options.attributes;
+        stream.destination_identities = identities(options.destination_identities);
+        stream.id = options.id;
+        stream.sender_identity = options.sender_identity.map(Into::into);
+        stream.mime_type = options.mime_type;
+        stream.name = options.name;
+        stream.compress = options.compress;
+        stream
+    }
+}
+
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`.
 impl From<StreamByteOptions> for ds_api::StreamByteOptions {
     fn from(options: StreamByteOptions) -> Self {
-        Self {
-            topic: options.topic,
-            attributes: options.attributes,
-            destination_identities: options
-                .destination_identities
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            id: options.id,
-            mime_type: options.mime_type,
-            name: options.name,
-            total_length: options.total_length,
-            compress: options.compress,
-            sender_identity: options.sender_identity.map(Into::into),
-        }
+        let mut stream = Self::new_with_topic(options.topic);
+        stream.attributes = options.attributes;
+        stream.destination_identities = identities(options.destination_identities);
+        stream.id = options.id;
+        stream.sender_identity = options.sender_identity.map(Into::into);
+        stream.mime_type = options.mime_type;
+        stream.name = options.name;
+        stream.total_length = options.total_length;
+        stream
     }
 }
 
@@ -276,25 +290,39 @@ pub struct StreamTextOptions {
     pub total_length: Option<u64>,
 }
 
+/// Converts to send options, keeping `compress`; the send derives the payload length.
+impl From<StreamTextOptions> for ds_api::SendTextOptions {
+    fn from(options: StreamTextOptions) -> Self {
+        let mut stream = Self::new_with_topic(options.topic);
+        stream.attributes = options.attributes;
+        stream.destination_identities = identities(options.destination_identities);
+        stream.id = options.id;
+        stream.sender_identity = options.sender_identity.map(Into::into);
+        stream.operation_type = options.operation_type.map(Into::into);
+        stream.version = options.version;
+        stream.reply_to_stream_id = options.reply_to_stream_id;
+        stream.attached_stream_ids = options.attached_stream_ids;
+        stream.generated = options.generated;
+        stream.compress = options.compress;
+        stream
+    }
+}
+
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`.
 impl From<StreamTextOptions> for ds_api::StreamTextOptions {
     fn from(options: StreamTextOptions) -> Self {
-        Self {
-            topic: options.topic,
-            attributes: options.attributes,
-            destination_identities: options
-                .destination_identities
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            id: options.id,
-            operation_type: options.operation_type.map(Into::into),
-            version: options.version,
-            reply_to_stream_id: options.reply_to_stream_id,
-            attached_stream_ids: options.attached_stream_ids,
-            generated: options.generated,
-            compress: options.compress,
-            sender_identity: options.sender_identity.map(Into::into),
-        }
+        let mut stream = Self::new_with_topic(options.topic);
+        stream.attributes = options.attributes;
+        stream.destination_identities = identities(options.destination_identities);
+        stream.id = options.id;
+        stream.sender_identity = options.sender_identity.map(Into::into);
+        stream.operation_type = options.operation_type.map(Into::into);
+        stream.version = options.version;
+        stream.reply_to_stream_id = options.reply_to_stream_id;
+        stream.attached_stream_ids = options.attached_stream_ids;
+        stream.generated = options.generated;
+        stream.total_length = options.total_length;
+        stream
     }
 }
 

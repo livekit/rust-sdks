@@ -97,10 +97,10 @@ impl RawStream {
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
     ///
-    /// Calls `on_progress` as [`Manager::send_file_with_progress`] describes. The values rise
+    /// Calls `on_progress` as [`Manager::send_file`] describes. The values rise
     /// strictly, and an empty uncompressed file reports once.
     ///
-    /// [`Manager::send_file_with_progress`]: super::manager::Manager::send_file_with_progress
+    /// [`Manager::send_file`]: super::manager::Manager::send_file
     pub(crate) async fn write_file(
         &mut self,
         path: impl AsRef<Path>,

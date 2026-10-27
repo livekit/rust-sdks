@@ -151,9 +151,9 @@ impl OutgoingDataStreamManager {
         options: StreamTextOptions,
         progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<TextStreamInfo, DataStreamError> {
-        let length = text.len() as u64;
-        let info = self.manager.send_text(&text, options.into(), &*self.registry).await?;
-        report_completion(progress, length);
+        let mut options: ds_api::SendTextOptions = options.into();
+        options.on_progress = progress_callback(progress);
+        let info = self.manager.send_text(&text, options, &*self.registry).await?;
         Ok(info.into())
     }
 
@@ -168,9 +168,9 @@ impl OutgoingDataStreamManager {
         options: StreamByteOptions,
         progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let length = data.len() as u64;
-        let info = self.manager.send_bytes(data, options.into(), &*self.registry).await?;
-        report_completion(progress, length);
+        let mut options: ds_api::SendByteOptions = options.into();
+        options.on_progress = progress_callback(progress);
+        let info = self.manager.send_bytes(data, options, &*self.registry).await?;
         Ok(info.into())
     }
 
@@ -187,15 +187,9 @@ impl OutgoingDataStreamManager {
         options: StreamByteOptions,
         progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let on_progress = |p: ds_api::StreamProgress| {
-            if let Some(progress) = &progress {
-                progress.on_progress(p.into());
-            }
-        };
-        let info = self
-            .manager
-            .send_file_with_progress(path, options.into(), &*self.registry, on_progress)
-            .await?;
+        let mut options: ds_api::SendByteOptions = options.into();
+        options.on_progress = progress_callback(progress);
+        let info = self.manager.send_file(path, options, &*self.registry).await?;
         Ok(info.into())
     }
 
@@ -204,9 +198,7 @@ impl OutgoingDataStreamManager {
         &self,
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
-        let total_length = options.total_length;
-        let writer =
-            self.manager.stream_text_with_total_length(options.into(), total_length).await?;
+        let writer = self.manager.stream_text(options.into()).await?;
         Ok(TextStreamWriter(writer))
     }
 
@@ -295,9 +287,11 @@ impl ByteStreamWriter {
     }
 }
 
-/// Reports a one-shot send of `length` bytes as complete, when the caller asked for progress.
-fn report_completion(progress: Option<Arc<dyn StreamProgressDelegate>>, length: u64) {
-    if let Some(progress) = progress {
-        progress.on_progress(StreamProgress { bytes_processed: length, bytes_total: Some(length) });
-    }
+/// Wraps the foreign progress delegate for the core's send options.
+fn progress_callback(
+    progress: Option<Arc<dyn StreamProgressDelegate>>,
+) -> Option<ds_api::StreamProgressCallback> {
+    progress.map(|progress| {
+        ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
+    })
 }
