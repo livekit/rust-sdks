@@ -63,6 +63,10 @@ struct Args {
     #[arg(long, default_value_t = 1080)]
     height: u32,
 
+    /// Log the sender's pacer delay and bandwidth estimate every 2 s
+    #[arg(long, default_value_t = false)]
+    stats: bool,
+
     /// LiveKit participant identity
     #[arg(long, default_value = "encoded-publisher")]
     identity: String,
@@ -231,11 +235,15 @@ async fn main() -> Result<()> {
         frame_metadata_features,
         ..pump.publish_options()
     };
-    room.local_participant().publish_track(LocalTrack::Video(track), publish_options).await?;
+    room.local_participant()
+        .publish_track(LocalTrack::Video(track.clone()), publish_options)
+        .await?;
     info!(
         "Published {:?} track from {} (single-slice flush: {}, packet trailer: {})",
         args.codec, args.src, args.single_slice_flush, args.packet_trailer
     );
+
+    let stats_task = args.stats.then(|| tokio::spawn(log_sender_stats(track)));
 
     let running = pump.spawn()?;
     let stop = running.stop_handle();
@@ -250,6 +258,62 @@ async fn main() -> Result<()> {
         }
     }?;
     info!("Encoder stream ended: {:?}", stats);
+    if let Some(task) = stats_task {
+        task.abort();
+        let _ = task.await;
+    }
     room.close().await?;
     Ok(())
+}
+
+/// Logs, from standard WebRTC stats, the negotiated codec and frames sent,
+/// how long packets wait in the pacer (`totalPacketSendDelay` /
+/// `packetsSent` over the interval), the sender's target bitrate and the
+/// bandwidth estimate.
+async fn log_sender_stats(track: LocalVideoTrack) {
+    use livekit::webrtc::stats::RtcStats;
+
+    let mut interval = tokio::time::interval(Duration::from_secs(2));
+    let (mut last_delay, mut last_packets) = (0.0, 0);
+    loop {
+        interval.tick().await;
+        let Ok(stats) = track.get_stats().await else { continue };
+        let mut available_outgoing_bitrate = 0.0;
+        let mut outbound = None;
+        let mut codecs = Vec::new();
+        for stat in stats {
+            match stat {
+                RtcStats::OutboundRtp(rtp) if rtp.stream.kind == "video" => outbound = Some(rtp),
+                RtcStats::Codec(codec) => codecs.push(codec),
+                RtcStats::CandidatePair(pair) if pair.candidate_pair.nominated => {
+                    available_outgoing_bitrate = pair.candidate_pair.available_outgoing_bitrate;
+                }
+                _ => {}
+            }
+        }
+        let Some(rtp) = outbound else { continue };
+        let codec = codecs
+            .iter()
+            .find(|codec| codec.rtc.id == rtp.stream.codec_id)
+            .map_or("unknown", |codec| codec.codec.mime_type.as_str());
+        let delay = rtp.outbound.total_packet_send_delay;
+        let packets = rtp.sent.packets_sent;
+        if packets > last_packets {
+            info!(
+                "{codec}, {} frames sent, pacer delay {:.2} ms/packet over {} packets, \
+                 target bitrate {:.0} kbps, available outgoing bitrate {:.0} kbps",
+                rtp.outbound.frames_sent,
+                (delay - last_delay) * 1000.0 / (packets - last_packets) as f64,
+                packets - last_packets,
+                rtp.outbound.target_bitrate / 1000.0,
+                available_outgoing_bitrate / 1000.0,
+            );
+        } else {
+            info!(
+                "{codec}, {} frames sent, no packets sent in the last 2 s",
+                rtp.outbound.frames_sent
+            );
+        }
+        (last_delay, last_packets) = (delay, packets);
+    }
 }

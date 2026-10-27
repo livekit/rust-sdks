@@ -17,6 +17,10 @@
 #include "livekit/peer_connection_factory.h"
 
 #include <memory>
+#include <cstdlib>
+#include <map>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -119,11 +123,66 @@ class CompositeFieldTrials final : public webrtc::FieldTrialsView {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views_;
 };
 
+// Field trials from the LIVEKIT_WEBRTC_FIELD_TRIALS environment variable, in
+// libwebrtc's "Name/Value/Name2/Value2/" format (the same as Chrome's
+// --force-fieldtrials). Lets deployments tune WebRTC internals the SDK does
+// not expose, e.g. the pacer with "WebRTC-Video-Pacing/factor:4.0/".
+constexpr char kFieldTrialsEnvVar[] = "LIVEKIT_WEBRTC_FIELD_TRIALS";
+
+class EnvFieldTrials final : public webrtc::FieldTrialsView {
+ public:
+  explicit EnvFieldTrials(std::map<std::string, std::string> trials)
+      : trials_(std::move(trials)) {}
+
+  // Returns nullptr when the variable is unset, empty, or malformed.
+  static std::unique_ptr<EnvFieldTrials> FromEnvironment() {
+    const char* value = std::getenv(kFieldTrialsEnvVar);
+    if (value == nullptr || *value == '\0') {
+      return nullptr;
+    }
+    std::map<std::string, std::string> trials;
+    std::string_view rest(value);
+    while (!rest.empty()) {
+      const size_t name_end = rest.find('/');
+      const size_t value_end =
+          name_end == std::string_view::npos ? name_end
+                                             : rest.find('/', name_end + 1);
+      if (name_end == 0 || value_end == std::string_view::npos) {
+        RTC_LOG(LS_ERROR) << "Ignoring malformed " << kFieldTrialsEnvVar
+                          << ": " << value;
+        return nullptr;
+      }
+      trials[std::string(rest.substr(0, name_end))] =
+          std::string(rest.substr(name_end + 1, value_end - name_end - 1));
+      rest.remove_prefix(value_end + 1);
+    }
+    return std::make_unique<EnvFieldTrials>(std::move(trials));
+  }
+
+  std::string Lookup(absl::string_view key) const override {
+    auto it = trials_.find(std::string(key));
+    return it == trials_.end() ? "" : it->second;
+  }
+
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    return std::make_unique<EnvFieldTrials>(trials_);
+  }
+
+ private:
+  std::map<std::string, std::string> trials_;
+};
+
 // zero_playout_delay and enable_warp are independent and may both be enabled;
-// their field-trial views are composed into one.
+// their field-trial views are composed into one. Trials from the environment
+// come first, so they override the SDK's own.
 webrtc::Environment CreateEnvironment(bool zero_playout_delay,
                                       bool enable_warp) {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
+  if (auto env_trials = EnvFieldTrials::FromEnvironment()) {
+    RTC_LOG(LS_INFO) << "WebRTC field trials from " << kFieldTrialsEnvVar
+                     << ": " << std::getenv(kFieldTrialsEnvVar);
+    views.push_back(std::move(env_trials));
+  }
   if (zero_playout_delay) {
     views.push_back(std::make_unique<ZeroPlayoutDelayFieldTrials>());
   }
