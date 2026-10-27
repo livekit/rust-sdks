@@ -409,27 +409,45 @@ impl LengthPrefixedAccessUnitParser {
             return Ok(None);
         }
 
-        let access_unit = self.pending[..byte_len].to_vec();
-        self.pending.drain(..byte_len);
-        self.nal_ranges.retain_mut(|range| {
-            if range.end <= byte_len {
-                return false;
+        // The NAL ranges are already known: build the Annex-B payload and
+        // classify the frame from them instead of re-parsing the bytes.
+        let nal_count = self.nal_ranges.iter().take_while(|range| range.end <= byte_len).count();
+        let nals = &self.nal_ranges[..nal_count];
+        let nal_units: Vec<&[u8]> = nals.iter().map(|range| &self.pending[range.clone()]).collect();
+        let frame_type = if is_keyframe_nalus(self.codec, &nal_units)? {
+            EncodedFrameType::Key
+        } else {
+            EncodedFrameType::Delta
+        };
+        let payload = if self.nal_length_size as usize == ANNEX_B_START_CODE.len() {
+            // A 4-byte prefix is the size of a start code: convert in place
+            // during the one copy out of the pending buffer.
+            let mut payload = self.pending[..byte_len].to_vec();
+            for range in nals {
+                payload[range.start - ANNEX_B_START_CODE.len()..range.start]
+                    .copy_from_slice(&ANNEX_B_START_CODE);
             }
+            payload
+        } else {
+            annex_b_payload(&nal_units)?
+        };
+
+        self.pending.drain(..byte_len);
+        self.nal_ranges.drain(..nal_count);
+        for range in &mut self.nal_ranges {
             range.start -= byte_len;
             range.end -= byte_len;
-            true
-        });
+        }
         self.scan_cursor -= byte_len;
         let timestamp_us = self.next_timestamp_us;
         self.next_timestamp_us = self.next_timestamp_us.saturating_add(self.frame_interval_us);
-        access_unit_from_length_prefixed(
+        Ok(Some(OwnedEncodedAccessUnit::new(
             self.codec,
-            &access_unit,
-            self.nal_length_size,
+            payload,
             timestamp_us,
+            frame_type,
             self.resolution,
-        )
-        .map(Some)
+        )))
     }
 }
 
@@ -854,16 +872,18 @@ fn is_vcl_nal(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, H26xParseErr
     })
 }
 
+/// Returns the offset and length (3 or 4) of the first Annex-B start code.
 fn find_start_code(bytes: &[u8]) -> Option<(usize, usize)> {
-    let mut idx = 0;
-    while idx + 3 <= bytes.len() {
-        if bytes[idx..].starts_with(&[0, 0, 1]) {
-            return Some((idx, 3));
+    // Every start code ends in 0x01 after two zero bytes; jumping between
+    // 0x01 bytes and looking back is far cheaper than matching at every
+    // offset of a multi-kilobyte slice.
+    let mut from = 2;
+    while from < bytes.len() {
+        let one = from + bytes[from..].iter().position(|&byte| byte == 1)?;
+        if bytes[one - 1] == 0 && bytes[one - 2] == 0 {
+            return Some(if one >= 3 && bytes[one - 3] == 0 { (one - 3, 4) } else { (one - 2, 3) });
         }
-        if idx + 4 <= bytes.len() && bytes[idx..].starts_with(&[0, 0, 0, 1]) {
-            return Some((idx, 4));
-        }
-        idx += 1;
+        from = one + 1;
     }
     None
 }
@@ -1211,6 +1231,34 @@ mod tests {
         let au = annex_b(&[&sei, &[0x41, 0x9a, 0x02]]);
         let metadata = frame_metadata_from_sei(EncodedVideoCodec::H264, &au).unwrap();
         assert_eq!(metadata.frame_id, Some(42));
+    }
+
+    #[test]
+    fn find_start_code_matches_a_scan_at_every_offset() {
+        fn reference(bytes: &[u8]) -> Option<(usize, usize)> {
+            (0..bytes.len()).find_map(|idx| {
+                if bytes[idx..].starts_with(&[0, 0, 1]) {
+                    Some((idx, 3))
+                } else if bytes[idx..].starts_with(&[0, 0, 0, 1]) {
+                    Some((idx, 4))
+                } else {
+                    None
+                }
+            })
+        }
+        // Every string of up to 8 bytes over {0, 1, 2}.
+        for len in 0..=8u32 {
+            for mut n in 0..3usize.pow(len) {
+                let bytes: Vec<u8> = (0..len)
+                    .map(|_| {
+                        let byte = (n % 3) as u8;
+                        n /= 3;
+                        byte
+                    })
+                    .collect();
+                assert_eq!(find_start_code(&bytes), reference(&bytes), "{bytes:?}");
+            }
+        }
     }
 
     #[test]

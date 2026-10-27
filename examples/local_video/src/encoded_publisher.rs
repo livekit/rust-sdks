@@ -101,6 +101,7 @@ struct TcpLengthPrefixedSource {
     resolution: VideoResolution,
     buf: Vec<u8>,
     eof: bool,
+    keyframe_requests: u64,
 }
 
 impl TcpLengthPrefixedSource {
@@ -168,6 +169,12 @@ impl EncodedVideoSource for TcpLengthPrefixedSource {
             };
         }
     }
+
+    fn request_keyframe(&mut self) {
+        // A real encoder bridge would ask the encoder for an IDR here.
+        self.keyframe_requests += 1;
+        log::debug!("keyframe requested ({} so far)", self.keyframe_requests);
+    }
 }
 
 #[tokio::main]
@@ -219,6 +226,7 @@ async fn main() -> Result<()> {
         resolution,
         buf: vec![0; 256 * 1024],
         eof: false,
+        keyframe_requests: 0,
     };
 
     let mut pump = EncodedVideoPump::new(source);
