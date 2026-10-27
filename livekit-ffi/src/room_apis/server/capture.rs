@@ -301,19 +301,19 @@ pub fn on_join_capture(
     let async_id = server.resolve_async_id(request.request_async_id);
     server.async_runtime.spawn(async move {
         finished.await;
-        let running = server.retrieve_handle::<FfiCaptureSource>(capture_handle).ok().and_then(
-            |ffi_capture| match std::mem::replace(
-                &mut *ffi_capture.state.lock(),
-                CaptureState::Finished,
-            ) {
-                CaptureState::Running(running) => Some(running),
-                _ => None,
-            },
-        );
+        let running = match server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
+            Ok(ffi_capture) => {
+                match std::mem::replace(&mut *ffi_capture.state.lock(), CaptureState::Finished) {
+                    CaptureState::Running(running) => Ok(running),
+                    _ => Err("capture was already joined by another request"),
+                }
+            }
+            Err(_) => Err("capture source was disposed"),
+        };
         let message = match running {
-            Some(running) => running.join().await.into(),
-            None => proto::join_capture_callback::Message::Error(proto::CaptureError {
-                error: "capture was already joined or disposed".into(),
+            Ok(running) => running.join().await.into(),
+            Err(error) => proto::join_capture_callback::Message::Error(proto::CaptureError {
+                error: error.into(),
                 kind: proto::CaptureErrorKind::Source.into(),
             }),
         };
