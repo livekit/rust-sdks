@@ -873,6 +873,20 @@ fn outgoing_sends_report_progress() {
         writer.write(Bytes::from_static(b"ignored progress")).await.unwrap();
         writer.close(None, Default::default()).await.unwrap();
         assert!(progress.take().is_empty());
+
+        let manager = OutgoingDataStreamManager::new(
+            Arc::new(FailingTransport::failing_after(0)),
+            Arc::new(AllV2Registry),
+        );
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            progress: Some(progress.clone()),
+            ..Default::default()
+        };
+        let result = manager.send_text("hello".to_string(), options).await;
+        assert!(matches!(result, Err(DataStreamError::SendFailed)));
+        assert!(progress.take().is_empty());
+        assert_eq!(Arc::strong_count(&progress), 1);
     });
 }
 

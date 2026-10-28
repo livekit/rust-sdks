@@ -208,7 +208,9 @@ impl From<ds_api::StreamProgress> for StreamProgress {
 
 // MARK: - Option records
 
-/// Converts to [`ds_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop `total_length`, and to [`ds_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`.
+/// Converts to [`ds_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop
+/// `total_length`, and to [`ds_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`
+/// and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamByteOptions {
     pub topic: String,
@@ -227,7 +229,7 @@ pub struct StreamByteOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
-    /// Optional send progress delegate; ignored by incremental `stream_text` and `stream_bytes`.
+    /// Optional send progress delegate; ignored by incremental `stream_bytes`.
     #[uniffi(default = None)]
     pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
@@ -249,7 +251,8 @@ impl From<StreamByteOptions> for ds_api::SendByteOptions {
     }
 }
 
-/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`.
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
+/// and `progress`.
 impl From<StreamByteOptions> for ds_api::StreamByteOptions {
     fn from(value: StreamByteOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
@@ -265,7 +268,8 @@ impl From<StreamByteOptions> for ds_api::StreamByteOptions {
     }
 }
 
-/// Converts to [`ds_api::SendTextOptions`] for `send_text`, which drops `total_length`, and to [`ds_api::StreamTextOptions`] for `stream_text`, which drops `compress`.
+/// Converts to [`ds_api::SendTextOptions`] for `send_text`, which drops `total_length`, and to
+/// [`ds_api::StreamTextOptions`] for `stream_text`, which drops `compress` and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamTextOptions {
     pub topic: String,
@@ -292,7 +296,7 @@ pub struct StreamTextOptions {
     /// `send_text` sets it from the text it sends.
     #[uniffi(default = None)]
     pub total_length: Option<u64>,
-    /// Optional send progress delegate; ignored by incremental `stream_text` and `stream_bytes`.
+    /// Optional send progress delegate; ignored by incremental `stream_text`.
     #[uniffi(default = None)]
     pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
@@ -317,7 +321,8 @@ impl From<StreamTextOptions> for ds_api::SendTextOptions {
     }
 }
 
-/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`.
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
+/// and `progress`.
 impl From<StreamTextOptions> for ds_api::StreamTextOptions {
     fn from(value: StreamTextOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);

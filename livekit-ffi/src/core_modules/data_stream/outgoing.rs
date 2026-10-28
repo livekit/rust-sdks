@@ -148,8 +148,8 @@ impl OutgoingDataStreamManager {
 
     /// Sends a complete text payload, returning info about the created stream.
     ///
-    /// The whole stream goes to the transport in one delegate call, so `options.progress`, when set, gets
-    /// one report, when the send completes.
+    /// The whole stream goes to the transport in one delegate call, so `options.progress` gets one
+    /// report when the send completes, if set.
     pub async fn send_text(
         &self,
         text: String,
@@ -161,8 +161,8 @@ impl OutgoingDataStreamManager {
 
     /// Sends a complete byte payload, returning info about the created stream.
     ///
-    /// The whole stream goes to the transport in one delegate call, so `options.progress`, when set, gets
-    /// one report, when the send completes.
+    /// The whole stream goes to the transport in one delegate call, so `options.progress` gets one
+    /// report when the send completes, if set.
     pub async fn send_bytes(
         &self,
         data: Bytes,
@@ -174,10 +174,10 @@ impl OutgoingDataStreamManager {
 
     /// Streams a file from disk, returning info about the created stream.
     ///
-    /// `options.progress`, when set, counts file bytes before compression. An uncompressed file reports
-    /// after each chunk is sent. A compressed file reports after each encoder drain, so it counts
-    /// the input the encoder consumed, which can run ahead of the chunks sent. Either way, the
-    /// whole file is reported only after its last chunk was sent.
+    /// `options.progress`, when set, counts file bytes before compression. An uncompressed file
+    /// reports after each chunk is sent. A compressed file reports after each encoder drain,
+    /// counting the input the encoder consumed, which can run ahead of the chunks sent. Either way,
+    /// the whole file is reported only after its last chunk was sent.
     pub async fn send_file(
         &self,
         path: String,
