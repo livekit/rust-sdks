@@ -89,7 +89,7 @@ impl From<OperationType> for ds_api::OperationType {
     }
 }
 
-/// A capability a remote participant's client advertises, mirroring [`common::ClientCapability`].
+/// A capability a participant's client advertises, mirroring [`common::ClientCapability`].
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientCapability {
     Unused,

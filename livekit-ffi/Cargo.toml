@@ -45,6 +45,7 @@ core-modules = [
   "dep:livekit-data-stream",
   "dep:livekit-datatrack",
   "dep:livekit-net",
+  "dep:livekit-signaling",
   "dep:livekit-token",
   "dep:prost",
   "dep:async-trait",
@@ -98,6 +99,9 @@ livekit-token = { workspace = true, optional = true }
 livekit-datatrack = { workspace = true, optional = true }
 livekit-net = { workspace = true, optional = true }
 livekit-data-stream = { workspace = true, optional = true }
+# Default features, so the signalling client stays transport-blind and uses
+# whatever the host registered with livekit-net.
+livekit-signaling = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 once_cell = { version = "1.21.3", optional = true }
 async-trait = { version = "0.1", optional = true }
