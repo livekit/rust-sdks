@@ -203,8 +203,13 @@ pub enum SignalError {
     #[error("server sent leave during reconnect: reason={disconnect_reason}, action={action}")]
     LeaveRequest { disconnect_reason: i32, action: i32 },
 
-    /// Everything else: a bad URL or token, a decode failure, a timeout, a dead transport, or a
-    /// panic in the task running the operation.
+    /// The URL, token or publisher offer passed in is malformed. Permanent: retrying with the
+    /// same input fails the same way.
+    #[error("invalid input: {reason}")]
+    InvalidInput { reason: String },
+
+    /// Everything else: a decode failure, a timeout, a dead transport, or a panic in the task
+    /// running the operation.
     #[error("{reason}")]
     Other { reason: String },
 }
@@ -219,6 +224,9 @@ impl From<signaling::SignalError> for SignalError {
             E::TransportNotConfigured => Self::TransportNotConfigured,
             E::LeaveRequest { reason, action } => {
                 Self::LeaveRequest { disconnect_reason: reason as i32, action: action as i32 }
+            }
+            ref input @ (E::UrlParse(_) | E::TokenFormat) => {
+                Self::InvalidInput { reason: input.to_string() }
             }
             // Catches the variants not broken out above, and is required besides:
             // `signaling::SignalError` is `#[non_exhaustive]`.
@@ -445,7 +453,7 @@ pub async fn connect_signal_session(
     let publisher_offer = publisher_offer
         .map(|offer| proto::SessionDescription::decode(offer.as_slice()))
         .transpose()
-        .map_err(|err| SignalError::Other { reason: err.to_string() })?;
+        .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?;
     let options = options.into();
 
     // `SignalClient::connect` spawns the long-lived signal task, which must land on this crate's
@@ -959,6 +967,25 @@ mod tests {
                 matches!(error, SignalError::Handshake { status: 503 }),
                 "expected a handshake error, got {error:?}"
             );
+        });
+    }
+
+    /// A malformed URL or token is reported as permanent, so a caller does not retry it.
+    #[test]
+    fn malformed_input_surfaces_as_invalid_input() {
+        with_mock_transport(async {
+            for (url, token) in [("not a url", TOKEN), (URL, "bad\ntoken")] {
+                let Err(error) =
+                    connect_signal_session(url.to_string(), token.to_string(), options(), None)
+                        .await
+                else {
+                    panic!("malformed input cannot produce a session");
+                };
+                assert!(
+                    matches!(error, SignalError::InvalidInput { .. }),
+                    "expected invalid input for {url:?}/{token:?}, got {error:?}"
+                );
+            }
         });
     }
 }
