@@ -204,10 +204,6 @@ impl From<ds_api::StreamProgress> for StreamProgress {
     }
 }
 
-fn identities(identities: Vec<String>) -> Vec<common::ParticipantIdentity> {
-    identities.into_iter().map(Into::into).collect()
-}
-
 // MARK: - Option records
 
 /// Converts to [`ds_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop `total_length`, and to [`ds_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`.
@@ -236,7 +232,8 @@ impl From<StreamByteOptions> for ds_api::SendByteOptions {
     fn from(value: StreamByteOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
-        options.destination_identities = identities(value.destination_identities);
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
         options.id = value.id;
         options.sender_identity = value.sender_identity.map(Into::into);
         options.mime_type = value.mime_type;
@@ -251,7 +248,8 @@ impl From<StreamByteOptions> for ds_api::StreamByteOptions {
     fn from(value: StreamByteOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
-        options.destination_identities = identities(value.destination_identities);
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
         options.id = value.id;
         options.sender_identity = value.sender_identity.map(Into::into);
         options.mime_type = value.mime_type;
@@ -295,7 +293,8 @@ impl From<StreamTextOptions> for ds_api::SendTextOptions {
     fn from(value: StreamTextOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
-        options.destination_identities = identities(value.destination_identities);
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
         options.id = value.id;
         options.sender_identity = value.sender_identity.map(Into::into);
         options.operation_type = value.operation_type.map(Into::into);
@@ -313,7 +312,8 @@ impl From<StreamTextOptions> for ds_api::StreamTextOptions {
     fn from(value: StreamTextOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
-        options.destination_identities = identities(value.destination_identities);
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
         options.id = value.id;
         options.sender_identity = value.sender_identity.map(Into::into);
         options.operation_type = value.operation_type.map(Into::into);
