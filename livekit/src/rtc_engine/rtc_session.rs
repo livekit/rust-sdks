@@ -575,13 +575,12 @@ impl RtcSession {
             None
         };
 
-        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
-            url,
-            token,
-            options.signal_options.clone(),
-            publisher_offer.clone(),
-        )
-        .await?;
+        // A token of this session's own, cancelled by `close`: the engine reuses its options for
+        // the next session of a full reconnect. A child, so a caller's own token still applies.
+        let mut signal_options = options.signal_options.clone();
+        signal_options.cancellation_token = signal_options.cancellation_token.child_token();
+        let (signal_client, mut join_response, signal_events) =
+            SignalClient::connect(url, token, signal_options, publisher_offer.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -2161,6 +2160,9 @@ impl SessionInner {
                 .await;
         }
 
+        // Final, unlike `close` alone: a resume racing this teardown is refused or stopped
+        // instead of reopening the session.
+        self.signal_client.options().cancellation_token.cancel();
         self.signal_client.close().await;
     }
 
