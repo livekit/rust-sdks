@@ -2,7 +2,8 @@ use std::env;
 use std::error::Error;
 
 use livekit_session::{
-    Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionTokenSource,
+    Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionSnapshot,
+    SessionTokenSource,
 };
 use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -37,6 +38,10 @@ fn print_message(message: &Message) {
     println!("{speaker}: {}", message.text);
 }
 
+fn print_state(snapshot: &SessionSnapshot) {
+    println!("[{:?}, agent {:?}]", snapshot.connection_state, snapshot.agent_state);
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -44,9 +49,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let session = Session::new(token_source()?, SessionOptions::default());
     let mut events = session.subscribe();
     session.start().await?;
-    println!("Connected. Type a message and press enter; Ctrl-D ends the session.");
 
+    // `changed` reports only later updates, so print where the session starts.
     let mut state = session.state();
+    print_state(&state.borrow_and_update());
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
@@ -55,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     break;
                 }
                 let snapshot = *state.borrow_and_update();
-                println!("[{:?}, agent {:?}]", snapshot.connection_state, snapshot.agent_state);
+                print_state(&snapshot);
                 if !snapshot.is_connected() {
                     break;
                 }
