@@ -40,7 +40,7 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config build-essential libglib2.0-dev libjpeg-turbo8-dev
+          sudo apt-get install -y ninja-build pkg-config build-essential libglib2.0-dev libjpeg-turbo8-dev libclang-dev libc6-dev
           python -m pip install setuptools
       - name: Build matching WebRTC from source
         working-directory: webrtc-sys/libwebrtc
@@ -59,7 +59,7 @@ jobs:
           native = Path('webrtc-sys/libwebrtc')
           compiler = native / 'src/third_party/llvm-build/Release+Asserts/bin/clang++'
           with Path(os.environ['GITHUB_ENV']).open('a') as output:
-              output.write(f'CXX={compiler.resolve()}\n')
+              output.write(f'CXX={compiler.absolute()}\n')
               output.write(f'LK_CUSTOM_WEBRTC={(native / "linux-x64-release").resolve()}\n')
           Path('artifacts').mkdir()
           PY
