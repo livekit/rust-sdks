@@ -665,10 +665,8 @@ impl LocalParticipant {
         let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
-            let remove_result = {
-                let sender = track.transceiver().unwrap().sender();
-                self.inner.rtc_engine.remove_track(sender)
-            };
+            let transceiver = track.transceiver().unwrap();
+            let remove_result = self.inner.rtc_engine.remove_track(transceiver);
 
             // The peer connection may already be closed after a server-initiated
             // disconnect. Always release the local publication/track graph even
