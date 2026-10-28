@@ -806,9 +806,11 @@ impl SignalInner {
         let mut state = self.state.write().await;
         let _ = state.transition(SignalInput::Reconnected);
         // Drain while still holding the write lock, so no concurrent send can overtake what
-        // was held during the resume.
+        // was held during the resume. A cancel abandons a drain the transport never completes,
+        // because the close it starts needs this lock.
         if let SignalState::Connected(stream) = &*state {
-            self.flush_queue(stream).await;
+            let _ =
+                self.options.cancellation_token.run_until_cancelled(self.flush_queue(stream)).await;
         }
     }
 
@@ -845,11 +847,17 @@ impl SignalInner {
     /// Pass-through signals go out on any transport; session-scoped signals wait in the queue
     /// until `Connected`.
     pub async fn send(&self, signal: proto::signal_request::Message) {
-        // Held signals would wait for a flush that never comes.
-        if self.options.cancellation_token.is_cancelled() {
+        // A cancel abandons a write the transport never completes: the write holds the state
+        // lock, which the close the cancel starts needs. Nothing is held after a cancel either,
+        // because no flush would ever send it.
+        let sent =
+            self.options.cancellation_token.run_until_cancelled(self.send_or_hold(signal)).await;
+        if sent.is_none() {
             log::debug!("dropping signal: session cancelled");
-            return;
         }
+    }
+
+    async fn send_or_hold(&self, signal: proto::signal_request::Message) {
         let state = self.state.read().await;
         let stream = match &*state {
             SignalState::Connected(stream) => {
@@ -1885,6 +1893,48 @@ mod tests {
 
         drop(client);
         assert!(inner.upgrade().is_none(), "the signal client outlived its cancel");
+    }
+
+    /// A connection whose writes never complete, as on a peer that stopped reading.
+    struct StalledConn;
+
+    #[async_trait::async_trait]
+    impl livekit_net::WsConnection for StalledConn {
+        async fn send(&self, _frame: Vec<u8>) -> Result<(), livekit_net::TransportError> {
+            std::future::pending().await
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, livekit_net::TransportError> {
+            std::future::pending().await
+        }
+        async fn close(&self) {}
+    }
+
+    /// A write the transport never completes holds the state lock, which the close needs. A
+    /// cancel must abandon the write, so the signal task can still close the transport.
+    #[tokio::test]
+    async fn cancel_abandons_a_write_the_transport_never_completes() {
+        crate::test_transport::install_mock_transport();
+        let (client, _events) = client_over(Arc::new(StalledConn));
+        let client = Arc::new(client);
+        let send = tokio::spawn({
+            let client = client.clone();
+            async move { client.send(mute("TR_stalled")).await }
+        });
+        sleep(Duration::from_millis(50)).await;
+        assert!(!send.is_finished(), "the write should be stalled");
+
+        client.inner.options.cancellation_token.cancel();
+        tokio::time::timeout(Duration::from_secs(5), send)
+            .await
+            .expect("a cancel should abandon the stalled write")
+            .expect("the send task panicked");
+        let signal_task = client.handle.lock().take().expect("the signal task is running");
+        // The close waits out the stalled writer before it aborts it.
+        tokio::time::timeout(Duration::from_secs(10), signal_task)
+            .await
+            .expect("the signal task should close the transport")
+            .expect("the signal task panicked");
+        assert!(matches!(*client.inner.state.read().await, SignalState::Closed));
     }
 
     async fn state_named(name: &str) -> SignalState {

@@ -576,9 +576,11 @@ impl RtcSession {
         };
 
         // A token of this session's own, cancelled by `close`: the engine reuses its options for
-        // the next session of a full reconnect. A child, so a caller's own token still applies.
+        // the next session of a full reconnect. It replaces any configured token, because a
+        // cancel from outside would end signalling without the engine noticing. The engine
+        // ends with `close` instead.
         let mut signal_options = options.signal_options.clone();
-        signal_options.cancellation_token = signal_options.cancellation_token.child_token();
+        signal_options.cancellation_token = Default::default();
         let (signal_client, mut join_response, signal_events) =
             SignalClient::connect(url, token, signal_options, publisher_offer.clone()).await?;
         let signal_client = Arc::new(signal_client);
