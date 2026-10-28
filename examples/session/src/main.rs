@@ -8,18 +8,18 @@ use livekit_token_source::{development_token_server, literal, TokenSourceFetchOp
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 /// Reads credentials from a pre-generated token if one is given, and from a
-/// sandbox token server otherwise.
+/// development token server otherwise.
 fn token_source() -> Result<SessionTokenSource, Box<dyn Error>> {
     if let (Ok(url), Ok(token)) = (env::var("LIVEKIT_URL"), env::var("LIVEKIT_TOKEN")) {
         return Ok(literal(url, token).into());
     }
-    let sandbox_id = env::var("LIVEKIT_SANDBOX_ID")
-        .map_err(|_| "set LIVEKIT_SANDBOX_ID, or LIVEKIT_URL and LIVEKIT_TOKEN")?;
+    let token_server_id = env::var("LIVEKIT_TOKEN_SERVER_ID")
+        .map_err(|_| "set LIVEKIT_TOKEN_SERVER_ID, or LIVEKIT_URL and LIVEKIT_TOKEN")?;
     let mut options = TokenSourceFetchOptions::new();
     if let Ok(agent_name) = env::var("LIVEKIT_AGENT_NAME") {
         options = options.with_agent_name(agent_name);
     }
-    Ok((development_token_server(sandbox_id), options).into())
+    Ok((development_token_server(token_server_id), options).into())
 }
 
 /// Prints a message once it is complete. The user's own input is skipped, as

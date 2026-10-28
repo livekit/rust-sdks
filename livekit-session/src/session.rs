@@ -151,7 +151,7 @@ pub enum SessionEvent {
 /// use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
 ///
 /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-/// let source = development_token_server("my-sandbox-id");
+/// let source = development_token_server("my-token-server-id");
 /// let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
 /// let session = Session::new((source, options), SessionOptions::default());
 ///

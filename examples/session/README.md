@@ -4,11 +4,11 @@ A text-only chat with a LiveKit agent, built on `livekit-session`. Lines typed o
 the agent; the agent's replies and state changes are printed as they arrive. No microphone is
 published, so the agent needs to accept text input.
 
-Credentials come from a [sandbox token server](https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/),
+Credentials come from a [development token server](https://docs.livekit.io/frontends/build/authentication/development-token-server/),
 which also dispatches the agent:
 
 ```bash
-LIVEKIT_SANDBOX_ID=<sandbox id> LIVEKIT_AGENT_NAME=<agent name> cargo run -p session
+LIVEKIT_TOKEN_SERVER_ID=<token server id> LIVEKIT_AGENT_NAME=<agent name> cargo run -p session
 ```
 
 Or from a pre-generated token, whose room configuration dispatches the agent:

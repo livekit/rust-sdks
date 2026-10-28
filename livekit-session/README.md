@@ -9,7 +9,7 @@ feed. It follows the same model as the Session in the JavaScript, Swift, Android
 use livekit_session::{Session, SessionOptions};
 use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
 
-let source = development_token_server("<sandbox id>");
+let source = development_token_server("<token server id>");
 let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
 let session = Session::new((source, options), SessionOptions::default());
 
