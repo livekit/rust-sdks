@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use bytes::Bytes;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use livekit_common::{EncryptionType, ParticipantIdentity};
 use parking_lot::RwLock;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
     watch,
 };
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::{
     info::AnyStreamInfo,
@@ -32,13 +34,16 @@ use super::{
         ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamClosed, StreamOpened,
         TrailerReceived,
     },
-    stream_reader::AnyStreamReader,
+    stream_reader::{AnyStreamReader, StreamCloser},
 };
 
 /// Max data stream payload size, defaults to 5gb
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
 struct Descriptor {
+    /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it too, which ends
+    /// the stream's future in the manager's `closes`.
+    close_guard: DropGuard,
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     /// Publishes `progress` updates to the reader's `progress()` stream.
@@ -154,15 +159,16 @@ async fn inflate_raw(data: &[u8], max_byte_length: usize) -> StreamResult<Vec<u8
 #[derive(Clone)]
 pub struct ManagerInput {
     input_tx: UnboundedSender<InputEvent>,
-    _drop_guard: Arc<DropGuard>,
+    _shutdown_on_drop: Arc<ShutdownOnDrop>,
 }
 
-/// Sends [`InputEvent::Shutdown`] when the last [`ManagerInput`] is dropped.
-struct DropGuard {
+/// Shared by every clone of a [`ManagerInput`]. Sends [`InputEvent::Shutdown`] when the last
+/// clone is dropped.
+struct ShutdownOnDrop {
     input_tx: UnboundedSender<InputEvent>,
 }
 
-impl Drop for DropGuard {
+impl Drop for ShutdownOnDrop {
     fn drop(&mut self) {
         let _ = self.input_tx.send(InputEvent::Shutdown);
     }
@@ -170,7 +176,10 @@ impl Drop for DropGuard {
 
 impl ManagerInput {
     fn new(input_tx: UnboundedSender<InputEvent>) -> Self {
-        Self { input_tx: input_tx.clone(), _drop_guard: Arc::new(DropGuard { input_tx }) }
+        Self {
+            input_tx: input_tx.clone(),
+            _shutdown_on_drop: Arc::new(ShutdownOnDrop { input_tx }),
+        }
     }
 
     /// Feeds an event to the manager's run loop. Fails only if the loop has already stopped.
@@ -185,6 +194,10 @@ impl ManagerInput {
 pub struct Manager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
+    /// Yields a stream's id once its close token is cancelled. Each future ends when its
+    /// descriptor is dropped and is removed on the next loop pass, so the set cannot accumulate,
+    /// and shutdown drops it. The futures are `Sync`, so the manager stays `Sync`.
+    closes: FuturesUnordered<Pin<Box<dyn Future<Output = StreamId> + Send + Sync>>>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
@@ -206,6 +219,7 @@ impl Manager {
         let manager = Self {
             inner: ManagerInner { open_streams: HashMap::new(), output_tx },
             input_rx,
+            closes: FuturesUnordered::new(),
 
             max_payload_byte_length: max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
@@ -214,10 +228,23 @@ impl Manager {
     }
 
     /// Runs the manager's event loop until the input channel closes (all
-    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit,
-    /// dropping `self` closes every open reader.
+    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit, every
+    /// still-open stream is aborted so its reader errors with [`StreamError::AbnormalEnd`]
+    /// rather than ending cleanly with whatever partial content had arrived.
     pub async fn run(mut self) {
-        while let Some(event) = self.input_rx.recv().await {
+        loop {
+            let event = tokio::select! {
+                // Closes first, so an event sent after `close()` finds the stream gone.
+                biased;
+                Some(id) = self.closes.next() => {
+                    self.inner.close_from_reader(&id);
+                    continue;
+                }
+                event = self.input_rx.recv() => match event {
+                    Some(event) => event,
+                    None => break,
+                },
+            };
             match event {
                 InputEvent::PacketReceived(PacketReceived { packet, participant_identity }) => {
                     match packet {
@@ -240,6 +267,7 @@ impl Manager {
                 InputEvent::Shutdown => break,
             }
         }
+        self.handle_abort_all();
     }
 
     /// Handles an incoming header packet.
@@ -289,7 +317,9 @@ impl Manager {
             return;
         }
 
-        let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info);
+        let token = CancellationToken::new();
+        let closer = StreamCloser { token: token.clone() };
+        let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info, closer);
         let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
                 .into(),
@@ -324,6 +354,17 @@ impl Manager {
                 }
                 content
             };
+            // Hold the payload to its declared length, as the trailer does for a chunked stream.
+            let length_error = match bytes_total {
+                Some(total) if (content.len() as u64) < total => Some(StreamError::Incomplete),
+                Some(total) if (content.len() as u64) > total => Some(StreamError::LengthExceeded),
+                _ => None,
+            };
+            if let Some(error) = length_error {
+                let _ = chunk_tx.send(Err(error));
+                self.inner.emit_stream_closed(&id, participant_identity, topic);
+                return;
+            }
             // The whole payload arrives at once, so publish a single completed progress update.
             let _ = progress_tx.send(StreamProgress {
                 chunk_index: 0,
@@ -339,7 +380,14 @@ impl Manager {
             return;
         }
 
+        let closed = token.clone().cancelled_owned();
+        let closed_id = id.clone();
+        self.closes.push(Box::pin(async move {
+            closed.await;
+            closed_id
+        }));
         let descriptor = Descriptor {
+            close_guard: token.drop_guard(),
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             progress_tx,
@@ -519,15 +567,17 @@ impl Manager {
             attributes_write.extend(trailer.attributes);
         }
 
+        // A sender that ends the stream early says why; that reason, not the missing bytes, is the
+        // error the reader gets.
+        if !trailer.reason.is_empty() {
+            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(trailer.reason));
+            return;
+        }
         if !match descriptor.progress.bytes_total {
             Some(total) => descriptor.progress.bytes_processed >= total,
             None => true,
         } {
             inner.close_stream_with_error(&id, StreamError::Incomplete);
-            return;
-        }
-        if !trailer.reason.is_empty() {
-            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(trailer.reason));
             return;
         }
         inner.close_stream(&id);
@@ -591,6 +641,14 @@ impl ManagerInner {
         }
     }
 
+    /// Ends a stream on behalf of its reader (see [`StreamCloser`]), unless the stream ended
+    /// already or its id now belongs to a later stream, whose own token is not cancelled.
+    fn close_from_reader(&mut self, id: &StreamId) {
+        if self.open_streams.get(id).is_some_and(|d| d.close_guard.token().is_cancelled()) {
+            self.close_stream_with_error(id, StreamError::AlreadyClosed);
+        }
+    }
+
     fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
@@ -602,8 +660,8 @@ impl ManagerInner {
         &mut self,
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
-        let Self { open_streams, output_tx } = self;
-        open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
+        let Self { open_streams, output_tx, .. } = self;
+        open_streams.retain(|id, descriptor| match checker(id, descriptor) {
             Ok(_) => true,
             Err(error) => {
                 let _ = descriptor.chunk_tx.send(Err(error));
@@ -781,6 +839,18 @@ mod tests {
                     _ => continue,
                 }
             }
+        }
+
+        /// Drains the outputs emitted so far and returns the ids of the streams they closed. Call it
+        /// after [`Self::open_stream_count`], which waits until the earlier events are handled.
+        fn drain_closed_ids(&mut self) -> Vec<String> {
+            let mut ids = Vec::new();
+            while let Ok(event) = self.output_rx.try_recv() {
+                if let OutputEvent::StreamClosed(closed) = event {
+                    ids.push(closed.stream_id.to_string());
+                }
+            }
+            ids
         }
 
         /// Awaits the next closed stream, returning its id, sender identity, and topic.
@@ -1157,6 +1227,43 @@ mod tests {
             });
             let (reader, _) = h.next_opened().await;
             assert!(matches!(read_bytes(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        /// Reads an inline text stream that carries `text` and declares `total_length`.
+        async fn read_inline_text(
+            text: &str,
+            total_length: Option<u64>,
+            compression: CompressionType,
+        ) -> StreamResult<String> {
+            let mut h = Harness::new();
+            let content = match compression {
+                CompressionType::DeflateRaw => deflate_raw(text.as_bytes()).await,
+                _ => text.as_bytes().to_vec(),
+            };
+            h.send_packet(Packet::Header {
+                header: text_header("s1", total_length, HashMap::new(), Some(content), compression),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            read_text(reader).await
+        }
+
+        #[tokio::test]
+        async fn v2_inline_payload_is_held_to_its_declared_length() {
+            for compression in [CompressionType::None, CompressionType::DeflateRaw] {
+                let read = |total| read_inline_text("hello", total, compression.clone());
+                let short = read(Some(6)).await;
+                assert!(matches!(short, Err(StreamError::Incomplete)), "{compression:?}");
+                let long = read(Some(4)).await;
+                assert!(matches!(long, Err(StreamError::LengthExceeded)), "{compression:?}");
+                // JS treats a declared length of 0 as unknown and skips the check. No sender
+                // inlines a non-empty payload with a length of 0, so the core holds 0 to the
+                // payload like any other length.
+                let zero = read(Some(0)).await;
+                assert!(matches!(zero, Err(StreamError::LengthExceeded)), "{compression:?}");
+                assert_eq!(read(Some(5)).await.unwrap(), "hello", "{compression:?}");
+                assert_eq!(read(None).await.unwrap(), "hello", "{compression:?}");
+            }
         }
 
         #[tokio::test]
@@ -1704,6 +1811,190 @@ mod tests {
             assert_progress_completes(&values, total);
             drop(reader);
         }
+
+        #[tokio::test]
+        async fn progress_stream_outlives_a_consuming_read() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(4), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (AnyStreamReader::Byte(reader), _) = h.next_opened().await else {
+                panic!("expected a byte reader");
+            };
+            let progress = reader.progress_stream();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+
+            // `read_all` consumes the reader while its progress stream is still held.
+            assert_eq!(reader.read_all().await.unwrap().len(), 4);
+            assert_progress_completes(&collect_progress(progress).await, 4);
+        }
+    }
+
+    mod closer {
+        use super::*;
+        use crate::incoming::TextStreamReader;
+
+        fn open_text_stream(h: &Harness, id: &str) {
+            h.send_packet(Packet::Header {
+                header: text_header(id, Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Chunk {
+                chunk: chunk(id, 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+        }
+
+        async fn next_text_reader(h: &mut Harness) -> TextStreamReader {
+            let (AnyStreamReader::Text(reader), _) = h.next_opened().await else {
+                panic!("expected a text reader");
+            };
+            reader
+        }
+
+        #[tokio::test]
+        async fn closer_after_shutdown_does_nothing() {
+            // A manager whose run loop the test owns, with one open text stream.
+            let (manager, input, mut output_rx) = Manager::new(None);
+            let run = tokio::spawn(manager.run());
+            let header = text_header("s1", Some(10), HashMap::new(), None, CompressionType::None);
+            let packet = Packet::Header { header, encryption_type: EncryptionType::None };
+            let identity = ParticipantIdentity::from(SENDER);
+            input.send(PacketReceived::new(packet, identity).into()).unwrap();
+            let reader = loop {
+                let event = output_rx.recv().await.expect("the stream should open");
+                if let OutputEvent::StreamOpened(StreamOpened {
+                    stream_reader: AnyStreamReader::Text(reader),
+                    ..
+                }) = event
+                {
+                    break reader;
+                }
+            };
+
+            input.send(InputEvent::Shutdown).unwrap();
+            let stopped = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
+            stopped.expect("the run loop should stop").expect("the run loop should not panic");
+
+            // `close()` is synchronous, so each call returning shows it did not block. The stopped
+            // manager watches no token, so the closes change nothing, with the input kept or
+            // dropped.
+            let closer = reader.closer();
+            closer.close();
+            closer.close();
+            assert!(input.send(InputEvent::AbortAllStreams).is_err());
+            drop(input);
+            closer.close();
+
+            // The output ends once the stopped manager is dropped, so this sees every event.
+            let mut closes = 0;
+            while let Some(event) = output_rx.recv().await {
+                closes += usize::from(matches!(event, OutputEvent::StreamClosed(_)));
+            }
+            assert_eq!(closes, 1, "only the shutdown abort");
+            assert!(matches!(reader.read_all().await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn closer_ends_an_open_stream_once() {
+            let mut h = Harness::new();
+            // Each order is sent before the manager runs: a second close, then a close before the
+            // final chunk and one between that chunk and the trailer. The close wins over the
+            // packets still in the input queue, so every order ends the stream once.
+            for (id, steps) in [
+                ("s1", &["close", "close"][..]),
+                ("s2", &["close", "chunk", "trailer"]),
+                ("s3", &["chunk", "close", "trailer"]),
+            ] {
+                open_text_stream(&h, id);
+                let reader = next_text_reader(&mut h).await;
+                let closer = reader.closer();
+                for step in steps {
+                    match *step {
+                        "close" => closer.close(),
+                        "chunk" => h.send_packet(Packet::Chunk {
+                            chunk: chunk(id, 1, b"world".to_vec()),
+                            encryption_type: EncryptionType::None,
+                        }),
+                        "trailer" => h.send_packet(Packet::Trailer {
+                            trailer: trailer(id),
+                            encryption_type: EncryptionType::None,
+                        }),
+                        _ => unreachable!("{step}"),
+                    }
+                }
+                assert_eq!(h.open_stream_count().await, 0, "{steps:?}");
+                assert_eq!(h.drain_closed_ids(), vec![id], "{steps:?}");
+
+                // A read that is still going fails rather than ending as if complete.
+                let read = reader.read_all().await;
+                assert!(matches!(read, Err(StreamError::AlreadyClosed)), "{steps:?}: {read:?}");
+            }
+        }
+
+        #[tokio::test]
+        async fn closer_discards_packets_still_queued() {
+            let mut h = Harness::new();
+            open_text_stream(&h, "s1");
+            let mut reader = next_text_reader(&mut h).await;
+            // Answered after the first chunk, so that chunk is in the reader's channel.
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            reader.closer().close();
+            assert_eq!(h.open_stream_count().await, 0);
+
+            assert_eq!(reader.next().await.unwrap().unwrap(), "hello");
+            assert!(matches!(reader.next().await, Some(Err(StreamError::AlreadyClosed))));
+            assert!(reader.next().await.is_none());
+        }
+
+        #[tokio::test]
+        async fn closer_spares_a_later_stream_with_the_same_id() {
+            let mut h = Harness::new();
+            open_text_stream(&h, "s1");
+            let first = next_text_reader(&mut h).await;
+            let first_closer = first.closer();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(first.read_all().await.unwrap(), "helloworld");
+            assert_eq!(h.open_stream_count().await, 0);
+            assert_eq!(h.drain_closed_ids(), vec!["s1"]);
+
+            // A new stream reuses the id, and then the first stream's closer is used late.
+            open_text_stream(&h, "s1");
+            let second = next_text_reader(&mut h).await;
+            first_closer.close();
+            assert_eq!(h.open_stream_count().await, 1);
+            assert!(h.drain_closed_ids().is_empty());
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(second.read_all().await.unwrap(), "helloworld");
+        }
     }
 
     /// The open-stream count reflects descriptor-registered streams, answered in order with the
@@ -1769,6 +2060,71 @@ mod tests {
 
     /// Every opened stream terminates with exactly one `StreamClosed`, whatever the terminal
     /// path — hosts rely on it to sequence handler invocations for ordered topics.
+    /// Stopping the run loop must error in-flight readers; dropping their chunk senders alone
+    /// would end them cleanly, making truncated content look complete.
+    mod shutdown {
+        use super::*;
+
+        #[tokio::test]
+        async fn shutdown_errors_open_streams() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (text_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            let compressed = deflate_raw(b"hello world").await;
+            h.send_packet(Packet::Header {
+                header: byte_header("s2", Some(11), None, CompressionType::DeflateRaw),
+                encryption_type: EncryptionType::None,
+            });
+            let (byte_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s2", 0, compressed[..compressed.len() / 2].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            h.input.send(InputEvent::Shutdown).unwrap();
+            assert!(matches!(read_text(text_reader).await, Err(StreamError::AbnormalEnd(_))));
+            assert!(matches!(read_bytes(byte_reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn dropping_all_inputs_errors_open_streams() {
+            let Harness { input, mut output_rx } = Harness::new();
+            input
+                .send(InputEvent::PacketReceived(PacketReceived {
+                    packet: Packet::Header {
+                        header: text_header(
+                            "s1",
+                            Some(10),
+                            HashMap::new(),
+                            None,
+                            CompressionType::None,
+                        ),
+                        encryption_type: EncryptionType::None,
+                    },
+                    participant_identity: ParticipantIdentity::from(SENDER),
+                }))
+                .unwrap();
+            let reader = loop {
+                if let OutputEvent::StreamOpened(StreamOpened { stream_reader, .. }) =
+                    output_rx.recv().await.expect("a stream should be opened")
+                {
+                    break stream_reader;
+                }
+            };
+
+            drop(input);
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+    }
+
     mod stream_closed {
         use super::*;
 
@@ -1907,8 +2263,9 @@ mod tests {
     #[tokio::test]
     async fn trailer_with_reason_errors_abnormal_end() {
         let mut h = Harness::new();
+        // The stream is short of its declared length, and the trailer's reason must win over that.
         h.send_packet(Packet::Header {
-            header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+            header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
             encryption_type: EncryptionType::None,
         });
         let (reader, _) = h.next_opened().await;

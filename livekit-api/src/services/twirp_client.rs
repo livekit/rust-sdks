@@ -131,7 +131,7 @@ pub struct TwirpClient {
 
 impl TwirpClient {
     pub fn new(host: &str, pkg: &str, prefix: Option<&str>) -> Self {
-        Self::with_client(host, pkg, prefix, http_client::Client::new())
+        Self::with_client(host, pkg, prefix, http_client::client())
     }
 
     /// Like [`new`](Self::new) but reuses an existing HTTP client (and its

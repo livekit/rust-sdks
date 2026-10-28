@@ -185,6 +185,23 @@ rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
+# prefix the bundled ffmpeg's symbols too, so they don't conflict with an ffmpeg
+# the app links itself. The public names with a shared one, the internal ones
+# with a static one.
+ffmpeg_public='av|avcodec|avdevice|avfilter|avformat|avio|avpriv|avsubtitle|avutil|swr|swresample|sws|swscale'
+ffmpeg_internal='ff|ffio|ffurl'
+
+global_symbols() {
+  src/third_party/llvm-build/Release+Asserts/bin/llvm-nm -A -j --extern-only "$@" 2>/dev/null \
+    | awk '{ print $NF }' | sort -u
+}
+
+ffmpeg_map="$OUTPUT_DIR/ffmpeg_prefix_symbols.txt"
+global_symbols "$ARTIFACTS_DIR/lib/libwebrtc.a" \
+  | grep -E "^($ffmpeg_public|$ffmpeg_internal)_" \
+  | awk '{ print $1, "LK_" $1 }' > "$ffmpeg_map"
+src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$ffmpeg_map" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+
 # The archive is the whole standard library for webrtc-sys (build.rs passes
 # cpp_link_stdlib(None), since mixing in the host libstdc++ would be a second,
 # incompatible stdlib). Check the out-of-line half is really in there instead of

@@ -24,6 +24,10 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
+#ifdef LIVEKIT_TEST
+#include "rust/cxx.h"
+#endif
+
 namespace livekit_ffi {
 
 class PassthroughVideoEncoderFactory : public webrtc::VideoEncoderFactory {
@@ -43,5 +47,19 @@ class PassthroughVideoEncoderFactory : public webrtc::VideoEncoderFactory {
  private:
   std::vector<webrtc::SdpVideoFormat> supported_formats_;
 };
+
+#ifdef LIVEKIT_TEST
+// Frame kinds for passthrough_chain_guard_for_test().
+constexpr uint8_t kChainTestKey = 0;
+constexpr uint8_t kChainTestDelta = 1;
+constexpr uint8_t kChainTestDroppedBeforeEncoder = 2;
+// Result bits, one result per frame that reached the encoder.
+constexpr uint8_t kChainTestSent = 1;
+constexpr uint8_t kChainTestKeyframeRequested = 2;
+
+// Feeds a frame sequence through a PassthroughVideoEncoder.
+rust::Vec<uint8_t> passthrough_chain_guard_for_test(
+    rust::Slice<const uint8_t> frames);
+#endif
 
 }  // namespace livekit_ffi

@@ -24,7 +24,7 @@ use livekit_common::{
     CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
 };
 use livekit_data_stream::api::{
-    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
+    OperationType, SendTextOptions, StreamResult, TextStreamInfo, TextStreamReader,
 };
 use livekit_protocol as proto;
 use parking_lot::{Mutex as ParkingMutex, RwLock};
@@ -40,7 +40,7 @@ use tokio::sync::{mpsc, Notify};
 /// Captures all outgoing packets and text streams for assertion.
 struct MockTransport {
     sent_packets: Arc<ParkingMutex<Vec<proto::DataPacket>>>,
-    sent_texts: Arc<ParkingMutex<Vec<(String, StreamTextOptions)>>>,
+    sent_texts: Arc<ParkingMutex<Vec<(String, SendTextOptions)>>>,
     packet_sent: Arc<Notify>,
     text_sent: Arc<Notify>,
     remote_protocols: HashMap<String, i32>,
@@ -85,7 +85,7 @@ impl MockTransport {
     }
 
     /// Return all sent text streams as (body, options).
-    fn texts(&self) -> Vec<(String, StreamTextOptions)> {
+    fn texts(&self) -> Vec<(String, SendTextOptions)> {
         self.sent_texts.lock().clone()
     }
 
@@ -124,7 +124,7 @@ impl RpcTransport for MockTransport {
     async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         self.sent_texts.lock().push((text.to_string(), options.clone()));
         self.text_sent.notify_waiters();
@@ -798,7 +798,7 @@ async fn test_server_below_minimum_version_rejected() {
 
 /// A participant leaving mid-call must fail the caller promptly with RECIPIENT_DISCONNECTED,
 /// rather than stranding it until the (much longer) response timeout expires.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_participant_disconnect_fails_pending_call() {
     let client = Arc::new(RpcClientManager::new());
     let transport = Arc::new(
@@ -817,6 +817,7 @@ async fn test_participant_disconnect_fails_pending_call() {
             .with_max_round_trip_latency(Duration::from_secs(30)),
     )
     .await;
+    let started = tokio::time::Instant::now();
 
     // Ack the request so the call is parked on the response rather than on the ack.
     transport.wait_for_text().await;
@@ -826,6 +827,68 @@ async fn test_participant_disconnect_fails_pending_call() {
 
     let err = handle.await.unwrap().unwrap_err();
     assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
+    // Well short of the 30s response timeout the call was configured with.
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// The disconnect of a recipient that left *because of* the RPC it just answered races the
+/// reply: "participant left" arrives on the signaling connection, the response on the data
+/// channel. A response that lands just after the disconnect must still resolve the call —
+/// failing it strands callers (`lk.sip.EndCall` is the canonical case) on a call that worked.
+#[tokio::test]
+async fn test_response_after_disconnect_still_resolves_caller() {
+    let client = Arc::new(RpcClientManager::new());
+    let transport = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+
+    let handle = spawn_perform_rpc(
+        client.clone(),
+        transport.clone(),
+        PerformRpcData::new("dest", "lk.sip.EndCall").with_payload("{}"),
+    )
+    .await;
+
+    transport.wait_for_text().await;
+    let request_id = transport.extract_request_id();
+    client.handle_incoming_rpc_ack(request_id.clone());
+
+    // The recipient ends the call and leaves the room; its response is still in flight, so it
+    // lands after the disconnect has already been processed.
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+    client.handle_v1_response_packet(request_id, Some("done".into()), None);
+
+    assert_eq!(handle.await.unwrap().unwrap(), "done");
+}
+
+/// Same race, but on the ack leg: a disconnect seen before the ack must not discard the ack,
+/// and must still be remembered once the call moves on to waiting for the response.
+#[tokio::test]
+async fn test_ack_after_disconnect_still_resolves_caller() {
+    let client = Arc::new(RpcClientManager::new());
+    let transport = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+
+    let handle = spawn_perform_rpc(
+        client.clone(),
+        transport.clone(),
+        PerformRpcData::new("dest", "lk.sip.EndCall").with_payload("{}"),
+    )
+    .await;
+
+    transport.wait_for_text().await;
+    let request_id = transport.extract_request_id();
+
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+    client.handle_incoming_rpc_ack(request_id.clone());
+    client.handle_v1_response_packet(request_id, Some("done".into()), None);
+
+    assert_eq!(handle.await.unwrap().unwrap(), "done");
 }
 
 /// A disconnect must only fail calls addressed to the participant that left.

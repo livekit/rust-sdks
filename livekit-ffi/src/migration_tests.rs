@@ -110,6 +110,7 @@ fn assert_samples_match(actual: &[i16], expected: &[i16], context: &str) {
 /// Every knob of `NewSoxResamplerRequest` reaches the resampler: the same input
 /// pushed through the FFI request surface and through the Rust API must come
 /// back as the same audio, for each rate, channel count and quality recipe.
+#[serial_test::serial]
 #[test]
 fn proto_push_matches_direct_push() {
     let cases = [
@@ -147,6 +148,7 @@ fn proto_push_matches_direct_push() {
 }
 
 /// 30ms in at 48kHz is 30ms out at 16kHz, counted in bytes off the wire.
+#[serial_test::serial]
 #[test]
 fn proto_push_then_flush_conserves_duration() {
     let handle = new_sox_resampler(48000.0, 16000.0, 1, proto::SoxQualityRecipe::SoxrQualityQuick);
@@ -166,6 +168,7 @@ fn proto_push_then_flush_conserves_duration() {
 /// The FFI handle map is a *second* owner of a migrated object, and it only
 /// takes that ownership when `ffi_handle_id()` publishes an id. A resampler
 /// that never crosses into the FFI path must die with its last `Arc`.
+#[serial_test::serial]
 #[test]
 fn the_handle_map_only_owns_published_resamplers() {
     use crate::{server::resampler::SoxResampler, sox_resampler};
@@ -203,6 +206,7 @@ fn assert_still_ringing(output: &[i16], context: &str) {
 
 /// A resampler created over the FFI can be picked up by the uniffi side: the id
 /// round-trips, and the uniffi side sees the filter state the FFI side left.
+#[serial_test::serial]
 #[test]
 fn a_proto_resampler_is_the_same_object_over_uniffi() {
     use crate::server::resampler::SoxResampler;
@@ -225,6 +229,7 @@ fn a_proto_resampler_is_the_same_object_over_uniffi() {
 /// publishes a handle the FFI request surface drives, `take_ffi_handle_id` hands
 /// sole ownership back to the uniffi side, and publishing a second time restores
 /// the same id — so a migrating object can cross the seam as often as it needs to.
+#[serial_test::serial]
 #[test]
 fn a_resampler_hands_back_and_forth_across_the_seam() {
     use crate::{server::resampler::SoxResampler, sox_resampler};

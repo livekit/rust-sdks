@@ -19,27 +19,82 @@ use crate::constants::{
 use crate::transport::{RpcTransport, RpcTransportError};
 use crate::types::{PerformRpcData, RpcError, RpcErrorCode, MAX_V1_PAYLOAD_BYTES};
 use livekit_common::{ParticipantIdentity, CLIENT_PROTOCOL_DATA_STREAM_RPC};
-use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
+use livekit_data_stream::api::{SendTextOptions, StreamReader, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 /// The oldest server version that supports RPC.
 const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
+
+/// How much longer a caller waits for a reply after its recipient is reported gone.
+///
+/// A participant leaving is announced on the signaling connection, while the ack and response
+/// travel on the data channel. Nothing orders those two against each other, so "the recipient
+/// left" is not evidence that its reply is not already on the wire — a recipient that leaves
+/// *because* of the RPC it just answered (`lk.sip.EndCall`, say) reliably produces that order.
+/// Treat the disconnect as a reason to stop waiting soon rather than immediately.
+const DISCONNECT_GRACE_PERIOD_DURATION: Duration = Duration::from_secs(2);
 
 /// Generates a random RPC request identifier (UUID v4).
 fn create_random_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// An in-flight request, tagged with who it went to so it can be failed if that participant
-/// leaves before responding.
+/// An in-flight request, tagged with who it went to so the caller can be told if that
+/// participant leaves before replying.
 struct Pending<T> {
     destination_identity: ParticipantIdentity,
     tx: oneshot::Sender<T>,
+    participant_disconnected_tx: Option<mpsc::Sender<()>>,
+}
+
+/// How one leg of a call — the ack, or the response — finished waiting.
+enum Wait<T> {
+    Received(T),
+    Timeout,
+    RecipientGone,
+}
+
+/// Wait for `rx`, giving up `timeout` from now.
+///
+/// `participant_disconnected` closing does not end the wait: the recipient has left the room,
+/// but its reply may already be in flight, so keep waiting for up to
+/// [`DISCONNECT_GRACE_PERIOD_DURATION`] more — never past `timeout` — before reporting the
+/// disconnect.
+async fn wait_with_disconnect_grace<T>(
+    mut rx: oneshot::Receiver<T>,
+    participant_disconnected_rx: &mut mpsc::Receiver<()>,
+    timeout: Duration,
+) -> Wait<T> {
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    tokio::select! {
+        biased;
+        // A reply that is already here wins over a disconnect that arrived alongside it.
+        received = &mut rx => {
+            return match received {
+                Ok(value) => Wait::Received(value),
+                // Sender dropped without replying: the call was abandoned on our side.
+                Err(_) => Wait::RecipientGone,
+            };
+        }
+        // Nothing is ever sent, so this resolves only once every sender has been dropped.
+        _ = participant_disconnected_rx.recv() => {}
+        _ = tokio::time::sleep_until(deadline) => return Wait::Timeout,
+    }
+
+    let grace = std::cmp::min(
+        DISCONNECT_GRACE_PERIOD_DURATION,
+        deadline.saturating_duration_since(tokio::time::Instant::now()),
+    );
+    match tokio::time::timeout(grace, rx).await {
+        Ok(Ok(value)) => Wait::Received(value),
+        Ok(Err(_)) | Err(_) => Wait::RecipientGone,
+    }
 }
 
 /// Manages outgoing RPC calls (caller/client side).
@@ -105,16 +160,27 @@ impl RpcClientManager {
 
         // Register channels BEFORE sending the request to avoid race condition
         // where the response arrives before we've registered the handlers
+        let (participant_disconnected_tx, mut participant_disconnected_rx) = mpsc::channel(1);
         {
             let mut pending_acks = self.pending_acks.lock();
             let mut pending_responses = self.pending_responses.lock();
             let destination = ParticipantIdentity(data.destination_identity.clone());
             pending_acks.insert(
                 id.clone(),
-                Pending { destination_identity: destination.clone(), tx: ack_tx },
+                Pending {
+                    destination_identity: destination.clone(),
+                    tx: ack_tx,
+                    participant_disconnected_tx: Some(participant_disconnected_tx.clone()),
+                },
             );
-            pending_responses
-                .insert(id.clone(), Pending { destination_identity: destination, tx: response_tx });
+            pending_responses.insert(
+                id.clone(),
+                Pending {
+                    destination_identity: destination,
+                    tx: response_tx,
+                    participant_disconnected_tx: Some(participant_disconnected_tx),
+                },
+            );
         }
 
         let send_result = if use_v2 {
@@ -142,56 +208,58 @@ impl RpcClientManager {
 
         if let Err(e) = send_result {
             // Clean up on failure
-            let mut pending_acks = self.pending_acks.lock();
-            let mut pending_responses = self.pending_responses.lock();
-            pending_acks.remove(&id);
-            pending_responses.remove(&id);
+            self.clear_in_flight_rpc(&id);
             log::error!("Failed to publish RPC request: {}", e);
             return Err(e);
         }
 
-        // Wait for ack timeout
-        match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
-            Err(_) => {
-                let mut pending_acks = self.pending_acks.lock();
-                let mut pending_responses = self.pending_responses.lock();
-                pending_acks.remove(&id);
-                pending_responses.remove(&id);
+        // Wait for the ack
+        match wait_with_disconnect_grace(
+            ack_rx,
+            &mut participant_disconnected_rx,
+            max_round_trip_latency,
+        )
+        .await
+        {
+            Wait::Timeout => {
+                self.clear_in_flight_rpc(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
-            Ok(Err(_)) => {
-                // Sender dropped: the recipient disconnected before acknowledging.
-                self.pending_responses.lock().remove(&id);
+            Wait::RecipientGone => {
+                self.clear_in_flight_rpc(&id);
                 return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
             }
-            Ok(Ok(())) => {
+            Wait::Received(()) => {
                 // Ack received, continue to wait for response
             }
         }
 
-        // Wait for response timeout
-        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
-            Err(_) => {
+        // Wait for the response
+        match wait_with_disconnect_grace(
+            response_rx,
+            &mut participant_disconnected_rx,
+            data.response_timeout,
+        )
+        .await
+        {
+            Wait::Timeout => {
                 self.pending_responses.lock().remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
+                Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
             }
-            Ok(result) => result,
-        };
-
-        match response {
-            Err(_) => {
-                // Channel closed — sender dropped (e.g. disconnect)
+            Wait::RecipientGone => {
+                self.pending_responses.lock().remove(&id);
                 Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
             }
-            Ok(Err(e)) => {
-                // RPC error from remote, forward it
-                Err(e)
-            }
-            Ok(Ok(payload)) => {
-                // Successful response
-                Ok(payload)
-            }
+            // RPC error from remote, forward it
+            Wait::Received(Err(e)) => Err(e),
+            Wait::Received(Ok(payload)) => Ok(payload),
         }
+    }
+
+    /// Stop tracking a call, so a reply that arrives later is ignored rather than delivered.
+    fn clear_in_flight_rpc(&self, id: &str) {
+        self.pending_acks.lock().remove(id);
+        self.pending_responses.lock().remove(id);
     }
 
     /// Publish a v1 RPC request data packet.
@@ -239,7 +307,7 @@ impl RpcClientManager {
             .insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), response_timeout.as_millis().to_string());
         attributes.insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
-        let options = StreamTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
+        let options = SendTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
             .with_attributes(attributes)
             .with_destination_identity(destination_identity);
 
@@ -264,32 +332,38 @@ impl RpcClientManager {
         destination_identity: impl Into<ParticipantIdentity>,
         tx: tokio::sync::oneshot::Sender<Result<String, RpcError>>,
     ) {
-        self.pending_responses
-            .lock()
-            .insert(request_id, Pending { destination_identity: destination_identity.into(), tx });
+        self.pending_responses.lock().insert(
+            request_id,
+            Pending {
+                destination_identity: destination_identity.into(),
+                tx,
+                participant_disconnected_tx: None,
+            },
+        );
     }
 
-    /// Fail every call still waiting on `identity`.
+    /// Tell every call still waiting on `identity` that it has left the room.
     ///
-    /// Without this, a participant that leaves mid-call strands the caller until its response
-    /// timeout expires (15s by default) and reports `ResponseTimeout` rather than
-    /// `RecipientDisconnected`.
+    /// Each affected caller stops waiting shortly afterwards with `RecipientDisconnected` (see
+    /// [`DISCONNECT_GRACE_PERIOD_DURATION`]). Without this, a participant that leaves mid-call
+    /// strands its caller until the response timeout expires (15s by default), which then
+    /// reports `ResponseTimeout` rather than the disconnect that actually ended the call.
+    ///
+    /// The pending entries deliberately stay registered through the grace period: a reply sent
+    /// just before the recipient left is still in flight on the data channel, and dropping the
+    /// entry now would turn that reply into an "unexpected RPC request" and fail a call that
+    /// in fact succeeded.
     pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
-        self.pending_acks.lock().retain(|_, pending| pending.destination_identity != *identity);
+        for pending in self.pending_acks.lock().values_mut() {
+            if pending.destination_identity == *identity {
+                drop(pending.participant_disconnected_tx.take());
+            }
+        }
 
-        let stranded: Vec<_> = {
-            let mut pending_responses = self.pending_responses.lock();
-            let ids: Vec<String> = pending_responses
-                .iter()
-                .filter(|(_, pending)| pending.destination_identity == *identity)
-                .map(|(id, _)| id.clone())
-                .collect();
-            ids.into_iter().filter_map(|id| pending_responses.remove(&id)).collect()
-        };
-
-        for pending in stranded {
-            let _ =
-                pending.tx.send(Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)));
+        for pending in self.pending_responses.lock().values_mut() {
+            if pending.destination_identity == *identity {
+                drop(pending.participant_disconnected_tx.take());
+            }
         }
     }
 

@@ -34,8 +34,44 @@ import "video_frame.proto";
 //    embeds an OwnedVideoSource for the existing CreateVideoTrackRequest and
 //    the recommended TrackPublishOptions for PublishTrackRequest.
 // 2. StartCaptureRequest: starts pumping frames into the RTC source.
-// 3. The capture runs until StopCaptureRequest, end of stream, or an error;
-//    a CaptureSourceEvent is delivered exactly once when it ends.
+// 3. StopCaptureRequest signals the pump to stop without waiting.
+// 4. JoinCaptureRequest consumes the running pump and completes asynchronously
+//    after its thread exits, returning its terminal result.
+
+// Bitrate unit expected by a GStreamer encoder property.
+enum GstreamerBitrateUnit {
+  GSTREAMER_BITRATE_UNIT_BPS = 0;
+  GSTREAMER_BITRATE_UNIT_KBPS = 1;
+}
+
+// Binding from WebRTC rate-control targets to a GStreamer encoder property.
+message GstreamerRateControl {
+  // Name of the encoder element in the pipeline (e.g. `lk_encoder`).
+  required string element = 1;
+  // Bitrate property to set on the element (e.g. `bitrate` for x264enc,
+  // `target-bitrate` for vp8enc/vp9enc).
+  required string property = 2;
+  // Unit the property expects.
+  required GstreamerBitrateUnit unit = 3;
+}
+
+// Encoded ingest from a GStreamer pipeline.
+message GstreamerVideoSourceConfig {
+  // GStreamer launch description for the encoded producer pipeline.
+  // Must contain `appsink name=lk_appsink`, or leave exactly one encoded
+  // video source pad unlinked for the source to attach one to.
+  required string pipeline = 1;
+  // Codec expected from the pipeline; inferred from pipeline caps when
+  // omitted.
+  optional VideoCodec codec = 2;
+  // Encoded frame resolution. When omitted, it is discovered from the
+  // pipeline's negotiated caps; when set, the pipeline output is verified
+  // against it.
+  optional VideoSourceResolution resolution = 3;
+  // Forwards WebRTC rate-control targets to an encoder element's bitrate
+  // property. Without this, the pipeline encodes at a fixed bitrate.
+  optional GstreamerRateControl rate_control = 4;
+}
 
 // Test patterns built into livekit-capture.
 enum Pattern {
@@ -99,6 +135,7 @@ message OwnedCaptureSource {
 // settings.
 message NewCaptureSourceRequest {
   oneof config {
+    GstreamerVideoSourceConfig gstreamer = 1;
     PatternVideoSourceConfig pattern = 2;
     ClockVideoSourceConfig clock = 5;
   }
@@ -117,11 +154,18 @@ message NewCaptureSourceCallback {
 message StartCaptureRequest { required uint64 capture_handle = 1; }
 message StartCaptureResponse { optional string error = 1; }
 
-// Signal a running capture to stop after the frame in flight. The terminal
-// CaptureSourceEvent follows shortly. Stopping an already-finished capture
-// is a no-op.
+// Signal a running capture to stop after the frame in flight without waiting
+// for its thread to exit. Stopping an already-finished capture is a no-op.
 message StopCaptureRequest { required uint64 capture_handle = 1; }
 message StopCaptureResponse { optional string error = 1; }
+
+// Consume a running capture and wait asynchronously for its pump thread to
+// exit. This does not signal the capture to stop.
+message JoinCaptureRequest {
+  required uint64 capture_handle = 1;
+  optional uint64 request_async_id = 2;
+}
+message JoinCaptureResponse { required uint64 async_id = 1; }
 
 // Why a capture ended without error.
 enum CaptureExit {
@@ -136,12 +180,24 @@ message CaptureFinished {
   required CaptureExit exit = 2;
 }
 
-message CaptureError { required string error = 1; }
+// Why a capture ended with an error.
+enum CaptureErrorKind {
+  // The capture source failed or violated its contract.
+  CAPTURE_ERROR_KIND_SOURCE = 0;
+  // The RTC video source rejected a frame.
+  CAPTURE_ERROR_KIND_RTC = 1;
+  // The pump thread panicked.
+  CAPTURE_ERROR_KIND_PANICKED = 2;
+}
 
-// Delivered exactly once when a started capture ends, regardless of why
-// (stop request, end of stream, or failure).
-message CaptureSourceEvent {
-  required uint64 capture_handle = 1;
+message CaptureError {
+  required string error = 1;
+  required CaptureErrorKind kind = 2;
+}
+
+// Completes JoinCaptureRequest with the pump's terminal result.
+message JoinCaptureCallback {
+  required uint64 async_id = 1;
   oneof message {
     CaptureFinished finished = 2;
     CaptureError error = 3;

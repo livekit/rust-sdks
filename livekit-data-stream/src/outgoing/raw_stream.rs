@@ -35,6 +35,9 @@ pub(crate) struct RawStreamOpenOptions {
 
 pub(crate) struct RawStream {
     id: String,
+    /// Recipients of the stream; stamped on every packet, since the server routes each
+    /// packet on its own and an empty list broadcasts it to the whole room.
+    destination_identities: Vec<String>,
     sender_identity: Option<ParticipantIdentity>,
     progress: StreamProgress,
     is_closed: bool,
@@ -47,6 +50,8 @@ impl RawStream {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
 
+        let destination_identities =
+            options.destination_identities.iter().map(|id| id.0.clone()).collect();
         let mut packet =
             Self::create_header_packet(options.header.into(), options.destination_identities);
         if let Some(sender_identity) = options.sender_identity.as_ref() {
@@ -56,6 +61,7 @@ impl RawStream {
 
         Ok(Self {
             id,
+            destination_identities,
             sender_identity: options.sender_identity,
             progress: StreamProgress { bytes_total, ..Default::default() },
             is_closed: false,
@@ -68,7 +74,12 @@ impl RawStream {
     }
 
     pub(crate) async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
-        let mut packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
+        let mut packet = Self::create_chunk_packet(
+            &self.id,
+            self.progress.chunk_index,
+            bytes,
+            &self.destination_identities,
+        );
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
@@ -83,27 +94,22 @@ impl RawStream {
         Ok(())
     }
 
-    /// Writes opaque bytes split into MTU-sized chunks on raw byte boundaries, one transport
-    /// request per chunk.
-    ///
-    /// Used for byte payloads and for compressed (deflate-raw) content, where the bytes
-    /// are opaque and must not be split on UTF-8 boundaries.
-    pub(crate) async fn write_raw_chunks(&mut self, bytes: &[u8]) -> StreamResult<()> {
-        for chunk in bytes.chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
-            self.write_chunk(chunk).await?;
-        }
-        Ok(())
-    }
-
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
+    ///
+    /// Calls `on_progress` as [`Manager::send_file`] describes. The values rise
+    /// strictly, and an empty uncompressed file reports once.
+    ///
+    /// [`Manager::send_file`]: super::manager::Manager::send_file
     pub(crate) async fn write_file(
         &mut self,
         path: impl AsRef<Path>,
         compress: bool,
+        on_progress: &mut (impl FnMut(StreamProgress) + Send),
     ) -> StreamResult<()> {
         let mut file = tokio::fs::File::open(path).await?;
         let mut read_buf = vec![0u8; 8192];
+        let mut bytes_read = 0;
 
         if compress {
             use futures_util::io::AsyncWriteExt;
@@ -115,6 +121,7 @@ impl RawStream {
                 if n == 0 {
                     break;
                 }
+                bytes_read += n as u64;
                 // Writing into a `Vec` is infallible.
                 encoder
                     .write_all(&read_buf[..n])
@@ -122,16 +129,26 @@ impl RawStream {
                     .expect("deflate write to Vec is infallible");
                 // Drain whole MTU-sized chunks of compressed output as they accumulate so
                 // we never hold the full compressed file in memory.
+                let mut drained = false;
                 while encoder.get_ref().len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = encoder.get_mut().split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(encoder.get_mut(), rest);
                     self.write_chunk(&chunk).await?;
+                    drained = true;
+                }
+                // The encoder still holds part of what was read, so the whole file is reported
+                // only after the tail below.
+                if drained && self.progress.bytes_total.is_some_and(|total| bytes_read < total) {
+                    on_progress(self.file_progress(bytes_read));
                 }
             }
             // Flush the final deflate block and send whatever compressed bytes remain.
             encoder.close().await.expect("deflate finish into Vec is infallible");
             let remaining = encoder.into_inner();
-            self.write_raw_chunks(&remaining).await?;
+            for chunk in remaining.chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
+                self.write_chunk(chunk).await?;
+            }
+            on_progress(self.file_progress(bytes_read));
         } else {
             let mut pending: Vec<u8> = Vec::new();
             loop {
@@ -139,18 +156,29 @@ impl RawStream {
                 if n == 0 {
                     break;
                 }
+                bytes_read += n as u64;
                 pending.extend_from_slice(&read_buf[..n]);
                 while pending.len() >= constants::STREAM_CHUNK_SIZE_BYTES {
                     let rest = pending.split_off(constants::STREAM_CHUNK_SIZE_BYTES);
                     let chunk = std::mem::replace(&mut pending, rest);
                     self.write_chunk(&chunk).await?;
+                    on_progress(self.file_progress(bytes_read - pending.len() as u64));
                 }
             }
             if !pending.is_empty() {
                 self.write_chunk(&pending).await?;
+                on_progress(self.file_progress(bytes_read));
+            }
+            if self.progress.chunk_index == 0 {
+                on_progress(self.file_progress(bytes_read));
             }
         }
         Ok(())
+    }
+
+    /// Progress of a file send, counting `file_bytes` before compression.
+    fn file_progress(&self, file_bytes: u64) -> StreamProgress {
+        StreamProgress { bytes_processed: file_bytes, ..self.progress }
     }
 
     pub(crate) async fn close(
@@ -161,7 +189,8 @@ impl RawStream {
         if self.is_closed {
             Err(StreamError::AlreadyClosed)?
         }
-        let mut packet = Self::create_trailer_packet(&self.id, reason, attributes);
+        let mut packet =
+            Self::create_trailer_packet(&self.id, reason, attributes, &self.destination_identities);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
@@ -189,6 +218,7 @@ impl RawStream {
             .map_err(|_| StreamError::SendFailed) // data channel error
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_header_packet(
         header: proto::data_stream::Header,
         destination_identities: Vec<ParticipantIdentity>,
@@ -197,16 +227,18 @@ impl RawStream {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
             destination_identities: destination_identities.into_iter().map(|id| id.0).collect(),
-            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header.into())),
+            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header)),
             // TODO: placeholder for reliable data transport
             ..Default::default()
         }
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_chunk_packet(
         id: &str,
         chunk_index: u64,
         content: &[u8],
+        destination_identities: &[String],
     ) -> proto::DataPacket {
         let chunk = proto::data_stream::Chunk {
             stream_id: id.to_string(),
@@ -217,25 +249,28 @@ impl RawStream {
         proto::DataPacket {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
+            destination_identities: destination_identities.to_vec(),
             value: Some(livekit_protocol::data_packet::Value::StreamChunk(chunk)),
             ..Default::default()
         }
     }
 
+    #[allow(deprecated)]
     pub(crate) fn create_trailer_packet(
         id: &str,
         reason: Option<&str>,
         attributes: Option<HashMap<String, String>>,
+        destination_identities: &[String],
     ) -> proto::DataPacket {
         let trailer = proto::data_stream::Trailer {
             stream_id: id.to_string(),
             reason: reason.unwrap_or_default().to_owned(),
             attributes: attributes.unwrap_or_default(),
-            ..Default::default()
         };
         proto::DataPacket {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
+            destination_identities: destination_identities.to_vec(),
             value: Some(livekit_protocol::data_packet::Value::StreamTrailer(trailer)),
             ..Default::default()
         }
@@ -248,7 +283,8 @@ impl Drop for RawStream {
         if self.is_closed {
             return;
         }
-        let mut packet = Self::create_trailer_packet(&self.id, None, None);
+        let mut packet =
+            Self::create_trailer_packet(&self.id, None, None, &self.destination_identities);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
