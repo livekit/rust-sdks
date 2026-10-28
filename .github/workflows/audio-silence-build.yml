@@ -40,7 +40,7 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config
+          sudo apt-get install -y ninja-build pkg-config build-essential libglib2.0-dev libjpeg-turbo8-dev
           python -m pip install setuptools
       - name: Build matching WebRTC from source
         working-directory: webrtc-sys/libwebrtc
@@ -70,7 +70,7 @@ jobs:
           python webrtc-sys/test/outgoing_silence/run.py --case runtime --webrtc-dir "$LK_CUSTOM_WEBRTC" --cxx "$CXX" > artifacts/runtime-equivalence.csv
       - name: Build livekit-rtc FFI library
         run: |
-          cargo build --locked -p livekit-ffi --release
+          CARGO_PROFILE_RELEASE_STRIP=none cargo build --locked -p livekit-ffi --release
           cp target/release/liblivekit_ffi.so artifacts/
           cp LICENSE artifacts/
           cp webrtc-sys/libwebrtc/linux-x64-release/LICENSE.md artifacts/WEBRTC-LICENSE.md
