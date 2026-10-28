@@ -209,6 +209,8 @@ pub enum RoomEvent {
         topic: Option<String>,
         kind: DataPacketKind,
         participant: Option<RemoteParticipant>,
+        /// Sender identity from the packet, even when `participant` is not yet known.
+        /// `None` when the packet does not carry an identity, such as server-originated data.
         participant_identity: Option<ParticipantIdentity>,
     },
     TranscriptionReceived {
