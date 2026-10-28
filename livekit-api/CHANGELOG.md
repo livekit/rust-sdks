@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.9.1 (2026-10-20)
+
+### Fixes
+
+#### Merge `livekit-uniffi` into `livekit-ffi`.
+
+There is now one crate, one version and one release tag. The `livekit-uniffi`
+crate, its changelog and its `livekit-uniffi/v*` tags are gone; its history is
+preserved in git.
+
+The crate carries two mutually exclusive surfaces, selected by feature:
+
+- `room-apis` (default) is the existing protobuf / C-ABI surface, with
+  `livekit` and libwebrtc. Everything that built `livekit-ffi` before builds it
+  unchanged.
+- `core-modules` is the former `livekit-uniffi` surface — access tokens, log
+  forwarding, data tracks, data streams v2 — and depends on none of `livekit`,
+  `libwebrtc`, `soxr-sys` or `imgproc`. What previously built `livekit-uniffi`
+  now builds `-p livekit-ffi --no-default-features --features core-modules`.
+
+`[package.metadata.platform-features]` in `livekit-ffi/Cargo.toml` records
+which surface each downstream package build gets, and CI resolves its build
+flags from it.
+
+The merge itself requires no downstream SDK changes: the UniFFI namespace is
+pinned per surface and every published package name is preserved. The one
+difference is the native library the crate builds, `liblivekit_uniffi` →
+`liblivekit_ffi`, which is loaded by name from the generated bindings and the
+Dart build hook and needs no consumer change. The package renames are a
+separate change, released alongside this one.
+
+The UniFFI node package (`@livekit/uniffi`) is not built for now and will be
+reintroduced separately; node bindings ship from `livekit-ffi-node-bindings`.
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+## 0.9.0 (2026-10-12)
+
+### Breaking Changes
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
+### Fixes
+
+- Public API tokens minted from an API key and secret now grant every thread action (list, create, read, write, delete) across the project. Before, they carried only `all`, so creating or reading a thread was refused.
+
+#### `livekit-api` gains `ThreadClient` and `DatabaseClient` services (`LiveKitApi::threads()` and
+
+`LiveKitApi::databases()`) for agent threads and databases, built on a client generated from
+the LiveKit Cloud Public API spec. reqwest moves to 0.13; with rustls its TLS config is built
+on ring with the same webpki or native roots as before.
+
+## 0.8.2 (2026-10-07)
+
+### Fixes
+
+- RoomClient::send_data now returns a Send future by dropping its RNG before awaiting.
+- Never wait on the peer when closing a signal stream: a half-open socket (no FIN/RST) left the reader parked in `recv()` forever, so the resume never dialled and `Room::close` hung. `SignalStream::close` now aborts the parked reader and bounds the writer's Close flush.
+
+## 0.8.1 (2026-09-24)
+
+### Fixes
+
+- refactor(signaling): explicit signal lifecycle state machine - #1402 (@lukasIO)
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.8.0 (2026-09-22)
 
 ### Breaking Changes

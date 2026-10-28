@@ -1279,6 +1279,7 @@ pub mod client_info {
         Node = 12,
         Unreal = 13,
         Esp32 = 14,
+        Dotnet = 15,
     }
     impl Sdk {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1302,6 +1303,7 @@ pub mod client_info {
                 Self::Node => "NODE",
                 Self::Unreal => "UNREAL",
                 Self::Esp32 => "ESP32",
+                Self::Dotnet => "DOTNET",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1322,6 +1324,7 @@ pub mod client_info {
                 "NODE" => Some(Self::Node),
                 "UNREAL" => Some(Self::Unreal),
                 "ESP32" => Some(Self::Esp32),
+                "DOTNET" => Some(Self::Dotnet),
                 _ => None,
             }
         }
@@ -1499,9 +1502,17 @@ pub struct RtpStats {
     pub ntp_report_drift: ::core::option::Option<RtpDrift>,
     #[prost(message, optional, tag = "46")]
     pub rebased_report_drift: ::core::option::Option<RtpDrift>,
-    /// NEXT_ID: 48
     #[prost(message, optional, tag = "47")]
     pub received_report_drift: ::core::option::Option<RtpDrift>,
+    #[prost(uint32, tag = "48")]
+    pub fec_packets: u32,
+    #[prost(uint64, tag = "49")]
+    pub fec_bytes: u64,
+    #[prost(uint32, tag = "50")]
+    pub fec_packets_discarded: u32,
+    /// NEXT_ID: 52
+    #[prost(uint32, tag = "51")]
+    pub fec_packets_recovered: u32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RtcpSenderReportState {
@@ -1537,6 +1548,8 @@ pub struct RtpForwarderState {
     pub rtp_munger: ::core::option::Option<RtpMungerState>,
     #[prost(message, repeated, tag = "8")]
     pub sender_report_state: ::prost::alloc::vec::Vec<RtcpSenderReportState>,
+    #[prost(message, optional, tag = "9")]
+    pub dependency_descriptor_forwarder: ::core::option::Option<DependencyDescriptorForwarderState>,
     #[prost(oneof = "rtp_forwarder_state::CodecMunger", tags = "7")]
     pub codec_munger: ::core::option::Option<rtp_forwarder_state::CodecMunger>,
 }
@@ -1547,6 +1560,14 @@ pub mod rtp_forwarder_state {
         #[prost(message, tag = "7")]
         Vp8Munger(super::Vp8MungerState),
     }
+}
+/// State of a forwarder that writes the dependency descriptor for the subscriber, so
+/// its frame numbers continue on a migrated subscriber.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DependencyDescriptorForwarderState {
+    /// highest extended frame number sent to the subscriber
+    #[prost(uint64, tag = "1")]
+    pub ext_last_frame_number: u64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RtpMungerState {
@@ -1974,7 +1995,8 @@ impl TrackSource {
 #[repr(i32)]
 pub enum DataTrackExtensionId {
     DteiInvalid = 0,
-    DteiParticipantSid = 1,
+    DteiParticipantSidLow = 1,
+    DteiParticipantSid = 255,
 }
 impl DataTrackExtensionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1984,6 +2006,7 @@ impl DataTrackExtensionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::DteiInvalid => "DTEI_INVALID",
+            Self::DteiParticipantSidLow => "DTEI_PARTICIPANT_SID_LOW",
             Self::DteiParticipantSid => "DTEI_PARTICIPANT_SID",
         }
     }
@@ -1991,6 +2014,7 @@ impl DataTrackExtensionId {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "DTEI_INVALID" => Some(Self::DteiInvalid),
+            "DTEI_PARTICIPANT_SID_LOW" => Some(Self::DteiParticipantSidLow),
             "DTEI_PARTICIPANT_SID" => Some(Self::DteiParticipantSid),
             _ => None,
         }
@@ -2172,6 +2196,50 @@ impl DisconnectReason {
             "CONNECTION_TIMEOUT" => Some(Self::ConnectionTimeout),
             "MEDIA_FAILURE" => Some(Self::MediaFailure),
             "AGENT_ERROR" => Some(Self::AgentError),
+            _ => None,
+        }
+    }
+}
+/// why a room ended, reported on room-ended telemetry
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RoomEndReason {
+    RoomEndUnknown = 0,
+    /// RoomService.DeleteRoom was called
+    RoomEndApiDelete = 1,
+    /// the room sat empty past its empty or departure timeout
+    RoomEndIdleTimeout = 2,
+    /// the server instance is shutting down
+    RoomEndServerShutdown = 3,
+    /// the room was restarted or replaced elsewhere
+    RoomEndSuperseded = 4,
+    /// the room failed to finish opening
+    RoomEndOpenFailed = 5,
+}
+impl RoomEndReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::RoomEndUnknown => "ROOM_END_UNKNOWN",
+            Self::RoomEndApiDelete => "ROOM_END_API_DELETE",
+            Self::RoomEndIdleTimeout => "ROOM_END_IDLE_TIMEOUT",
+            Self::RoomEndServerShutdown => "ROOM_END_SERVER_SHUTDOWN",
+            Self::RoomEndSuperseded => "ROOM_END_SUPERSEDED",
+            Self::RoomEndOpenFailed => "ROOM_END_OPEN_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ROOM_END_UNKNOWN" => Some(Self::RoomEndUnknown),
+            "ROOM_END_API_DELETE" => Some(Self::RoomEndApiDelete),
+            "ROOM_END_IDLE_TIMEOUT" => Some(Self::RoomEndIdleTimeout),
+            "ROOM_END_SERVER_SHUTDOWN" => Some(Self::RoomEndServerShutdown),
+            "ROOM_END_SUPERSEDED" => Some(Self::RoomEndSuperseded),
+            "ROOM_END_OPEN_FAILED" => Some(Self::RoomEndOpenFailed),
             _ => None,
         }
     }
@@ -4781,7 +4849,7 @@ pub mod worker_message {
 /// from Server to Worker
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4")]
+    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4, 6")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -4800,6 +4868,10 @@ pub mod server_message {
         Termination(super::JobTermination),
         #[prost(message, tag = "4")]
         Pong(super::WorkerPong),
+        /// the server is draining this control connection: re-register elsewhere,
+        /// in-flight agent HTTP streams run to completion
+        #[prost(message, tag = "6")]
+        GoAway(super::agent_http::GoAway),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4823,16 +4895,14 @@ pub struct WorkerPong {
     #[prost(int64, tag = "2")]
     pub timestamp: i64,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterWorkerRequest {
     #[prost(enumeration = "JobType", tag = "1")]
     pub r#type: i32,
     #[prost(string, tag = "8")]
     pub agent_name: ::prost::alloc::string::String,
-    /// string worker_id = 2;
     #[prost(string, tag = "3")]
     pub version: ::prost::alloc::string::String,
-    /// string name = 4 \[deprecated = true\];
     #[prost(uint32, tag = "5")]
     pub ping_interval: u32,
     #[prost(string, optional, tag = "6")]
@@ -4841,6 +4911,17 @@ pub struct RegisterWorkerRequest {
     pub allowed_permissions: ::core::option::Option<ParticipantPermission>,
     #[prost(string, tag = "9")]
     pub deployment: ::prost::alloc::string::String,
+    /// HTTP endpoints this worker serves through the data plane, in route order.
+    /// Empty means the worker exposes no endpoints and needs no data connections.
+    #[prost(message, repeated, tag = "10")]
+    pub endpoints: ::prost::alloc::vec::Vec<agent_http::AgentEndpoint>,
+    /// random per process; a re-registration with a new instance_id supersedes the
+    /// previous epoch and closes its remaining connections
+    #[prost(string, tag = "11")]
+    pub instance_id: ::prost::alloc::string::String,
+    /// highest data-plane protocol version the worker supports; 0 = unsupported
+    #[prost(uint32, tag = "12")]
+    pub endpoint_protocol: u32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterWorkerResponse {
@@ -4848,6 +4929,9 @@ pub struct RegisterWorkerResponse {
     pub worker_id: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "3")]
     pub server_info: ::core::option::Option<ServerInfo>,
+    /// present iff the registration carried endpoints and the server supports the data plane
+    #[prost(message, optional, tag = "4")]
+    pub endpoint_settings: ::core::option::Option<agent_http::AgentEndpointSettings>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct MigrateJobRequest {
@@ -4899,11 +4983,17 @@ pub struct UpdateJobStatus {
 pub struct UpdateWorkerStatus {
     #[prost(enumeration = "WorkerStatus", optional, tag = "1")]
     pub status: ::core::option::Option<i32>,
-    /// optional string metadata = 2 \[deprecated=true\];
     #[prost(float, tag = "3")]
     pub load: f32,
     #[prost(uint32, tag = "4")]
     pub job_count: u32,
+    /// worker wants no new streams; existing streams run to completion
+    #[prost(bool, tag = "5")]
+    pub draining: bool,
+    /// monotonic per registration; status updates may interleave across connections
+    /// and a stale report must not regress newer state
+    #[prost(uint64, tag = "6")]
+    pub seq: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JobAssignment {
@@ -4918,6 +5008,197 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag = "1")]
     pub job_id: ::prost::alloc::string::String,
+}
+/// ----- agent HTTP endpoints data plane -----
+///
+/// AgentHttp namespaces the data plane: workers expose HTTP endpoints served at
+/// /agents/{agent_name}/{deployment}/{path} without binding any local listener.
+/// The worker opens ONE WebTransport (QUIC) session to /agent that carries both
+/// its control stream (the same WorkerMessage/ServerMessage exchange as the
+/// WebSocket control connection, length-delimited) and every HTTP exchange: the
+/// node opens one bidirectional QUIC stream per request. QUIC provides the
+/// multiplexing and per-stream flow control, so there is no credit accounting
+/// and no attach handshake.
+///
+/// Each exchange stream is:
+///
+///    [len:u32be][StreamPreamble]   the only LiveKit framing
+///    \[ ... opaque bytes ... \]      one HTTP/1.1 exchange, to FIN or RESET_STREAM
+///
+/// After the preamble the stream is byte-transparent: the node writes a
+/// canonical HTTP/1.1 request and the worker replies with an HTTP/1.1 response,
+/// each parsed by whatever HTTP implementation the side already has. A WebSocket
+/// upgrade is therefore an ordinary request whose response is a 101, after which
+/// the stream is a byte pipe. The protocol evolves by version negotiation at
+/// registration, so the preamble carries no version of its own.
+///
+/// Bodies use ordinary HTTP/1.1 framing, Content-Length or chunked, and are
+/// unbounded: a body may be many gigabytes and must be streamed. Request and
+/// response size limits are policy for the layer above.
+///
+/// How one direction ends:
+///
+///    success             end of message per the body's own framing, then FIN.
+///    failed mid-body     chunked trailer fields x-lk-completion and x-lk-error,
+///                        in band, so the outcome cannot race the bytes it
+///                        describes.
+///    failed before any   RESET_STREAM carrying an HttpStreamResetCode, sound
+///    bytes               only here, where nothing is in flight.
+///
+/// FIN before the body's own framing says it is complete is truncation, and a
+/// receiver must surface it as such.
+///
+/// The x-lk- header prefix is reserved for this signalling in both directions.
+/// A node strips it from client-supplied request headers, so a client cannot
+/// forge one, and strips it from responses, so it never reaches the end client.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AgentHttp {
+}
+/// Nested message and enum types in `AgentHttp`.
+pub mod agent_http {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AgentEndpoint {
+        /// starlette-style path template rooted at '/': {name} (one segment, default),
+        /// {name:int}, {name:float}, {name:uuid} (constrained single segments),
+        /// {name:path} (multi-segment). Custom converters are rejected.
+        #[prost(string, tag = "1")]
+        pub path: ::prost::alloc::string::String,
+        /// uppercase, exactly as the application routes them (FastAPI does not imply
+        /// HEAD from GET)
+        #[prost(string, repeated, tag = "2")]
+        pub methods: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(enumeration = "AgentEndpointKind", tag = "3")]
+        pub kind: i32,
+        /// reachable without a project token
+        #[prost(bool, tag = "4")]
+        pub public: bool,
+    }
+    /// registration-level settings negotiated on the control connection, returned
+    /// in RegisterWorkerResponse when the worker declares endpoints and the server
+    /// supports the data plane.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AgentEndpointSettings {
+        /// the negotiated data-plane protocol version; the worker speaks exactly this
+        /// or closes the session
+        #[prost(uint32, tag = "1")]
+        pub protocol: u32,
+    }
+    /// the first thing on every exchange stream, node -> worker. It carries only
+    /// what the worker cannot derive from the HTTP bytes that follow and what it
+    /// must not infer from client-supplied headers - identity above all.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StreamPreamble {
+        /// what the bytes after this preamble are. A field rather than a framing
+        /// tag, so a new stream semantic costs no new mechanism.
+        #[prost(enumeration = "AgentEndpointKind", tag = "1")]
+        pub kind: i32,
+        #[prost(string, tag = "2")]
+        pub request_id: ::prost::alloc::string::String,
+        /// the caller holds agent-endpoint call permission for this agent and
+        /// deployment. Always true on a non-public route.
+        #[prost(bool, tag = "3")]
+        pub authorized: bool,
+        /// the manifest template that matched, e.g. "/items/{id}"
+        #[prost(string, tag = "4")]
+        pub route: ::prost::alloc::string::String,
+        /// relative, because node and worker clocks are not synchronized. 0 imposes
+        /// no deadline.
+        #[prost(uint32, tag = "5")]
+        pub timeout_ms: u32,
+        /// end client address, host only
+        #[prost(string, tag = "6")]
+        pub client_addr: ::prost::alloc::string::String,
+        /// "http" or "https" as the end client saw it; not derivable worker-side
+        ///
+        /// NEXT_ID: 8
+        #[prost(string, tag = "7")]
+        pub scheme: ::prost::alloc::string::String,
+    }
+    /// the server is draining: the worker should re-register elsewhere; in-flight
+    /// HTTP exchanges run to completion
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct GoAway {
+        #[prost(string, tag = "1")]
+        pub reason: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum AgentEndpointKind {
+        AekHttp = 0,
+        /// reserved for future text-mode endpoints
+        AekText = 1,
+    }
+    impl AgentEndpointKind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::AekHttp => "AEK_HTTP",
+                Self::AekText => "AEK_TEXT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "AEK_HTTP" => Some(Self::AekHttp),
+                "AEK_TEXT" => Some(Self::AekText),
+                _ => None,
+            }
+        }
+    }
+    /// why a stream was reset before any HTTP bytes flowed. This travels as the
+    /// QUIC RESET_STREAM / STOP_SENDING error code, so it is a number with no room
+    /// for detail: the reason string is logged by the side that reset and joined
+    /// to this by request_id. An outcome after bytes have flowed travels in
+    /// trailers instead, where it cannot race them.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum HttpStreamResetCode {
+        /// no information. The ordinary cancel code, sent whenever a stream is torn
+        /// down without a specific outcome, so it must stay the zero value and must
+        /// not imply that anything was or was not applied.
+        HsrAbort = 0,
+        /// the worker aborted before any application code observed the request, so
+        /// nothing was applied and the exchange is safe to retry. Requires that the
+        /// application was never entered; a 404 it returned is an ordinary response.
+        HsrRefused = 1,
+        /// the application was entered and then failed before producing a response
+        /// head; side effects may already have happened, so this is not safe to
+        /// retry.
+        HsrInternal = 2,
+        /// the deadline elapsed before a response head was produced
+        HsrTimeout = 3,
+        /// the peer's bytes were not valid HTTP/1.1
+        HsrProtocol = 4,
+    }
+    impl HttpStreamResetCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::HsrAbort => "HSR_ABORT",
+                Self::HsrRefused => "HSR_REFUSED",
+                Self::HsrInternal => "HSR_INTERNAL",
+                Self::HsrTimeout => "HSR_TIMEOUT",
+                Self::HsrProtocol => "HSR_PROTOCOL",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "HSR_ABORT" => Some(Self::HsrAbort),
+                "HSR_REFUSED" => Some(Self::HsrRefused),
+                "HSR_INTERNAL" => Some(Self::HsrInternal),
+                "HSR_TIMEOUT" => Some(Self::HsrTimeout),
+                "HSR_PROTOCOL" => Some(Self::HsrProtocol),
+                _ => None,
+            }
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -5829,6 +6110,9 @@ pub struct WebhookEvent {
     #[deprecated]
     #[prost(int32, tag = "11")]
     pub num_dropped: i32,
+    /// set when event is room_finished
+    #[prost(enumeration = "RoomEndReason", tag = "13")]
+    pub room_end_reason: i32,
 }
 /// SIPStatus is returned as an error detail in CreateSIPParticipant.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -6057,6 +6341,9 @@ pub struct SipInboundTrunkInfo {
     /// Max time for the caller to wait for track subscription.
     #[prost(message, optional, tag = "11")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// SIP status code if ringing_timeout elapses. Unset means using system default.
+    #[prost(enumeration = "SipStatusCode", tag = "21")]
+    pub ringing_timeout_status: i32,
     /// Max call duration.
     #[prost(message, optional, tag = "12")]
     pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
@@ -6523,6 +6810,9 @@ pub struct CreateSipParticipantRequest {
     /// INVITE <uri>
     #[prost(message, optional, tag = "24")]
     pub sip_request_uri: ::core::option::Option<SipRequestDest>,
+    /// Currently not usable with CreateSIPParticipant: sip_call_to is required, and
+    /// the two cannot be combined. Use to_user_override to change the To header user.
+    ///
     /// To:   "Name" <uri>
     #[prost(message, optional, tag = "25")]
     pub sip_to_header: ::core::option::Option<SipNamedDest>,
@@ -6532,6 +6822,16 @@ pub struct CreateSipParticipantRequest {
     /// What number should be dialed via SIP
     #[prost(string, tag = "2")]
     pub sip_call_to: ::prost::alloc::string::String,
+    /// Replaces the user part of the To header, leaving its host, port and transport
+    /// as they would otherwise be. The request URI is not affected, so the call is
+    /// still placed to sip_call_to. Empty means no override.
+    ///
+    /// Use this when the callee expects a To header that differs from the number
+    /// being dialed. Setting "To" in the headers map is not a valid alternative:
+    /// it adds a second To header rather than replacing the existing one, which
+    /// makes the INVITE malformed.
+    #[prost(string, tag = "27")]
+    pub to_user_override: ::prost::alloc::string::String,
     /// Optional SIP From number to use. If empty, trunk number is used.
     #[prost(string, tag = "15")]
     pub sip_number: ::prost::alloc::string::String,
@@ -6600,7 +6900,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag = "21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 27
+    /// NEXT ID: 28
     #[prost(message, optional, tag = "22")]
     pub destination: ::core::option::Option<Destination>,
 }
@@ -6632,6 +6932,32 @@ pub struct TransferSipParticipantRequest {
     /// Max time for the transfer destination to answer the call.
     #[prost(message, optional, tag = "6")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+}
+/// Added in <https://github.com/livekit/protocol/pull/1730.> Not needed after all:
+/// will be rolled back to an empty message once STR_CALL_ENDED is reported as an
+/// error like every other failed transfer.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TransferSipParticipantResponse {
+    #[prost(string, tag = "1")]
+    pub transfer_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "SipTransferStatus", tag = "2")]
+    pub status: i32,
+    #[prost(enumeration = "SipTransferReason", tag = "3")]
+    pub reason: i32,
+    /// Set when the outcome was reported by a SIP response.
+    #[prost(message, optional, tag = "4")]
+    pub sip_status: ::core::option::Option<SipStatus>,
+}
+/// Details of a failed SIP transfer, attached to the error.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SipTransferError {
+    #[prost(string, tag = "1")]
+    pub transfer_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "SipTransferReason", tag = "2")]
+    pub reason: i32,
+    /// Set when the outcome was reported by a SIP response.
+    #[prost(message, optional, tag = "3")]
+    pub sip_status: ::core::option::Option<SipStatus>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SipCallInfo {
@@ -6714,6 +7040,8 @@ pub struct SipTransferInfo {
     pub error: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "8")]
     pub transfer_status_code: ::core::option::Option<SipStatus>,
+    #[prost(enumeration = "SipTransferReason", tag = "9")]
+    pub reason: i32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SipUri {
@@ -7211,6 +7539,54 @@ impl SipTransferStatus {
             "STS_TRANSFER_ONGOING" => Some(Self::StsTransferOngoing),
             "STS_TRANSFER_FAILED" => Some(Self::StsTransferFailed),
             "STS_TRANSFER_SUCCESSFUL" => Some(Self::StsTransferSuccessful),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipTransferReason {
+    /// No reason reported
+    StrUnspecified = 0,
+    /// The transferee answered and the transfer completed
+    StrCompleted = 1,
+    /// The call ended before the transfer completed: remote BYE, room deleted or local hangup
+    StrCallEnded = 2,
+    /// The transferee, or its provider, rejected the transfer
+    StrRejected = 3,
+    /// The transferee did not answer in time
+    StrRingingTimeout = 4,
+    /// The provider stopped reporting the transfer status without a final response
+    StrSubscriptionTerminated = 5,
+    /// Canceled through the API
+    StrCanceled = 6,
+}
+impl SipTransferReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::StrUnspecified => "STR_UNSPECIFIED",
+            Self::StrCompleted => "STR_COMPLETED",
+            Self::StrCallEnded => "STR_CALL_ENDED",
+            Self::StrRejected => "STR_REJECTED",
+            Self::StrRingingTimeout => "STR_RINGING_TIMEOUT",
+            Self::StrSubscriptionTerminated => "STR_SUBSCRIPTION_TERMINATED",
+            Self::StrCanceled => "STR_CANCELED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STR_UNSPECIFIED" => Some(Self::StrUnspecified),
+            "STR_COMPLETED" => Some(Self::StrCompleted),
+            "STR_CALL_ENDED" => Some(Self::StrCallEnded),
+            "STR_REJECTED" => Some(Self::StrRejected),
+            "STR_RINGING_TIMEOUT" => Some(Self::StrRingingTimeout),
+            "STR_SUBSCRIPTION_TERMINATED" => Some(Self::StrSubscriptionTerminated),
+            "STR_CANCELED" => Some(Self::StrCanceled),
             _ => None,
         }
     }
@@ -7756,6 +8132,8 @@ pub struct AnalyticsEvent {
     pub api_call: ::core::option::Option<ApiCallInfo>,
     #[prost(message, optional, tag = "35")]
     pub webhook: ::core::option::Option<WebhookInfo>,
+    #[prost(enumeration = "RoomEndReason", tag = "37")]
+    pub room_end_reason: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AnalyticsEvents {
@@ -8173,6 +8551,2656 @@ impl AnalyticsEventType {
             _ => None,
         }
     }
+}
+/// Nested so that names like Value and Ping need not be unique across the
+/// livekit package. `tip` throughout is the latest durable commit sequence.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AgentDb {
+}
+/// Nested message and enum types in `AgentDB`.
+pub mod agent_db {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CreateRequest {
+        /// Unset: never expires, and expires_at is then unset everywhere.
+        /// Otherwise clamped to the server cap, and never extended.
+        #[prost(message, optional, tag = "1")]
+        pub ttl: ::core::option::Option<::pbjson_types::Duration>,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CreateResponse {
+        /// "DB_..."
+        #[prost(string, tag = "1")]
+        pub database_id: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "2")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct GetRequest {
+        #[prost(string, tag = "1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ListRequest {
+        /// server-clamped
+        #[prost(int32, tag = "1")]
+        pub page_size: i32,
+        #[prost(string, tag = "2")]
+        pub page_token: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ListResponse {
+        #[prost(message, repeated, tag = "1")]
+        pub databases: ::prost::alloc::vec::Vec<AgentDatabase>,
+        /// empty when exhausted
+        #[prost(string, tag = "2")]
+        pub next_page_token: ::prost::alloc::string::String,
+    }
+    /// One database, as get and list both report it.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AgentDatabase {
+        #[prost(string, tag = "1")]
+        pub database_id: ::prost::alloc::string::String,
+        #[prost(string, tag = "2")]
+        pub region: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "3")]
+        pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(message, optional, tag = "4")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(int64, tag = "5")]
+        pub tip: i64,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct DeleteRequest {
+        #[prost(string, tag = "1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct DeleteResponse {
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ExportRequest {
+        #[prost(string, tag = "1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ExportResponse {
+        /// pre-authenticated object-storage URL
+        #[prost(string, tag = "1")]
+        pub download_url: ::prost::alloc::string::String,
+        /// of the URL, not the database
+        #[prost(message, optional, tag = "2")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// what the export is consistent at
+        #[prost(int64, tag = "3")]
+        pub tip: i64,
+    }
+    /// Data plane: one WebSocket per database, one message per frame, correlated
+    /// by a client-chosen request_id. Result batches are paced by Credit, so the
+    /// server never sends more un-consumed batches than granted.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Wire {
+    }
+    /// Nested message and enum types in `Wire`.
+    pub mod wire {
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ClientMessage {
+            #[prost(uint32, tag = "1")]
+            pub request_id: u32,
+            #[prost(oneof = "client_message::Message", tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+            pub message: ::core::option::Option<client_message::Message>,
+        }
+        /// Nested message and enum types in `ClientMessage`.
+        pub mod client_message {
+            #[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Message {
+                /// must be first on the socket
+                #[prost(message, tag = "2")]
+                Hello(super::Hello),
+                /// answers ExecResult
+                #[prost(message, tag = "3")]
+                Exec(super::Statement),
+                /// answers Columns + ColumnBatch* + Done
+                #[prost(message, tag = "4")]
+                Query(super::Statement),
+                /// answers one result per statement, then Done
+                #[prost(message, tag = "5")]
+                Batch(super::Batch),
+                #[prost(message, tag = "6")]
+                Begin(super::Begin),
+                #[prost(message, tag = "7")]
+                Commit(super::Commit),
+                #[prost(message, tag = "8")]
+                Rollback(super::Rollback),
+                #[prost(message, tag = "9")]
+                Cancel(super::Cancel),
+                #[prost(message, tag = "10")]
+                Credit(super::Credit),
+                #[prost(message, tag = "11")]
+                Ping(super::Ping),
+            }
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ServerMessage {
+            #[prost(uint32, tag = "1")]
+            pub request_id: u32,
+            #[prost(oneof = "server_message::Message", tags = "2, 3, 4, 5, 6, 7, 8")]
+            pub message: ::core::option::Option<server_message::Message>,
+        }
+        /// Nested message and enum types in `ServerMessage`.
+        pub mod server_message {
+            #[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Message {
+                #[prost(message, tag = "2")]
+                HelloOk(super::HelloOk),
+                #[prost(message, tag = "3")]
+                Columns(super::Columns),
+                #[prost(message, tag = "4")]
+                ColumnBatch(super::ColumnBatch),
+                #[prost(message, tag = "5")]
+                ExecResult(super::ExecResult),
+                #[prost(message, tag = "6")]
+                Done(super::Done),
+                #[prost(message, tag = "7")]
+                Error(super::Error),
+                #[prost(message, tag = "8")]
+                Pong(super::Pong),
+            }
+        }
+        /// SQLite's five storage classes.
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Value {
+            #[prost(oneof = "value::Value", tags = "1, 2, 3, 4, 5")]
+            pub value: ::core::option::Option<value::Value>,
+        }
+        /// Nested message and enum types in `Value`.
+        pub mod value {
+            #[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Value {
+                /// always true when set
+                #[prost(bool, tag = "1")]
+                NullValue(bool),
+                #[prost(int64, tag = "2")]
+                IntValue(i64),
+                #[prost(double, tag = "3")]
+                DoubleValue(f64),
+                #[prost(string, tag = "4")]
+                TextValue(::prost::alloc::string::String),
+                #[prost(bytes, tag = "5")]
+                BlobValue(::prost::alloc::vec::Vec<u8>),
+            }
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Statement {
+            #[prost(string, tag = "1")]
+            pub sql: ::prost::alloc::string::String,
+            /// positional
+            #[prost(message, repeated, tag = "2")]
+            pub params: ::prost::alloc::vec::Vec<Value>,
+            #[prost(enumeration = "QueryLang", tag = "3")]
+            pub lang: i32,
+        }
+        /// Applied atomically, in order, and answered with one result per
+        /// statement, in order: Columns then ColumnBatch frames for a statement
+        /// that returns rows, one ExecResult for one that does not, each tagged
+        /// with the statement's 0-based index, then a single Done for the whole
+        /// batch. A statement that returns no rows still sends its Columns. Credit
+        /// paces the ColumnBatch frames of the batch as a whole.
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Batch {
+            #[prost(message, repeated, tag = "1")]
+            pub statements: ::prost::alloc::vec::Vec<Statement>,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Begin {
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Commit {
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Rollback {
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Cancel {
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Credit {
+            /// additional batches the client can absorb
+            #[prost(uint32, tag = "1")]
+            pub batches: u32,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Ping {
+            #[prost(int64, tag = "1")]
+            pub timestamp_ms: i64,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Pong {
+            #[prost(int64, tag = "1")]
+            pub last_ping_timestamp_ms: i64,
+            #[prost(int64, tag = "2")]
+            pub timestamp_ms: i64,
+        }
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Hello {
+            #[prost(string, tag = "1")]
+            pub token: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub database_id: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct HelloOk {
+            #[prost(int64, tag = "1")]
+            pub tip: i64,
+            #[prost(uint32, tag = "2")]
+            pub ping_interval_ms: u32,
+            #[prost(uint32, tag = "3")]
+            pub ping_timeout_ms: u32,
+        }
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Columns {
+            #[prost(string, repeated, tag = "1")]
+            pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// index within a Batch; 0 and unused for a Query
+            #[prost(uint32, tag = "2")]
+            pub statement: u32,
+        }
+        /// Values are typed per row, as SQLite types them, so a column may mix
+        /// classes: walk `types` and take the next entry from the matching array. Text
+        /// and blobs are concatenated with one exclusive end offset each, so value i
+        /// is data\[ends[i-1\]:ends\[i]\] with 0 implied before the first. A NULL occupies
+        /// a tag only.
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Column {
+            /// one ValueType per row
+            #[prost(bytes = "vec", tag = "1")]
+            pub types: ::prost::alloc::vec::Vec<u8>,
+            #[prost(sint64, repeated, tag = "2")]
+            pub ints: ::prost::alloc::vec::Vec<i64>,
+            #[prost(double, repeated, tag = "3")]
+            pub doubles: ::prost::alloc::vec::Vec<f64>,
+            #[prost(bytes = "vec", tag = "4")]
+            pub text_data: ::prost::alloc::vec::Vec<u8>,
+            #[prost(uint32, repeated, tag = "5")]
+            pub text_ends: ::prost::alloc::vec::Vec<u32>,
+            #[prost(bytes = "vec", tag = "6")]
+            pub blob_data: ::prost::alloc::vec::Vec<u8>,
+            #[prost(uint32, repeated, tag = "7")]
+            pub blob_ends: ::prost::alloc::vec::Vec<u32>,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ColumnBatch {
+            /// one per name in Columns
+            #[prost(message, repeated, tag = "1")]
+            pub columns: ::prost::alloc::vec::Vec<Column>,
+            #[prost(uint32, tag = "2")]
+            pub rows: u32,
+            /// index within a Batch; 0 and unused for a Query
+            #[prost(uint32, tag = "3")]
+            pub statement: u32,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct ExecResult {
+            #[prost(int64, tag = "1")]
+            pub rows_affected: i64,
+            #[prost(int64, tag = "2")]
+            pub last_insert_id: i64,
+            #[prost(int64, tag = "3")]
+            pub tip: i64,
+            /// index within a Batch; 0 and unused for an Exec
+            #[prost(uint32, tag = "4")]
+            pub statement: u32,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Done {
+            /// the snapshot the query ran at
+            #[prost(int64, tag = "1")]
+            pub tip: i64,
+            #[prost(uint64, tag = "2")]
+            pub total_rows: u64,
+        }
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Error {
+            /// stable, machine-readable
+            #[prost(string, tag = "1")]
+            pub code: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub message: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum QueryLang {
+            Sql = 0,
+        }
+        impl QueryLang {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Sql => "SQL",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "SQL" => Some(Self::Sql),
+                    _ => None,
+                }
+            }
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum ValueType {
+            Null = 0,
+            Int = 1,
+            Double = 2,
+            Text = 3,
+            Blob = 4,
+        }
+        impl ValueType {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Null => "NULL",
+                    Self::Int => "INT",
+                    Self::Double => "DOUBLE",
+                    Self::Text => "TEXT",
+                    Self::Blob => "BLOB",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "NULL" => Some(Self::Null),
+                    "INT" => Some(Self::Int),
+                    "DOUBLE" => Some(Self::Double),
+                    "TEXT" => Some(Self::Text),
+                    "BLOB" => Some(Self::Blob),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListReplaysRequest {
+    /// optional
+    #[prost(string, tag = "1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub page_token: ::core::option::Option<TokenPagination>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListReplaysResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub replays: ::prost::alloc::vec::Vec<ReplayInfo>,
+    #[prost(message, optional, tag = "2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReplayInfo {
+    #[prost(string, tag = "1")]
+    pub replay_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(int64, tag = "3")]
+    pub start_time: i64,
+    #[prost(int64, tag = "4")]
+    pub duration_ms: i64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PlaybackRequest {
+    #[prost(string, tag = "1")]
+    pub replay_id: ::prost::alloc::string::String,
+    /// name of room to play into
+    #[prost(string, tag = "2")]
+    pub playback_room: ::prost::alloc::string::String,
+    /// initial timestamp (ms)
+    #[prost(int64, tag = "3")]
+    pub seek_offset_ms: i64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PlaybackResponse {
+    #[prost(string, tag = "1")]
+    pub playback_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SeekRequest {
+    #[prost(string, tag = "1")]
+    pub playback_id: ::prost::alloc::string::String,
+    /// timestamp (ms)
+    #[prost(int64, tag = "2")]
+    pub seek_offset_ms: i64,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ClosePlaybackRequest {
+    #[prost(string, tag = "1")]
+    pub playback_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteReplayRequest {
+    #[prost(string, tag = "1")]
+    pub replay_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AgentEvent {
+    #[prost(enumeration = "AgentEventType", tag = "1")]
+    pub r#type: i32,
+    #[prost(int32, tag = "2")]
+    pub count: i32,
+    #[prost(message, optional, tag = "3")]
+    pub timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AgentSecret {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub value: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "3")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag = "4")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(enumeration = "AgentSecretKind", tag = "5")]
+    pub kind: i32,
+    #[prost(string, repeated, tag = "6")]
+    pub deployments: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateAgentRequest {
+    #[deprecated]
+    #[prost(string, tag = "1")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[deprecated]
+    #[prost(int32, tag = "3")]
+    pub replicas: i32,
+    #[deprecated]
+    #[prost(int32, tag = "4")]
+    pub max_replicas: i32,
+    #[deprecated]
+    #[prost(string, tag = "5")]
+    pub cpu_req: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "6")]
+    pub regions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateAgentResponse {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub presigned_url: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub tag: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "7")]
+    pub server_regions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "8")]
+    pub presigned_post_request: ::core::option::Option<PresignedPostRequest>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateAgentV2Request {
+    #[prost(message, repeated, tag = "1")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[prost(string, repeated, tag = "2")]
+    pub regions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateAgentV2Response {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub server_regions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PromoteAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub src_deployment: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub dst_deployment: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PromoteAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub src_deployment: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub dst_deployment: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub version_tag: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresignedPostRequest {
+    #[prost(string, tag = "1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "2")]
+    pub values: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentDeployment {
+    #[prost(string, tag = "1")]
+    pub region: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(int32, tag = "4")]
+    pub replicas: i32,
+    #[prost(int32, tag = "5")]
+    pub min_replicas: i32,
+    #[prost(int32, tag = "6")]
+    pub max_replicas: i32,
+    #[prost(string, tag = "7")]
+    pub cpu_req: ::prost::alloc::string::String,
+    #[prost(string, tag = "8")]
+    pub cur_cpu: ::prost::alloc::string::String,
+    #[prost(string, tag = "9")]
+    pub cur_mem: ::prost::alloc::string::String,
+    #[prost(string, tag = "10")]
+    pub mem_req: ::prost::alloc::string::String,
+    #[prost(string, tag = "11")]
+    pub mem_limit: ::prost::alloc::string::String,
+    #[prost(string, tag = "12")]
+    pub cpu_limit: ::prost::alloc::string::String,
+    #[prost(string, tag = "13")]
+    pub server_region: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "14")]
+    pub events: ::prost::alloc::vec::Vec<AgentEvent>,
+    #[prost(string, tag = "15")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(string, tag = "16")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(string, tag = "17")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(bool, tag = "18")]
+    pub deployment_enabled: bool,
+    #[prost(message, optional, tag = "19")]
+    pub last_scraped_at: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentInfo {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub agent_deployments: ::prost::alloc::vec::Vec<AgentDeployment>,
+    #[prost(message, repeated, tag = "5")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[prost(message, optional, tag = "6")]
+    pub deployed_at: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListAgentsRequest {
+    #[prost(string, tag = "1")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAgentsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub agents: ::prost::alloc::vec::Vec<AgentInfo>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentVersion {
+    #[prost(string, tag = "1")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
+    pub current: bool,
+    #[prost(message, optional, tag = "3")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag = "4")]
+    pub deployed_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(map = "string, string", tag = "5")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(string, tag = "6")]
+    pub status: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub owner: ::prost::alloc::string::String,
+    #[prost(bool, tag = "8")]
+    pub draining: bool,
+    #[prost(bool, tag = "9")]
+    pub active: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListAgentVersionsRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAgentVersionsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub versions: ::prost::alloc::vec::Vec<AgentVersion>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(int32, tag = "3")]
+    pub replicas: i32,
+    #[deprecated]
+    #[prost(int32, tag = "4")]
+    pub max_replicas: i32,
+    #[deprecated]
+    #[prost(string, tag = "5")]
+    pub cpu_req: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "6")]
+    pub regions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "7")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdateAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RestartAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RestartAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeployAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "3")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[deprecated]
+    #[prost(int32, tag = "4")]
+    pub replicas: i32,
+    #[deprecated]
+    #[prost(int32, tag = "5")]
+    pub max_replicas: i32,
+    #[deprecated]
+    #[prost(string, tag = "6")]
+    pub cpu_req: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "8")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeployAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[deprecated]
+    #[prost(string, tag = "4")]
+    pub presigned_url: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub tag: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "6")]
+    pub presigned_post_request: ::core::option::Option<PresignedPostRequest>,
+    #[prost(string, tag = "7")]
+    pub deployment: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeployAgentV2Request {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[prost(string, tag = "3")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map = "string, string", tag = "4")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeployAgentV2Response {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub tag: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "5")]
+    pub presigned_req: ::core::option::Option<PresignedPostRequest>,
+    #[prost(string, tag = "6")]
+    pub deployment: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateAgentSecretsRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(bool, tag = "3")]
+    pub overwrite: bool,
+    #[prost(message, repeated, tag = "4")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+    #[prost(string, repeated, tag = "5")]
+    pub remove: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdateAgentSecretsResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RollbackAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub version: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RollbackAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteAgentRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    /// optional
+    #[prost(string, tag = "3")]
+    pub deployment: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DeleteAgentResponse {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListAgentSecretsRequest {
+    #[prost(string, tag = "1")]
+    pub agent_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListAgentSecretsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub secrets: ::prost::alloc::vec::Vec<AgentSecret>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SettingsParam {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub value: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientSettingsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub params: ::prost::alloc::vec::Vec<SettingsParam>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ClientSettingsRequest {
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PrivateLink {
+    #[prost(string, tag = "1")]
+    pub private_link_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub region: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "5")]
+    pub port: u32,
+    #[prost(string, tag = "6")]
+    pub endpoint: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub connection_endpoint: ::prost::alloc::string::String,
+    #[prost(string, tag = "8")]
+    pub cloud_region: ::prost::alloc::string::String,
+    #[prost(oneof = "private_link::Config", tags = "3")]
+    pub config: ::core::option::Option<private_link::Config>,
+}
+/// Nested message and enum types in `PrivateLink`.
+pub mod private_link {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AwsConfig {
+        /// Use the generic "endpoint" instead
+        #[deprecated]
+        #[prost(string, tag = "1")]
+        pub endpoint: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Config {
+        #[deprecated]
+        #[prost(message, tag = "3")]
+        Aws(AwsConfig),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PrivateLinkStatus {
+    #[prost(enumeration = "private_link_status::Status", tag = "1")]
+    pub status: i32,
+    #[prost(message, optional, tag = "2")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(string, tag = "3")]
+    pub reason: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `PrivateLinkStatus`.
+pub mod private_link_status {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        PrivateLinkStatusUnknown = 0,
+        PrivateLinkStatusProvisioning = 1,
+        PrivateLinkStatusPendingApproval = 2,
+        PrivateLinkStatusHealthy = 3,
+        PrivateLinkStatusUnhealthy = 4,
+        PrivateLinkStatusApproved = 5,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::PrivateLinkStatusUnknown => "PRIVATE_LINK_STATUS_UNKNOWN",
+                Self::PrivateLinkStatusProvisioning => "PRIVATE_LINK_STATUS_PROVISIONING",
+                Self::PrivateLinkStatusPendingApproval => "PRIVATE_LINK_STATUS_PENDING_APPROVAL",
+                Self::PrivateLinkStatusHealthy => "PRIVATE_LINK_STATUS_HEALTHY",
+                Self::PrivateLinkStatusUnhealthy => "PRIVATE_LINK_STATUS_UNHEALTHY",
+                Self::PrivateLinkStatusApproved => "PRIVATE_LINK_STATUS_APPROVED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "PRIVATE_LINK_STATUS_UNKNOWN" => Some(Self::PrivateLinkStatusUnknown),
+                "PRIVATE_LINK_STATUS_PROVISIONING" => Some(Self::PrivateLinkStatusProvisioning),
+                "PRIVATE_LINK_STATUS_PENDING_APPROVAL" => Some(Self::PrivateLinkStatusPendingApproval),
+                "PRIVATE_LINK_STATUS_HEALTHY" => Some(Self::PrivateLinkStatusHealthy),
+                "PRIVATE_LINK_STATUS_UNHEALTHY" => Some(Self::PrivateLinkStatusUnhealthy),
+                "PRIVATE_LINK_STATUS_APPROVED" => Some(Self::PrivateLinkStatusApproved),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreatePrivateLinkRequest {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub region: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub port: u32,
+    #[prost(string, tag = "5")]
+    pub endpoint: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "6")]
+    pub cloud_region: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(oneof = "create_private_link_request::Config", tags = "2")]
+    pub config: ::core::option::Option<create_private_link_request::Config>,
+}
+/// Nested message and enum types in `CreatePrivateLinkRequest`.
+pub mod create_private_link_request {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AwsCreateConfig {
+        #[deprecated]
+        #[prost(string, tag = "1")]
+        pub endpoint: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Config {
+        #[deprecated]
+        #[prost(message, tag = "2")]
+        Aws(AwsCreateConfig),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreatePrivateLinkResponse {
+    #[prost(message, optional, tag = "1")]
+    pub private_link: ::core::option::Option<PrivateLink>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DestroyPrivateLinkRequest {
+    #[prost(string, tag = "1")]
+    pub private_link_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DestroyPrivateLinkResponse {
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListPrivateLinksRequest {
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListPrivateLinksResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub items: ::prost::alloc::vec::Vec<PrivateLink>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetPrivateLinkStatusRequest {
+    #[prost(string, tag = "1")]
+    pub private_link_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetPrivateLinkStatusResponse {
+    #[prost(message, optional, tag = "1")]
+    pub value: ::core::option::Option<PrivateLinkStatus>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AgentSecretKind {
+    Unknown = 0,
+    Environment = 1,
+    File = 2,
+}
+impl AgentSecretKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "AGENT_SECRET_KIND_UNKNOWN",
+            Self::Environment => "AGENT_SECRET_KIND_ENVIRONMENT",
+            Self::File => "AGENT_SECRET_KIND_FILE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AGENT_SECRET_KIND_UNKNOWN" => Some(Self::Unknown),
+            "AGENT_SECRET_KIND_ENVIRONMENT" => Some(Self::Environment),
+            "AGENT_SECRET_KIND_FILE" => Some(Self::File),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AgentEventType {
+    Unknown = 0,
+    ApplicationCrashed = 1,
+    RestartedHighDiskUsage = 2,
+    RestartedHighMemoryUsage = 3,
+}
+impl AgentEventType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "AGENT_EVENT_TYPE_UNKNOWN",
+            Self::ApplicationCrashed => "AGENT_EVENT_TYPE_APPLICATION_CRASHED",
+            Self::RestartedHighDiskUsage => "AGENT_EVENT_TYPE_RESTARTED_HIGH_DISK_USAGE",
+            Self::RestartedHighMemoryUsage => "AGENT_EVENT_TYPE_RESTARTED_HIGH_MEMORY_USAGE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AGENT_EVENT_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "AGENT_EVENT_TYPE_APPLICATION_CRASHED" => Some(Self::ApplicationCrashed),
+            "AGENT_EVENT_TYPE_RESTARTED_HIGH_DISK_USAGE" => Some(Self::RestartedHighDiskUsage),
+            "AGENT_EVENT_TYPE_RESTARTED_HIGH_MEMORY_USAGE" => Some(Self::RestartedHighMemoryUsage),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SimulationRunSummary {
+    #[prost(int32, tag = "1")]
+    pub passed: i32,
+    #[prost(int32, tag = "2")]
+    pub failed: i32,
+    #[prost(string, tag = "3")]
+    pub going_well: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub to_improve: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "5")]
+    pub issues: ::prost::alloc::vec::Vec<simulation_run_summary::Issue>,
+    #[prost(map = "string, message", tag = "6")]
+    pub chat_history: ::std::collections::HashMap<::prost::alloc::string::String, agent::ChatContext>,
+}
+/// Nested message and enum types in `SimulationRunSummary`.
+pub mod simulation_run_summary {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Issue {
+        #[prost(string, tag = "1")]
+        pub description: ::prost::alloc::string::String,
+        #[prost(string, tag = "2")]
+        pub suggestion: ::prost::alloc::string::String,
+        #[prost(string, tag = "3")]
+        pub label: ::prost::alloc::string::String,
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SimulationRun {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub project_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "simulation_run::Status", tag = "3")]
+    pub status: i32,
+    #[prost(string, tag = "4")]
+    pub agent_description: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub error: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "6")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, repeated, tag = "7")]
+    pub jobs: ::prost::alloc::vec::Vec<simulation_run::Job>,
+    #[prost(string, tag = "9")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "10")]
+    pub scenario_group: ::core::option::Option<ScenarioGroup>,
+    #[prost(message, optional, tag = "11")]
+    pub ended_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(int32, tag = "12")]
+    pub job_count: i32,
+    #[prost(int32, tag = "13")]
+    pub passed_count: i32,
+    #[prost(int32, tag = "14")]
+    pub failed_count: i32,
+    #[prost(int32, tag = "15")]
+    pub num_simulations: i32,
+    /// Aggregate usage across all jobs in this run (sum of Job.usage).
+    #[prost(message, optional, tag = "16")]
+    pub usage: ::core::option::Option<simulation_run::Usage>,
+    /// Maximum simulate jobs running in parallel for this run (0 = server default).
+    #[prost(int32, tag = "17")]
+    pub concurrency: i32,
+    /// Conversation mode for every job in this run; unspecified = TEXT.
+    #[prost(enumeration = "SimulationMode", tag = "18")]
+    pub mode: i32,
+    /// Run-level aggregates over this run's jobs.
+    #[prost(message, optional, tag = "19")]
+    pub metrics: ::core::option::Option<simulation_run::RunMetrics>,
+    /// zstd-compressed SimulationRunSummary: decompress, then proto.Unmarshal.
+    /// Compressed by default so the blob ships as-is on every hop.
+    #[prost(bytes = "vec", tag = "20")]
+    pub summary_zstd: ::prost::alloc::vec::Vec<u8>,
+    /// How many issues the stored summary flagged. Present only once a summary
+    /// landed — absent and 0 differ ("never summarized" vs "no issues") — and
+    /// List responses carry it without the summary blob itself.
+    #[prost(int32, optional, tag = "21")]
+    pub issue_count: ::core::option::Option<i32>,
+    /// The pipeline this run came from; unset when it did not come from one.
+    #[prost(message, optional, tag = "22")]
+    pub ci: ::core::option::Option<simulation_run::Ci>,
+    /// Absent when the run ran each scenario once and required it to pass.
+    #[prost(message, optional, tag = "23")]
+    pub sampling: ::core::option::Option<simulation_run::SamplingOptions>,
+}
+/// Nested message and enum types in `SimulationRun`.
+pub mod simulation_run {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Job {
+        #[prost(string, tag = "1")]
+        pub id: ::prost::alloc::string::String,
+        #[prost(enumeration = "job::Status", tag = "2")]
+        pub status: i32,
+        #[prost(string, tag = "3")]
+        pub instructions: ::prost::alloc::string::String,
+        #[prost(string, tag = "4")]
+        pub error: ::prost::alloc::string::String,
+        #[prost(string, tag = "5")]
+        pub agent_expectations: ::prost::alloc::string::String,
+        #[prost(string, tag = "6")]
+        pub label: ::prost::alloc::string::String,
+        #[prost(string, repeated, tag = "7")]
+        pub tags: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(string, tag = "8")]
+        pub room_name: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "10")]
+        pub started_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(message, optional, tag = "11")]
+        pub ended_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(string, tag = "12")]
+        pub room_id: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "13")]
+        pub usage: ::core::option::Option<job::Usage>,
+        /// Quality metrics for this job's call. Unset when the job produced none.
+        #[prost(message, optional, tag = "14")]
+        pub metrics: ::core::option::Option<JobMetrics>,
+        /// The Scenario.id this job ran; empty for generated runs. Every sample
+        /// of one scenario shares it, so a run's jobs group back into scenarios.
+        #[prost(string, tag = "15")]
+        pub scenario_id: ::prost::alloc::string::String,
+        /// 1-based sample of that scenario within the run; always 1 when the run's
+        /// samples is 1.
+        #[prost(int32, tag = "16")]
+        pub sample: i32,
+    }
+    /// Nested message and enum types in `Job`.
+    pub mod job {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Usage {
+            #[prost(int32, tag = "1")]
+            pub text_turns_count: i32,
+            #[prost(int32, tag = "2")]
+            pub audio_turns_count: i32,
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum Status {
+            Pending = 0,
+            Running = 1,
+            Completed = 2,
+            Failed = 3,
+            Cancelled = 4,
+        }
+        impl Status {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Pending => "STATUS_PENDING",
+                    Self::Running => "STATUS_RUNNING",
+                    Self::Completed => "STATUS_COMPLETED",
+                    Self::Failed => "STATUS_FAILED",
+                    Self::Cancelled => "STATUS_CANCELLED",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "STATUS_PENDING" => Some(Self::Pending),
+                    "STATUS_RUNNING" => Some(Self::Running),
+                    "STATUS_COMPLETED" => Some(Self::Completed),
+                    "STATUS_FAILED" => Some(Self::Failed),
+                    "STATUS_CANCELLED" => Some(Self::Cancelled),
+                    _ => None,
+                }
+            }
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct JobMetrics {
+        /// the scenario verdict as 1/0
+        #[prost(float, optional, tag = "3")]
+        pub task_completion: ::core::option::Option<f32>,
+        /// weighted mean of the judged and heard scores
+        #[prost(float, optional, tag = "20")]
+        pub overall_score: ::core::option::Option<f32>,
+        #[prost(message, optional, tag = "4")]
+        pub stt: ::core::option::Option<job_metrics::Stt>,
+        #[prost(message, optional, tag = "5")]
+        pub llm: ::core::option::Option<job_metrics::Llm>,
+        #[prost(message, optional, tag = "6")]
+        pub tts: ::core::option::Option<job_metrics::Tts>,
+        #[prost(message, optional, tag = "7")]
+        pub conversation: ::core::option::Option<job_metrics::Conversation>,
+        /// One entry per turn, both speakers.
+        #[prost(message, repeated, tag = "9")]
+        pub turns: ::prost::alloc::vec::Vec<job_metrics::Turn>,
+        /// text judge for judged scores; "" if none ran
+        #[prost(string, tag = "10")]
+        pub judge_model: ::prost::alloc::string::String,
+        /// false = waveform-only capture (e.g. SIP)
+        #[prost(bool, tag = "12")]
+        pub has_remote_session: bool,
+        /// audio only; call start (first speech edge); turn times relative to it
+        #[prost(message, optional, tag = "13")]
+        pub t0: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// Judged over the authored dialog (text and audio); needs the text judge.
+        ///
+        /// judged {0, 0.5, 1} per agent turn; job = mean
+        #[prost(float, optional, tag = "14")]
+        pub conciseness: ::core::option::Option<f32>,
+        /// Whole-call issue flags; true = present, absent = not judged.
+        #[prost(bool, optional, tag = "15")]
+        pub unnecessary_tool_calls: ::core::option::Option<bool>,
+        #[prost(bool, optional, tag = "16")]
+        pub information_loss: ::core::option::Option<bool>,
+        #[prost(bool, optional, tag = "17")]
+        pub redundant_statements: ::core::option::Option<bool>,
+        #[prost(bool, optional, tag = "18")]
+        pub poor_question_quality: ::core::option::Option<bool>,
+        /// 0-1, derived from the flags above
+        #[prost(float, optional, tag = "19")]
+        pub conversation_progression: ::core::option::Option<f32>,
+    }
+    /// Nested message and enum types in `JobMetrics`.
+    pub mod job_metrics {
+        /// The agent's perception of the caller. Audio only.
+        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        pub struct Stt {
+            /// needs the RemoteSession; word_errors / words
+            #[prost(float, optional, tag = "1")]
+            pub wer: ::core::option::Option<f32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "2")]
+            pub words: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "3")]
+            pub word_errors: ::core::option::Option<u32>,
+            /// needs the RemoteSession; char_errors / chars
+            #[prost(float, optional, tag = "4")]
+            pub cer: ::core::option::Option<f32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "9")]
+            pub chars: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "10")]
+            pub char_errors: ::core::option::Option<u32>,
+            /// needs the RemoteSession; agent-reported STT/endpointing delay
+            #[prost(uint32, optional, tag = "8")]
+            pub stt_delay_ms: ::core::option::Option<u32>,
+            /// Key entities (names, IDs, amounts) the caller said. Needs the text judge.
+            ///
+            /// recognized / uttered
+            #[prost(float, optional, tag = "11")]
+            pub entity_recognition: ::core::option::Option<f32>,
+            #[prost(uint32, optional, tag = "12")]
+            pub entities_uttered: ::core::option::Option<u32>,
+            #[prost(uint32, optional, tag = "13")]
+            pub entities_recognized: ::core::option::Option<u32>,
+            /// Retention: an entity is acquired at the first saying heard right, and
+            /// these count only the sayings after that, so recall separates keeping an
+            /// entity from ever getting it.
+            ///
+            /// acquired_recognized / acquired_uttered
+            #[prost(float, optional, tag = "14")]
+            pub entity_recall: ::core::option::Option<f32>,
+            #[prost(uint32, optional, tag = "15")]
+            pub entities_acquired_uttered: ::core::option::Option<u32>,
+            #[prost(uint32, optional, tag = "16")]
+            pub entities_acquired_recognized: ::core::option::Option<u32>,
+        }
+        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        pub struct Llm {
+            /// needs the RemoteSession; time to first token
+            #[prost(uint32, optional, tag = "1")]
+            pub ttft_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession; time to first sentence, the smallest speakable unit
+            #[prost(uint32, optional, tag = "2")]
+            pub ttfs_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(float, optional, tag = "3")]
+            pub tokens_per_second: ::core::option::Option<f32>,
+        }
+        /// The agent's voice. Audio only.
+        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        pub struct Tts {
+            /// needs the RemoteSession; provider byte-level TTFB
+            #[prost(uint32, optional, tag = "2")]
+            pub ttfb_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession; word_errors / words
+            #[prost(float, optional, tag = "3")]
+            pub wer: ::core::option::Option<f32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "7")]
+            pub words: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "8")]
+            pub word_errors: ::core::option::Option<u32>,
+            /// needs the RemoteSession; char_errors / chars
+            #[prost(float, optional, tag = "9")]
+            pub cer: ::core::option::Option<f32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "10")]
+            pub chars: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "11")]
+            pub char_errors: ::core::option::Option<u32>,
+            /// Key entities the agent said, as the caller heard them. Needs the text judge.
+            ///
+            /// recognized / uttered
+            #[prost(float, optional, tag = "14")]
+            pub entity_recognition: ::core::option::Option<f32>,
+            #[prost(uint32, optional, tag = "15")]
+            pub entities_uttered: ::core::option::Option<u32>,
+            #[prost(uint32, optional, tag = "16")]
+            pub entities_recognized: ::core::option::Option<u32>,
+            /// acquired_recognized / acquired_uttered
+            #[prost(float, optional, tag = "17")]
+            pub entity_recall: ::core::option::Option<f32>,
+            #[prost(uint32, optional, tag = "18")]
+            pub entities_acquired_uttered: ::core::option::Option<u32>,
+            #[prost(uint32, optional, tag = "19")]
+            pub entities_acquired_recognized: ::core::option::Option<u32>,
+        }
+        /// Audio only.
+        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        pub struct Conversation {
+            /// 0-1
+            #[prost(float, optional, tag = "1")]
+            pub turn_taking_score: ::core::option::Option<f32>,
+            /// floor-transfer offset; a gap is > 0, an overlap < 0
+            #[prost(int32, optional, tag = "2")]
+            pub heard_e2e_latency_p50_ms: ::core::option::Option<i32>,
+            #[prost(int32, optional, tag = "3")]
+            pub heard_e2e_latency_p95_ms: ::core::option::Option<i32>,
+            #[prost(int32, optional, tag = "4")]
+            pub heard_e2e_latency_p99_ms: ::core::option::Option<i32>,
+            /// agent audio continuing past a barge-in
+            #[prost(uint32, optional, tag = "5")]
+            pub time_to_yield_ms: ::core::option::Option<u32>,
+            /// agent started before the caller's turn ended
+            #[prost(uint32, optional, tag = "6")]
+            pub eot_misprediction_count: ::core::option::Option<u32>,
+            /// overlapping speech / total speech
+            #[prost(float, optional, tag = "7")]
+            pub overlap_ratio: ::core::option::Option<f32>,
+            /// pooling stats for overlap_ratio
+            #[prost(uint32, optional, tag = "8")]
+            pub overlap_speech_ms: ::core::option::Option<u32>,
+            #[prost(uint32, optional, tag = "9")]
+            pub total_speech_ms: ::core::option::Option<u32>,
+            /// gaps past the natural-pause threshold
+            #[prost(uint32, optional, tag = "11")]
+            pub awkward_silence_count: ::core::option::Option<u32>,
+            /// the simulated party spoke, the agent never responded
+            #[prost(uint32, optional, tag = "12")]
+            pub unanswered_turns: ::core::option::Option<u32>,
+            /// needs the RemoteSession; agent paused for a non-interruption
+            #[prost(uint32, optional, tag = "13")]
+            pub false_interruption_count: ::core::option::Option<u32>,
+            /// needs the RemoteSession; the agent's own claim
+            #[prost(uint32, optional, tag = "15")]
+            pub e2e_latency_ms: ::core::option::Option<u32>,
+        }
+        /// Rows exist for text and audio. The groups above hold the means and pools
+        /// over these; anything not measured for a turn stays unset.
+        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        pub struct Turn {
+            /// 1-based, conversation order
+            #[prost(uint32, tag = "1")]
+            pub index: u32,
+            /// ASSISTANT = the agent under test, USER = simulator persona
+            #[prost(enumeration = "super::super::agent::ChatRole", tag = "2")]
+            pub role: i32,
+            /// audio only; relative to t0; unset if the turn could not be aligned to the audio
+            #[prost(uint32, optional, tag = "3")]
+            pub start_ms: ::core::option::Option<u32>,
+            /// audio only
+            #[prost(uint32, optional, tag = "4")]
+            pub end_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "5")]
+            pub stt_delay_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "6")]
+            pub llm_ttft_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "7")]
+            pub llm_ttfs_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(float, optional, tag = "8")]
+            pub llm_tps: ::core::option::Option<f32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "9")]
+            pub tts_ttfb_ms: ::core::option::Option<u32>,
+            /// needs the RemoteSession
+            #[prost(uint32, optional, tag = "10")]
+            pub e2e_latency_ms: ::core::option::Option<u32>,
+            #[prost(int32, optional, tag = "11")]
+            pub heard_e2e_latency_ms: ::core::option::Option<i32>,
+            #[prost(uint32, optional, tag = "12")]
+            pub time_to_yield_ms: ::core::option::Option<u32>,
+            #[prost(float, optional, tag = "13")]
+            pub turn_taking_score: ::core::option::Option<f32>,
+            /// needs the text judge
+            #[prost(float, optional, tag = "14")]
+            pub conciseness: ::core::option::Option<f32>,
+            #[prost(bool, optional, tag = "15")]
+            pub eot_misprediction: ::core::option::Option<bool>,
+            #[prost(bool, optional, tag = "16")]
+            pub awkward_silence: ::core::option::Option<bool>,
+            #[prost(bool, optional, tag = "17")]
+            pub unanswered: ::core::option::Option<bool>,
+        }
+    }
+    /// Aggregates over this run's jobs, so a run summary does not have to pull
+    /// every job and turn. Reuses the JobMetrics group shapes.
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct RunMetrics {
+        /// share of jobs whose scenario verdict passed
+        #[prost(float, optional, tag = "3")]
+        pub scenario_pass_rate: ::core::option::Option<f32>,
+        /// mean over scored jobs
+        #[prost(float, optional, tag = "10")]
+        pub overall_score: ::core::option::Option<f32>,
+        #[prost(message, optional, tag = "4")]
+        pub stt: ::core::option::Option<job_metrics::Stt>,
+        #[prost(message, optional, tag = "5")]
+        pub llm: ::core::option::Option<job_metrics::Llm>,
+        #[prost(message, optional, tag = "6")]
+        pub tts: ::core::option::Option<job_metrics::Tts>,
+        #[prost(message, optional, tag = "7")]
+        pub conversation: ::core::option::Option<job_metrics::Conversation>,
+        /// Means over the jobs that report them.
+        #[prost(float, optional, tag = "8")]
+        pub conciseness: ::core::option::Option<f32>,
+        #[prost(float, optional, tag = "9")]
+        pub conversation_progression: ::core::option::Option<f32>,
+    }
+    /// The pipeline this run came from. Set by the client from its CI
+    /// environment; absent for runs not started by a pipeline.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Ci {
+        /// e.g. "github_actions"
+        #[prost(string, tag = "1")]
+        pub provider: ::prost::alloc::string::String,
+        #[prost(string, tag = "2")]
+        pub commit_sha: ::prost::alloc::string::String,
+        /// branch or tag
+        #[prost(string, tag = "3")]
+        pub r#ref: ::prost::alloc::string::String,
+        #[prost(string, tag = "4")]
+        pub pull_request: ::prost::alloc::string::String,
+        /// link back to the CI job
+        #[prost(string, tag = "5")]
+        pub run_url: ::prost::alloc::string::String,
+        #[prost(string, tag = "6")]
+        pub actor: ::prost::alloc::string::String,
+    }
+    /// Runs each scenario more than once, so a flaky sample is distinguishable
+    /// from a broken scenario. Both fields are required when it is present.
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct SamplingOptions {
+        /// Samples per scenario, > 1. The run holds scenarios × samples jobs,
+        /// subject to the usual job cap.
+        #[prost(int32, tag = "1")]
+        pub samples: i32,
+        /// The share of a scenario's samples that must pass for that scenario to
+        /// pass, 0-1. A scenario needs round(rate × samples) of them, so 1
+        /// requires every sample and 0.67 of 3 requires 2.
+        #[prost(double, tag = "2")]
+        pub pass_rate: f64,
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Create {
+    }
+    /// Nested message and enum types in `Create`.
+    pub mod create {
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub agent_name: ::prost::alloc::string::String,
+            #[prost(int32, tag = "4")]
+            pub num_simulations: i32,
+            #[prost(string, tag = "6")]
+            pub region: ::prost::alloc::string::String,
+            /// When set, run these scenarios (loaded from a scenarios.yaml).
+            /// When unset, generate num_simulations scenarios from the uploaded agent source.
+            #[prost(message, optional, tag = "7")]
+            pub scenario_group: ::core::option::Option<super::super::ScenarioGroup>,
+            /// Maximum simulate jobs running in parallel for this run. Clamped to the
+            /// project's concurrency quota; 0/unset uses the server default.
+            #[prost(int32, optional, tag = "8")]
+            pub concurrency: ::core::option::Option<i32>,
+            /// Conversation mode for every job in this run; unspecified = TEXT.
+            #[prost(enumeration = "super::super::SimulationMode", tag = "9")]
+            pub mode: i32,
+            /// Impairments applied to the simulated user's audio; AUDIO mode only.
+            #[prost(bool, tag = "10")]
+            pub background_noise: bool,
+            #[prost(bool, tag = "11")]
+            pub low_quality_microphone: bool,
+            #[prost(bool, tag = "12")]
+            pub packet_loss: bool,
+            #[prost(message, optional, tag = "13")]
+            pub ci: ::core::option::Option<super::Ci>,
+            /// Absent runs each scenario once and requires it to pass. Requires
+            /// scenario_group. The run fails if any scenario fails; pass@k and
+            /// pass^k report over scenarios and neither gates.
+            #[prost(message, optional, tag = "14")]
+            pub sampling: ::core::option::Option<super::SamplingOptions>,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Response {
+            #[prost(string, tag = "1")]
+            pub simulation_run_id: ::prost::alloc::string::String,
+            #[prost(message, optional, tag = "2")]
+            pub presigned_post_request: ::core::option::Option<super::super::PresignedPostRequest>,
+        }
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ConfirmSourceUpload {
+    }
+    /// Nested message and enum types in `ConfirmSourceUpload`.
+    pub mod confirm_source_upload {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub simulation_run_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "3")]
+            pub code_entrypoint: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Response {
+        }
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Get {
+    }
+    /// Nested message and enum types in `Get`.
+    pub mod get {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub simulation_run_id: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Response {
+            #[prost(message, optional, tag = "1")]
+            pub run: ::core::option::Option<super::super::SimulationRun>,
+        }
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct List {
+    }
+    /// Nested message and enum types in `List`.
+    pub mod list {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(enumeration = "super::Status", optional, tag = "2")]
+            pub status: ::core::option::Option<i32>,
+            #[prost(message, optional, tag = "3")]
+            pub page_token: ::core::option::Option<super::super::TokenPagination>,
+            /// Half-open window [start_time, end_time) on created_at, the leading key
+            /// of this list's keyset. Unset bounds mean no window, so existing callers
+            /// keep their unbounded scan; the histogram's selected range sets both.
+            #[prost(message, optional, tag = "4")]
+            pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+            #[prost(message, optional, tag = "5")]
+            pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+            /// Exact agent name. Unset means every agent — including the runs whose
+            /// name is empty, which a bare string could not tell from no filter.
+            #[prost(string, optional, tag = "6")]
+            pub agent_name: ::core::option::Option<::prost::alloc::string::String>,
+            /// Absent applies no mode filter. TEXT matches runs stored as TEXT or
+            /// UNSPECIFIED, which `SimulationRun.mode` defines as the same mode.
+            #[prost(enumeration = "super::super::SimulationMode", optional, tag = "7")]
+            pub mode: ::core::option::Option<i32>,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Response {
+            #[prost(message, repeated, tag = "1")]
+            pub runs: ::prost::alloc::vec::Vec<super::super::SimulationRun>,
+            #[prost(message, optional, tag = "2")]
+            pub next_page_token: ::core::option::Option<super::super::TokenPagination>,
+        }
+    }
+    /// Counts of the runs `List` would return over the same window, bucketed by
+    /// created_at instead of paginated.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Counts {
+    }
+    /// Nested message and enum types in `Counts`.
+    pub mod counts {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            /// Both bounds required: a bucketed scan of a project's whole history is
+            /// never what a caller wants.
+            #[prost(message, optional, tag = "2")]
+            pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+            #[prost(message, optional, tag = "3")]
+            pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+            /// Applied as `List` applies it: a filter the rows honour and the bars
+            /// above them drop would make the histogram an answer about a wider set.
+            #[prost(enumeration = "super::Status", optional, tag = "4")]
+            pub status: ::core::option::Option<i32>,
+            #[prost(string, optional, tag = "5")]
+            pub agent_name: ::core::option::Option<::prost::alloc::string::String>,
+            #[prost(enumeration = "super::super::SimulationMode", optional, tag = "6")]
+            pub mode: ::core::option::Option<i32>,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Response {
+            /// Buckets holding at least one run, ascending by bucket_start. Empty
+            /// buckets are omitted; each run lands in exactly one bucket, so the
+            /// counts sum to the number of runs in the window.
+            #[prost(message, repeated, tag = "1")]
+            pub buckets: ::prost::alloc::vec::Vec<Bucket>,
+            /// The bucket width the server chose from the window, so the client
+            /// zero-fills the omitted buckets on the grid the counts were built on.
+            #[prost(message, optional, tag = "2")]
+            pub interval: ::core::option::Option<::pbjson_types::Duration>,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Bucket {
+            #[prost(message, optional, tag = "1")]
+            pub bucket_start: ::core::option::Option<::pbjson_types::Timestamp>,
+            #[prost(uint64, tag = "2")]
+            pub count: u64,
+        }
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Cancel {
+    }
+    /// Nested message and enum types in `Cancel`.
+    pub mod cancel {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub simulation_run_id: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Response {
+        }
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Usage {
+        #[prost(int32, tag = "1")]
+        pub text_turns_count: i32,
+        #[prost(int32, tag = "2")]
+        pub audio_turns_count: i32,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        PendingUpload = 0,
+        Generating = 1,
+        Running = 2,
+        Summarizing = 3,
+        Completed = 4,
+        Failed = 5,
+        Cancelled = 6,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::PendingUpload => "STATUS_PENDING_UPLOAD",
+                Self::Generating => "STATUS_GENERATING",
+                Self::Running => "STATUS_RUNNING",
+                Self::Summarizing => "STATUS_SUMMARIZING",
+                Self::Completed => "STATUS_COMPLETED",
+                Self::Failed => "STATUS_FAILED",
+                Self::Cancelled => "STATUS_CANCELLED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "STATUS_PENDING_UPLOAD" => Some(Self::PendingUpload),
+                "STATUS_GENERATING" => Some(Self::Generating),
+                "STATUS_RUNNING" => Some(Self::Running),
+                "STATUS_SUMMARIZING" => Some(Self::Summarizing),
+                "STATUS_COMPLETED" => Some(Self::Completed),
+                "STATUS_FAILED" => Some(Self::Failed),
+                "STATUS_CANCELLED" => Some(Self::Cancelled),
+                _ => None,
+            }
+        }
+    }
+}
+/// A single scenario, mirroring one entry in a scenarios.yaml file. Scenarios
+/// are no longer stored server-side; the yaml file is the source of truth.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Scenario {
+    #[prost(string, tag = "1")]
+    pub label: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub instructions: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub agent_expectations: ::prost::alloc::string::String,
+    /// Set as participant attributes on the simulation participant's access token.
+    #[prost(map = "string, string", tag = "4")]
+    pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Arbitrary JSON-encoded object, surfaced to the agent under test as
+    /// SimulationContext userdata (e.g. inputs and benchmark target state).
+    #[prost(string, tag = "5")]
+    pub userdata: ::prost::alloc::string::String,
+    /// SCN_-prefixed guid. Stable across edits to label, instructions, or
+    /// expectations, so runs of the same scenario can be correlated over time.
+    #[prost(string, tag = "6")]
+    pub id: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `Scenario`.
+pub mod scenario {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct CreateFromSession {
+    }
+    /// Nested message and enum types in `CreateFromSession`.
+    pub mod create_from_session {
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Request {
+            #[prost(string, tag = "1")]
+            pub project_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "2")]
+            pub room_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "3")]
+            pub region: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Response {
+            #[prost(message, optional, tag = "1")]
+            pub scenario: ::core::option::Option<super::super::Scenario>,
+        }
+    }
+}
+/// A named group of scenarios, mirroring a whole scenarios.yaml file.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ScenarioGroup {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub scenarios: ::prost::alloc::vec::Vec<Scenario>,
+    /// SCNG_-prefixed guid. Stable identity of the scenarios file, independent
+    /// of its name.
+    #[prost(string, tag = "3")]
+    pub id: ::prost::alloc::string::String,
+}
+/// Carried (protojson-encoded) in the simulation room's metadata so the agent
+/// under test can read the scenario + run identity synchronously at connect.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SimulationDispatch {
+    #[prost(string, tag = "1")]
+    pub simulation_run_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub job_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "3")]
+    pub scenario: ::core::option::Option<Scenario>,
+    #[prost(enumeration = "SimulationMode", tag = "4")]
+    pub mode: i32,
+}
+/// How the simulated user interacts with the agent under test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SimulationMode {
+    Unspecified = 0,
+    /// The simulator chats over text streams (no audio).
+    Text = 1,
+    /// The simulator publishes/subscribes audio in the room.
+    Audio = 2,
+}
+impl SimulationMode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "SIMULATION_MODE_UNSPECIFIED",
+            Self::Text => "SIMULATION_MODE_TEXT",
+            Self::Audio => "SIMULATION_MODE_AUDIO",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIMULATION_MODE_UNSPECIFIED" => Some(Self::Unspecified),
+            "SIMULATION_MODE_TEXT" => Some(Self::Text),
+            "SIMULATION_MODE_AUDIO" => Some(Self::Audio),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WorkerInfo {
+    #[prost(string, tag = "1")]
+    pub worker_type: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(float, tag = "3")]
+    pub active_jobs: f32,
+    #[prost(string, tag = "4")]
+    pub sdk_version: ::prost::alloc::string::String,
+    #[prost(float, tag = "5")]
+    pub worker_load: f32,
+    #[prost(int32, tag = "6")]
+    pub protocol_version: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Node {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub ip: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub num_cpus: u32,
+    #[prost(message, optional, tag = "4")]
+    pub stats: ::core::option::Option<NodeStats>,
+    #[prost(enumeration = "NodeType", tag = "5")]
+    pub r#type: i32,
+    #[prost(enumeration = "NodeState", tag = "6")]
+    pub state: i32,
+    #[prost(string, tag = "7")]
+    pub region: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NodeStats {
+    /// when server was started
+    #[prost(int64, tag = "1")]
+    pub started_at: i64,
+    /// when server last reported its status
+    #[prost(int64, tag = "2")]
+    pub updated_at: i64,
+    /// room
+    #[prost(int32, tag = "3")]
+    pub num_rooms: i32,
+    #[prost(int32, tag = "4")]
+    pub num_clients: i32,
+    #[prost(int32, tag = "5")]
+    pub num_tracks_in: i32,
+    #[prost(int32, tag = "6")]
+    pub num_tracks_out: i32,
+    #[prost(int32, tag = "36")]
+    pub num_track_publish_attempts: i32,
+    #[deprecated]
+    #[prost(float, tag = "37")]
+    pub track_publish_attempts_per_sec: f32,
+    #[prost(int32, tag = "38")]
+    pub num_track_publish_success: i32,
+    #[deprecated]
+    #[prost(float, tag = "39")]
+    pub track_publish_success_per_sec: f32,
+    #[prost(int32, tag = "51")]
+    pub num_track_publish_cancels: i32,
+    #[prost(int32, tag = "40")]
+    pub num_track_subscribe_attempts: i32,
+    #[deprecated]
+    #[prost(float, tag = "41")]
+    pub track_subscribe_attempts_per_sec: f32,
+    #[prost(int32, tag = "42")]
+    pub num_track_subscribe_success: i32,
+    #[deprecated]
+    #[prost(float, tag = "43")]
+    pub track_subscribe_success_per_sec: f32,
+    #[prost(int32, tag = "52")]
+    pub num_track_subscribe_cancels: i32,
+    /// packet
+    #[prost(uint64, tag = "7")]
+    pub bytes_in: u64,
+    #[prost(uint64, tag = "8")]
+    pub bytes_out: u64,
+    #[prost(uint64, tag = "9")]
+    pub packets_in: u64,
+    #[prost(uint64, tag = "10")]
+    pub packets_out: u64,
+    #[prost(uint64, tag = "11")]
+    pub nack_total: u64,
+    #[deprecated]
+    #[prost(float, tag = "12")]
+    pub bytes_in_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "13")]
+    pub bytes_out_per_sec: f32,
+    #[prost(float, tag = "14")]
+    pub packets_in_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "15")]
+    pub packets_out_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "16")]
+    pub nack_per_sec: f32,
+    /// system
+    #[prost(uint32, tag = "17")]
+    pub num_cpus: u32,
+    #[prost(float, tag = "18")]
+    pub load_avg_last1min: f32,
+    #[prost(float, tag = "19")]
+    pub load_avg_last5min: f32,
+    #[prost(float, tag = "20")]
+    pub load_avg_last15min: f32,
+    #[prost(float, tag = "21")]
+    pub cpu_load: f32,
+    #[deprecated]
+    #[prost(float, tag = "33")]
+    pub memory_load: f32,
+    #[prost(uint64, tag = "34")]
+    pub memory_total: u64,
+    #[prost(uint64, tag = "35")]
+    pub memory_used: u64,
+    #[prost(uint32, tag = "28")]
+    pub sys_packets_out: u32,
+    #[prost(uint32, tag = "29")]
+    pub sys_packets_dropped: u32,
+    #[deprecated]
+    #[prost(float, tag = "30")]
+    pub sys_packets_out_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "31")]
+    pub sys_packets_dropped_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "32")]
+    pub sys_packets_dropped_pct_per_sec: f32,
+    /// retransmissions
+    #[prost(uint64, tag = "22")]
+    pub retransmit_bytes_out: u64,
+    #[prost(uint64, tag = "23")]
+    pub retransmit_packets_out: u64,
+    #[deprecated]
+    #[prost(float, tag = "24")]
+    pub retransmit_bytes_out_per_sec: f32,
+    #[deprecated]
+    #[prost(float, tag = "25")]
+    pub retransmit_packets_out_per_sec: f32,
+    /// participant joins
+    #[prost(uint64, tag = "26")]
+    pub participant_signal_connected: u64,
+    #[deprecated]
+    #[prost(float, tag = "27")]
+    pub participant_signal_connected_per_sec: f32,
+    #[deprecated]
+    #[prost(uint64, tag = "55")]
+    pub participant_signal_failed: u64,
+    #[deprecated]
+    #[prost(uint64, tag = "56")]
+    pub participant_signal_validation_failed: u64,
+    #[prost(uint64, tag = "44")]
+    pub participant_rtc_connected: u64,
+    #[deprecated]
+    #[prost(float, tag = "45")]
+    pub participant_rtc_connected_per_sec: f32,
+    #[prost(uint64, tag = "46")]
+    pub participant_rtc_init: u64,
+    #[deprecated]
+    #[prost(float, tag = "47")]
+    pub participant_rtc_init_per_sec: f32,
+    #[prost(uint64, tag = "53")]
+    pub participant_rtc_canceled: u64,
+    #[prost(uint64, tag = "54")]
+    pub participant_rtc_active: u64,
+    /// forward metrics
+    #[prost(uint32, tag = "48")]
+    pub forward_latency: u32,
+    #[deprecated]
+    #[prost(uint32, tag = "49")]
+    pub forward_jitter: u32,
+    #[prost(message, repeated, tag = "50")]
+    pub rates: ::prost::alloc::vec::Vec<NodeStatsRate>,
+}
+/// rates of different node stats (per second)
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct NodeStatsRate {
+    #[prost(int64, tag = "1")]
+    pub started_at: i64,
+    #[prost(int64, tag = "2")]
+    pub ended_at: i64,
+    #[prost(int64, tag = "3")]
+    pub duration: i64,
+    #[prost(float, tag = "4")]
+    pub track_publish_attempts: f32,
+    #[prost(float, tag = "5")]
+    pub track_publish_success: f32,
+    #[prost(float, tag = "24")]
+    pub track_publish_cancels: f32,
+    #[prost(float, tag = "6")]
+    pub track_subscribe_attempts: f32,
+    #[prost(float, tag = "7")]
+    pub track_subscribe_success: f32,
+    #[prost(float, tag = "25")]
+    pub track_subscribe_cancels: f32,
+    #[prost(float, tag = "8")]
+    pub bytes_in: f32,
+    #[prost(float, tag = "9")]
+    pub bytes_out: f32,
+    #[prost(float, tag = "10")]
+    pub packets_in: f32,
+    #[prost(float, tag = "11")]
+    pub packets_out: f32,
+    #[prost(float, tag = "12")]
+    pub nack_total: f32,
+    #[prost(float, tag = "13")]
+    pub sys_packets_out: f32,
+    #[prost(float, tag = "14")]
+    pub sys_packets_dropped: f32,
+    #[prost(float, tag = "15")]
+    pub retransmit_bytes_out: f32,
+    #[prost(float, tag = "16")]
+    pub retransmit_packets_out: f32,
+    #[prost(float, tag = "17")]
+    pub participant_signal_connected: f32,
+    #[prost(float, tag = "28")]
+    pub participant_signal_failed: f32,
+    #[prost(float, tag = "29")]
+    pub participant_signal_validation_failed: f32,
+    #[prost(float, tag = "18")]
+    pub participant_rtc_connected: f32,
+    #[prost(float, tag = "19")]
+    pub participant_rtc_init: f32,
+    #[prost(float, tag = "26")]
+    pub participant_rtc_canceled: f32,
+    #[prost(float, tag = "27")]
+    pub participant_rtc_active: f32,
+    /// time weighted averages across stats windows forming part of a rate measurement interval
+    #[prost(float, tag = "20")]
+    pub cpu_load: f32,
+    #[prost(float, tag = "21")]
+    pub memory_load: f32,
+    #[prost(float, tag = "22")]
+    pub memory_used: f32,
+    #[prost(float, tag = "23")]
+    pub memory_total: f32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StartSession {
+    #[prost(string, tag = "1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub connection_id: ::prost::alloc::string::String,
+    /// if a client is reconnecting (i.e. resume instead of restart)
+    #[prost(bool, tag = "4")]
+    pub reconnect: bool,
+    #[prost(bool, tag = "9")]
+    pub auto_subscribe: bool,
+    #[prost(bool, optional, tag = "25")]
+    pub auto_subscribe_data_track: ::core::option::Option<bool>,
+    #[deprecated]
+    #[prost(bool, tag = "10")]
+    pub hidden: bool,
+    #[prost(message, optional, tag = "11")]
+    pub client: ::core::option::Option<ClientInfo>,
+    #[deprecated]
+    #[prost(bool, tag = "12")]
+    pub recorder: bool,
+    #[prost(string, tag = "13")]
+    pub name: ::prost::alloc::string::String,
+    /// A user's ClaimGrants serialized in JSON
+    #[prost(string, tag = "14")]
+    pub grants_json: ::prost::alloc::string::String,
+    #[prost(bool, tag = "15")]
+    pub adaptive_stream: bool,
+    /// if reconnect, client will set current sid
+    #[prost(string, tag = "16")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "ReconnectReason", tag = "17")]
+    pub reconnect_reason: i32,
+    #[prost(bool, optional, tag = "18")]
+    pub subscriber_allow_pause: ::core::option::Option<bool>,
+    #[prost(bool, tag = "19")]
+    pub disable_ice_lite: bool,
+    #[prost(message, optional, tag = "20")]
+    pub create_room: ::core::option::Option<CreateRoomRequest>,
+    #[prost(message, repeated, tag = "21")]
+    pub add_track_requests: ::prost::alloc::vec::Vec<AddTrackRequest>,
+    #[prost(message, optional, tag = "22")]
+    pub publisher_offer: ::core::option::Option<SessionDescription>,
+    #[prost(message, optional, tag = "23")]
+    pub sync_state: ::core::option::Option<SyncState>,
+    #[prost(bool, tag = "24")]
+    pub use_single_peer_connection: bool,
+    #[prost(int64, tag = "26")]
+    pub token_expires_at: i64,
+}
+/// room info that should not be returned to clients
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomInternal {
+    #[prost(message, optional, tag = "1")]
+    pub track_egress: ::core::option::Option<AutoTrackEgress>,
+    #[prost(message, optional, tag = "2")]
+    pub participant_egress: ::core::option::Option<AutoParticipantEgress>,
+    #[prost(message, optional, tag = "3")]
+    pub playout_delay: ::core::option::Option<PlayoutDelay>,
+    #[prost(message, repeated, tag = "5")]
+    pub agent_dispatches: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
+    #[prost(bool, tag = "4")]
+    pub sync_streams: bool,
+    #[prost(bool, tag = "6")]
+    pub replay_enabled: bool,
+    #[prost(bool, tag = "7")]
+    pub export_room: bool,
+    #[prost(map = "string, string", tag = "8")]
+    pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct IceConfig {
+    #[prost(enumeration = "IceCandidateType", tag = "1")]
+    pub preference_subscriber: i32,
+    #[prost(enumeration = "IceCandidateType", tag = "2")]
+    pub preference_publisher: i32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NodeType {
+    Server = 0,
+    Controller = 1,
+    Media = 2,
+    Turn = 4,
+    Sweeper = 5,
+    Director = 6,
+    HostedAgent = 7,
+    Settings = 8,
+}
+impl NodeType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Server => "SERVER",
+            Self::Controller => "CONTROLLER",
+            Self::Media => "MEDIA",
+            Self::Turn => "TURN",
+            Self::Sweeper => "SWEEPER",
+            Self::Director => "DIRECTOR",
+            Self::HostedAgent => "HOSTED_AGENT",
+            Self::Settings => "SETTINGS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SERVER" => Some(Self::Server),
+            "CONTROLLER" => Some(Self::Controller),
+            "MEDIA" => Some(Self::Media),
+            "TURN" => Some(Self::Turn),
+            "SWEEPER" => Some(Self::Sweeper),
+            "DIRECTOR" => Some(Self::Director),
+            "HOSTED_AGENT" => Some(Self::HostedAgent),
+            "SETTINGS" => Some(Self::Settings),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NodeState {
+    StartingUp = 0,
+    Serving = 1,
+    ShuttingDown = 2,
+    Suspended = 3,
+}
+impl NodeState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::StartingUp => "STARTING_UP",
+            Self::Serving => "SERVING",
+            Self::ShuttingDown => "SHUTTING_DOWN",
+            Self::Suspended => "SUSPENDED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STARTING_UP" => Some(Self::StartingUp),
+            "SERVING" => Some(Self::Serving),
+            "SHUTTING_DOWN" => Some(Self::ShuttingDown),
+            "SUSPENDED" => Some(Self::Suspended),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IceCandidateType {
+    IctNone = 0,
+    IctTcp = 1,
+    IctTls = 2,
+}
+impl IceCandidateType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::IctNone => "ICT_NONE",
+            Self::IctTcp => "ICT_TCP",
+            Self::IctTls => "ICT_TLS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ICT_NONE" => Some(Self::IctNone),
+            "ICT_TCP" => Some(Self::IctTcp),
+            "ICT_TLS" => Some(Self::IctTls),
+            _ => None,
+        }
+    }
+}
+/// SearchPhoneNumbersRequest - Request to search available phone numbers
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SearchPhoneNumbersRequest {
+    /// Filter by country code (e.g., "US", "CA")
+    #[prost(string, tag = "1")]
+    pub country_code: ::prost::alloc::string::String,
+    /// Filter by area code (e.g., "415")
+    #[prost(string, optional, tag = "2")]
+    pub area_code: ::core::option::Option<::prost::alloc::string::String>,
+    /// Maximum number of results (default: 50)
+    #[prost(int32, optional, tag = "3")]
+    pub limit: ::core::option::Option<i32>,
+    /// Token for pagination (empty for first page)
+    #[prost(message, optional, tag = "4")]
+    pub page_token: ::core::option::Option<TokenPagination>,
+}
+/// SearchPhoneNumbersResponse - Response containing available phone numbers
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SearchPhoneNumbersResponse {
+    /// List of available phone numbers
+    #[prost(message, repeated, tag = "1")]
+    pub items: ::prost::alloc::vec::Vec<PhoneNumber>,
+    /// Token for next page (empty if no more pages)
+    #[prost(message, optional, tag = "2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
+}
+/// PurchasePhoneNumberRequest - Request to purchase phone numbers
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PurchasePhoneNumberRequest {
+    /// Phone numbers to purchase (e.g., \["+1234567890", "+1234567891"\])
+    #[prost(string, repeated, tag = "1")]
+    pub phone_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// SIP dispatch rule ID to apply to all purchased numbers
+    #[prost(string, optional, tag = "2")]
+    pub sip_dispatch_rule_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// PurchasePhoneNumberResponse - Response containing the purchased phone numbers
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PurchasePhoneNumberResponse {
+    /// Details of the purchased phone numbers
+    #[prost(message, repeated, tag = "1")]
+    pub phone_numbers: ::prost::alloc::vec::Vec<PhoneNumber>,
+}
+/// ListPhoneNumbersRequest - Request to list phone numbers
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListPhoneNumbersRequest {
+    /// Maximum number of results (default: 50)
+    #[prost(int32, optional, tag = "1")]
+    pub limit: ::core::option::Option<i32>,
+    /// Filter by statuses (active, pending, released)
+    #[prost(enumeration = "PhoneNumberStatus", repeated, tag = "2")]
+    pub statuses: ::prost::alloc::vec::Vec<i32>,
+    /// Token for pagination (empty for first page)
+    #[prost(message, optional, tag = "3")]
+    pub page_token: ::core::option::Option<TokenPagination>,
+    /// Filter by SIP dispatch rule ID
+    #[prost(string, optional, tag = "4")]
+    pub sip_dispatch_rule_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// ListPhoneNumbersResponse - Response containing phone numbers
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListPhoneNumbersResponse {
+    /// List of phone numbers
+    #[prost(message, repeated, tag = "1")]
+    pub items: ::prost::alloc::vec::Vec<PhoneNumber>,
+    /// Token for next page (empty if no more pages)
+    #[prost(message, optional, tag = "2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
+    /// Total number of phone numbers
+    #[prost(int32, tag = "3")]
+    pub total_count: i32,
+    /// Total number of offline phone numbers
+    #[prost(int32, tag = "4")]
+    pub offline_count: i32,
+}
+/// GetPhoneNumberRequest - Request to get a phone number
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetPhoneNumberRequest {
+    /// Use phone number ID for direct lookup
+    #[prost(string, optional, tag = "1")]
+    pub id: ::core::option::Option<::prost::alloc::string::String>,
+    /// Use phone number string for lookup
+    #[prost(string, optional, tag = "2")]
+    pub phone_number: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// GetPhoneNumberResponse - Response containing the phone number
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetPhoneNumberResponse {
+    /// The phone number details
+    #[prost(message, optional, tag = "1")]
+    pub phone_number: ::core::option::Option<PhoneNumber>,
+}
+/// UpdatePhoneNumberRequest - Request to update a phone number
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdatePhoneNumberRequest {
+    /// Use phone number ID for direct lookup
+    #[prost(string, optional, tag = "1")]
+    pub id: ::core::option::Option<::prost::alloc::string::String>,
+    /// Use phone number string for lookup
+    #[prost(string, optional, tag = "2")]
+    pub phone_number: ::core::option::Option<::prost::alloc::string::String>,
+    /// SIP dispatch rule ID to assign to the phone number
+    #[prost(string, optional, tag = "3")]
+    pub sip_dispatch_rule_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub name: ::core::option::Option<::prost::alloc::string::String>,
+}
+/// UpdatePhoneNumberResponse - Response containing the updated phone number
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdatePhoneNumberResponse {
+    /// The updated phone number details
+    #[prost(message, optional, tag = "1")]
+    pub phone_number: ::core::option::Option<PhoneNumber>,
+}
+/// ReleasePhoneNumbersRequest - Request to release phone numbers
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReleasePhoneNumbersRequest {
+    /// Use phone number IDs for direct lookup
+    #[prost(string, repeated, tag = "1")]
+    pub ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Use phone number strings for lookup
+    #[prost(string, repeated, tag = "2")]
+    pub phone_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// ReleasePhoneNumbersResponse - Response for releasing phone numbers
+///
+/// Empty response - operation completed successfully
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReleasePhoneNumbersResponse {
+}
+/// PhoneNumber - Unified phone number type for inventory and purchased numbers
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PhoneNumber {
+    /// Unique identifier
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    /// Human-readable name/label for the phone number
+    #[prost(string, tag = "17")]
+    pub name: ::prost::alloc::string::String,
+    /// Phone number in E.164 format (e.g., "+14155552671")
+    #[prost(string, tag = "2")]
+    pub e164_format: ::prost::alloc::string::String,
+    /// Country code (e.g., "US")
+    #[prost(string, tag = "3")]
+    pub country_code: ::prost::alloc::string::String,
+    /// Area code (e.g., "415")
+    #[prost(string, tag = "4")]
+    pub area_code: ::prost::alloc::string::String,
+    /// Number type (mobile, local, toll-free, unknown)
+    #[prost(enumeration = "PhoneNumberType", tag = "5")]
+    pub number_type: i32,
+    /// City/locality (e.g., "San Francisco")
+    #[prost(string, tag = "6")]
+    pub locality: ::prost::alloc::string::String,
+    /// State/region (e.g., "CA")
+    #[prost(string, tag = "7")]
+    pub region: ::prost::alloc::string::String,
+    /// Spam score for fraud detection
+    #[prost(double, tag = "8")]
+    pub spam_score: f64,
+    /// Creation timestamp
+    #[prost(message, optional, tag = "9")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    /// Last update timestamp
+    #[prost(message, optional, tag = "10")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    /// Available capabilities (e.g., "voice", "sms")
+    #[prost(string, repeated, tag = "11")]
+    pub capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Current status
+    #[prost(enumeration = "PhoneNumberStatus", tag = "12")]
+    pub status: i32,
+    /// Inbound calling status
+    #[prost(enumeration = "PhoneNumberInboundStatus", tag = "18")]
+    pub inbound_status: i32,
+    /// Outbound calling status
+    #[prost(enumeration = "PhoneNumberOutboundStatus", tag = "19")]
+    pub outbound_status: i32,
+    /// Assignment timestamp
+    #[prost(message, optional, tag = "13")]
+    pub assigned_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    /// Release timestamp (if applicable)
+    #[prost(message, optional, tag = "14")]
+    pub released_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    /// Associated SIP dispatch rule ID (deprecated: use sip_dispatch_rule_ids instead)
+    #[deprecated]
+    #[prost(string, tag = "15")]
+    pub sip_dispatch_rule_id: ::prost::alloc::string::String,
+    /// Associated SIP dispatch rule IDs
+    #[prost(string, repeated, tag = "16")]
+    pub sip_dispatch_rule_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// Phone number status enumeration
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PhoneNumberStatus {
+    /// Default value
+    Unspecified = 0,
+    /// Number is active and ready for use
+    Active = 1,
+    /// Number is being provisioned
+    Pending = 2,
+    /// Number has been released
+    Released = 3,
+    /// Number is offline (provider is unreachable)
+    Offline = 4,
+}
+impl PhoneNumberStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "PHONE_NUMBER_STATUS_UNSPECIFIED",
+            Self::Active => "PHONE_NUMBER_STATUS_ACTIVE",
+            Self::Pending => "PHONE_NUMBER_STATUS_PENDING",
+            Self::Released => "PHONE_NUMBER_STATUS_RELEASED",
+            Self::Offline => "PHONE_NUMBER_STATUS_OFFLINE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PHONE_NUMBER_STATUS_UNSPECIFIED" => Some(Self::Unspecified),
+            "PHONE_NUMBER_STATUS_ACTIVE" => Some(Self::Active),
+            "PHONE_NUMBER_STATUS_PENDING" => Some(Self::Pending),
+            "PHONE_NUMBER_STATUS_RELEASED" => Some(Self::Released),
+            "PHONE_NUMBER_STATUS_OFFLINE" => Some(Self::Offline),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PhoneNumberInboundStatus {
+    /// Default value
+    PhoneNumberInStatusUnspecified = 0,
+    /// Number is serving inbound calls
+    PhoneNumberInStatusActive = 1,
+    /// Inbound calling is unavailable
+    PhoneNumberInStatusUnavailable = 2,
+    /// Number is not serving calls (not associated with dispatch rules)
+    PhoneNumberInStatusDetached = 3,
+}
+impl PhoneNumberInboundStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::PhoneNumberInStatusUnspecified => "PHONE_NUMBER_IN_STATUS_UNSPECIFIED",
+            Self::PhoneNumberInStatusActive => "PHONE_NUMBER_IN_STATUS_ACTIVE",
+            Self::PhoneNumberInStatusUnavailable => "PHONE_NUMBER_IN_STATUS_UNAVAILABLE",
+            Self::PhoneNumberInStatusDetached => "PHONE_NUMBER_IN_STATUS_DETACHED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PHONE_NUMBER_IN_STATUS_UNSPECIFIED" => Some(Self::PhoneNumberInStatusUnspecified),
+            "PHONE_NUMBER_IN_STATUS_ACTIVE" => Some(Self::PhoneNumberInStatusActive),
+            "PHONE_NUMBER_IN_STATUS_UNAVAILABLE" => Some(Self::PhoneNumberInStatusUnavailable),
+            "PHONE_NUMBER_IN_STATUS_DETACHED" => Some(Self::PhoneNumberInStatusDetached),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PhoneNumberOutboundStatus {
+    /// Default value
+    PhoneNumberOutStatusUnspecified = 0,
+    /// Number is can be used to initiate outbound calls
+    PhoneNumberOutStatusActive = 1,
+    /// Outbound calling is unavailable
+    PhoneNumberOutStatusUnavailable = 2,
+}
+impl PhoneNumberOutboundStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::PhoneNumberOutStatusUnspecified => "PHONE_NUMBER_OUT_STATUS_UNSPECIFIED",
+            Self::PhoneNumberOutStatusActive => "PHONE_NUMBER_OUT_STATUS_ACTIVE",
+            Self::PhoneNumberOutStatusUnavailable => "PHONE_NUMBER_OUT_STATUS_UNAVAILABLE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PHONE_NUMBER_OUT_STATUS_UNSPECIFIED" => Some(Self::PhoneNumberOutStatusUnspecified),
+            "PHONE_NUMBER_OUT_STATUS_ACTIVE" => Some(Self::PhoneNumberOutStatusActive),
+            "PHONE_NUMBER_OUT_STATUS_UNAVAILABLE" => Some(Self::PhoneNumberOutStatusUnavailable),
+            _ => None,
+        }
+    }
+}
+/// Phone number type enumeration
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PhoneNumberType {
+    /// Default value - unknown or parsing error
+    Unknown = 0,
+    /// Mobile phone number
+    Mobile = 1,
+    /// Local/fixed line number
+    Local = 2,
+    /// Toll-free number
+    TollFree = 3,
+}
+impl PhoneNumberType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "PHONE_NUMBER_TYPE_UNKNOWN",
+            Self::Mobile => "PHONE_NUMBER_TYPE_MOBILE",
+            Self::Local => "PHONE_NUMBER_TYPE_LOCAL",
+            Self::TollFree => "PHONE_NUMBER_TYPE_TOLL_FREE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PHONE_NUMBER_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "PHONE_NUMBER_TYPE_MOBILE" => Some(Self::Mobile),
+            "PHONE_NUMBER_TYPE_LOCAL" => Some(Self::Local),
+            "PHONE_NUMBER_TYPE_TOLL_FREE" => Some(Self::TollFree),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TokenSourceRequest {
+    /// The name of the room being requested when generating credentials
+    #[prost(string, optional, tag = "1")]
+    pub room_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// The name of the participant being requested for this client when generating credentials
+    #[prost(string, optional, tag = "2")]
+    pub participant_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// The identity of the participant being requested for this client when generating credentials
+    #[prost(string, optional, tag = "3")]
+    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
+    /// Any participant metadata being included along with the credentials generation operation
+    #[prost(string, optional, tag = "4")]
+    pub participant_metadata: ::core::option::Option<::prost::alloc::string::String>,
+    /// Any participant attributes being included along with the credentials generation operation
+    #[prost(map = "string, string", tag = "5")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// A RoomConfiguration object can be passed to request extra parameters should be included when
+    /// generating connection credentials - dispatching agents, defining egress settings, etc
+    /// More info: <https://docs.livekit.io/home/get-started/authentication/#room-configuration>
+    #[prost(message, optional, tag = "6")]
+    pub room_config: ::core::option::Option<RoomConfiguration>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct TokenSourceResponse {
+    #[prost(string, tag = "1")]
+    pub server_url: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub participant_token: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GetRemoteHeadersV1Request {
+    /// list of headers to include
+    #[prost(string, repeated, tag = "1")]
+    pub include: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// list of headers to exclude
+    #[prost(string, repeated, tag = "2")]
+    pub exclude: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetRemoteHeadersV1Response {
+    #[prost(map = "string, string", tag = "1")]
+    pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EndCallV1Request {
+    #[prost(map = "string, string", tag = "1")]
+    pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct EndCallV1Response {
 }
 include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)

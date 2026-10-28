@@ -31,7 +31,7 @@
 #      new feature is invisible to this job until it is added to that list.
 #
 # A crate with no such table is not feature-checked here at all. livekit-ffi
-# and livekit-uniffi are the deliberate omissions; see the curated step below.
+# is the deliberate omission; see the curated step below.
 #
 # Measured cold on a 14-core machine: the full 209-combination powerset takes
 # 359s; this split takes 242s, a 33% saving. That is what brings the job in
@@ -269,7 +269,7 @@ jobs:
       # crate that declares that table is picked up, so adding a crate to this
       # half of the job means adding the table and nothing else.
       #
-      # livekit-ffi and livekit-uniffi deliberately do NOT declare one.
+      # livekit-ffi deliberately does NOT declare one.
       # Measured cold, their 8 combinations cost 103s of a 345s total — 30% of
       # the budget for two crates, because each TLS change rebuilds livekit
       # underneath livekit-ffi.

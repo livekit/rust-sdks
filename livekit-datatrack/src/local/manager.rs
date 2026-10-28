@@ -326,7 +326,10 @@ impl Manager {
     const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
-    const EVENT_BUFFER_COUNT: usize = 16;
+    ///
+    /// Must exceed a burst of track lifecycle events. A full channel blocks
+    /// the manager and can deadlock room disconnect.
+    const EVENT_BUFFER_COUNT: usize = 512;
 }
 
 /// Task for an individual published data track.

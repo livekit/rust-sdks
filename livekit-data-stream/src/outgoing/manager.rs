@@ -333,14 +333,14 @@ impl Manager {
         sender_identity: Option<ParticipantIdentity>,
     ) -> StreamResult<()> {
         let stream_id = header.stream_id.to_string();
+        let destinations: Vec<String> =
+            destination_identities.iter().map(|id| id.0.clone()).collect();
         let mut packets =
             vec![RawStream::create_header_packet(header.into(), destination_identities)];
-        packets.extend(
-            chunks.into_iter().enumerate().map(|(index, chunk)| {
-                RawStream::create_chunk_packet(&stream_id, index as u64, chunk)
-            }),
-        );
-        packets.push(RawStream::create_trailer_packet(&stream_id, None, None));
+        packets.extend(chunks.into_iter().enumerate().map(|(index, chunk)| {
+            RawStream::create_chunk_packet(&stream_id, index as u64, chunk, &destinations)
+        }));
+        packets.push(RawStream::create_trailer_packet(&stream_id, None, None, &destinations));
         if let Some(sender_identity) = sender_identity {
             let identity: String = sender_identity.into();
             for packet in &mut packets {
@@ -1213,6 +1213,45 @@ mod tests {
         writer.close().await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert!(p.iter().all(|pkt| pkt.participant_identity.is_empty()));
+    }
+
+    // --- Destination identities -----------------------------------------------------------
+
+    // The server routes each packet on its own `destination_identities`, so a chunk or
+    // trailer without them would be broadcast to the whole room.
+
+    #[tokio::test]
+    async fn one_shot_send_text_targets_every_packet() {
+        let (m, sent) = setup();
+        let text = "A".repeat(20_000);
+        m.send_text(&text, text_opts("chat", &["alice", "bob"]), &pre_v2_room()).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 4); // header + 2 chunks + trailer
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice", "bob"]));
+    }
+
+    #[tokio::test]
+    async fn stream_text_targets_every_packet() {
+        let (m, sent) = setup();
+        let writer = m.stream_text(text_opts("chat", &["alice"])).await.unwrap();
+        writer.write("hello").await.unwrap();
+        writer.close().await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["alice"]));
+    }
+
+    #[tokio::test]
+    async fn send_file_targets_every_packet() {
+        let (m, sent) = setup();
+        let path = std::env::temp_dir().join(format!("lk_ds_dest_{}.bin", create_random_uuid()));
+        tokio::fs::write(&path, vec![0x07u8; 20_000]).await.unwrap();
+        let opts = byte_opts("file", &["bob"]).with_compress(false);
+        m.send_file(&path, opts, &all_v2_room()).await.unwrap();
+        let _ = tokio::fs::remove_file(&path).await;
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 4); // header + 2 chunks + trailer
+        assert!(p.iter().all(|pkt| pkt.destination_identities == ["bob"]));
     }
 
     // --- Incremental writers never compress or inline ------------------------------------

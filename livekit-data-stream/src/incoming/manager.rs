@@ -214,8 +214,9 @@ impl Manager {
     }
 
     /// Runs the manager's event loop until the input channel closes (all
-    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit,
-    /// dropping `self` closes every open reader.
+    /// [`ManagerInput`]s dropped) or [`InputEvent::Shutdown`] is received. On exit, every
+    /// still-open stream is aborted so its reader errors with [`StreamError::AbnormalEnd`]
+    /// rather than ending cleanly with whatever partial content had arrived.
     pub async fn run(mut self) {
         while let Some(event) = self.input_rx.recv().await {
             match event {
@@ -240,6 +241,7 @@ impl Manager {
                 InputEvent::Shutdown => break,
             }
         }
+        self.handle_abort_all();
     }
 
     /// Handles an incoming header packet.
@@ -1769,6 +1771,71 @@ mod tests {
 
     /// Every opened stream terminates with exactly one `StreamClosed`, whatever the terminal
     /// path — hosts rely on it to sequence handler invocations for ordered topics.
+    /// Stopping the run loop must error in-flight readers; dropping their chunk senders alone
+    /// would end them cleanly, making truncated content look complete.
+    mod shutdown {
+        use super::*;
+
+        #[tokio::test]
+        async fn shutdown_errors_open_streams() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (text_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            let compressed = deflate_raw(b"hello world").await;
+            h.send_packet(Packet::Header {
+                header: byte_header("s2", Some(11), None, CompressionType::DeflateRaw),
+                encryption_type: EncryptionType::None,
+            });
+            let (byte_reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s2", 0, compressed[..compressed.len() / 2].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+
+            h.input.send(InputEvent::Shutdown).unwrap();
+            assert!(matches!(read_text(text_reader).await, Err(StreamError::AbnormalEnd(_))));
+            assert!(matches!(read_bytes(byte_reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn dropping_all_inputs_errors_open_streams() {
+            let Harness { input, mut output_rx } = Harness::new();
+            input
+                .send(InputEvent::PacketReceived(PacketReceived {
+                    packet: Packet::Header {
+                        header: text_header(
+                            "s1",
+                            Some(10),
+                            HashMap::new(),
+                            None,
+                            CompressionType::None,
+                        ),
+                        encryption_type: EncryptionType::None,
+                    },
+                    participant_identity: ParticipantIdentity::from(SENDER),
+                }))
+                .unwrap();
+            let reader = loop {
+                if let OutputEvent::StreamOpened(StreamOpened { stream_reader, .. }) =
+                    output_rx.recv().await.expect("a stream should be opened")
+                {
+                    break stream_reader;
+                }
+            };
+
+            drop(input);
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+    }
+
     mod stream_closed {
         use super::*;
 

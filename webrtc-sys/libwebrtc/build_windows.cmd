@@ -50,10 +50,22 @@ if not exist src (
 )
 
 cd src
-call git apply "%COMMAND_DIR%/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-call git apply "%COMMAND_DIR%/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-call git apply "%COMMAND_DIR%/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+rem Skip a patch that is already applied so the build can be rerun on the same
+rem checkout. Stop when a patch neither applies nor is already applied, since
+rem carrying on would build a libwebrtc that silently lacks the change.
+for %%p in (add_licenses add_deps ssl_verify_callback_with_native_handle external_audio_source) do (
+  call git apply --reverse --check --ignore-space-change --ignore-whitespace "%COMMAND_DIR%/patches/%%p.patch" >nul 2>&1
+  if errorlevel 1 (
+    echo Applying patch: %%p.patch
+    call git apply -v --ignore-space-change --ignore-whitespace --whitespace=nowarn "%COMMAND_DIR%/patches/%%p.patch"
+    if errorlevel 1 (
+      echo Error: %%p.patch does not apply. Regenerate it against the pinned WebRTC revision, or reset a partially patched checkout with "git checkout -- ." and rerun.
+      exit /b 1
+    )
+  ) else (
+    echo Patch already applied: %%p.patch
+  )
+)
 
 copy ".vpython3" "..\"
 

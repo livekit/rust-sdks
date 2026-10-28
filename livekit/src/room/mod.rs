@@ -39,7 +39,10 @@ use proto::SignalTarget;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use thiserror::Error;
@@ -409,12 +412,11 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 #[derive(Debug, Clone)]
 pub struct RoomDataStreamOptions {
     max_payload_byte_length: Option<usize>,
-    use_legacy_client_implementation: bool,
 }
 
 impl Default for RoomDataStreamOptions {
     fn default() -> Self {
-        Self { max_payload_byte_length: None, use_legacy_client_implementation: false }
+        Self { max_payload_byte_length: None }
     }
 }
 
@@ -425,14 +427,6 @@ impl RoomDataStreamOptions {
     /// be thrown.
     pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
         self.max_payload_byte_length = Some(byte_length);
-        self
-    }
-
-    /// Advertise only legacy (v1) data stream support. Temporary migration aid for SDKs
-    /// implementing data streams in their own client-side code on top of the FFI.
-    #[doc(hidden)]
-    pub fn with_legacy_client_implementation(mut self, enabled: bool) -> Self {
-        self.use_legacy_client_implementation = enabled;
         self
     }
 }
@@ -538,6 +532,8 @@ pub(crate) struct RoomSession {
     pub(crate) rpc_client: RpcClientManager,
     pub(crate) rpc_server: RpcServerManager,
     handle: AsyncMutex<Option<Handle>>,
+    /// Set once the room reaches `Disconnected`, which is final from then on.
+    disconnected: AtomicBool,
 }
 
 struct Handle {
@@ -581,8 +577,6 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
-        signal_options.use_legacy_data_streams =
-            options.data_stream.use_legacy_client_implementation;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -758,6 +752,7 @@ impl Room {
             rpc_client: RpcClientManager::new(),
             rpc_server: RpcServerManager::new(),
             handle: Default::default(),
+            disconnected: AtomicBool::new(false),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
@@ -914,6 +909,13 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
         self.inner.rtc_engine.session().publisher_connection_state()
+    }
+
+    /// Test-only: the publisher's RTP senders. A sender that keeps its track after teardown
+    /// keeps the track's native source alive with it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.rtc_engine.session().publisher_senders()
     }
 
     /// Test-only: returns a probe that reports whether the room session has been dropped.
@@ -1168,6 +1170,16 @@ impl RoomSession {
             EngineEvent::SubscribedQualityUpdate { update } => {
                 self.handle_subscribed_quality_update(update);
             }
+            EngineEvent::RefreshPublishingLayers => {
+                if self.options.dynacast {
+                    for publication in self.local_participant.track_publications().values() {
+                        let Some(LocalTrack::Video(track)) = publication.track() else { continue };
+                        if let Err(e) = track.refresh_publishing_layers() {
+                            log::warn!("dynacast: failed to refresh publishing layers: {}", e);
+                        }
+                    }
+                }
+            }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
             }
@@ -1179,7 +1191,7 @@ impl RoomSession {
         Ok(())
     }
 
-    async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
+    async fn close(self: &Arc<Self>, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
         // remove published tracks
@@ -1188,6 +1200,7 @@ impl RoomSession {
         }
 
         self.rtc_engine.close(reason).await;
+        self.handle_disconnected(reason);
         self.e2ee_manager.cleanup();
         self.rpc_client.fail_all_pending();
 
@@ -1210,8 +1223,11 @@ impl RoomSession {
     /// Returns true if the state changed
     fn update_connection_state(&self, state: ConnectionState) -> bool {
         let mut info = self.info.write();
-        if info.state == state {
+        if info.state == state || self.disconnected.load(Ordering::Relaxed) {
             return false;
+        }
+        if state == ConnectionState::Disconnected {
+            self.disconnected.store(true, Ordering::Relaxed);
         }
 
         info.state = state;
@@ -1676,8 +1692,9 @@ impl RoomSession {
     }
 
     fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        if self.update_connection_state(ConnectionState::Connected) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        }
 
         let _ = tx.send(());
 
@@ -1785,8 +1802,9 @@ impl RoomSession {
 
                 local_participant.update_track_subscription_permissions().await;
 
-                session.update_connection_state(ConnectionState::Connected);
-                session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                if session.update_connection_state(ConnectionState::Connected) {
+                    session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                }
             }
         });
     }

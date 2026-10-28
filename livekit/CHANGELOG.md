@@ -257,6 +257,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.9.7 (2026-10-23)
+
+### Fixes
+
+- fix: bump libwebrtc to webrtc-a545de4 to drop roots that trust the compromised eMudhra intermediates. The new build refreshes the TURN/TLS anchors compiled into `rtc_base/ssl_roots.h`, which no longer include `AAA Certificate Services`, the root that cross-signs the eight eMudhra intermediate CAs whose keys were disclosed on 2026-10-20.
+- Fix the VAAPI H.264 encoder leaking VA parameter buffers on every frame; they are now destroyed after vaEndPicture().
+- Stop the NVIDIA and Jetson encoders from reporting an already delivered frame as an encode error, which aborted the process in `SimulcastEncoderAdapter` when dynacast paused a simulcast layer or a track was unpublished mid-encode.
+
+## 0.9.6 (2026-10-20)
+
+### Fixes
+
+- Outgoing data stream chunk and trailer packets now carry the stream's destination identities. Before, only the header was targeted, so the content of a stream sent to specific participants was delivered to everyone in the room.
+- Synthesize index-based identifiers on platforms without hardware audio GUIDs and add index-based selection to PlatformAudio.
+- Prefix every ffmpeg symbol bundled in the linux `libwebrtc.a` with `LK_`, so an application that also links its own FFmpeg, shared or static, no longer calls libwebrtc's copy or fails to link.
+- Update `zip` to 9.0.4, as older releases have security issues and were temporarily yanked ([zip-rs/zip2#1075](https://github.com/zip-rs/zip2/issues/1075)).
+
+#### Merge `livekit-uniffi` into `livekit-ffi`.
+
+There is now one crate, one version and one release tag. The `livekit-uniffi`
+crate, its changelog and its `livekit-uniffi/v*` tags are gone; its history is
+preserved in git.
+
+The crate carries two mutually exclusive surfaces, selected by feature:
+
+- `room-apis` (default) is the existing protobuf / C-ABI surface, with
+  `livekit` and libwebrtc. Everything that built `livekit-ffi` before builds it
+  unchanged.
+- `core-modules` is the former `livekit-uniffi` surface — access tokens, log
+  forwarding, data tracks, data streams v2 — and depends on none of `livekit`,
+  `libwebrtc`, `soxr-sys` or `imgproc`. What previously built `livekit-uniffi`
+  now builds `-p livekit-ffi --no-default-features --features core-modules`.
+
+`[package.metadata.platform-features]` in `livekit-ffi/Cargo.toml` records
+which surface each downstream package build gets, and CI resolves its build
+flags from it.
+
+The merge itself requires no downstream SDK changes: the UniFFI namespace is
+pinned per surface and every published package name is preserved. The one
+difference is the native library the crate builds, `liblivekit_uniffi` →
+`liblivekit_ffi`, which is loaded by name from the generated bindings and the
+Dart build hook and needs no consumer change. The package renames are a
+separate change, released alongside this one.
+
+The UniFFI node package (`@livekit/uniffi`) is not built for now and will be
+reintroduced separately; node bindings ship from `livekit-ffi-node-bindings`.
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+#### Stop failing an RPC call whose reply arrives just after its recipient leaves the room.
+
+Purging a call's pending ack and response the instant its recipient disconnects assumed that
+"participant left" implies "no reply is coming". It does not: the disconnect is announced on the
+signalling connection while the ack and response travel on the data channel, and nothing orders
+the two. A recipient that leaves *because of* the RPC it just answered — `lk.sip.EndCall`, where
+the SIP participant drops out of the room as soon as it has ended the call — produces that order
+routinely, so the reply was discarded ("Response received for unexpected RPC request") and the
+caller was handed `RecipientDisconnected` for a call that in fact succeeded.
+
+A disconnect now shortens the wait instead of ending it: the pending entries stay registered for
+up to 2 more seconds, so a reply already in flight still resolves the caller, and a recipient that
+really did leave without replying still fails fast rather than running out the 15s response
+timeout.
+
+## 0.9.5 (2026-10-12)
+
+### Fixes
+
+- In-flight incoming data streams now error with `AbnormalEnd` when the room closes. Before, the stream readers ended cleanly, so `read_all()` returned truncated content as if it were complete.
+- Keep pre-encoded video decodable when WebRTC drops frames: the passthrough encoder disables WebRTC's frame dropper, and after a frame is dropped before it, holds delta frames and requests a keyframe until the next keyframe arrives.
+- Add `PeerConnection::set_bitrate` to set the send bitrate limits of a peer connection.
+- Public API tokens minted from an API key and secret now grant every thread action (list, create, read, write, delete) across the project. Before, they carried only `all`, so creating or reading a thread was refused.
+- Re-apply dynacast publishing layers after every publisher answer, so that layers paused by dynacast stay paused after a renegotiation.
+- `Room::close` now leaves the room `Disconnected` and emits `RoomEvent::Disconnected` before it returns, and `Disconnected` is final: a reconnect still finishing in the background (a queued resume, or the republish after a full reconnect) can no longer bring a closed room back to `Connected` or emit `Reconnected` after `Disconnected`. Before, the room's event task could drop the engine's `Disconnected` event when the close signal won the race, so a closed room kept reporting `Connected` (or `Reconnecting`) about half the time.
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
+## 0.9.4 (2026-10-07)
+
+### Fixes
+
+- Scale the `x-google-start-bitrate` hint by connection setup time: the 1 Mbps camera cap now applies to connections that set up within 1.5 s and ramps linearly down to 300 kbps at 3.5 s or slower; screen share stays uncapped.
+- Increase the local and remote data track event buffers so a burst of track lifecycle events cannot fill the channel and deadlock room disconnect.
+- Manage VAAPI displays across capability probes and encoder lifecycles so driver resources and threads are released without invalidating active encoders.
+- Release local published tracks when a server-initiated room closure has already closed the peer connection.
+- RoomClient::send_data now returns a Send future by dropping its RNG before awaiting.
+- Never wait on the peer when closing a signal stream: a half-open socket (no FIN/RST) left the reader parked in `recv()` forever, so the resume never dialled and `Room::close` hung. `SignalStream::close` now aborts the parked reader and bounds the writer's Close flush.
+
+## 0.9.3 (2026-09-24)
+
+### Fixes
+
+- Avoid panics when malformed RTC error headers contain non-ASCII text.
+- Java version in libwebrtc was bumped by Google, downgrade it again for Unity 2022 build compatibility - #1456 (@MaxHeimbrock)
+- refactor(signaling): explicit signal lifecycle state machine - #1402 (@lukasIO)
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.9.2 (2026-09-22)
 
 ### Fixes

@@ -443,7 +443,10 @@ impl Manager {
     const PACKET_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
-    const EVENT_BUFFER_COUNT: usize = 16;
+    ///
+    /// Must exceed a burst of track lifecycle events. A full channel blocks
+    /// the manager and can deadlock room disconnect.
+    const EVENT_BUFFER_COUNT: usize = 512;
 }
 
 /// Information and state for a remote data track.

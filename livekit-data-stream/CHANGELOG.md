@@ -1,3 +1,61 @@
+## 0.1.9 (2026-10-20)
+
+### Fixes
+
+- Outgoing data stream chunk and trailer packets now carry the stream's destination identities. Before, only the header was targeted, so the content of a stream sent to specific participants was delivered to everyone in the room.
+
+#### Merge `livekit-uniffi` into `livekit-ffi`.
+
+There is now one crate, one version and one release tag. The `livekit-uniffi`
+crate, its changelog and its `livekit-uniffi/v*` tags are gone; its history is
+preserved in git.
+
+The crate carries two mutually exclusive surfaces, selected by feature:
+
+- `room-apis` (default) is the existing protobuf / C-ABI surface, with
+  `livekit` and libwebrtc. Everything that built `livekit-ffi` before builds it
+  unchanged.
+- `core-modules` is the former `livekit-uniffi` surface — access tokens, log
+  forwarding, data tracks, data streams v2 — and depends on none of `livekit`,
+  `libwebrtc`, `soxr-sys` or `imgproc`. What previously built `livekit-uniffi`
+  now builds `-p livekit-ffi --no-default-features --features core-modules`.
+
+`[package.metadata.platform-features]` in `livekit-ffi/Cargo.toml` records
+which surface each downstream package build gets, and CI resolves its build
+flags from it.
+
+The merge itself requires no downstream SDK changes: the UniFFI namespace is
+pinned per surface and every published package name is preserved. The one
+difference is the native library the crate builds, `liblivekit_uniffi` →
+`liblivekit_ffi`, which is loaded by name from the generated bindings and the
+Dart build hook and needs no consumer change. The package renames are a
+separate change, released alongside this one.
+
+The UniFFI node package (`@livekit/uniffi`) is not built for now and will be
+reintroduced separately; node bindings ship from `livekit-ffi-node-bindings`.
+
+#### `livekit-protocol` exposes the conversation schema of a thread's database, as protocol's Go package
+
+does: `agent::THREAD_SCHEMA_VERSION` and `agent::THREAD_SCHEMA_V1` (the SQL); the crates that
+depend on it follow its bump.
+
+## 0.1.8 (2026-10-12)
+
+### Fixes
+
+- In-flight incoming data streams now error with `AbnormalEnd` when the room closes. Before, the stream readers ended cleanly, so `read_all()` returned truncated content as if it were complete.
+
+#### `livekit-protocol` carries the `livekit.agent` package (`AgentSessionEvent`,
+
+`SessionRequest`, the EOT inference messages), the agent threads messages
+and the agent-db service; the crates that depend on it follow its bump.
+
+## 0.1.7 (2026-09-24)
+
+### Fixes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.1.6 (2026-09-22)
 
 ### Fixes

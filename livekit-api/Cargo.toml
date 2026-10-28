@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.8.0"
+version = "0.9.1"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
@@ -18,7 +18,7 @@ default = ["services", "access-token", "webhooks"]
 signal-client        = ["dep:livekit-signaling"]
 signal-client-native = ["signal-client", "livekit-signaling/native"]
 
-services = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time"]
+services = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time", "dep:progenitor-client", "dep:chrono", "dep:serde_json"]
 
 access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
@@ -49,11 +49,11 @@ native-tls              = ["livekit-signaling?/native-tls",             "reqwest
 native-tls-vendored     = ["livekit-signaling?/native-tls-vendored",    "reqwest?/native-tls-vendored"]
 # Uses rustls with the operating system's CA certificate store.
 # Requires ca-certificates to be installed in container environments.
-rustls-tls-native-roots = ["livekit-signaling?/rustls-tls-native-roots", "reqwest?/rustls-tls-native-roots"]
+rustls-tls-native-roots = ["livekit-signaling?/rustls-tls-native-roots", "__rustls-tls", "dep:rustls-native-certs"]
 # Uses rustls with Mozilla's bundled root certificates.
 # RECOMMENDED for container deployments - no system CA certificates required.
-rustls-tls-webpki-roots = ["livekit-signaling?/rustls-tls-webpki-roots", "reqwest?/rustls-tls-webpki-roots"]
-__rustls-tls            = ["livekit-signaling?/__rustls-tls",             "reqwest?/__rustls"]
+rustls-tls-webpki-roots = ["livekit-signaling?/rustls-tls-webpki-roots", "__rustls-tls", "dep:webpki-roots"]
+__rustls-tls            = ["livekit-signaling?/__rustls-tls",             "reqwest?/rustls-no-provider", "dep:rustls"]
 
 # Feature combinations checked in CI. See the equivalent table in
 # `livekit/Cargo.toml` for the encoding, and what `mode = "curated"` costs
@@ -95,9 +95,21 @@ tokio = { workspace = true, default-features = false, features = ["sync", "macro
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"
-reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
+reqwest = { version = "0.13.4", default-features = false, features = [ "json" ], optional = true }
+# reqwest 0.13's rustls defaults to aws-lc-rs; its TLS config is built here on ring instead.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+webpki-roots = { version = "1", optional = true }
+
+# public API client
+progenitor-client = { version = "0.15.1", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["serde"], optional = true }
 
 rand = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+
+[[test]]
+name = "threads"
+required-features = ["services"]

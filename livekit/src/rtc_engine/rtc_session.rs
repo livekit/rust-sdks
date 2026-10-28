@@ -28,7 +28,9 @@ use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_rpc::api::{RpcError, RpcErrorCode};
-use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
+use livekit_signaling::{
+    SignalClient, SignalEvent, SignalEvents, NEGOTIATED_DATA_CHANNELS_PROTOCOL,
+};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -81,6 +83,11 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+
+// Fixed SCTP stream IDs used when the data channels are created as negotiated; must match the server.
+const NEGOTIATED_RELIABLE_DC_ID: i32 = 100;
+const NEGOTIATED_LOSSY_DC_ID: i32 = 101;
+const NEGOTIATED_DATA_TRACK_DC_ID: i32 = 102;
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
@@ -237,6 +244,8 @@ pub enum SessionEvent {
     SubscribedQualityUpdate {
         update: proto::SubscribedQualityUpdate,
     },
+    /// A publisher answer was applied; dynacast layers must be re-applied.
+    RefreshPublishingLayers,
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -374,6 +383,10 @@ struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
     fast_publish: AtomicBool,
+    /// When this connection attempt began, taken at the top of [`RtcSession::connect`] before
+    /// the peer connections or the signal client exist. Every session is one attempt, so a
+    /// full restart or a join retry times itself from scratch.
+    connect_started: Instant,
 
     publisher_pc: PeerTransport,
     /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
@@ -519,6 +532,7 @@ impl RtcSession {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
@@ -536,7 +550,8 @@ impl RtcSession {
                 true,
             );
 
-            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+            // always try to open negotiated data channels and close them if we know the server doesn't support it after receiving the join response
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter, true)?;
 
             Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
@@ -586,9 +601,28 @@ impl RtcSession {
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
+        let server_protocol =
+            join_response.server_info.as_ref().map(|info| info.protocol).unwrap_or_default();
+        // Dual peer connection has the server open the channels, so there is nothing to save.
+        let use_negotiated_dcs =
+            single_pc_mode && server_protocol >= NEGOTIATED_DATA_CHANNELS_PROTOCOL as i32;
+        log::debug!(
+            "server protocol {}, negotiated data channels: {}",
+            server_protocol,
+            use_negotiated_dcs
+        );
+
         let sent_publisher_offer;
         let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, dcs)) = early_publisher_pc {
+            if let Some((pub_pc, mut dcs)) = early_publisher_pc {
+                if !use_negotiated_dcs {
+                    // The SCTP section is already in the offer, so in-band channels can be
+                    // opened on it without sdp renegotiation.
+                    dcs.0.close();
+                    dcs.1.close();
+                    dcs.2.close();
+                    dcs = Self::create_data_channels(&pub_pc, &emitter, false)?;
+                }
                 if single_pc_mode {
                     pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
                     sent_publisher_offer = publisher_offer.is_some();
@@ -605,7 +639,7 @@ impl RtcSession {
                     proto::SignalTarget::Publisher,
                     single_pc_mode,
                 );
-                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+                let dcs = Self::create_data_channels(&publisher_pc, &emitter, use_negotiated_dcs)?;
                 (publisher_pc, dcs.0, dcs.1, dcs.2)
             };
 
@@ -640,6 +674,7 @@ impl RtcSession {
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
+            connect_started,
             signal_client,
             publisher_pc,
             subscriber_pc,
@@ -735,22 +770,37 @@ impl RtcSession {
     fn create_data_channels(
         publisher_pc: &PeerTransport,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
+        negotiated: bool,
     ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
         let reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
-            DataChannelInit { ordered: true, ..Default::default() },
+            DataChannelInit {
+                ordered: true,
+                negotiated,
+                id: if negotiated { NEGOTIATED_RELIABLE_DC_ID } else { -1 },
+                ..Default::default()
+            },
         )?;
 
-        let lossy_options =
-            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+        let lossy_options = DataChannelInit {
+            ordered: false,
+            max_retransmits: Some(0),
+            negotiated,
+            id: if negotiated { NEGOTIATED_LOSSY_DC_ID } else { -1 },
+            ..Default::default()
+        };
 
         let lossy_dc = publisher_pc
             .peer_connection()
             .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
 
-        let data_track_dc = publisher_pc
-            .peer_connection()
-            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        let data_track_dc = publisher_pc.peer_connection().create_data_channel(
+            DATA_TRACK_DC_LABEL,
+            DataChannelInit {
+                id: if negotiated { NEGOTIATED_DATA_TRACK_DC_ID } else { -1 },
+                ..lossy_options
+            },
+        )?;
         handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
         Ok((reliable_dc, lossy_dc, data_track_dc))
@@ -875,6 +925,13 @@ impl RtcSession {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> PeerConnectionState {
         self.inner.publisher_pc.peer_connection().connection_state()
+    }
+
+    /// Test-only: the publisher PeerConnection's senders. A closed PeerConnection reports none,
+    /// so tests take these before teardown to inspect what the senders still hold afterwards.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.publisher_pc.peer_connection().senders()
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -1395,6 +1452,7 @@ impl SessionInner {
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
+                let _ = self.emitter.send(SessionEvent::RefreshPublishingLayers);
 
                 if self.single_pc_mode {
                     self.process_remote_track_addition(&self.publisher_pc.peer_connection());
@@ -2074,6 +2132,16 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
+
+        // Detach the senders while the publisher PC is still open: libwebrtc refuses
+        // RemoveTrack on a closed PC and `RtpSenderBase::Stop()` keeps the track, so a
+        // server-initiated disconnect (which closes here before the room unpublishes)
+        // would otherwise leave every local track attached to its sender.
+        for sender in self.publisher_pc.peer_connection().senders() {
+            if let Err(err) = self.remove_track(sender) {
+                log::warn!("failed to remove sender from publisher pc before close: {:?}", err);
+            }
+        }
         self.publisher_pc.close();
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.close();
@@ -2346,8 +2414,18 @@ impl SessionInner {
     ///
     /// For the initial connect, where transports start from `New`: reaching `Connected` is
     /// itself the proof, since there is no earlier connection to confuse it with.
+    ///
+    /// This is also where connection setup time is known: from [`Self::connect_started`] to
+    /// the transports reporting connected. It is handed to the publisher transport, which
+    /// lowers the start bitrate hint for a slow connection before the first video offer is
+    /// created. Resumes go through [`Self::wait_pc_reconnected_with_snapshot`] instead and
+    /// keep the estimator they have.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
-        self.wait_pc_connection_inner(None, Duration::ZERO).await
+        self.wait_pc_connection_inner(None, Duration::ZERO).await?;
+        let setup = self.connect_started.elapsed();
+        log::info!("connection setup took {} ms", setup.as_millis());
+        self.publisher_pc.set_connection_setup_time(setup).await;
+        Ok(())
     }
 
     /// Wait for the transports to have *reconnected*, which a resume cannot establish by

@@ -112,6 +112,22 @@ void PeerConnection::set_configuration(RtcConfiguration config) const {
   }
 }
 
+void PeerConnection::set_bitrate(BitrateSettings settings) const {
+  webrtc::BitrateSettings bitrate;
+  if (settings.has_min_bitrate_bps)
+    bitrate.min_bitrate_bps = settings.min_bitrate_bps;
+  if (settings.has_start_bitrate_bps)
+    bitrate.start_bitrate_bps = settings.start_bitrate_bps;
+  if (settings.has_max_bitrate_bps)
+    bitrate.max_bitrate_bps = settings.max_bitrate_bps;
+
+  auto result = peer_connection_->SetBitrate(bitrate);
+
+  if (!result.ok()) {
+    throw std::runtime_error(serialize_error(to_error(result)));
+  }
+}
+
 void PeerConnection::create_offer(
     RtcOfferAnswerOptions options,
     rust::Box<PeerContext> ctx,
