@@ -1,72 +1,100 @@
-# Outgoing-silence encoder experiment
+# Outgoing zero-input encoder scheduling
 
-Research only: this adds no runtime sender optimization. The deferred mode uses
-packet deadlines learned from a continuous reference run (an **oracle**). A real
-codec-owned deadline predictor has not been implemented.
+This branch contains a native WebRTC scheduling candidate in
+`webrtc-sys/libwebrtc/patches/silence_encoder_scheduling.patch`. The native build
+scripts apply it automatically. **Rebuilding just the Rust/Python SDK against
+the existing prebuilt WebRTC tag does not enable this change.**
 
-The buffered source in `webrtc-sys/src/audio_track.cpp` supplies a 10-ms zero frame
-when its queue cannot supply a full frame. This experiment asks whether those
-known-zero frames can be processed later, in order, without changing nonempty
-encoder outputs. It also checks the counterexample of skipping zeros while
-preserving the input RTP timeline. See [the proposed native contract](DESIGN.md).
+The change keeps the existing buffered source's 10-ms clock and every encoder
+call. For exact-zero PCM, it may hold one frame until the next input frame when
+the codec says no work is required before that point. New nonzero input and
+ordered controls flush pending input. Opus uses its current packet boundary;
+RED forwards the inner capability. Unsupported encoders, 10-ms Opus packets and
+Opus audio-network adaptation retain ordinary processing.
 
-## Reproduce on macOS Apple Silicon
+It does not freeze codec state, stop/start the stream, change Opus complexity,
+change RTP timestamps or sleep for an inferred DTX refresh interval. Source,
+resampler, application callbacks and transport timers retain their clocks.
 
-Requires Python 3 and Xcode command-line tools. Use the SDK's pinned artifact;
-this example matches `WEBRTC_TAG = webrtc-a545de4` at base commit `ede8ac53`.
-The archive is a build dependency and should stay outside the repository.
+## Build a usable RTC library
+
+The native interface adds an encoder capability, so all native encoders and
+callers must be rebuilt together. Use the branch's normal native build script,
+then point the FFI build at its matching artifact:
 
 ```sh
-curl -fL -o /tmp/webrtc-outgoing.zip \
-  https://github.com/livekit/rust-sdks/releases/download/webrtc-a545de4/webrtc-mac-arm64-release.zip
-unzip -q /tmp/webrtc-outgoing.zip -d /tmp/webrtc-outgoing
-python3 webrtc-sys/test/outgoing_silence/run.py \
-  --webrtc-dir /tmp/webrtc-outgoing/mac-arm64-release
+git submodule update --init --recursive
+cd webrtc-sys/libwebrtc
+./build_linux.sh --arch x64 --profile release
+cd ../..
+LK_CUSTOM_WEBRTC="$PWD/webrtc-sys/libwebrtc/linux-x64-release" \
+  cargo build --release -p livekit-ffi
 ```
 
-The runner preserves ABI defines from `webrtc.ninja`, including `NDEBUG`.
-Equivalence checks are explicit runtime checks, so release builds retain them.
-It exits nonzero on any failed check and emits CSV on stdout. The standalone
-build recipe currently supports macOS only; it is not wired into SDK CI.
+For macOS arm64 use `build_macos.sh --arch arm64 --profile release` and the
+`mac-arm64-release` artifact instead. The native scripts download their normal
+WebRTC toolchain/dependencies. Run them from `webrtc-sys/libwebrtc`.
 
-## Cases and checks
+Use the resulting library with an existing Python RTC installation:
 
-The deterministic harmonic fixture is generated in memory. It is a voiced-like
-signal, not a speech-quality corpus. No recordings or external audio files are
-needed. Each 101.4-second logical trace contains six 1.5-second active segments
-and silence gaps of 0.2, 2, 30, 60 and 0.2 seconds. Controls at 12, 40 and 65
-seconds update bitrate/loss; the last also resets the encoder.
+```sh
+LIVEKIT_LIB_PATH="$PWD/target/release/liblivekit_ffi.so" python your_agent.py
+```
 
-Eight cases cover initial target bitrates of 24/48 kbps, mono/stereo and DTX
-off/on. Complexity and low-rate complexity are 9; FEC is enabled. The same
-ordered controls apply to all modes, including bitrate changes during silence.
+On macOS the filename is `liblivekit_ffi.dylib`. Keep buffered audio sources;
+this patch does not repair the missing media-time semantics of unbuffered input
+gaps. No Python API change or encoder-quality setting is required.
 
-- Continuous: encode every 10-ms frame.
-- Deferred oracle: retain every encoder call, but process pending zeros at
-  reference packet deadlines, new active input, controls or trace completion.
-  With DTX off, deliberately retain the continuous schedule.
-- Frozen counterexample: omit zero-input calls while advancing absolute input
-  RTP timestamps. Check that active-region packets differ from the reference.
+The `Audio silence native build` workflow builds the complete Linux x64 native
+library and FFI, runs the standalone tests, and uploads
+`livekit-rtc-silence-linux-x64`. It does not publish a release. A new WebRTC
+artifact/tag pin is still required before this can become the SDK's default.
 
-The deferred comparison includes every nonempty output's payload bytes, encoded
-RTP timestamp and logical emission frame. The frozen comparison counts missing
-or unequal packets whose encoded timestamp begins in an active region; it is
-not a perceptual score and does not describe packets crossing a transition.
+## Standalone checks
 
-## Observed result
+Use the rebuilt artifact, not an older downloaded archive:
 
-`results.csv` records a macOS arm64 release run against `webrtc-a545de4`. All
-eight cases passed packet equivalence. With DTX on, each case used 497 logical
-idle work events instead of 9,240 (94.6% fewer), deferring at most 40 frames
-(400 ms). With DTX off, all 10,140 work events remained. Frozen-state active
-packets differed in every case despite accounting for silence in input timestamps.
+```sh
+python webrtc-sys/test/outgoing_silence/run.py --case factory --webrtc-dir /path/to/artifact
+python webrtc-sys/test/outgoing_silence/run.py --case queue --webrtc-dir /path/to/artifact
+python webrtc-sys/test/outgoing_silence/run.py --case runtime --webrtc-dir /path/to/artifact
+```
 
-These counts are **not measured OS wakeups, CPU savings or session capacity**.
-The oracle knows future reference outputs; all zero-frame encoder calls still
-happen. This establishes a scheduling opportunity for the configurations tested,
-not a production algorithm or an independent proof of deadline predictability.
-The maximum observed batch is not a safe hard-coded sleep duration.
+On Linux pass `--cxx` pointing to the native checkout's
+`src/third_party/llvm-build/Release+Asserts/bin/clang++`, or a sufficiently recent
+clang. The runner uses the artifact's Chromium libc++ headers and ABI defines,
+matching `webrtc-sys/build.rs`. On macOS Xcode's `clang++` is sufficient. For the
+queue test, `--sanitize` enables AddressSanitizer and UndefinedBehaviorSanitizer.
+Explicit runtime checks remain enabled with `NDEBUG`.
 
-The harness does not exercise wall-clock adaptation, actual RTP/RTCP, receiver
-NetEq, transport loss, callbacks, filters, E2EE, multiple sinks or OS scheduling.
-Those remain integration requirements before changing runtime behavior.
+The conformance harness uses a simulated clock and generated PCM. Its trace
+includes 30- and 60-second gaps, changing bitrate/loss controls and a reset.
+Cases cover mono/stereo, 24/48 kbps, DTX on/off, packetization from 10 to 120 ms,
+queue backlog, and RED at 20 ms. It compares completed nonempty and DTX-empty
+outputs, payload bytes, timestamps, logical emission frames and RED metadata.
+The queue test covers speech/control preemption, stale budget publication,
+unsupported-capability caching, concurrent admission and joined teardown.
+
+See [DESIGN.md](DESIGN.md) for the ownership and ordering contract, and
+[VALIDATION.md](VALIDATION.md) for observed results and remaining limitations.
+
+## CPU comparison
+
+`rtc_cpu.py` is an optional integration benchmark requiring `livekit`,
+`livekit-api`, `psutil` and the normal `LIVEKIT_*` credentials. It measures
+simultaneous baseline/candidate agent processes, each with four fresh RTC rooms.
+Incoming generated audio stays active; outgoing audio is either active or the
+buffered source's synthetic zeros. Codec formats must match before and after
+measurement, otherwise the trial fails and must be excluded.
+
+```sh
+python webrtc-sys/test/outgoing_silence/rtc_cpu.py \
+  --baseline /path/to/baseline-library --candidate /path/to/candidate-library \
+  --out /tmp/silence-cpu --sessions 4 --repeats 3 --duration 15 --parallel 2
+```
+
+The default benchmark explicitly uses dual peer connections, DTX and RED. Use
+`--single-pc 1` to test single-PC mode, retaining the codec-matching checks.
+Compare libraries built from the same SDK revision and compiler/profile,
+changing only the native scheduling implementation. Fewer queue submissions
+alone are not evidence of lower process CPU or higher session capacity.

@@ -79,6 +79,7 @@ apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
 apply_patch "$COMMAND_DIR/patches/add_deps.patch"
 apply_patch "$COMMAND_DIR/patches/android_use_libunwind.patch"
 apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/silence_encoder_scheduling.patch"
 # livekit prefixed jni
 apply_patch "$COMMAND_DIR/patches/jni_prefix.patch"
 

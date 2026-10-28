@@ -1,4 +1,4 @@
 ---
 webrtc-sys: patch
 ---
-Add a standalone outgoing-silence encoder equivalence experiment and document requirements for future deadline-driven sending.
+Add a native candidate that coalesces outgoing zero-input encoder work within packet boundaries while preserving media timing and ordered controls.

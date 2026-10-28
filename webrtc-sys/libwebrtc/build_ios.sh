@@ -90,6 +90,7 @@ apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
 apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
 apply_patch "$COMMAND_DIR/patches/add_deps.patch"
 apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/silence_encoder_scheduling.patch"
 
 cd ..
 
