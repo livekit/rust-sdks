@@ -490,7 +490,7 @@ fn on_new_video_stream(
     server: &'static FfiServer,
     new_stream: proto::NewVideoStreamRequest,
 ) -> FfiResult<proto::NewVideoStreamResponse> {
-    let stream_info = video_stream::FfiVideoStream::from_track(server, new_stream)?;
+    let stream_info = video_stream::VideoStream::from_track(server, new_stream)?;
     Ok(proto::NewVideoStreamResponse { stream: stream_info })
 }
 
@@ -498,7 +498,7 @@ fn on_video_stream_from_participant(
     server: &'static FfiServer,
     request: proto::VideoStreamFromParticipantRequest,
 ) -> FfiResult<proto::VideoStreamFromParticipantResponse> {
-    let stream_info = video_stream::FfiVideoStream::from_participant(server, request)?;
+    let stream_info = video_stream::VideoStream::from_participant(server, request)?;
     Ok(proto::VideoStreamFromParticipantResponse { stream: stream_info })
 }
 
