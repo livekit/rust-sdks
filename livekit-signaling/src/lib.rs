@@ -177,6 +177,24 @@ pub struct SignalOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Signal protocol version sent to the server. Defaults to [`PROTOCOL_VERSION`].
+    ///
+    /// Lower it when the caller's media stack does not implement what a newer version implies.
+    /// Supported range: 13 to [`PROTOCOL_VERSION`]. Below 13, the server does not set
+    /// `LeaveRequest.action`, and this crate reads it on resume.
+    pub protocol_version: u32,
+    /// Capabilities advertised to the server in `ClientInfo`.
+    ///
+    /// The default includes [`CapPacketTrailer`](proto::client_info::Capability::CapPacketTrailer),
+    /// which asks the server to forward video frames with their trailers. Leave it out when the
+    /// caller's media stack cannot strip them.
+    pub client_capabilities: Vec<proto::client_info::Capability>,
+    /// Client protocol advertised to other participants in `ClientInfo.client_protocol`.
+    /// Defaults to [`CLIENT_PROTOCOL_DATA_STREAM_V2`].
+    ///
+    /// Advertise-only: other participants read it to decide what to send this client, but
+    /// nothing in this crate changes behavior on it.
+    pub client_protocol: i32,
 }
 
 impl Default for SignalOptions {
@@ -187,6 +205,9 @@ impl Default for SignalOptions {
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            protocol_version: PROTOCOL_VERSION,
+            client_capabilities: CLIENT_CAPABILITIES.to_vec(),
+            client_protocol: CLIENT_PROTOCOL_VERSION,
         }
     }
 }
@@ -932,12 +953,12 @@ fn create_join_request_param(
     let client_info = proto::ClientInfo {
         sdk: client_info_sdk_for_name(&options.sdk_options.sdk) as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
-        protocol: PROTOCOL_VERSION as i32,
+        protocol: options.protocol_version as i32,
         os,
         os_version,
         device_model,
-        capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
-        client_protocol: CLIENT_PROTOCOL_VERSION,
+        capabilities: options.client_capabilities.iter().map(|c| *c as i32).collect(),
+        client_protocol: options.client_protocol,
         other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
     };
@@ -1056,8 +1077,8 @@ fn get_livekit_url(
             .append_pair("os", os_info.os_type().to_string().as_str())
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
-            .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("protocol", options.protocol_version.to_string().as_str())
+            .append_pair("client_protocol", options.client_protocol.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
@@ -1072,9 +1093,13 @@ fn get_livekit_url(
         }
 
         // parse client capabilities
-        if !CLIENT_CAPABILITIES.is_empty() {
-            let caps =
-                CLIENT_CAPABILITIES.iter().map(|c| c.as_str_name()).collect::<Vec<_>>().join(",");
+        if !options.client_capabilities.is_empty() {
+            let caps = options
+                .client_capabilities
+                .iter()
+                .map(|c| c.as_str_name())
+                .collect::<Vec<_>>()
+                .join(",");
             lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
@@ -1735,6 +1760,38 @@ mod tests {
         assert_eq!(query.get("version").map(String::as_str), Some("9.9.9-test"));
     }
 
+    /// A caller with an older media stack advertises its own protocol and capabilities on both
+    /// signalling paths.
+    #[test]
+    fn livekit_url_reports_the_configured_protocol_and_capabilities() {
+        use proto::client_info::Capability;
+        let mut io = SignalOptions::default();
+        io.protocol_version = 16;
+        io.client_capabilities = vec![Capability::CapCompressionDeflateRaw];
+        io.client_protocol = 3;
+
+        let v0 =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let query: std::collections::HashMap<_, _> = v0.query_pairs().into_owned().collect();
+        assert_eq!(query.get("protocol").map(String::as_str), Some("16"));
+        assert_eq!(
+            query.get("capabilities").map(String::as_str),
+            Some("CAP_COMPRESSION_DEFLATE_RAW")
+        );
+        assert_eq!(query.get("client_protocol").map(String::as_str), Some("3"));
+
+        let v1 = get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = v1
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let client_info =
+            decode_join_request_param_for_test(&join_request_param).client_info.unwrap();
+        assert_eq!(client_info.protocol, 16);
+        assert_eq!(client_info.capabilities, vec![Capability::CapCompressionDeflateRaw as i32]);
+        assert_eq!(client_info.client_protocol, 3);
+    }
+
     #[test]
     fn livekit_url_v1_join_request_reports_cpp_sdk_and_version() {
         let io = signal_options_for_cpp("9.9.9-test");
@@ -1814,23 +1871,36 @@ mod tests {
         assert_eq!(validate_url.scheme(), "https");
     }
 
+    /// The defaults advertise what the Rust SDK implements, on both signalling paths.
     #[test]
-    fn livekit_url_includes_client_capabilities() {
+    fn livekit_url_reports_the_default_protocol_and_capabilities() {
         let io = SignalOptions::default();
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
 
-        let capabilities = lk_url
-            .query_pairs()
-            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
-            .unwrap();
+        let v0 =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let query: std::collections::HashMap<_, _> = v0.query_pairs().into_owned().collect();
         let expected = CLIENT_CAPABILITIES
             .iter()
             .map(|capability| capability.as_str_name())
             .collect::<Vec<_>>()
             .join(",");
+        assert_eq!(query.get("protocol"), Some(&PROTOCOL_VERSION.to_string()));
+        assert_eq!(query.get("capabilities"), Some(&expected));
+        assert_eq!(query.get("client_protocol"), Some(&CLIENT_PROTOCOL_VERSION.to_string()));
 
-        assert_eq!(capabilities, expected);
+        let v1 = get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = v1
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let client_info =
+            decode_join_request_param_for_test(&join_request_param).client_info.unwrap();
+        assert_eq!(client_info.protocol, PROTOCOL_VERSION as i32);
+        assert_eq!(client_info.client_protocol, CLIENT_PROTOCOL_VERSION);
+        assert_eq!(
+            client_info.capabilities,
+            CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect::<Vec<_>>()
+        );
     }
 
     // -----------------------------------------------------------------------
