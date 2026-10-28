@@ -36,10 +36,11 @@ use crate::messages::{Message, MessageOrigin, MessageUpdate};
 /// Usually created through [`From`]: pass a [`TokenSourceConfigurable`] paired
 /// with the options to fetch with, or a [`literal`](livekit_token_source::literal)
 /// source directly. Wrap other fixed sources with [`SessionTokenSource::fixed`].
-#[non_exhaustive]
+pub struct SessionTokenSource(Source);
+
 // Built once per session and kept behind an `Arc`, so its size does not matter.
 #[allow(clippy::large_enum_variant)]
-pub enum SessionTokenSource {
+enum Source {
     /// A source whose credentials take no options.
     Fixed(Box<dyn TokenSourceFixed + Send + Sync>),
     /// A source fetched with the given options, e.g. to dispatch an agent
@@ -48,34 +49,24 @@ pub enum SessionTokenSource {
 }
 
 impl SessionTokenSource {
+    /// Wraps a source whose credentials take no options.
+    pub fn fixed(source: impl TokenSourceFixed + Send + Sync + 'static) -> Self {
+        Self(Source::Fixed(Box::new(source)))
+    }
+
     async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
-        match self {
-            Self::Fixed(source) => source.fetch().await,
-            Self::Configurable(source, options) => source.fetch(options).await,
+        match &self.0 {
+            Source::Fixed(source) => source.fetch().await,
+            Source::Configurable(source, options) => source.fetch(options).await,
         }
     }
 
     /// Drops cached credentials, so the next start fetches new ones. A fixed
     /// source has nothing to drop.
     pub(crate) async fn invalidate(&self) {
-        if let Self::Configurable(source, _) = self {
+        if let Source::Configurable(source, _) = &self.0 {
             source.invalidate().await;
         }
-    }
-}
-
-impl SessionTokenSource {
-    /// Wraps a source whose credentials take no options.
-    pub fn fixed(source: impl TokenSourceFixed + Send + Sync + 'static) -> Self {
-        Self::Fixed(Box::new(source))
-    }
-
-    /// Wraps a source fetched with `options`.
-    pub fn configurable(
-        source: impl TokenSourceConfigurable + Send + Sync + 'static,
-        options: TokenSourceFetchOptions,
-    ) -> Self {
-        Self::Configurable(Box::new(source), options)
     }
 }
 
@@ -91,7 +82,7 @@ impl<T: TokenSourceConfigurable + Send + Sync + 'static> From<(T, TokenSourceFet
     for SessionTokenSource
 {
     fn from((source, options): (T, TokenSourceFetchOptions)) -> Self {
-        Self::Configurable(Box::new(source), options)
+        Self(Source::Configurable(Box::new(source), options))
     }
 }
 
@@ -382,7 +373,7 @@ impl Session {
             id: info.id,
             timestamp: info.timestamp,
             origin: MessageOrigin::UserInput,
-            participant_identity: Some(local_participant.identity()),
+            participant_identity: local_participant.identity(),
             text: text.to_owned(),
             is_final: true,
         }))
@@ -434,6 +425,7 @@ impl Drop for StartGuard<'_> {
 
 /// The connection state of a [`Session`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SessionConnectionState {
     /// Not started, ended, or disconnected.
     Disconnected,

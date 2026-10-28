@@ -1,10 +1,13 @@
-use std::env;
 use std::error::Error;
+use std::{env, time::Duration};
 
+use livekit::options::TrackPublishOptions;
+use livekit::prelude::{LocalAudioTrack, LocalTrack, PlatformAudio, TrackSource};
 use livekit_session::{
     Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionSnapshot,
     SessionTokenSource,
 };
+
 use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -33,7 +36,7 @@ fn print_message(message: &Message) {
         MessageOrigin::AgentTranscript => "agent",
         MessageOrigin::UserTranscript => "you (transcribed)",
         MessageOrigin::UserInput => return,
-        _ => message.participant_identity.as_ref().map_or("chat", |p| p.as_str()),
+        _ => message.participant_identity.as_str(),
     };
     println!("{speaker}: {}", message.text);
 }
@@ -42,13 +45,40 @@ fn print_state(snapshot: &SessionSnapshot) {
     println!("[{:?}, agent {:?}]", snapshot.connection_state, snapshot.agent_state);
 }
 
+/// Publishes the platform microphone so the agent can hear the user.
+async fn publish_microphone(
+    session: &Session,
+    audio: &PlatformAudio,
+) -> Result<(), Box<dyn Error>> {
+    let room = session.room().ok_or("session has no room")?;
+    let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+    let options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
+    room.local_participant().publish_track(LocalTrack::Audio(track), options).await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let session = Session::new(token_source()?, SessionOptions::default());
+    // Platform audio captures the microphone and plays the agent's audio, with
+    // echo cancellation between the two. It has to exist before the room
+    // connects, and stay alive for as long as the session runs.
+    let voice = env::args().any(|arg| arg == "--voice");
+    let audio = voice.then(PlatformAudio::new).transpose()?;
+
+    let session = Session::new(
+        token_source()?,
+        SessionOptions {
+            agent_connect_timeout: Duration::from_secs(15),
+            room_options: Default::default(),
+        },
+    );
     let mut events = session.subscribe();
     session.start().await?;
+    if let Some(audio) = &audio {
+        publish_microphone(&session, audio).await?;
+    }
 
     // `changed` reports only later updates, so print where the session starts.
     let mut state = session.state();

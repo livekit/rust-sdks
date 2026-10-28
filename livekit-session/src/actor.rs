@@ -278,6 +278,12 @@ impl SessionActor {
             }
         };
 
+        // Agents do not rejoin a room that already existed, so the next start
+        // needs a fresh token rather than the cached one for this room. Done
+        // while the commands are still open, so that a `start()` prompted by
+        // a disconnect keeps failing with `AlreadyStarted` until the cache is
+        // clear.
+        self.source.invalidate().await;
         // Closed before the final snapshot, so that a `start()` prompted by it
         // already finds this actor gone.
         self.commands.close();
@@ -292,12 +298,6 @@ impl SessionActor {
             }
             Exit::Disconnected(reason) => {
                 log::info!("session room disconnected: {reason:?}");
-                // A disconnect the app did not ask for: agents do not rejoin a
-                // room that already existed, so the next start needs a fresh
-                // token rather than the cached one for this room.
-                if reason != DisconnectReason::ClientInitiated {
-                    self.source.invalidate().await;
-                }
             }
         }
         self.shared.publish(self.generation, SessionSnapshot::default());
@@ -387,7 +387,7 @@ impl SessionActor {
                     id: info.id,
                     timestamp: info.timestamp,
                     origin: MessageOrigin::Chat,
-                    participant_identity: Some(participant_identity),
+                    participant_identity,
                     text,
                     is_final: true,
                 })

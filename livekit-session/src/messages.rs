@@ -39,7 +39,7 @@ pub struct Message {
     /// Where the message came from.
     pub origin: MessageOrigin,
     /// The participant who sent or spoke the message.
-    pub participant_identity: Option<ParticipantIdentity>,
+    pub participant_identity: ParticipantIdentity,
     /// The text received so far.
     pub text: String,
     /// Whether `text` is complete. An incomplete transcript is updated again.
@@ -66,7 +66,7 @@ pub(crate) struct MessageUpdate {
     pub id: String,
     pub timestamp: DateTime<Utc>,
     pub origin: MessageOrigin,
-    pub participant_identity: Option<ParticipantIdentity>,
+    pub participant_identity: ParticipantIdentity,
     pub text: String,
     pub is_final: bool,
 }
@@ -174,7 +174,7 @@ impl TranscriptAggregator {
             id: segment_id,
             timestamp: partial.timestamp,
             origin: stream.origin(),
-            participant_identity: Some(stream.participant_identity.clone()),
+            participant_identity: stream.participant_identity.clone(),
             text: partial.text.clone(),
             is_final: false,
         })
@@ -205,7 +205,7 @@ impl TranscriptAggregator {
             id,
             timestamp: partial.timestamp,
             origin: stream.origin(),
-            participant_identity: Some(participant_identity),
+            participant_identity,
             text: partial.text,
             is_final: true,
         })
@@ -218,7 +218,7 @@ impl TranscriptAggregator {
 pub(crate) struct MessageStore {
     /// Ordered by `seq`.
     messages: Vec<Message>,
-    index: HashMap<(String, Option<ParticipantIdentity>), usize>,
+    index: HashMap<(String, ParticipantIdentity), usize>,
     next_seq: u64,
 }
 
@@ -434,7 +434,7 @@ mod tests {
             id: id.into(),
             timestamp: at(seconds),
             origin: MessageOrigin::Chat,
-            participant_identity: Some("remote".to_owned().into()),
+            participant_identity: "remote".to_owned().into(),
             text: text.into(),
             is_final: true,
         }

@@ -40,7 +40,10 @@ use livekit_token_source::{
     literal, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
     TokenSourceResponse, TokenSourceResult,
 };
+use tokio::io::AsyncReadExt;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot;
 use tokio::time::{sleep, timeout};
 
 use crate::actor::{lock, Shared};
@@ -353,7 +356,7 @@ async fn messages_merge_chat_and_transcripts() -> Result<()> {
     assert_eq!(done.origin, MessageOrigin::AgentTranscript);
     assert_eq!(done.text, "Hello");
     assert_eq!(done.seq, partial.seq);
-    assert_eq!(done.participant_identity.as_ref().map(|p| p.as_str()), Some(AGENT));
+    assert_eq!(done.participant_identity.as_str(), AGENT);
 
     // Chat from the agent reaches the feed too.
     agent
@@ -449,7 +452,7 @@ impl TokenSourceConfigurable for CountingSource {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn unexpected_disconnect_invalidates_the_token() -> Result<()> {
+async fn every_disconnect_invalidates_the_token() -> Result<()> {
     let env = TestEnv::new();
     let invalidations = Arc::new(AtomicUsize::new(0));
     let source = CountingSource {
@@ -463,7 +466,7 @@ async fn unexpected_disconnect_invalidates_the_token() -> Result<()> {
 
     session.start().await?;
     session.end().await?;
-    assert_eq!(invalidations.load(Ordering::SeqCst), 0, "end() must not invalidate");
+    assert_eq!(invalidations.load(Ordering::SeqCst), 1, "end() must invalidate");
 
     session.start().await?;
     let http_url = env.url.replacen("ws", "http", 1);
@@ -474,12 +477,15 @@ async fn unexpected_disconnect_invalidates_the_token() -> Result<()> {
         s.connection_state == SessionConnectionState::Disconnected
     })
     .await?;
-    assert_eq!(invalidations.load(Ordering::SeqCst), 1);
+    assert_eq!(invalidations.load(Ordering::SeqCst), 2);
     assert!(session.room().is_none());
     assert!(matches!(session.end().await, Err(SessionEndError::NotStarted)));
 
     session.start().await?;
-    session.end().await?;
+    let weak_shared = weak_shared(&session);
+    drop(session);
+    eventually("the actor to stop", || weak_shared.upgrade().is_none()).await?;
+    assert_eq!(invalidations.load(Ordering::SeqCst), 3, "dropping must invalidate");
     Ok(())
 }
 
@@ -509,6 +515,97 @@ async fn end_cancels_a_pending_start() -> Result<()> {
     assert_eq!(session.snapshot(), SessionSnapshot::default());
     assert!(is_idle(&session));
     Ok(())
+}
+
+/// A signal server that accepts one connection and never answers, so
+/// `Room::connect` stays in its handshake.
+struct SilentServer {
+    url: String,
+    /// Resolves once the client connected.
+    accepted: oneshot::Receiver<()>,
+    /// Resolves once the client hung up.
+    closed: oneshot::Receiver<()>,
+}
+
+impl SilentServer {
+    async fn bind() -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("ws://{}", listener.local_addr()?);
+        let (accepted_tx, accepted) = oneshot::channel();
+        let (closed_tx, closed) = oneshot::channel();
+        tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let _ = accepted_tx.send(());
+            // Reads the handshake request and anything after it, answering
+            // nothing, until the client closes the connection.
+            let mut buf = [0; 1024];
+            while matches!(socket.read(&mut buf).await, Ok(n) if n > 0) {}
+            let _ = closed_tx.send(());
+        });
+        Ok(Self { url, accepted, closed })
+    }
+
+    /// A session connecting to this server.
+    fn session(&self, env: &TestEnv) -> Session {
+        let mut options = SessionOptions::default();
+        options.room_options.join_retries = 0;
+        // Long enough that only a cancel can end the handshake.
+        options.room_options.connect_timeout = Duration::from_secs(60);
+        Session::new(literal(self.url.clone(), env.token(USER, |t| t)), options)
+    }
+}
+
+/// Asserts that a start cancelled during `Room::connect` hung up on the server,
+/// left the session idle without spawning an actor, and leaves no task behind.
+async fn assert_cancelled_connect_left_nothing(
+    session: &Session,
+    closed: oneshot::Receiver<()>,
+    baseline_tasks: usize,
+) -> Result<()> {
+    timeout(WAIT, closed)
+        .await
+        .map_err(|_| anyhow!("the half-open signal connection was not closed"))??;
+    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert!(is_idle(session));
+    assert_eq!(weak_shared(session).strong_count(), 1, "an actor was spawned");
+
+    let metrics = tokio::runtime::Handle::current().metrics();
+    eventually("tasks to return to baseline", || metrics.num_alive_tasks() <= baseline_tasks).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn end_cancels_a_start_during_connect() -> Result<()> {
+    let env = TestEnv::new();
+    let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
+    let server = SilentServer::bind().await?;
+    let session = server.session(&env);
+    let start = tokio::spawn({
+        let session = session.clone();
+        async move { session.start().await }
+    });
+    timeout(WAIT, server.accepted).await??;
+
+    session.end().await?;
+    assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
+    assert_cancelled_connect_left_nothing(&session, server.closed, baseline_tasks).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_a_start_during_connect_resets_the_session() -> Result<()> {
+    let env = TestEnv::new();
+    let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
+    let server = SilentServer::bind().await?;
+    let session = server.session(&env);
+    let mut start = Box::pin(session.start());
+    tokio::select! {
+        result = &mut start => bail!("start resolved during the handshake: {result:?}"),
+        accepted = timeout(WAIT, server.accepted) => accepted??,
+    }
+
+    drop(start);
+    assert_cancelled_connect_left_nothing(&session, server.closed, baseline_tasks).await
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -29,9 +29,9 @@ See [`examples/session`](../examples/session) for a complete text chat.
 - a `literal` source holding a pre-generated token;
 - any other fixed source, wrapped with `SessionTokenSource::fixed`.
 
-When the room disconnects without the app asking for it, the session calls
-`TokenSourceConfigurable::invalidate` before reporting the disconnect. Agents do not rejoin a room
-that already existed, so the next `start` needs fresh credentials rather than cached ones.
+On every disconnect, whether through `end`, by dropping the session or unexpectedly, the session
+calls `TokenSourceConfigurable::invalidate` before reporting it. Agents do not rejoin a room that
+already existed, so the next `start` needs fresh credentials rather than cached ones.
 
 ## Lifecycle
 

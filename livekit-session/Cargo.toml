@@ -29,8 +29,21 @@ __lk-e2e-test = []
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+# See the equivalent table in `livekit/Cargo.toml` for the encoding.
+#
+# Curated rather than a powerset: every TLS feature is forwarded to `livekit`,
+# so most powerset entries rebuild `livekit` underneath, and depth 2 would
+# spend 22 checks mostly on two TLS backends at once or `__lk-e2e-test` paired
+# with something unrelated, which nobody can select. The TLS forwards
+# themselves are covered by `livekit`'s own list.
 [package.metadata.feature-combinations]
-mode = "powerset"
+mode = "curated"
+check = [
+    ["default"],                                        # a plain `cargo check`
+    [],                                                 # --no-default-features
+    ["native", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-native-roots"],             # defaults *plus* one
+]
 
 [dependencies]
 chrono = { workspace = true }
@@ -47,4 +60,4 @@ async-trait = "0.1"
 livekit-api = { workspace = true }
 livekit-protocol = { workspace = true }
 livekit-token = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

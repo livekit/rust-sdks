@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 env_logger = { workspace = true }
+livekit = { workspace = true }
 livekit-session = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-token-source = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

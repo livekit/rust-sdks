@@ -1,5 +1,5 @@
 ---
-livekit-session: minor
+livekit-session: patch
 ---
 
-Add the `livekit-session` crate with its agent state model (`AgentState`, `AgentFailure` and their predicates) and message feed types (`Message`, `MessageOrigin`), the groundwork for a `Session` that manages a conversation with a LiveKit agent.
+Add the `livekit-session` crate, whose `Session` fetches credentials from a token source, connects a room, projects the agent's state (`AgentState`) into a `watch` channel, and merges chat and transcripts into one message feed, with a README and an `examples/session` text chat.
