@@ -19,7 +19,7 @@ use crate::constants::{
 use crate::transport::{RpcTransport, RpcTransportError};
 use crate::types::{RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES};
 use livekit_common::ParticipantIdentity;
-use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
+use livekit_data_stream::api::{SendTextOptions, StreamReader, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
@@ -196,7 +196,7 @@ impl RpcServerManager {
                 let mut attributes = HashMap::new();
                 attributes.insert(ATTR_REQUEST_ID.to_string(), request_id.clone());
 
-                let options = StreamTextOptions::new_with_topic(RPC_RESPONSE_TOPIC)
+                let options = SendTextOptions::new_with_topic(RPC_RESPONSE_TOPIC)
                     .with_attributes(attributes)
                     .with_destination_identity(caller_identity.clone());
 

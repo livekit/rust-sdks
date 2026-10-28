@@ -3870,6 +3870,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3919,6 +3920,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-signaling",
  "livekit-token",
  "log",
  "once_cell",

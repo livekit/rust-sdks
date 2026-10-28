@@ -603,9 +603,11 @@ impl RtcSession {
 
         let server_protocol =
             join_response.server_info.as_ref().map(|info| info.protocol).unwrap_or_default();
-        // Dual peer connection has the server open the channels, so there is nothing to save.
-        let use_negotiated_dcs =
-            single_pc_mode && server_protocol >= NEGOTIATED_DATA_CHANNELS_PROTOCOL as i32;
+        let use_negotiated_dcs = uses_negotiated_data_channels(
+            single_pc_mode,
+            server_protocol,
+            options.signal_options.protocol_version,
+        );
         log::debug!(
             "server protocol {}, negotiated data channels: {}",
             server_protocol,
@@ -925,6 +927,13 @@ impl RtcSession {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> PeerConnectionState {
         self.inner.publisher_pc.peer_connection().connection_state()
+    }
+
+    /// Test-only: the publisher PeerConnection's senders. A closed PeerConnection reports none,
+    /// so tests take these before teardown to inspect what the senders still hold afterwards.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.publisher_pc.peer_connection().senders()
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -2125,6 +2134,16 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
+
+        // Detach the senders while the publisher PC is still open: libwebrtc refuses
+        // RemoveTrack on a closed PC and `RtpSenderBase::Stop()` keeps the track, so a
+        // server-initiated disconnect (which closes here before the room unpublishes)
+        // would otherwise leave every local track attached to its sender.
+        for sender in self.publisher_pc.peer_connection().senders() {
+            if let Err(err) = self.remove_track(sender) {
+                log::warn!("failed to remove sender from publisher pc before close: {:?}", err);
+            }
+        }
         self.publisher_pc.close();
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.close();
@@ -2868,9 +2887,37 @@ macro_rules! make_rtc_config {
 make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
 make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
+/// Whether the data channels are created as negotiated rather than opened in-band.
+///
+/// Both sides must speak [`NEGOTIATED_DATA_CHANNELS_PROTOCOL`]: the server decides from the
+/// protocol the client advertised, so a client that advertises less must not go by the server's
+/// protocol alone. Dual peer connection has the server open the channels, so there is nothing to
+/// save there.
+fn uses_negotiated_data_channels(
+    single_pc_mode: bool,
+    server_protocol: i32,
+    client_protocol: u32,
+) -> bool {
+    single_pc_mode
+        && server_protocol.min(client_protocol as i32) >= NEGOTIATED_DATA_CHANNELS_PROTOCOL as i32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{
+        parse_sdp_max_message_size, recovery_decision, uses_negotiated_data_channels,
+        DEFAULT_MAX_MESSAGE_SIZE,
+    };
+
+    /// The server picks negotiated data channels from the protocol the client advertised, so a
+    /// client advertising 16 to a protocol 18 server must open them in-band, as the server does.
+    #[test]
+    fn negotiated_data_channels_need_both_sides_at_protocol_18() {
+        assert!(!uses_negotiated_data_channels(true, 18, 16));
+        assert!(!uses_negotiated_data_channels(true, 16, 18));
+        assert!(uses_negotiated_data_channels(true, 18, 18));
+        assert!(!uses_negotiated_data_channels(false, 18, 18));
+    }
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));

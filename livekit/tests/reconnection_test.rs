@@ -129,6 +129,19 @@ async fn test_full_reconnect_recovers() -> Result<()> {
     assert_recovers(room, events, SimulateScenario::FullReconnect).await
 }
 
+// The full reconnect republishes through senders the old session detached on close.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_full_reconnect_with_published_track_recovers() -> Result<()> {
+    let (room, events) = test_rooms(1).await?.pop().unwrap();
+    let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+    let track = LocalVideoTrack::create_video_track("track", RtcVideoSource::Native(source));
+    room.local_participant()
+        .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
+        .await?;
+    assert_recovers(room, events, SimulateScenario::FullReconnect).await
+}
+
 /// A full reconnect republishes tracks from a detached task that marks the room `Connected` when
 /// it finishes. Closing the room while that task waits on the server must not let it bring the
 /// room back: once closed, the room stays `Disconnected`.
@@ -455,6 +468,8 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
         .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
         .await?;
     assert!(publication.track().is_some());
+    // A closed PeerConnection reports no senders, so take them before the room ends.
+    let senders = room.publisher_senders();
 
     let http_url = server_url.replacen("ws", "http", 1);
     RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
@@ -473,6 +488,10 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
 
     assert_eq!(reason, livekit::DisconnectReason::RoomDeleted);
     assert_eq!(room.connection_state(), ConnectionState::Disconnected);
+    assert!(
+        senders.iter().all(|sender| sender.track().is_none()),
+        "the closed publisher PeerConnection still holds the local track"
+    );
 
     timeout(Duration::from_secs(5), async {
         while publication.track().is_some() {

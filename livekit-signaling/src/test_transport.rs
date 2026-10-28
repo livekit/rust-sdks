@@ -44,9 +44,13 @@ use livekit_protocol as proto;
 use prost::Message as _;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, Once,
+    Arc, Mutex, Once,
 };
 use tokio::sync::Mutex as AsyncMutex;
+
+/// Every URL the mock's HTTP client was asked for. Tests share it, so assert on a host unique
+/// to the test.
+pub static HTTP_REQUESTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 // ---------------------------------------------------------------------------
 // MockConn: yields one canned Pong frame then None
@@ -137,6 +141,8 @@ impl livekit_net::HttpClient for MockTransport {
         headers: Vec<Header>,
         _body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
+        HTTP_REQUESTS.lock().unwrap().push(url.clone());
+
         // Rule 1: require a non-empty Bearer token.
         // Any test that expects Ok() from validate() or fetch_from_endpoint()
         // therefore implicitly proves the Bearer header was forwarded.
