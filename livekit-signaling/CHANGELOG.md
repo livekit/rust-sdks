@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.8 (2026-10-28)
+
+### Features
+
+- Create the well-known data channels as negotiated (fixed IDs) when the server supports it (protocol 18), saving the data channel open handshake round trip. Falls back to in-band channels against older servers.
+- Add `SignalOptions::protocol_version`, `SignalOptions::client_capabilities` and `SignalOptions::client_protocol` so a caller whose media stack lags behind the Rust SDK can advertise its own protocol versions and capabilities.
+- Add `SignalOptions::region_failover` so a caller that runs its own region failover can turn off the retry on other LiveKit Cloud regions in `SignalClient::connect`.
+
+### Fixes
+
+- Add `InferenceGrants` and `AccessToken::with_inference_grants`, so Rust services can mint tokens for LiveKit Inference.
+- Add `ObservabilityGrants` and `AccessToken::with_observability_grants`, so Rust services can mint tokens that publish observability data.
+- Remove the `use_legacy_data_streams` migration flag. The FFI `RoomDataStreamOptions.use_legacy_client_implementation` field is now deprecated and ignored, and the hidden `RoomDataStreamOptions::with_legacy_client_implementation` builder and the hidden `SignalOptions::use_legacy_data_streams` field are gone; clients always advertise data streams v2 support.
+
 ## 0.1.7 (2026-10-20)
 
 ### Fixes

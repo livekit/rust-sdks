@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.10.0 (2026-10-28)
+
+### Breaking Changes
+
+- Add `ObservabilityGrants` and `AccessToken::with_observability_grants`, so Rust services can mint tokens that publish observability data.
+
+### Features
+
+- Create the well-known data channels as negotiated (fixed IDs) when the server supports it (protocol 18), saving the data channel open handshake round trip. Falls back to in-band channels against older servers.
+
+### Fixes
+
+- Add `InferenceGrants` and `AccessToken::with_inference_grants`, so Rust services can mint tokens for LiveKit Inference.
+- livekit-signaling: add an opt-out for region failover in connect - #1567 (@lukasIO)
+- livekit-signaling: let callers set the advertised protocol and capabilities - #1569 (@lukasIO)
+- Remove the `use_legacy_data_streams` migration flag. The FFI `RoomDataStreamOptions.use_legacy_client_implementation` field is now deprecated and ignored, and the hidden `RoomDataStreamOptions::with_legacy_client_implementation` builder and the hidden `SignalOptions::use_legacy_data_streams` field are gone; clients always advertise data streams v2 support.
+
 ## 0.9.1 (2026-10-20)
 
 ### Fixes
