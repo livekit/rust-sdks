@@ -53,8 +53,10 @@ mod rtc_events;
 mod rtc_session;
 
 // Re-exported to preserve the public `rtc_engine::RECONNECT_*` paths.
+#[allow(deprecated)]
+pub use reconnect_strategy::RECONNECT_BACKOFF_MULTIPLIER;
 pub use reconnect_strategy::{
-    RECONNECT_ATTEMPTS, RECONNECT_BACKOFF_MULTIPLIER, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY,
+    RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, RECONNECT_MAX_DURATION,
 };
 
 pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
@@ -291,7 +293,7 @@ struct EngineInner {
     reconnecting_lock: AsyncRwLock<()>,
 
     // Signalled when a server-requested reconnect wants the next attempt to fire
-    // immediately, collapsing the exponential backoff wait between attempts.
+    // immediately, collapsing the backoff wait between attempts.
     retry_now_notify: Arc<Notify>,
     /// Test-only fault injection: number of upcoming resume attempts to force to
     /// fail. Each forced failure decrements this counter and makes
@@ -974,6 +976,9 @@ impl EngineInner {
         let mut resuming_emitted = false;
         let mut restarting_emitted = false;
 
+        let started = tokio::time::Instant::now();
+        let deadline = started + RECONNECT_MAX_DURATION;
+
         for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
@@ -982,6 +987,15 @@ impl EngineInner {
 
             if is_closed {
                 return Err(EngineError::Connection("attempt canncelled, engine is closed".into()));
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                log::error!(
+                    "reconnect deadline of {:?} reached after {} attempts",
+                    RECONNECT_MAX_DURATION,
+                    i - 1
+                );
+                break;
             }
 
             if full_reconnect {
@@ -1072,7 +1086,8 @@ impl EngineInner {
                 }
             }
 
-            // Exponential backoff with full jitter between attempts (DELTA 3).
+            // Quadratic backoff plus up to 1 s of jitter between attempts (DELTA 3,
+            // see reconnect_strategy).
             // A server-requested reconnect signals retry_now_notify to collapse
             // this wait so the next attempt fires immediately; a close signals
             // close_notifier to break out of the loop early (the next iteration's
@@ -1081,8 +1096,9 @@ impl EngineInner {
                 break; // no attempt left to wait for
             }
             let backoff = reconnect_strategy::delay(i);
+            let wake = deadline.min(tokio::time::Instant::now() + backoff);
             tokio::select! {
-                _ = tokio::time::sleep(backoff) => {}
+                _ = tokio::time::sleep_until(wake) => {}
                 _ = self.retry_now_notify.notified() => {
                     log::debug!("retry_now signalled, skipping reconnect backoff");
                 }
@@ -1093,7 +1109,7 @@ impl EngineInner {
         }
 
         Err(EngineError::Connection(
-            format!("failed to reconnect after {}", RECONNECT_ATTEMPTS).into(),
+            format!("gave up reconnecting after {:?}", started.elapsed()).into(),
         ))
     }
 

@@ -12,8 +12,8 @@
 --      queue), not one opaque cross-layer sequence.
 --   2. Accurate lifecycle: a resume that escalates to a full reconnect now also
 --      emits Restarting; exhaustion reports the original cause, not `unknown`.
---   3. Backoff: exponential delay with full jitter, attempt-capped, replacing
---      the fixed 5s interval.
+--   3. Backoff: quadratic delay plus jitter, attempt- and time-capped,
+--      replacing the fixed 5s interval.
 --   4. Monotonic reconnect latch: a terminal `revoked` permission state replaces
 --      the ad-hoc `can_reconnect` boolean.
 --   5. Region fallback in scope: region-URL fetch is cloud-only and never masks
@@ -222,15 +222,18 @@ config {
     join_retries: Integer = 3
     -- Per signalling-link connect attempt timeout (SIGNAL_CONNECT_TIMEOUT).
     connect_timeout: Duration = 5.seconds
-    -- DELTA 3: exponential backoff with full jitter, attempt-capped.
-    -- Per-attempt nominal delay = min(reconnect_max_delay_ms,
-    --   reconnect_base_delay_ms * reconnect_backoff_multiplier^(attempt - 1));
-    -- the actual delay is sampled uniformly from [0, nominal] (full jitter).
+    -- DELTA 3: quadratic backoff plus jitter, attempt- and time-capped, the
+    -- schedule of livekit-client's DefaultReconnectPolicy. Nominal delay after
+    -- the n-th failed attempt = min(reconnect_max_delay_ms,
+    --   reconnect_base_delay_ms * n^2), i.e. 300, 1200, 2700, 4800, 7000, ...;
+    -- from the second wait on, up to reconnect_jitter_ms is added. The episode
+    -- also ends once reconnect_max_duration has elapsed since it started.
     -- Expressed in milliseconds because Duration has no sub-second unit.
     max_reconnect_attempts: Integer = 10
     reconnect_base_delay_ms: Integer = 300
-    reconnect_backoff_multiplier: Integer = 2
     reconnect_max_delay_ms: Integer = 7000
+    reconnect_jitter_ms: Integer = 1000
+    reconnect_max_duration: Duration = 60.seconds
     -- How long a resume waits before accepting "this transport never left
     -- connected" as evidence it is still good (PC_RECONNECT_SETTLE_DELAY).
     -- Bounds only that ambiguous case: a transport that re-enters connected
@@ -667,8 +670,10 @@ rule RetryReconnectAgain {
     ensures: engine.attempt = engine.attempt + 1
     ensures: ReconnectAttemptStarted(engine)
     @guidance
-        -- DELTA 3: attempts are spaced by exponential backoff with full jitter
-        -- (see config); a server-Leave retry_now collapses the delay to zero.
+        -- DELTA 3: attempts are spaced by quadratic backoff plus jitter (see
+        -- config); a server-Leave retry_now collapses the delay to zero. The
+        -- episode also gives up once reconnect_max_duration has elapsed, so a
+        -- slow failing attempt cannot stretch it past the attempt cap's intent.
 }
 
 rule ReconnectExhausted {

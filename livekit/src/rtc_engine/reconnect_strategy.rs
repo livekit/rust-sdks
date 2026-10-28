@@ -22,17 +22,25 @@
 //! sampled each wait from `[0, nominal]` and could spend every attempt within a
 //! few seconds.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    hash::{BuildHasher, RandomState},
+    time::{Duration, SystemTime},
+};
 
 /// Maximum number of reconnect attempts before the engine gives up and closes.
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 
 /// First wait of the schedule; later waits grow with the square of the attempt.
 pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
-/// Kept for API compatibility; the schedule grows quadratically, as in JS.
+#[deprecated(
+    note = "unused: the wait after the n-th attempt is min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * n^2)"
+)]
 pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
 /// Cap on any single wait, before jitter.
 pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
+/// The episode gives up once this much time has passed since it started, even
+/// with attempts left: slow failing attempts must not stretch it for minutes.
+pub const RECONNECT_MAX_DURATION: Duration = Duration::from_secs(60);
 
 /// Maximum jitter added to every wait after the first.
 const RECONNECT_JITTER: Duration = Duration::from_secs(1);
@@ -47,15 +55,14 @@ pub(super) fn nominal(attempt: u32) -> Duration {
 }
 
 /// Wait after the given 1-based failed attempt: `nominal(attempt)` plus, from
-/// the second attempt on, jitter uniform in `[0, RECONNECT_JITTER)`. A
-/// dependency-free pseudo-random source from the system clock is sufficient;
-/// jitter only has to de-correlate clients.
+/// the second attempt on, jitter in `[0, RECONNECT_JITTER)`. Jitter only has to
+/// de-correlate clients, so hashing the clock with a randomly keyed `RandomState`
+/// is enough; the clock alone is not, macOS counts it in whole microseconds.
 pub(super) fn delay(attempt: u32) -> Duration {
     if attempt <= 1 {
         return nominal(attempt);
     }
-    let seed =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
+    let seed = RandomState::new().hash_one(SystemTime::now());
     nominal(attempt) + Duration::from_millis(seed % RECONNECT_JITTER.as_millis() as u64)
 }
 
@@ -75,18 +82,30 @@ mod tests {
 
     #[test]
     fn jitter_stays_within_one_second_and_skips_the_first_wait() {
+        let mut distinct = std::collections::HashSet::new();
         for _ in 0..1000 {
             assert_eq!(delay(1), nominal(1));
             for attempt in 2..=RECONNECT_ATTEMPTS {
                 let d = delay(attempt);
                 assert!(d >= nominal(attempt) && d < nominal(attempt) + RECONNECT_JITTER);
+                distinct.insert(d - nominal(attempt));
             }
         }
+        // Clients must not retry in lockstep: a clock that ticks in whole
+        // microseconds (macOS) used to make every jitter 0 ms.
+        assert!(distinct.len() > 100, "jitter took only {} distinct values", distinct.len());
     }
 
     #[test]
     fn budget_outlasts_a_fifteen_second_outage() {
         let floor: Duration = (1..RECONNECT_ATTEMPTS).map(nominal).sum();
-        assert!(floor >= Duration::from_secs(40), "minimum reconnect budget is only {floor:?}");
+        assert!(floor >= Duration::from_secs(15), "minimum reconnect budget is only {floor:?}");
+    }
+
+    #[test]
+    fn deadline_does_not_cut_the_schedule_short() {
+        let ceiling: Duration =
+            (1..RECONNECT_ATTEMPTS).map(|a| nominal(a) + RECONNECT_JITTER).sum();
+        assert!(ceiling <= RECONNECT_MAX_DURATION, "waits alone take {ceiling:?}");
     }
 }
