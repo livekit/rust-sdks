@@ -393,28 +393,83 @@ VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
                    supported_formats.end());
   }
 
-  // The pass-through factory would otherwise advertise codecs no real
-  // encoder implements (e.g. H265 on desktops); a normal session
-  // negotiating such a codec would end up with a sender that cannot create
-  // an encoder. Only advertise pass-through formats for codecs some real
-  // encoder already supports.
-  const size_t real_format_count = formats.size();
+  // Pre-encoded publishing forwards access units the application already
+  // encoded, so it must not depend on this host having a real encoder for
+  // the codec (e.g. H265 on a Linux box without a hardware encoder). Make
+  // every pass-through codec negotiable by adding one entry for each codec
+  // no real encoder listed. The pass-through matches by codec name at
+  // Create(), so the real encoder's own entry serves it when one exists. A
+  // raw sender is kept off a codec no real encoder implements by the Rust
+  // publish path, which picks its codec from BackendCodecs(), and otherwise
+  // by the encoder fallback described in GetImplementations().
   for (const auto& backend_factory : factories_) {
     if (backend_factory.backend != VideoEncoderBackend::PreEncoded) {
       continue;
     }
     for (const auto& format : backend_factory.factory->GetSupportedFormats()) {
-      const bool codec_available = std::any_of(
-          formats.begin(), formats.begin() + real_format_count,
-          [&](const webrtc::SdpVideoFormat& existing) {
-            return IsSameCodecName(existing.name, format.name);
-          });
-      if (codec_available) {
+      const bool codec_listed =
+          std::any_of(formats.begin(), formats.end(),
+                      [&](const webrtc::SdpVideoFormat& existing) {
+                        return IsSameCodecName(existing.name, format.name);
+                      });
+      if (!codec_listed) {
         formats.push_back(format);
       }
     }
   }
   return formats;
+}
+
+std::vector<std::string> VideoEncoderFactory::InternalFactory::BackendCodecs(
+    VideoEncoderBackend backend) const {
+  std::vector<std::string> codecs;
+  auto add_formats = [&](const std::vector<webrtc::SdpVideoFormat>& formats) {
+    for (const auto& format : formats) {
+      // Report one canonical name per codec; HEVC is an alias of H265.
+      std::string name = format.name;
+      if (IsSameCodecName(name, "H265")) {
+        name = "H265";
+      }
+      const bool listed = std::any_of(codecs.begin(), codecs.end(),
+                                      [&](const std::string& existing) {
+                                        return IsSameCodecName(existing, name);
+                                      });
+      if (!listed) {
+        codecs.push_back(std::move(name));
+      }
+    }
+  };
+
+  switch (backend) {
+    case VideoEncoderBackend::PreEncoded:
+      for (const auto& backend_factory : factories_) {
+        if (backend_factory.backend == VideoEncoderBackend::PreEncoded) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      break;
+    case VideoEncoderBackend::Software:
+      add_formats(Factory().GetSupportedFormats());
+      break;
+    case VideoEncoderBackend::Auto:
+      // Everything a real encoder on this host can produce: the set Create()
+      // falls back to when a requested backend is unavailable.
+      for (const auto& backend_factory : factories_) {
+        if (IsAutomaticFallbackBackend(backend_factory.backend)) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      add_formats(Factory().GetSupportedFormats());
+      break;
+    default:
+      for (const auto& backend_factory : factories_) {
+        if (BackendMatches(backend, backend_factory.backend)) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      break;
+  }
+  return codecs;
 }
 
 std::vector<webrtc::SdpVideoFormat>
@@ -434,6 +489,31 @@ VideoEncoderFactory::InternalFactory::GetImplementations() const {
 
   for (const auto& format : Factory().GetImplementations()) {
     formats.push_back(WithBackend(format, VideoEncoderBackend::Software));
+  }
+
+  // libwebrtc only sends a negotiated codec that appears here, so a codec
+  // only the pass-through implements must be listed too, or a pre-encoded
+  // sender fails with "No video codecs in common". List it last and
+  // untagged: real encoders keep priority for every codec they cover, and a
+  // raw sender that still lands on it fails encoder creation (Create() never
+  // falls back to the pass-through), letting libwebrtc switch to another
+  // negotiated codec. A pre-encoded sender's selector moves it onto the
+  // pass-through backend instead.
+  const size_t real_format_count = formats.size();
+  for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend != VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
+    for (const auto& format : backend_factory.factory->GetImplementations()) {
+      const bool codec_implemented = std::any_of(
+          formats.begin(), formats.begin() + real_format_count,
+          [&](const webrtc::SdpVideoFormat& existing) {
+            return IsSameCodecName(existing.name, format.name);
+          });
+      if (!codec_implemented) {
+        formats.push_back(format);
+      }
+    }
   }
 
   return formats;
@@ -597,6 +677,11 @@ VideoEncoderFactory::VideoEncoderFactory() {
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
     const {
   return internal_factory_->GetSupportedFormats();
+}
+
+std::vector<std::string> VideoEncoderFactory::BackendCodecs(
+    VideoEncoderBackend backend) const {
+  return internal_factory_->BackendCodecs(backend);
 }
 
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetImplementations()

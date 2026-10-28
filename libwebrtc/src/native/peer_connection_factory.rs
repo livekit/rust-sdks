@@ -26,6 +26,7 @@ use crate::{
     peer_connection::PeerConnection,
     peer_connection_factory::RtcConfiguration,
     rtp_parameters::RtpCapabilities,
+    rtp_sender::VideoEncoderBackend,
     video_source::native::NativeVideoSource,
     video_track::RtcVideoTrack,
     MediaType, RtcError,
@@ -139,6 +140,10 @@ impl PeerConnectionFactory {
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle.rtp_receiver_capabilities(media_type.into()).into()
+    }
+
+    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<String> {
+        self.sys_handle.video_encoder_backend_codecs(backend.into())
     }
 
     // ===== Device Management Methods =====
