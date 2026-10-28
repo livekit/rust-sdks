@@ -317,6 +317,30 @@ mod tests {
     use crate::{peer_connection::*, peer_connection_factory::*};
 
     #[tokio::test]
+    async fn directions_of_a_transceiver_not_negotiated_yet_are_none() {
+        // Both are empty in libwebrtc until a description is applied. Reading
+        // them must not abort the process.
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let transceiver = pc
+            .add_transceiver_for_media(
+                crate::MediaType::Video,
+                crate::rtp_transceiver::RtpTransceiverInit {
+                    direction: crate::rtp_transceiver::RtpTransceiverDirection::RecvOnly,
+                    stream_ids: Vec::new(),
+                    send_encodings: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(transceiver.current_direction(), None);
+        assert_eq!(
+            transceiver.direction(),
+            crate::rtp_transceiver::RtpTransceiverDirection::RecvOnly
+        );
+        pc.close();
+    }
+
+    #[tokio::test]
     async fn create_pc() {
         let _ = env_logger::builder().is_test(true).try_init();
 
