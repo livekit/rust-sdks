@@ -19,12 +19,14 @@
 //! here rather than redefined (a second `custom_type!` in the same crate would conflict).
 //! Participant identities cross as plain `String`.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use livekit_common as common;
 use livekit_data_stream::{api as ds_api, backend as ds};
 use livekit_protocol as proto;
 use prost::Message;
+
+use super::outgoing::StreamProgressDelegate;
 
 // MARK: - Enums
 
@@ -225,6 +227,9 @@ pub struct StreamByteOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
+    /// Optional send progress delegate; ignored by incremental `stream_text` and `stream_bytes`.
+    #[uniffi(default = None)]
+    pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
 
 /// Converts to send options, keeping `compress`; the send derives the payload length.
@@ -239,6 +244,7 @@ impl From<StreamByteOptions> for ds_api::SendByteOptions {
         options.mime_type = value.mime_type;
         options.name = value.name;
         options.compress = value.compress;
+        options.on_progress = progress_callback(value.progress);
         options
     }
 }
@@ -286,6 +292,9 @@ pub struct StreamTextOptions {
     /// `send_text` sets it from the text it sends.
     #[uniffi(default = None)]
     pub total_length: Option<u64>,
+    /// Optional send progress delegate; ignored by incremental `stream_text` and `stream_bytes`.
+    #[uniffi(default = None)]
+    pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
 
 /// Converts to send options, keeping `compress`; the send derives the payload length.
@@ -303,6 +312,7 @@ impl From<StreamTextOptions> for ds_api::SendTextOptions {
         options.attached_stream_ids = value.attached_stream_ids;
         options.generated = value.generated;
         options.compress = value.compress;
+        options.on_progress = progress_callback(value.progress);
         options
     }
 }
@@ -464,4 +474,13 @@ pub(crate) fn decode_data_packet(
         _ => return None,
     };
     Some(ds::incoming::PacketReceived::new(ds_packet, identity))
+}
+
+/// Wraps the foreign progress delegate for the core's send options.
+fn progress_callback(
+    progress: Option<Arc<dyn StreamProgressDelegate>>,
+) -> Option<ds_api::StreamProgressCallback> {
+    progress.map(|progress| {
+        ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
+    })
 }

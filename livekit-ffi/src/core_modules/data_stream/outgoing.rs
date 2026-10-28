@@ -78,6 +78,12 @@ pub trait StreamProgressDelegate: Send + Sync {
     fn on_progress(&self, progress: StreamProgress);
 }
 
+impl std::fmt::Debug for dyn StreamProgressDelegate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StreamProgressDelegate")
+    }
+}
+
 /// Adapts the foreign [`RemoteParticipantRegistryDelegate`] to the crate-internal
 /// [`lk_common::RemoteParticipantRegistry`] the outgoing manager consumes.
 struct ForeignRegistry(Arc<dyn RemoteParticipantRegistryDelegate>);
@@ -142,54 +148,42 @@ impl OutgoingDataStreamManager {
 
     /// Sends a complete text payload, returning info about the created stream.
     ///
-    /// The whole stream goes to the transport in one delegate call, so `progress`, when set, gets
+    /// The whole stream goes to the transport in one delegate call, so `options.progress`, when set, gets
     /// one report, when the send completes.
-    #[uniffi::method(default(progress = None))]
     pub async fn send_text(
         &self,
         text: String,
         options: StreamTextOptions,
-        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<TextStreamInfo, DataStreamError> {
-        let mut options: ds_api::SendTextOptions = options.into();
-        options.on_progress = progress_callback(progress);
-        let info = self.manager.send_text(&text, options, &*self.registry).await?;
+        let info = self.manager.send_text(&text, options.into(), &*self.registry).await?;
         Ok(info.into())
     }
 
     /// Sends a complete byte payload, returning info about the created stream.
     ///
-    /// The whole stream goes to the transport in one delegate call, so `progress`, when set, gets
+    /// The whole stream goes to the transport in one delegate call, so `options.progress`, when set, gets
     /// one report, when the send completes.
-    #[uniffi::method(default(progress = None))]
     pub async fn send_bytes(
         &self,
         data: Bytes,
         options: StreamByteOptions,
-        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let mut options: ds_api::SendByteOptions = options.into();
-        options.on_progress = progress_callback(progress);
-        let info = self.manager.send_bytes(data, options, &*self.registry).await?;
+        let info = self.manager.send_bytes(data, options.into(), &*self.registry).await?;
         Ok(info.into())
     }
 
     /// Streams a file from disk, returning info about the created stream.
     ///
-    /// `progress`, when set, counts file bytes before compression. An uncompressed file reports
+    /// `options.progress`, when set, counts file bytes before compression. An uncompressed file reports
     /// after each chunk is sent. A compressed file reports after each encoder drain, so it counts
     /// the input the encoder consumed, which can run ahead of the chunks sent. Either way, the
     /// whole file is reported only after its last chunk was sent.
-    #[uniffi::method(default(progress = None))]
     pub async fn send_file(
         &self,
         path: String,
         options: StreamByteOptions,
-        progress: Option<Arc<dyn StreamProgressDelegate>>,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let mut options: ds_api::SendByteOptions = options.into();
-        options.on_progress = progress_callback(progress);
-        let info = self.manager.send_file(path, options, &*self.registry).await?;
+        let info = self.manager.send_file(path, options.into(), &*self.registry).await?;
         Ok(info.into())
     }
 
@@ -285,13 +279,4 @@ impl ByteStreamWriter {
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
         Ok(self.0.clone().close_with_reason(&reason).await?)
     }
-}
-
-/// Wraps the foreign progress delegate for the core's send options.
-fn progress_callback(
-    progress: Option<Arc<dyn StreamProgressDelegate>>,
-) -> Option<ds_api::StreamProgressCallback> {
-    progress.map(|progress| {
-        ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
-    })
 }

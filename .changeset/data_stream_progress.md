@@ -6,4 +6,4 @@ livekit-capture: patch
 livekit-rpc: patch
 ---
 
-Add data stream progress to `core-modules`: readers get `next_progress()`, which counts received bytes, and `send_text`, `send_bytes` and `send_file` take an optional `progress` delegate (`StreamProgressDelegate`) that defaults to none. The core adds `on_progress` on `SendTextOptions` and `SendByteOptions` and a `progress_stream()` accessor on the concrete readers that does not borrow the reader.
+Add data stream progress to `core-modules`: readers get `next_progress()`, which counts received bytes, and `send_text`, `send_bytes` and `send_file` take an optional `progress` delegate (`StreamProgressDelegate`) inside their options record, defaulting to none and ignored by incremental streams. The core adds `on_progress` on `SendTextOptions` and `SendByteOptions` and a `progress_stream()` accessor on the concrete readers that does not borrow the reader. The generated Swift option records no longer conform to `Equatable` or `Hashable`.
