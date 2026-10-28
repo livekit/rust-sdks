@@ -177,6 +177,13 @@ pub struct SignalOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Retry a failed [`SignalClient::connect`] on the other regions of a LiveKit Cloud project.
+    ///
+    /// Turn off when the caller runs its own region failover, so the two retry loops do not stack.
+    ///
+    /// Defaults to `true`. When off, `connect` returns the first error unchanged and does not
+    /// use the region cache. When on, every error, including a 401, starts the region fallback.
+    pub region_failover: bool,
     /// Signal protocol version sent to the server. Defaults to [`PROTOCOL_VERSION`].
     ///
     /// Lower it when the caller's media stack does not implement what a newer version implies.
@@ -205,6 +212,7 @@ impl Default for SignalOptions {
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            region_failover: true,
             protocol_version: PROTOCOL_VERSION,
             client_capabilities: CLIENT_CAPABILITIES.to_vec(),
             client_protocol: CLIENT_PROTOCOL_VERSION,
@@ -368,6 +376,7 @@ impl SignalClient {
             Ok((inner, join_response, stream_events)) => {
                 Ok(handle_success(inner, join_response, stream_events))
             }
+            Err(err) if !options.region_failover => Err(err),
             Err(err) => {
                 // fallback to region urls
                 if matches!(&err, SignalError::Handshake { status } if status.as_u16() != 403) {
@@ -1969,6 +1978,30 @@ mod tests {
     }
 
     // Region + validate + stream behaviour, driven by the shared mock transport.
+
+    /// A failed connect fetches the project's regions only while `region_failover` is on. The
+    /// mock's socket closes before a join response, so every connect fails.
+    #[tokio::test]
+    async fn connect_skips_region_fetch_when_region_failover_is_off() {
+        use crate::test_transport::{install_mock_transport, HTTP_REQUESTS};
+        install_mock_transport();
+
+        let fetched_regions = |host: &str| {
+            let endpoint = format!("https://{host}/settings/regions");
+            HTTP_REQUESTS.lock().unwrap().iter().any(|url| url == &endpoint)
+        };
+        let connect = |host: &'static str, region_failover: bool| async move {
+            let mut options = SignalOptions::default();
+            options.region_failover = region_failover;
+            SignalClient::connect(&format!("wss://{host}"), "tok", options, None).await
+        };
+
+        assert!(connect("failover-off.livekit.cloud", false).await.is_err());
+        assert!(!fetched_regions("failover-off.livekit.cloud"));
+
+        assert!(connect("failover-on.livekit.cloud", true).await.is_err());
+        assert!(fetched_regions("failover-on.livekit.cloud"));
+    }
 
     #[tokio::test]
     async fn region_fetch_via_mock_transport_parses_urls() {
