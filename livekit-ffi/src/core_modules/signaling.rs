@@ -333,7 +333,11 @@ impl SignalSession {
         }
         let client = self.client.clone();
         let shutdown = self.shutdown.clone();
-        // As in `connect_signal_session`: `restart` spawns a replacement signal task.
+        // Spawned for two reasons. `restart` spawns the replacement signal task, which must land
+        // on this crate's runtime: uniffi polls this future through `async_compat`, whose
+        // ambient runtime is not ours. And a host that cancels the call drops this future, but
+        // not the spawned task, so a resume cut short still installs or closes its new stream
+        // instead of leaving it unowned.
         let response = crate::runtime::runtime()
             .spawn(async move {
                 let response = client.restart(reason.into()).await;
