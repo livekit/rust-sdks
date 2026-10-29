@@ -39,5 +39,5 @@ pub(crate) const ATTRIBUTE_SEGMENT_ID: &str = "lk.segment_id";
 /// the string `"true"` or `"false"`.
 pub(crate) const ATTRIBUTE_TRANSCRIPTION_FINAL: &str = "lk.transcription_final";
 
-/// How long an agent dispatched by the token gets to become conversational.
+/// How long after connecting an agent gets to become conversational.
 pub(crate) const DEFAULT_AGENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);

@@ -89,10 +89,13 @@ impl<T: TokenSourceConfigurable + Send + Sync + 'static> From<(T, TokenSourceFet
 /// Options for a [`Session`].
 #[derive(Clone, Debug)]
 pub struct SessionOptions {
-    /// How long an agent dispatched by the token gets to become
-    /// conversational before the agent state reports
-    /// [`AgentFailure::Timeout`](crate::AgentFailure::Timeout). Not armed when
-    /// the token dispatches no agent. Defaults to 20 seconds.
+    /// How long after connecting an agent gets to become conversational
+    /// before the agent state reports
+    /// [`AgentFailure::Timeout`](crate::AgentFailure::Timeout). Defaults to 20
+    /// seconds.
+    ///
+    /// Armed on every connect, whether or not the token names an agent: an
+    /// agent registered without a name is dispatched into every new room.
     pub agent_connect_timeout: Duration,
     /// Options for the session's room, including
     /// [`encryption`](RoomOptions::encryption).
@@ -122,7 +125,8 @@ pub enum SessionEvent {
 /// A conversation with a LiveKit agent.
 ///
 /// [`start`](Self::start) fetches credentials and connects a room; the agent is
-/// dispatched by the token. From then on the session projects what the agent
+/// dispatched by the token, or automatically when it is registered without a
+/// name. From then on the session projects what the agent
 /// is doing ([`state`](Self::state)) and merges chat and transcripts into one
 /// feed ([`messages`](Self::messages), [`subscribe`](Self::subscribe)).
 ///
@@ -277,9 +281,11 @@ impl Session {
             self.inner.options.room_options.clone(),
         )
         .await?;
-        let agent_timeout =
-            credentials.dispatches_agent().then_some(self.inner.options.agent_connect_timeout);
-        Ok(Connection { room: Arc::new(room), events, agent_timeout })
+        Ok(Connection {
+            room: Arc::new(room),
+            events,
+            agent_timeout: self.inner.options.agent_connect_timeout,
+        })
     }
 
     /// Closes the room, or cancels a [`start`](Self::start) still in progress.
@@ -366,9 +372,8 @@ impl Session {
     pub async fn send_text(&self, text: &str) -> Result<Message, MessageSendError> {
         let room = self.room().ok_or(MessageSendError::NotConnected)?;
         let local_participant = room.local_participant();
-        let info = local_participant
-            .send_text(text, SendTextOptions::new_with_topic(TOPIC_CHAT))
-            .await?;
+        let info =
+            local_participant.send_text(text, SendTextOptions::new_with_topic(TOPIC_CHAT)).await?;
         Ok(self.inner.shared.upsert(MessageUpdate {
             id: info.id,
             timestamp: info.timestamp,

@@ -145,9 +145,8 @@ pub(crate) enum Command {
 pub(crate) struct Connection {
     pub room: Arc<Room>,
     pub events: mpsc::UnboundedReceiver<RoomEvent>,
-    /// When the token dispatches an agent, how long it gets to become
-    /// conversational.
-    pub agent_timeout: Option<Duration>,
+    /// How long an agent gets to become conversational.
+    pub agent_timeout: Duration,
 }
 
 /// An incoming text stream the session reads.
@@ -227,9 +226,7 @@ impl SessionActor {
             room_events: connection.events,
             commands,
             readers: SelectAll::new(),
-            agent_deadline: connection
-                .agent_timeout
-                .map(|timeout| Box::pin(tokio::time::sleep(timeout))),
+            agent_deadline: Some(Box::pin(tokio::time::sleep(connection.agent_timeout))),
             connection: state,
             tracker: AgentTracker::default(),
             aggregator: TranscriptAggregator::default(),

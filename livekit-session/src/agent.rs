@@ -102,7 +102,7 @@ impl AgentState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AgentFailure {
-    /// The token dispatched an agent, but none became conversational within
+    /// No agent became conversational within
     /// [`SessionOptions::agent_connect_timeout`](crate::SessionOptions::agent_connect_timeout).
     Timeout,
     /// The agent left the room while the session stayed connected.

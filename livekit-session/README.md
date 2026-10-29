@@ -53,7 +53,7 @@ current value. A snapshot holds the connection state and the agent state:
 | `Connecting` | No agent is in the room yet |
 | `Initializing`, `Idle` | The agent joined but is not in a conversation |
 | `Listening`, `Thinking`, `Speaking` | The agent is in a conversation |
-| `Failed(Timeout)` | The token dispatched an agent, but none became conversational within `agent_connect_timeout` (20 s by default) |
+| `Failed(Timeout)` | No agent became conversational within `agent_connect_timeout` (20 s by default) of connecting |
 | `Failed(Left)` | The agent left while the room stayed connected |
 | `Unknown` | The agent reports an activity this SDK does not recognize |
 

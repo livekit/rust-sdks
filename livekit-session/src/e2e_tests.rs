@@ -33,7 +33,9 @@ use async_trait::async_trait;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::EncryptionType;
 use livekit::prelude::*;
-use livekit::{E2eeOptions, SimulateScenario, StreamReader, StreamTextOptions, StreamWriter};
+use livekit::{
+    E2eeOptions, SendTextOptions, SimulateScenario, StreamReader, StreamTextOptions, StreamWriter,
+};
 use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
 use livekit_token_source::{
@@ -262,14 +264,15 @@ async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn timeout_is_not_armed_without_dispatch() -> Result<()> {
+async fn timeout_is_armed_without_dispatch() -> Result<()> {
     let env = TestEnv::new();
     let options =
-        SessionOptions { agent_connect_timeout: Duration::from_millis(200), ..Default::default() };
+        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..Default::default() };
+    // An agent registered without a name is dispatched automatically, so a
+    // token naming none still waits for one.
     let session = Session::new(env.user_source(false), options);
     session.start().await?;
-    sleep(Duration::from_secs(1)).await;
-    assert_eq!(session.snapshot().agent_state, AgentState::Connecting);
+    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
     session.end().await?;
     Ok(())
 }
@@ -361,7 +364,7 @@ async fn messages_merge_chat_and_transcripts() -> Result<()> {
     // Chat from the agent reaches the feed too.
     agent
         .local_participant()
-        .send_text("hello user", StreamTextOptions::new_with_topic(TOPIC_CHAT))
+        .send_text("hello user", SendTextOptions::new_with_topic(TOPIC_CHAT))
         .await?;
     let chat = next_message(&mut events, |m| m.origin == MessageOrigin::Chat).await?;
     assert_eq!(chat.text, "hello user");
@@ -394,7 +397,7 @@ async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
 
     agent
         .local_participant()
-        .send_text("for the app", StreamTextOptions::new_with_topic("app.custom"))
+        .send_text("for the app", SendTextOptions::new_with_topic("app.custom"))
         .await?;
     let text = timeout(WAIT, async {
         while let Some(event) = app_events.recv().await {
