@@ -772,7 +772,9 @@ fn on_e2ee_request(
             let key_index = request.key_index;
 
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_shared_key(shared_key, key_index);
+                if !key_provider.set_shared_key(shared_key, key_index) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
 
             proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {})
@@ -795,7 +797,9 @@ fn on_e2ee_request(
         proto::e2ee_request::Message::SetKey(request) => {
             let identity = request.participant_identity.into();
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_key(&identity, request.key_index, request.key);
+                if !key_provider.set_key(&identity, request.key_index, request.key) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
             proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
         }
