@@ -2035,6 +2035,15 @@ export declare class RoomDataStreamOptions extends Message<RoomDataStreamOptions
    */
   useLegacyClientImplementation?: boolean;
 
+  /**
+   * Maximum number of incoming data streams a single remote participant may
+   * have open at once. Headers for new streams beyond this limit are dropped.
+   * Unset falls back to the SDK default.
+   *
+   * @generated from field: optional uint32 max_open_streams_per_participant = 3;
+   */
+  maxOpenStreamsPerParticipant?: number;
+
   constructor(data?: PartialMessage<RoomDataStreamOptions>);
 
   static readonly runtime: typeof proto2;
