@@ -28,8 +28,7 @@ pub(crate) fn ensure_tract_backend() {
     });
 }
 
-pub(crate) mod embedding;
-pub(crate) mod melspectrogram;
+pub(crate) mod stream;
 pub mod wakeword;
 
 /// Graph optimizations requested when an ONNX session is created.
@@ -46,18 +45,28 @@ pub enum WakeWordError {
     Io(#[from] std::io::Error),
     #[error("wake word model not found: {0}")]
     ModelNotFound(String),
+    /// The file is not a streaming wake word model; v1 classifier models are not
+    /// supported and must be retrained.
+    #[error("not a streaming wake word model (v1 classifiers are not supported): {0}")]
+    NotStreamingModel(String),
+    /// A streaming model did not return an output it declared.
+    #[error("wake word model output missing: {0}")]
+    ModelOutputMissing(String),
     #[error("unsupported sample rate: {0} Hz")]
     UnsupportedSampleRate(u32),
     #[error(transparent)]
     Resample(#[from] resampler::ResampleError),
 }
 
+/// The sample rate models run at; other input rates are resampled.
 pub const SAMPLE_RATE: usize = 16000;
-pub const MEL_BINS: usize = 32;
-pub const EMBEDDING_WINDOW: usize = 76; // mel frames per embedding
-pub const EMBEDDING_STRIDE: usize = 8; // mel frames between embeddings
-pub const EMBEDDING_DIM: usize = 96;
-pub const MIN_EMBEDDINGS: usize = 16; // classifier input length
+/// Samples of 16 kHz audio per model step (80 ms).
+pub const FRAME_SAMPLES: usize = 1280;
+
+// ONNX Runtime 1.27.0 on arm64 runs batch-1 convolutions through KleidiAI kernels
+// that return wrong results; older versions accept the entry and ignore it.
+#[cfg(not(use_tract))]
+const DISABLE_KLEIDIAI: &str = "mlas.disable_kleidiai";
 
 pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWordError> {
     use resampler::SampleRate;
@@ -76,8 +85,7 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
     }
 }
 
-/// How every ONNX session a [`WakeWordModel`] creates is configured: the two
-/// bundled feature extraction models and each wake word classifier. Mirrors the
+/// How every ONNX session a [`WakeWordModel`] creates is configured. Mirrors the
 /// `sess_options` parameter the Python SDK takes.
 ///
 /// [`Default`] is what [`WakeWordModel::new`] uses. Pass a value of your own to
@@ -108,7 +116,8 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
 pub struct SessionOptions {
     /// Graph optimizations to apply when the session is created. Matters more than
     /// it looks: `ort-tract` runs tract's `into_optimized()` only when some level is
-    /// requested, and wake word inference measured several times slower without it.
+    /// requested, and [`GraphOptimizationLevel::Disable`] made each 80 ms step of the
+    /// hey livekit model take longer than 80 ms to run.
     pub optimization_level: GraphOptimizationLevel,
     /// Threads used to run a single operator. `Some(1)` keeps each session on the
     /// calling thread.
@@ -124,7 +133,8 @@ pub struct SessionOptions {
     /// Whether inter-op threads may spin before blocking.
     pub inter_op_spinning: Option<bool>,
     /// Session config entries applied verbatim, for anything the fields above do
-    /// not cover.
+    /// not cover. Unless this sets `mlas.disable_kleidiai`, it defaults to `"1"`, as
+    /// in the Python SDK, to avoid wrong results from ONNX Runtime's KleidiAI kernels.
     pub config_entries: Vec<(String, String)>,
 }
 
@@ -174,6 +184,9 @@ impl SessionOptions {
         }
         for (key, value) in &self.config_entries {
             builder = builder.with_config_entry(key, value)?;
+        }
+        if !self.config_entries.iter().any(|(key, _)| key == DISABLE_KLEIDIAI) {
+            builder = builder.with_config_entry(DISABLE_KLEIDIAI, "1")?;
         }
         Ok(builder)
     }

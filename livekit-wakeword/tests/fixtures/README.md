@@ -1,11 +1,14 @@
 # Wake word test fixtures
 
-Place WAV files here for integration testing.
+Copied from [livekit-wakeword](https://github.com/livekit/livekit-wakeword), where the
+Python and Swift clients test against the same files.
 
-- `positive.wav` — ~2s recording of someone saying "Hey LiveKit". Should score >= 0.5.
-- `negative.wav` — ~2s recording of non-wake-word audio (silence, music, unrelated speech). Should score < 0.5.
-
-Requirements:
-- Format: 16-bit PCM WAV (mono or stereo; stereo is down-mixed to mono)
-- Sample rate: 16000 Hz recommended (other standard rates are resampled internally)
-- Duration: ~2 seconds minimum
+- `hey_livekit.onnx` — the released "hey livekit" streaming model.
+- `positive.wav` — 16 kHz recording of someone saying "Hey LiveKit". Should score >= 0.5.
+- `negative.wav` — 16 kHz recording without the wake word. Should score < 0.5.
+- `streaming_tiny.onnx` — a small randomly initialized streaming model.
+- `streaming_tiny_expected.json` — the per-80 ms scores the Python client produces
+  for `streaming_tiny.onnx` on a deterministic chirp (see `chirp()` in
+  `integration.rs`).
+- `not_streaming.onnx` — a single Identity node with a v1-style `embeddings` input,
+  used to check that non-streaming models are rejected.

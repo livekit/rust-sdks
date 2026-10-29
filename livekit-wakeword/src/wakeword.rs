@@ -15,17 +15,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use ndarray::Axis;
-use ort::session::Session;
-use ort::value::Tensor;
 use resampler::{Attenuation, Latency, ResamplerFir, SampleRate};
 
-use crate::embedding::EmbeddingModel;
-use crate::melspectrogram::MelspectrogramModel;
-use crate::{
-    build_session_from_file, to_resampler_rate, SessionOptions, WakeWordError, EMBEDDING_STRIDE,
-    EMBEDDING_WINDOW, MIN_EMBEDDINGS,
-};
+use crate::stream::StreamingClassifier;
+use crate::{build_session_from_file, to_resampler_rate, SessionOptions, WakeWordError};
 
 struct Resampler {
     fir: ResamplerFir,
@@ -33,27 +26,57 @@ struct Resampler {
     input_rate: u32,
 }
 
-/// Wake word detection model with optional input resampling.
+impl Resampler {
+    fn new(sample_rate: u32) -> Result<Self, WakeWordError> {
+        let input_rate = to_resampler_rate(sample_rate)?;
+        // FIR resampler: 64-sample latency (~1.3ms at 48kHz) with 90dB
+        // stopband attenuation to match the quality of training data.
+        let fir = ResamplerFir::new(
+            1,
+            input_rate,
+            SampleRate::Hz16000,
+            Latency::Sample64,
+            Attenuation::Db90,
+        );
+        let output_buf = vec![0.0f32; fir.buffer_size_output()];
+        Ok(Self { fir, output_buf, input_rate: sample_rate })
+    }
+
+    fn resample(&mut self, input: &[f32]) -> Result<Vec<f32>, WakeWordError> {
+        let mut output = Vec::with_capacity(
+            (input.len() as f64 * 16000.0 / self.input_rate as f64).ceil() as usize,
+        );
+        let mut pos = 0;
+        while pos < input.len() {
+            let (consumed, produced) = self.fir.resample(&input[pos..], &mut self.output_buf)?;
+            output.extend_from_slice(&self.output_buf[..produced]);
+            pos += consumed;
+            if consumed == 0 && produced == 0 {
+                break;
+            }
+        }
+        Ok(output)
+    }
+}
+
+/// Streaming wake word detector: feed PCM as it arrives, get per-model scores back.
 ///
-/// The mel spectrogram and speech embedding models are bundled at compile time.
-/// Wake word classifier models are loaded dynamically from disk at runtime.
-///
-/// Pass ~2 seconds of i16 PCM audio at the configured sample rate to
-/// [`predict`](Self::predict) and receive per-classifier confidence scores.
+/// Each model is one `.onnx` file exported by `livekit-wakeword train`, keyed by its
+/// file stem. Every model keeps its own state across [`predict`](Self::predict)
+/// calls and steps once per [`FRAME_SAMPLES`](crate::FRAME_SAMPLES) of 16 kHz audio
+/// (80 ms), so audio can be passed in chunks of any size.
 pub struct WakeWordModel {
-    mel_model: MelspectrogramModel,
-    emb_model: EmbeddingModel,
-    classifiers: HashMap<String, Session>,
+    models: HashMap<String, StreamingClassifier>,
     resampler: Option<Resampler>,
     session_options: SessionOptions,
 }
 
 impl WakeWordModel {
-    /// Create a new wake word model.
+    /// Create a wake word model from streaming model files.
     ///
-    /// The recommended sample rate is 16 kHz. Other supported rates
-    /// (22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 384000 Hz)
-    /// are resampled internally to 16 kHz.
+    /// `sample_rate` is the rate of the PCM passed to [`predict`](Self::predict).
+    /// The recommended rate is 16 kHz; other supported rates (22050, 32000, 44100,
+    /// 48000, 88200, 96000, 176400, 192000, 384000 Hz) are resampled internally.
     ///
     /// ONNX sessions are created with [`SessionOptions::default`]; use
     /// [`with_session_options`](Self::with_session_options) to tune them.
@@ -61,52 +84,33 @@ impl WakeWordModel {
         Self::with_session_options(models, sample_rate, SessionOptions::default())
     }
 
-    /// Create a new wake word model, tuning the ONNX sessions it creates.
+    /// Create a wake word model, tuning the ONNX sessions it creates.
     ///
-    /// `session_options` applies to the bundled feature extraction models, to every
-    /// classifier in `models`, and to any classifier a later
+    /// `session_options` applies to every model in `models` and to any model a later
     /// [`load_model`](Self::load_model) call adds.
     pub fn with_session_options(
         models: &[impl AsRef<Path>],
         sample_rate: u32,
         session_options: SessionOptions,
     ) -> Result<Self, WakeWordError> {
-        let resampler = if sample_rate != 16000 {
-            let input_rate = to_resampler_rate(sample_rate)?;
-            // FIR resampler: 64-sample latency (~1.3ms at 48kHz) with 90dB
-            // stopband attenuation to match the quality of training data.
-            let fir = ResamplerFir::new(
-                1,
-                input_rate,
-                SampleRate::Hz16000,
-                Latency::Sample64,
-                Attenuation::Db90,
-            );
-            let output_buf = vec![0.0f32; fir.buffer_size_output()];
-            Some(Resampler { fir, output_buf, input_rate: sample_rate })
+        let resampler = if sample_rate != crate::SAMPLE_RATE as u32 {
+            Some(Resampler::new(sample_rate)?)
         } else {
             None
         };
 
-        let mut wakeword = Self {
-            mel_model: MelspectrogramModel::new(&session_options)?,
-            emb_model: EmbeddingModel::new(&session_options)?,
-            classifiers: HashMap::new(),
-            resampler,
-            session_options,
-        };
-
+        let mut wakeword = Self { models: HashMap::new(), resampler, session_options };
         for path in models {
             wakeword.load_model(path, None)?;
         }
-
         Ok(wakeword)
     }
 
-    /// Load a wake word classifier ONNX model from disk.
+    /// Load a streaming wake word model from disk, replacing any model of the same name.
     ///
-    /// If `model_name` is `None`, the file stem is used as the classifier name. The
-    /// session is created with the [`SessionOptions`] this model was built with.
+    /// If `model_name` is `None`, the file stem is used as the name. Fails with
+    /// [`WakeWordError::NotStreamingModel`] for anything other than a streaming model,
+    /// including v1 classifier models.
     pub fn load_model(
         &mut self,
         model_path: impl AsRef<Path>,
@@ -123,91 +127,60 @@ impl WakeWordModel {
         };
 
         let session = build_session_from_file(path, &self.session_options)?;
-        self.classifiers.insert(name, session);
+        let model = StreamingClassifier::new(session, &path.display().to_string())?;
+        self.models.insert(name, model);
         Ok(())
     }
 
-    fn resample_to_16k(&mut self, samples: &[i16]) -> Result<Vec<f32>, WakeWordError> {
-        let rs = self.resampler.as_mut().unwrap();
-
-        let input: Vec<f32> = samples.iter().map(|&x| x as f32 / 32768.0).collect();
-        let mut output = Vec::with_capacity(
-            (input.len() as f64 * 16000.0 / rs.input_rate as f64).ceil() as usize,
-        );
-
-        let mut pos = 0;
-        while pos < input.len() {
-            let (consumed, produced) = rs.fir.resample(&input[pos..], &mut rs.output_buf)?;
-            output.extend_from_slice(&rs.output_buf[..produced]);
-            pos += consumed;
-            if consumed == 0 && produced == 0 {
-                break;
-            }
-        }
-
-        Ok(output)
+    /// Remove a model, returning `true` if it was loaded.
+    pub fn unload_model(&mut self, model_name: &str) -> bool {
+        self.models.remove(model_name).is_some()
     }
 
-    /// Get wake word predictions for an audio chunk.
+    /// Names of the loaded models.
+    pub fn model_names(&self) -> impl Iterator<Item = &str> {
+        self.models.keys().map(String::as_str)
+    }
+
+    /// Feed the next chunk of i16 PCM at the configured sample rate, of any length.
     ///
-    /// Pass ~2 seconds of i16 PCM audio at the sample rate configured in
-    /// [`new`](Self::new). Shorter chunks that produce fewer than
-    /// [`MIN_EMBEDDINGS`] embeddings return zero scores.
+    /// Returns each model's highest score among the 80 ms steps this call
+    /// completed, or `0.0` if it completed none. Samples that do not fill a step are
+    /// kept for the next call.
     pub fn predict(&mut self, audio_chunk: &[i16]) -> Result<HashMap<String, f32>, WakeWordError> {
-        if self.classifiers.is_empty() {
+        if self.models.is_empty() {
             return Ok(HashMap::new());
         }
 
-        // Resample if needed, then normalize to f32
-        let samples_f32 = if self.resampler.is_some() {
-            self.resample_to_16k(audio_chunk)?
-        } else {
-            audio_chunk.iter().map(|&x| x as f32 / 32768.0).collect()
+        let samples: Vec<f32> = audio_chunk.iter().map(|&x| x as f32 / 32768.0).collect();
+        let samples = match self.resampler.as_mut() {
+            Some(resampler) => resampler.resample(&samples)?,
+            None => samples,
         };
 
-        // Mel spectrogram over the full chunk
-        let mel = self.mel_model.detect(&samples_f32)?;
-        let num_frames = mel.shape()[0];
-
-        if num_frames < EMBEDDING_WINDOW {
-            return Ok(self.zero_scores());
+        let mut scores = HashMap::with_capacity(self.models.len());
+        for (name, model) in &mut self.models {
+            scores.insert(name.clone(), model.feed(&samples)?.unwrap_or(0.0));
         }
-
-        // Extract embeddings: 76-frame windows, stride 8
-        let mut embeddings = Vec::new();
-        let mut start = 0;
-        while start + EMBEDDING_WINDOW <= num_frames {
-            let window = mel.slice(ndarray::s![start..start + EMBEDDING_WINDOW, ..]);
-            let window_slice = window.as_standard_layout();
-            let emb = self.emb_model.detect(window_slice.as_slice().unwrap())?;
-            embeddings.push(emb);
-            start += EMBEDDING_STRIDE;
-        }
-
-        if embeddings.len() < MIN_EMBEDDINGS {
-            return Ok(self.zero_scores());
-        }
-
-        // Use last MIN_EMBEDDINGS embeddings -> shape (1, 16, 96)
-        let last = &embeddings[embeddings.len() - MIN_EMBEDDINGS..];
-        let views: Vec<_> = last.iter().map(|e| e.view()).collect();
-        let emb_sequence = ndarray::stack(Axis(0), &views)?;
-        let emb_input = emb_sequence.insert_axis(Axis(0));
-
-        // Run each classifier
-        let mut predictions = HashMap::new();
-        for (name, session) in &mut self.classifiers {
-            let tensor = Tensor::from_array(emb_input.clone())?;
-            let outputs = session.run(ort::inputs!["embeddings" => tensor])?;
-            let raw = outputs["score"].try_extract_array::<f32>()?;
-            let score = raw.iter().copied().next().unwrap_or(0.0);
-            predictions.insert(name.clone(), score);
-        }
-
-        Ok(predictions)
+        Ok(scores)
     }
 
-    fn zero_scores(&self) -> HashMap<String, f32> {
-        self.classifiers.keys().map(|k| (k.clone(), 0.0)).collect()
+    /// Score a whole clip from a fresh state: each model's highest score in it.
+    ///
+    /// Equivalent to [`reset`](Self::reset) followed by [`predict`](Self::predict).
+    pub fn predict_clip(&mut self, clip: &[i16]) -> Result<HashMap<String, f32>, WakeWordError> {
+        self.reset()?;
+        self.predict(clip)
+    }
+
+    /// Forget all audio heard so far, e.g. after a detection.
+    pub fn reset(&mut self) -> Result<(), WakeWordError> {
+        if let Some(resampler) = self.resampler.as_mut() {
+            resampler.fir.reset();
+        }
+        for model in self.models.values_mut() {
+            model.reset()?;
+        }
+        Ok(())
     }
 }
