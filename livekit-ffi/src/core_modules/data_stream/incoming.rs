@@ -72,14 +72,21 @@ impl IncomingDataStreamManager {
     /// class of rough edge as a single room instance being `connect()`ed multiple times.)
     /// Rebuilding is cheap and safe: dropping the manager cancels its tasks, and handler wiring
     /// lives on the foreign side.
-    #[uniffi::constructor]
+    ///
+    /// `max_open_streams_per_participant` caps how many incoming streams a single remote
+    /// participant may have open at once (`None` = default, 500); headers beyond it are dropped.
+    /// It is fixed for the lifetime of the manager in the same way.
+    #[uniffi::constructor(default(max_open_streams_per_participant = None))]
     pub fn new(
         delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
         max_payload_byte_length: Option<u64>,
+        max_open_streams_per_participant: Option<u32>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
-        let (manager, input, output) =
-            ds::incoming::Manager::new(max_payload_byte_length.map(|n| n as usize));
+        let (manager, input, output) = ds::incoming::Manager::new(
+            max_payload_byte_length.map(|n| n as usize),
+            max_open_streams_per_participant.map(|n| n as usize),
+        );
 
         let rt = crate::runtime::runtime();
         rt.spawn(shutdown_forward_task(input.clone(), token.clone()));

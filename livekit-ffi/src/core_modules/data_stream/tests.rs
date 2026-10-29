@@ -141,7 +141,7 @@ fn incoming_inline_text_stream_roundtrips() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         manager.handle_packet_received(
             inline_text_packet("s1", "alice", "my-topic", "hello world"),
@@ -160,7 +160,7 @@ fn incoming_chunk_with_mismatched_encryption_errors_reader() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         // The stream is announced unencrypted, but a chunk arrives claiming GCM encryption.
         manager.handle_packet_received(
@@ -187,7 +187,7 @@ fn incoming_trailer_with_mismatched_encryption_errors_reader() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         // The stream is announced under GCM, but its trailer arrives in plaintext.
         manager.handle_packet_received(
@@ -215,7 +215,7 @@ fn incoming_open_stream_count_tracks_headers_and_aborts() {
     crate::runtime::runtime().block_on(async {
         let (tx, _rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
         assert_eq!(manager.open_stream_count().await, 0);
 
         // The count query is processed in order with the packets enqueued before it, so this
@@ -237,7 +237,7 @@ fn incoming_reader_reports_progress() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         manager.handle_packet_received(
             multipacket_text_header_packet("s1", "alice", "my-topic", 10),
@@ -325,7 +325,7 @@ pub(super) fn manager_with_events() -> (Arc<IncomingDataStreamManager>, Events) 
     let (bytes_tx, bytes) = mpsc::unbounded_channel();
     let (closed_tx, closed) = mpsc::unbounded_channel();
     let delegate = Arc::new(StreamEvents { text: text_tx, bytes: bytes_tx, closed: closed_tx });
-    (IncomingDataStreamManager::new(delegate, None), Events { text, bytes, closed })
+    (IncomingDataStreamManager::new(delegate, None, None), Events { text, bytes, closed })
 }
 
 /// Counts the close events for `stream_id` that `manager` emitted so far.
@@ -508,7 +508,7 @@ fn incoming_trailer_fires_stream_closed() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         manager.handle_packet_received(
             multipacket_text_header_packet("s1", "alice", "my-topic", 5),
@@ -531,7 +531,7 @@ fn incoming_inline_stream_fires_stream_closed() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         manager.handle_packet_received(
             inline_text_packet("s1", "alice", "my-topic", "hello world"),
@@ -549,7 +549,7 @@ fn incoming_abort_fires_stream_closed() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate, None);
+        let manager = IncomingDataStreamManager::new(delegate, None, None);
 
         // Announce a multi-packet stream, then abort before its trailer ever arrives.
         manager.handle_packet_received(
@@ -695,7 +695,7 @@ async fn stream_text_with_total_length(text: &str, total_length: u64) -> Arc<Tex
 
     let (tx, rx) = oneshot::channel();
     let incoming =
-        IncomingDataStreamManager::new(Arc::new(TextCapture(Mutex::new(Some(tx)))), None);
+        IncomingDataStreamManager::new(Arc::new(TextCapture(Mutex::new(Some(tx)))), None, None);
     for packet in delegate.0.lock().unwrap().drain(..) {
         incoming.handle_packet_received(packet, EncryptionType::None);
     }
@@ -914,7 +914,7 @@ async fn polled_roundtrip(
     text: &str,
 ) -> (usize, String) {
     let outgoing = super::polled::polled_outgoing_data_stream_manager(registry);
-    let incoming = super::polled::polled_incoming_data_stream_manager(None);
+    let incoming = super::polled::polled_incoming_data_stream_manager(None, None);
 
     let options = StreamTextOptions {
         topic: "chat".to_string(),

@@ -281,14 +281,19 @@ pub struct PolledIncomingDataStreamManager {
 
 /// Builds an incoming manager whose opened streams are pulled rather than pushed.
 ///
-/// `max_payload_byte_length` is fixed for the lifetime of the manager; see
-/// [`IncomingDataStreamManager::new`]. Hosts sourcing it from per-connection options should build
-/// a fresh manager per session rather than memoizing one.
-#[uniffi::export]
+/// `max_payload_byte_length` and `max_open_streams_per_participant` are fixed for the lifetime of
+/// the manager; see [`IncomingDataStreamManager::new`]. Hosts sourcing them from per-connection
+/// options should build a fresh manager per session rather than memoizing one.
+#[uniffi::export(default(max_open_streams_per_participant = None))]
 pub fn polled_incoming_data_stream_manager(
     max_payload_byte_length: Option<u64>,
+    max_open_streams_per_participant: Option<u32>,
 ) -> PolledIncomingDataStreamManager {
     let streams = Arc::new(IncomingStreamQueue::new());
-    let manager = IncomingDataStreamManager::new(streams.clone(), max_payload_byte_length);
+    let manager = IncomingDataStreamManager::new(
+        streams.clone(),
+        max_payload_byte_length,
+        max_open_streams_per_participant,
+    );
     PolledIncomingDataStreamManager { manager, streams }
 }
