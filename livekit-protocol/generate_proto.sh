@@ -16,12 +16,12 @@
 # dependencies: cargo install protoc-gen-prost@0.5.0 protoc-gen-prost-serde@0.4.0
 
 
-PROTOCOL=${PROTOCOL:-protocol/protobufs}
-SEMCONV=${SEMCONV:-protocol/otel/gen/rust/semconv.rs}
-OUT_RUST=src
+# The telemetry names (`src/lib.rs`, `mod semconv`) are not generated here: Weaver writes them in
+# the protocol repository (`otel/generate.sh`) and the crate reads `protocol/otel/gen/rust/semconv.rs`
+# straight from the submodule.
 
-# The telemetry names: generated in the protocol repository by Weaver (`otel/generate.sh`).
-cp "$SEMCONV" $OUT_RUST/semconv.rs
+PROTOCOL=${PROTOCOL:-protocol/protobufs}
+OUT_RUST=src
 
 protoc \
     -I=$PROTOCOL \
