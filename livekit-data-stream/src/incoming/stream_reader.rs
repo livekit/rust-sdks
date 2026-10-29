@@ -168,7 +168,16 @@ impl ByteStreamReader {
         }
         let file_path = directory.join(name);
 
-        let mut file = tokio::fs::File::create(&file_path).await.map_err(StreamError::Io)?;
+        // `create_new` rather than `create`: the remote sender picks `name`, so an existing
+        // path must not be truncated, and a symlink sitting at that path must not be followed
+        // to a destination outside `directory`. The check and the open are the same syscall
+        // (`O_CREAT | O_EXCL`), so there is no window between them.
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&file_path)
+            .await
+            .map_err(StreamError::Io)?;
 
         while let Some(result) = self.next().await {
             let bytes = result?;
@@ -351,6 +360,52 @@ mod tests {
             ByteStreamReader { info, chunk_rx, progress_rx, closer: StreamCloser::detached() },
             chunk_tx,
         )
+    }
+
+    #[tokio::test]
+    async fn write_to_file_does_not_overwrite_an_existing_file() {
+        let dir = std::env::temp_dir().join(format!("lk-ds-overwrite-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let victim = dir.join("victim.txt");
+        std::fs::write(&victim, b"original").expect("seed the victim file");
+
+        let (reader, chunk_tx) = byte_reader("victim.txt");
+        drop(chunk_tx); // no chunks: the open must fail before any write
+        let result = reader.write_to_file(Some(&dir), None).await;
+
+        match result {
+            Err(StreamError::Io(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists)
+            }
+            other => panic!("expected AlreadyExists, got {other:?}"),
+        }
+        assert_eq!(std::fs::read(&victim).unwrap(), b"original", "file must be untouched");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_to_file_does_not_follow_a_symlink() {
+        let dir = std::env::temp_dir().join(format!("lk-ds-symlink-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let outside = dir.join("outside.txt");
+        std::fs::write(&outside, b"original").expect("seed the target file");
+        let link = dir.join("link.txt");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&outside, &link).expect("create the symlink");
+
+        let (reader, chunk_tx) = byte_reader("link.txt");
+        drop(chunk_tx);
+        let result = reader.write_to_file(Some(&dir), None).await;
+
+        match result {
+            Err(StreamError::Io(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists)
+            }
+            other => panic!("expected AlreadyExists, got {other:?}"),
+        }
+        assert_eq!(std::fs::read(&outside).unwrap(), b"original", "link target must be untouched");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
