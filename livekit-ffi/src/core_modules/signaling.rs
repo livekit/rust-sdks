@@ -454,17 +454,18 @@ pub async fn connect_signal_session(
     options: SignalOptions,
     publisher_offer: Option<Vec<u8>>,
 ) -> Result<SignalSessionConnected, SignalError> {
-    let publisher_offer = publisher_offer
+    let initial_publish = publisher_offer
         .map(|offer| proto::SessionDescription::decode(offer.as_slice()))
         .transpose()
-        .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?;
+        .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?
+        .map(|offer| signaling::InitialPublish { offer, add_track_requests: Vec::new() });
     let options = options.into();
 
     // `SignalClient::connect` spawns the long-lived signal task, which must land on this crate's
     // runtime rather than whatever ambient one uniffi supplies. Spawning needs a `'static`
     // future, which is why `url` and `token` are owned rather than `&str`.
     let mut connect = CloseOnCancel(Some(crate::runtime::runtime().spawn(async move {
-        signaling::SignalClient::connect(&url, &token, options, publisher_offer).await
+        signaling::SignalClient::connect(&url, &token, options, initial_publish).await
     })));
     let (client, join_response, events) = connect
         .join()

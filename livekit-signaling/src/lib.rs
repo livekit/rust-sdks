@@ -167,6 +167,16 @@ impl Default for SignalSdkOptions {
     }
 }
 
+/// Publisher state sent with the initial join request, so the server can answer the offer and
+/// publish the tracks without separate round trips.
+#[derive(Debug, Clone, Default)]
+pub struct InitialPublish {
+    /// The publisher's initial SDP offer.
+    pub offer: proto::SessionDescription,
+    /// Tracks whose media sections are already part of [`Self::offer`].
+    pub add_track_requests: Vec<proto::AddTrackRequest>,
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SignalOptions {
@@ -362,7 +372,7 @@ impl SignalClient {
         url: &str,
         token: &str,
         options: SignalOptions,
-        publisher_offer: Option<proto::SessionDescription>,
+        initial_publish: Option<InitialPublish>,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
             let (emitter, events) = mpsc::unbounded_channel();
@@ -372,7 +382,7 @@ impl SignalClient {
             (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
         };
 
-        match SignalInner::connect(url, token, options.clone(), publisher_offer.clone()).await {
+        match SignalInner::connect(url, token, options.clone(), initial_publish.clone()).await {
             Ok((inner, join_response, stream_events)) => {
                 Ok(handle_success(inner, join_response, stream_events))
             }
@@ -411,7 +421,7 @@ impl SignalClient {
                         region_url,
                         token,
                         options.clone(),
-                        publisher_offer.clone(),
+                        initial_publish.clone(),
                     )
                     .await
                     {
@@ -530,7 +540,7 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: SignalOptions,
-        publisher_offer: Option<proto::SessionDescription>,
+        initial_publish: Option<InitialPublish>,
     ) -> SignalResult<(
         Arc<Self>,
         proto::JoinResponse,
@@ -541,7 +551,7 @@ impl SignalInner {
         let mut state = SignalState::default();
         let attempt = async {
             let (stream, mut events, single_pc_mode_active) =
-                Self::open_transport(url, token, &options, publisher_offer.as_ref()).await?;
+                Self::open_transport(url, token, &options, initial_publish.as_ref()).await?;
             let join_response = get_join_response(&mut events).await?;
             SignalResult::Ok((stream, events, single_pc_mode_active, join_response))
         };
@@ -576,7 +586,7 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: &SignalOptions,
-        publisher_offer: Option<&proto::SessionDescription>,
+        initial_publish: Option<&InitialPublish>,
     ) -> SignalResult<(
         SignalStream,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
@@ -585,7 +595,7 @@ impl SignalInner {
         // Try v1 path first if single_peer_connection is enabled
         let use_v1_path = options.single_peer_connection;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
-        let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", publisher_offer)?;
+        let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", initial_publish)?;
         match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
             Ok((new_stream, stream_events)) => {
                 log::debug!(
@@ -951,7 +961,7 @@ fn create_join_request_param(
     os: String,
     os_version: String,
     device_model: String,
-    publisher_offer: Option<&proto::SessionDescription>,
+    initial_publish: Option<&InitialPublish>,
 ) -> String {
     let connection_settings = proto::ConnectionSettings {
         auto_subscribe: options.auto_subscribe,
@@ -976,7 +986,10 @@ fn create_join_request_param(
         client_info: Some(client_info),
         connection_settings: Some(connection_settings),
         reconnect,
-        publisher_offer: publisher_offer.cloned(),
+        publisher_offer: initial_publish.map(|p| p.offer.clone()),
+        add_track_requests: initial_publish
+            .map(|p| p.add_track_requests.clone())
+            .unwrap_or_default(),
         ..Default::default()
     };
 
@@ -1037,7 +1050,7 @@ fn get_livekit_url(
     reconnect: bool,
     reconnect_reason: Option<i32>,
     participant_sid: &str,
-    publisher_offer: Option<&proto::SessionDescription>,
+    initial_publish: Option<&InitialPublish>,
 ) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
@@ -1075,7 +1088,7 @@ fn get_livekit_url(
             os_info.os_type().to_string(),
             os_info.version().to_string(),
             device_model.to_string(),
-            publisher_offer,
+            initial_publish,
         );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
@@ -1815,6 +1828,50 @@ mod tests {
 
         assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
         assert_eq!(client_info.version, "9.9.9-test");
+    }
+
+    #[test]
+    fn livekit_url_v1_join_request_carries_initial_publish() {
+        use std::io::Read;
+
+        let io = SignalOptions::default();
+        let initial_publish = InitialPublish {
+            offer: proto::SessionDescription {
+                r#type: "offer".to_string(),
+                sdp: "v=0\r\n".repeat(64),
+                ..Default::default()
+            },
+            add_track_requests: vec![proto::AddTrackRequest {
+                cid: "track-cid".to_string(),
+                ..Default::default()
+            }],
+        };
+        let lk_url = get_livekit_url(
+            "wss://localhost:7880",
+            &io,
+            true,
+            false,
+            None,
+            "",
+            Some(&initial_publish),
+        )
+        .unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+
+        let wrapped_bytes = BASE64_URL_SAFE.decode(join_request_param).unwrap();
+        let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
+        assert_eq!(wrapped.compression, proto::wrapped_join_request::Compression::Gzip as i32);
+        let mut join_request_bytes = Vec::new();
+        flate2::read::GzDecoder::new(wrapped.join_request.as_slice())
+            .read_to_end(&mut join_request_bytes)
+            .unwrap();
+        let join_request = proto::JoinRequest::decode(join_request_bytes.as_slice()).unwrap();
+
+        assert_eq!(join_request.publisher_offer, Some(initial_publish.offer));
+        assert_eq!(join_request.add_track_requests, initial_publish.add_track_requests);
     }
 
     #[test]

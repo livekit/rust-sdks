@@ -25,6 +25,9 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalAudioTrack {
     inner: Arc<TrackInner>,
     source: RtcAudioSource,
+    /// The runtime whose factory created the native track. Its threads must outlive the track,
+    /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
+    _runtime: Arc<LkRuntime>,
 }
 
 impl Debug for LocalAudioTrack {
@@ -38,7 +41,20 @@ impl Debug for LocalAudioTrack {
 }
 
 impl LocalAudioTrack {
-    pub(crate) fn new(name: String, rtc_track: RtcAudioTrack, source: RtcAudioSource) -> Self {
+    /// Test-only: returns a probe that reports whether every clone of this track has been
+    /// dropped, so lifecycle tests can assert nothing retains it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
+    fn with_runtime(
+        name: String,
+        rtc_track: RtcAudioTrack,
+        source: RtcAudioSource,
+        runtime: Arc<LkRuntime>,
+    ) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
                 "TR_unknown".to_owned().try_into().unwrap(),
@@ -47,15 +63,17 @@ impl LocalAudioTrack {
                 MediaStreamTrack::Audio(rtc_track),
             )),
             source,
+            _runtime: runtime,
         }
     }
 
     pub fn create_audio_track(name: &str, source: RtcAudioSource) -> LocalAudioTrack {
+        let runtime = LkRuntime::instance();
         let rtc_track = match source.clone() {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(native_source) => {
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance()
+                runtime
                     .pc_factory()
                     .create_audio_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
@@ -64,14 +82,14 @@ impl LocalAudioTrack {
                 // Create an audio track that uses the Platform ADM for capture.
                 // Use PlatformAudio::new() to enable platform audio before creating this track.
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance()
+                runtime
                     .pc_factory()
                     .create_device_audio_track(&libwebrtc::native::create_random_uuid())
             }
             #[allow(unreachable_patterns)]
             _ => panic!("unsupported audio source"),
         };
-        Self::new(name.to_string(), rtc_track, source)
+        Self::with_runtime(name.to_string(), rtc_track, source, runtime)
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -155,5 +173,21 @@ impl LocalAudioTrack {
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalAudio(self.clone()), info);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use libwebrtc::audio_source::{native::NativeAudioSource, AudioSourceOptions};
+
+    use super::*;
+
+    /// A track created before any room exists must keep its runtime, so the room reuses it
+    /// instead of a new one whose threads the track does not belong to.
+    #[test]
+    fn track_keeps_the_runtime_that_created_it() {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 100);
+        let track = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source));
+        assert!(Arc::ptr_eq(&track._runtime, &LkRuntime::instance()));
     }
 }
