@@ -184,7 +184,7 @@ async fn main() {
 
     // Load WAV file if specified
     // Note: ADM recording is disabled by default, so when using --file mode (NativeAudioSource only),
-    // the microphone will not be activated. It's only enabled when PlatformAudio::new() is called.
+    // the microphone will not be activated. It is enabled when a Device mic track is created or start_recording() runs, not merely by PlatformAudio::new().
     let wav_data = if let Some(ref path) = file_path {
         Some(load_wav_file(path).expect("Failed to load WAV file"))
     } else {
