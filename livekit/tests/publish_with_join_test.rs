@@ -21,11 +21,16 @@
 
 use anyhow::{anyhow, bail, Result};
 use common::{test_rooms_with_options, TestRoomOptions};
+use futures_util::StreamExt;
 use libwebrtc::{
     audio_source::native::NativeAudioSource,
     native::create_random_uuid,
-    prelude::{AudioSourceOptions, RtcAudioSource, RtcVideoSource, VideoResolution},
+    prelude::{
+        AudioFrame, AudioSourceOptions, I420Buffer, RtcAudioSource, RtcVideoSource, VideoFrame,
+        VideoResolution, VideoRotation,
+    },
     video_source::native::NativeVideoSource,
+    video_stream::native::NativeVideoStream,
 };
 use livekit::{
     e2ee::{
@@ -33,7 +38,7 @@ use livekit::{
         EncryptionType,
     },
     options::TrackPublishOptions,
-    track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, TrackSource},
+    track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteTrack, TrackSource},
     E2eeOptions, InitialTrack, Room, RoomError, RoomEvent, RoomOptions, SimulateScenario,
 };
 use livekit_api::services::room::RoomClient;
@@ -43,6 +48,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::mpsc::UnboundedReceiver,
+    task::JoinHandle,
     time::{self, timeout},
 };
 
@@ -393,5 +399,118 @@ async fn test_publish_with_join_rejects_duplicate_track() -> Result<()> {
         rooms.list_participants(&room_name).await.unwrap_or_default().is_empty(),
         "nothing should reach the server"
     );
+    Ok(())
+}
+
+/// Creates a microphone and camera that are muted and have not captured anything yet.
+fn muted_tracks() -> (LocalAudioTrack, LocalVideoTrack) {
+    let audio = LocalAudioTrack::create_audio_track(
+        "muted-audio",
+        RtcAudioSource::Native(NativeAudioSource::new(
+            AudioSourceOptions::default(),
+            48_000,
+            1,
+            1000,
+        )),
+    );
+    let video = LocalVideoTrack::create_video_track(
+        "muted-video",
+        RtcVideoSource::Native(NativeVideoSource::new(
+            VideoResolution { width: 320, height: 180 },
+            false,
+        )),
+    );
+    audio.mute();
+    video.mute();
+    (audio, video)
+}
+
+/// Captures silence and black frames into the tracks' sources until aborted.
+fn capture(audio: &LocalAudioTrack, video: &LocalVideoTrack) -> JoinHandle<()> {
+    let RtcAudioSource::Native(audio) = audio.rtc_source() else { unreachable!() };
+    let RtcVideoSource::Native(video) = video.rtc_source() else { unreachable!() };
+    tokio::spawn(async move {
+        let samples = vec![0i16; 480];
+        loop {
+            let frame = AudioFrame {
+                data: samples.as_slice().into(),
+                sample_rate: 48_000,
+                num_channels: 1,
+                samples_per_channel: 480,
+            };
+            audio.capture_frame(&frame).await.expect("capture audio frame");
+            video.capture_frame(&VideoFrame::new(
+                VideoRotation::VideoRotation0,
+                I420Buffer::new(320, 180),
+            ));
+        }
+    })
+}
+
+/// Waits until every remote publication `subscriber` sees is subscribed and has `muted` set.
+async fn wait_remote_muted(subscriber: &Room, muted: bool) -> Result<()> {
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let publications: Vec<_> = subscriber
+                .remote_participants()
+                .values()
+                .flat_map(|p| p.track_publications().into_values())
+                .collect();
+            if publications.len() == 2
+                && publications.iter().all(|p| p.is_muted() == muted && p.track().is_some())
+            {
+                return;
+            }
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("subscriber never saw both tracks subscribed with muted={muted}"))
+}
+
+/// Tracks muted before joining are published like any muted track: the server publishes them
+/// without waiting for media, and they carry media once unmuted.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_muted_tracks() -> Result<()> {
+    let (audio, video) = muted_tracks();
+    let mut publisher = RoomOptions::default();
+    publisher.publish_tracks = vec![
+        InitialTrack::new(LocalTrack::Audio(audio.clone())).with_options(TrackPublishOptions {
+            source: TrackSource::Microphone,
+            ..Default::default()
+        }),
+        InitialTrack::new(LocalTrack::Video(video.clone())).with_options(TrackPublishOptions {
+            source: TrackSource::Camera,
+            ..Default::default()
+        }),
+    ];
+    let ((publisher, _), (subscriber, mut subscriber_events)) = connect_pair(publisher).await?;
+
+    let publications = publisher.local_participant().track_publications();
+    assert_eq!(publications.len(), 2);
+    assert!(publications.values().all(|p| p.is_muted()));
+    wait_remote_muted(&subscriber, true).await?;
+
+    audio.unmute();
+    video.unmute();
+    let capture = capture(&audio, &video);
+    wait_remote_muted(&subscriber, false).await?;
+
+    let remote_video = timeout(Duration::from_secs(10), async {
+        while let Some(event) = subscriber_events.recv().await {
+            if let RoomEvent::TrackSubscribed { track: RemoteTrack::Video(track), .. } = event {
+                return Ok(track);
+            }
+        }
+        bail!("event stream ended before the video track was subscribed")
+    })
+    .await??;
+    let mut frames = NativeVideoStream::new(remote_video.rtc_track());
+    timeout(Duration::from_secs(10), frames.next())
+        .await
+        .map_err(|_| anyhow!("no video frame after unmuting"))?
+        .ok_or_else(|| anyhow!("video stream ended"))?;
+
+    capture.abort();
     Ok(())
 }
