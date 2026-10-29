@@ -38,8 +38,10 @@ pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
 pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
 /// Cap on any single wait, before jitter.
 pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
-/// The episode gives up once this much time has passed since it started, even
-/// with attempts left: slow failing attempts must not stretch it for minutes.
+/// No new attempt starts once this much time has passed since the episode
+/// started, even with attempts left. An attempt already running is not cut short
+/// (dropping a half-built session would leak its peer connections), so the
+/// episode can end up to one attempt's own timeouts past this limit.
 pub const RECONNECT_MAX_DURATION: Duration = Duration::from_secs(60);
 
 /// Maximum jitter added to every wait after the first.

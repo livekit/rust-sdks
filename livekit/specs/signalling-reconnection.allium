@@ -226,8 +226,9 @@ config {
     -- schedule of livekit-client's DefaultReconnectPolicy. Nominal delay after
     -- the n-th failed attempt = min(reconnect_max_delay_ms,
     --   reconnect_base_delay_ms * n^2), i.e. 300, 1200, 2700, 4800, 7000, ...;
-    -- from the second wait on, up to reconnect_jitter_ms is added. The episode
-    -- also ends once reconnect_max_duration has elapsed since it started.
+    -- from the second wait on, up to reconnect_jitter_ms is added. No new
+    -- attempt starts once reconnect_max_duration has elapsed since the episode
+    -- started; an attempt already running ends on its own timeouts.
     -- Expressed in milliseconds because Duration has no sub-second unit.
     max_reconnect_attempts: Integer = 10
     reconnect_base_delay_ms: Integer = 300
@@ -671,9 +672,10 @@ rule RetryReconnectAgain {
     ensures: ReconnectAttemptStarted(engine)
     @guidance
         -- DELTA 3: attempts are spaced by quadratic backoff plus jitter (see
-        -- config); a server-Leave retry_now collapses the delay to zero. The
-        -- episode also gives up once reconnect_max_duration has elapsed, so a
-        -- slow failing attempt cannot stretch it past the attempt cap's intent.
+        -- config); a server-Leave retry_now collapses the delay to zero. No new
+        -- attempt starts once reconnect_max_duration has elapsed, so slow
+        -- failing attempts cannot stretch the episode past the attempt cap's
+        -- intent. A running attempt is not interrupted.
 }
 
 rule ReconnectExhausted {
