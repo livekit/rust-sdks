@@ -72,20 +72,27 @@ impl Descriptor {
     /// Stream ids key `open_streams` globally, so a packet naming an open id reaches this
     /// descriptor whoever sent it. Without the sender check, a participant that learns an id
     /// could append to another participant's stream, merge its own attributes in, or end it with
-    /// a forged reason. The encryption check likewise stops an unencrypted peer from writing into
-    /// (or cleanly closing) an encrypted stream.
+    /// a forged reason. A packet from the wrong sender is logged and dropped on its own: closing
+    /// the stream instead would let a third party cancel someone else's stream.
     ///
-    /// See [`Manager::reject_packet`] for how each error is handled.
+    /// The encryption check likewise stops an unencrypted peer from writing into (or cleanly
+    /// closing) an encrypted stream; that error is fatal, and the caller closes the stream with it.
+    ///
+    /// Returns whether the packet may be applied; `Ok(false)` means it was dropped.
     fn validate(
         &self,
+        id: &StreamId,
         participant_identity: &ParticipantIdentity,
         encryption_type: EncryptionType,
-    ) -> StreamResult<()> {
+    ) -> StreamResult<bool> {
         if self.sender_identity != *participant_identity {
-            return Err(StreamError::ParticipantIdentityMismatch {
-                expected: self.sender_identity.clone(),
-                received: participant_identity.clone(),
-            });
+            log::warn!(
+                "Dropping stream packet for '{}' from '{}': stream belongs to '{}'",
+                id,
+                participant_identity,
+                self.sender_identity
+            );
+            return Ok(false);
         }
         if self.encryption_type != encryption_type {
             return Err(StreamError::EncryptionTypeMismatch {
@@ -93,7 +100,7 @@ impl Descriptor {
                 received: encryption_type,
             });
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -434,19 +441,6 @@ impl Manager {
         self.inner.open_streams.insert(id, descriptor);
     }
 
-    /// Handles a chunk or trailer that failed [`Descriptor::validate`].
-    ///
-    /// A [`StreamError::ParticipantIdentityMismatch`] drops only the offending packet and leaves
-    /// the stream open: closing it instead would let a third party cancel someone else's stream.
-    /// Any other error closes the stream with that error.
-    fn reject_packet(inner: &mut ManagerInner, id: &StreamId, error: StreamError) {
-        if let StreamError::ParticipantIdentityMismatch { .. } = error {
-            log::warn!("Dropping stream packet for '{}': {}", id, error);
-            return;
-        }
-        inner.close_stream_with_error(id, error);
-    }
-
     /// Handles an incoming chunk packet.
     async fn handle_chunk(
         &mut self,
@@ -468,9 +462,13 @@ impl Manager {
         };
 
         // Validated before the raw event is emitted, so a rejected chunk reaches no one.
-        if let Err(error) = descriptor.validate(&participant_identity, encryption_type) {
-            Self::reject_packet(inner, &id, error);
-            return;
+        match descriptor.validate(&id, &participant_identity, encryption_type) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                inner.close_stream_with_error(&id, error);
+                return;
+            }
         }
 
         let _ = inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
@@ -586,9 +584,13 @@ impl Manager {
 
         // Checked before the attribute merge and the close below, so a rejected trailer can
         // neither inject attributes nor end the stream.
-        if let Err(error) = descriptor.validate(&participant_identity, encryption_type) {
-            Self::reject_packet(inner, &id, error);
-            return;
+        match descriptor.validate(&id, &participant_identity, encryption_type) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                inner.close_stream_with_error(&id, error);
+                return;
+            }
         }
 
         let _ = inner.output_tx.send(

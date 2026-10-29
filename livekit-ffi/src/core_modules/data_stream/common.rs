@@ -383,9 +383,6 @@ pub enum DataStreamError {
     #[error("encryption type mismatch: expected {expected:?}, received {received:?}")]
     EncryptionTypeMismatch { expected: EncryptionType, received: EncryptionType },
 
-    #[error("participant identity mismatch: expected {expected}, received {received}")]
-    ParticipantIdentityMismatch { expected: String, received: String },
-
     #[error("stream header exceeds maximum size")]
     HeaderTooLarge,
 
@@ -443,9 +440,6 @@ impl From<ds_api::StreamError> for DataStreamError {
                     expected: expected.into(),
                     received: received.into(),
                 }
-            }
-            ds_api::StreamError::ParticipantIdentityMismatch { expected, received } => {
-                Self::ParticipantIdentityMismatch { expected: expected.0, received: received.0 }
             }
             ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
             ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
