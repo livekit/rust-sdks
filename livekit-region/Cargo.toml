@@ -9,6 +9,7 @@ readme = "README.md"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+url = "2.3"
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.

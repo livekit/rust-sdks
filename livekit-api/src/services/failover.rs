@@ -24,7 +24,9 @@ use std::{sync::OnceLock, time::Duration};
 use http::header::{HeaderMap, CONTENT_LENGTH, CONTENT_TYPE};
 use url::Url;
 
-use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{
+    is_cloud_host, is_trusted_region_url, parse_max_age, Cached, RegionCache, RegionsResponse,
+};
 
 /// Total attempts (the original request plus fallback regions) and the base
 /// retry backoff are fixed, not user-configurable, so retries can't be tuned to
@@ -128,7 +130,11 @@ fn region_cache() -> &'static RegionCache {
 /// cached list when available, otherwise an empty list (the caller then stops
 /// failing over). Forwards the caller's headers so a valid token — and any test
 /// directives — reach the discovery endpoint.
-pub(crate) async fn region_urls(base: &Url, headers: &HeaderMap) -> Vec<String> {
+pub(crate) async fn region_urls(
+    base: &Url,
+    headers: &HeaderMap,
+    require_trusted: bool,
+) -> Vec<String> {
     let key = host_key(base);
     let cache = region_cache();
 
@@ -138,7 +144,7 @@ pub(crate) async fn region_urls(base: &Url, headers: &HeaderMap) -> Vec<String> 
         Cached::Miss => None,
     };
 
-    match fetch(base, headers).await {
+    match fetch(base, headers, require_trusted).await {
         Ok((urls, max_age)) => {
             // A zero max-age (e.g. `Cache-Control: max-age=0`) means "do not
             // cache"; skip the insert so the next call re-fetches rather than
@@ -164,8 +170,26 @@ fn forward_headers(headers: &HeaderMap) -> HeaderMap {
 
 /// The discovery response carries `wss://` region URLs; the API client speaks
 /// HTTP, so rewrite each to its `http(s)` equivalent.
-fn normalize(list: RegionsResponse) -> Vec<String> {
-    list.regions.into_iter().filter(|r| !r.url.is_empty()).map(|r| to_http_url(&r.url)).collect()
+///
+/// With `require_trusted`, entries that are not encrypted LiveKit Cloud URLs are
+/// dropped *before* the rewrite and before they reach the cache. Every surviving
+/// URL is one the client will send the caller's admin token to, so each is
+/// validated on its own merits; see [`is_trusted_region_url`]. Only the
+/// test-only `force` knob clears this, since the mock server runs on
+/// `127.0.0.1`.
+fn normalize(list: RegionsResponse, require_trusted: bool) -> Vec<String> {
+    list.regions
+        .into_iter()
+        .filter(|r| !r.url.is_empty())
+        .filter(|r| {
+            if !require_trusted || is_trusted_region_url(&r.url) {
+                return true;
+            }
+            log::warn!("ignoring untrusted region url from discovery response: {}", r.url);
+            false
+        })
+        .map(|r| to_http_url(&r.url))
+        .collect()
 }
 
 /// Reads the `Cache-Control: max-age` from a header value for use as the cache
@@ -174,7 +198,11 @@ fn max_age_from_cache_control(value: Option<&str>) -> Option<Duration> {
     value.and_then(parse_max_age)
 }
 
-async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
+async fn fetch(
+    base: &Url,
+    headers: &HeaderMap,
+    require_trusted: bool,
+) -> Result<(Vec<String>, Option<Duration>), ()> {
     let mut url = base.clone();
     url.set_path("/settings/regions");
 
@@ -192,5 +220,49 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
         resp.headers().get("cache-control").and_then(|v| v.to_str().ok()),
     );
     let list: RegionsResponse = resp.json().await.map_err(|_| ())?;
-    Ok((normalize(list), max_age))
+    Ok((normalize(list, require_trusted), max_age))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use livekit_region::RegionInfo;
+
+    fn response(urls: &[&str]) -> RegionsResponse {
+        RegionsResponse {
+            regions: urls.iter().map(|u| RegionInfo { url: u.to_string() }).collect(),
+        }
+    }
+
+    #[test]
+    fn normalize_rewrites_wss_to_https() {
+        assert_eq!(
+            normalize(response(&["wss://eu.livekit.cloud"]), true),
+            vec!["https://eu.livekit.cloud".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_drops_untrusted_regions() {
+        // Foreign origins and cleartext schemes must not survive into the list
+        // the admin token is sent to.
+        let out = normalize(
+            response(&[
+                "wss://eu.livekit.cloud",
+                "https://other.example.com",
+                "ws://eu.livekit.cloud",
+                "http://eu.livekit.cloud",
+                "",
+            ]),
+            true,
+        );
+        assert_eq!(out, vec!["https://eu.livekit.cloud".to_string()]);
+    }
+
+    #[test]
+    fn normalize_without_require_trusted_keeps_test_hosts() {
+        // The `force` knob points failover at the 127.0.0.1 mock.
+        let out = normalize(response(&["ws://127.0.0.1:9999"]), false);
+        assert_eq!(out, vec!["http://127.0.0.1:9999".to_string()]);
+    }
 }
