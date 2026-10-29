@@ -66,6 +66,44 @@ struct Descriptor {
     attributes_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
+impl Descriptor {
+    /// Checks that a chunk or trailer may act on this stream.
+    ///
+    /// Stream ids key `open_streams` globally, so a packet naming an open id reaches this
+    /// descriptor whoever sent it. Without the sender check, a participant that learns an id
+    /// could append to another participant's stream, merge its own attributes in, or end it with
+    /// a forged reason. A packet from the wrong sender is logged and dropped on its own: closing
+    /// the stream instead would let a third party cancel someone else's stream.
+    ///
+    /// The encryption check likewise stops an unencrypted peer from writing into (or cleanly
+    /// closing) an encrypted stream; that error is fatal, and the caller closes the stream with it.
+    ///
+    /// Returns whether the packet may be applied; `Ok(false)` means it was dropped.
+    fn validate(
+        &self,
+        id: &StreamId,
+        participant_identity: &ParticipantIdentity,
+        encryption_type: EncryptionType,
+    ) -> StreamResult<bool> {
+        if self.sender_identity != *participant_identity {
+            log::warn!(
+                "Dropping stream packet for '{}' from '{}': stream belongs to '{}'",
+                id,
+                participant_identity,
+                self.sender_identity
+            );
+            return Ok(false);
+        }
+        if self.encryption_type != encryption_type {
+            return Err(StreamError::EncryptionTypeMismatch {
+                expected: self.encryption_type,
+                received: encryption_type,
+            });
+        }
+        Ok(true)
+    }
+}
+
 /// Streaming deflate-raw decompressor state for one compressed stream.
 ///
 /// Backed by `async-compression`'s push-style (`AsyncWrite`) decoder: ordered compressed chunks
@@ -403,14 +441,6 @@ impl Manager {
         self.inner.open_streams.insert(id, descriptor);
     }
 
-    /// Returns the topic of an open stream, or `None` if no stream with this id is open.
-    ///
-    /// Reported on chunk/trailer events so the host can apply its own topic policy (e.g. hiding
-    /// `lk.rpc_request`); this crate deliberately holds no notion of which topics are internal.
-    fn topic_associated_with_stream_id(&self, id: &StreamId) -> Option<String> {
-        self.inner.open_streams.get(id).map(|d| d.topic.clone())
-    }
-
     /// Handles an incoming chunk packet.
     async fn handle_chunk(
         &mut self,
@@ -419,25 +449,33 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let id = chunk.stream_id.clone();
-        let _ = self.inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
-            chunk: chunk.clone(),
-            participant_identity,
-            topic: self.topic_associated_with_stream_id(&id),
-        }));
-
         let inner = &mut self.inner;
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
+            // An unknown id names no open stream, so there is nothing to tamper with; the raw
+            // event still reaches hosts that track streams themselves.
+            let _ = inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+                chunk,
+                participant_identity,
+                topic: None,
+            }));
             return;
         };
 
-        if descriptor.encryption_type != encryption_type {
-            let expected = descriptor.encryption_type;
-            inner.close_stream_with_error(
-                &id,
-                StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
-            );
-            return;
+        // Validated before the raw event is emitted, so a rejected chunk reaches no one.
+        match descriptor.validate(&id, &participant_identity, encryption_type) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                inner.close_stream_with_error(&id, error);
+                return;
+            }
         }
+
+        let _ = inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+            chunk: chunk.clone(),
+            participant_identity,
+            topic: Some(descriptor.topic.clone()),
+        }));
 
         if let Some(decompressor) = &mut descriptor.decompressor {
             // --- Compressed stream: feed chunks through one stateful decompressor. ---
@@ -535,31 +573,34 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let id = trailer.stream_id.clone();
-        let _ = self.inner.output_tx.send(
-            TrailerReceived {
-                trailer: trailer.clone(),
-                participant_identity,
-                topic: self.topic_associated_with_stream_id(&id),
-            }
-            .into(),
-        );
-
         let inner = &mut self.inner;
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
+            // See `handle_chunk`.
+            let _ = inner
+                .output_tx
+                .send(TrailerReceived { trailer, participant_identity, topic: None }.into());
             return;
         };
 
-        // Checked before the attribute merge: a trailer that arrived under the wrong encryption
-        // must not close the stream cleanly, nor inject its attributes (an unencrypted peer could
-        // otherwise forge a clean close for an encrypted stream).
-        if descriptor.encryption_type != encryption_type {
-            let expected = descriptor.encryption_type;
-            inner.close_stream_with_error(
-                &id,
-                StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
-            );
-            return;
+        // Checked before the attribute merge and the close below, so a rejected trailer can
+        // neither inject attributes nor end the stream.
+        match descriptor.validate(&id, &participant_identity, encryption_type) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                inner.close_stream_with_error(&id, error);
+                return;
+            }
         }
+
+        let _ = inner.output_tx.send(
+            TrailerReceived {
+                trailer: trailer.clone(),
+                participant_identity,
+                topic: Some(descriptor.topic.clone()),
+            }
+            .into(),
+        );
 
         // Move over any attributes from the trailer into the stream-scoped attribute list.
         {
@@ -867,6 +908,117 @@ mod tests {
                     _ => continue,
                 }
             }
+        }
+    }
+
+    mod sender_authentication {
+        use super::*;
+
+        const ATTACKER: &str = "mallory";
+
+        /// Opens a text stream "s1" owned by `SENDER` and returns the harness and its reader.
+        async fn open_stream() -> (Harness, AnyStreamReader) {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", None, HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, identity) = h.next_opened().await;
+            assert_eq!(identity.as_str(), SENDER);
+            (h, reader)
+        }
+
+        #[tokio::test]
+        async fn chunk_from_another_participant_is_not_appended() {
+            let (h, reader) = open_stream().await;
+
+            // Mallory knows the stream id and tries to write into alice's stream.
+            h.send_packet_from(
+                Packet::Chunk {
+                    chunk: chunk("s1", 0, b"forged".to_vec()),
+                    encryption_type: EncryptionType::None,
+                },
+                ATTACKER,
+            );
+            // Alice's own content, then a clean end.
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"genuine".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+
+            assert_eq!(read_text(reader).await.unwrap(), "genuine");
+        }
+
+        #[tokio::test]
+        async fn trailer_from_another_participant_does_not_end_the_stream() {
+            let (h, _reader) = open_stream().await;
+
+            h.send_packet_from(
+                Packet::Trailer { trailer: trailer("s1"), encryption_type: EncryptionType::None },
+                ATTACKER,
+            );
+
+            // The stream must still be open: a rejected trailer must not become a way for a
+            // third party to cancel someone else's stream.
+            assert_eq!(h.open_stream_count().await, 1);
+        }
+
+        #[tokio::test]
+        async fn trailer_from_another_participant_does_not_inject_attributes() {
+            let (h, reader) = open_stream().await;
+
+            // `attributes()` reads the map the manager merges trailers into, so clone the info
+            // and assert only after the stream has ended: by then the manager has certainly
+            // processed both trailers, which makes the assertion independent of task timing.
+            let info = text_info(&reader).clone();
+
+            h.send_packet_from(
+                Packet::Trailer {
+                    trailer: trailer_with_attrs("s1", attrs(&[("injected", "yes")])),
+                    encryption_type: EncryptionType::None,
+                },
+                ATTACKER,
+            );
+            h.send_packet(Packet::Trailer {
+                trailer: trailer_with_attrs("s1", attrs(&[("genuine", "yes")])),
+                encryption_type: EncryptionType::None,
+            });
+
+            assert_eq!(read_text(reader).await.unwrap(), "");
+            let attributes = info.attributes();
+            assert_eq!(attributes.get("injected"), None, "attacker attribute must not be merged");
+            assert_eq!(attributes.get("genuine"), Some(&"yes".to_string()));
+        }
+
+        #[tokio::test]
+        async fn forged_abnormal_end_does_not_fail_the_stream() {
+            let (h, reader) = open_stream().await;
+
+            h.send_packet_from(
+                Packet::Trailer {
+                    trailer: Trailer {
+                        stream_id: StreamId::from("s1"),
+                        reason: "forged failure".to_string(),
+                        attributes: HashMap::new(),
+                    },
+                    encryption_type: EncryptionType::None,
+                },
+                ATTACKER,
+            );
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"ok".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+
+            assert_eq!(read_text(reader).await.unwrap(), "ok");
         }
     }
 
