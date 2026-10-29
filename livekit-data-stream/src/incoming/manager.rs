@@ -66,15 +66,6 @@ struct Descriptor {
     attributes_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
-/// Why [`Descriptor::validate`] refused a chunk or trailer.
-enum Rejection {
-    /// Sent by someone other than the participant whose header opened the stream. Only the packet
-    /// is dropped: closing the stream instead would let a third party cancel someone else's stream.
-    WrongSender,
-    /// The stream itself can't continue; it is closed with this error.
-    Fatal(StreamError),
-}
-
 impl Descriptor {
     /// Checks that a chunk or trailer may act on this stream.
     ///
@@ -83,26 +74,24 @@ impl Descriptor {
     /// could append to another participant's stream, merge its own attributes in, or end it with
     /// a forged reason. The encryption check likewise stops an unencrypted peer from writing into
     /// (or cleanly closing) an encrypted stream.
+    ///
+    /// See [`Manager::reject_packet`] for how each error is handled.
     fn validate(
         &self,
-        id: &StreamId,
         participant_identity: &ParticipantIdentity,
         encryption_type: EncryptionType,
-    ) -> Result<(), Rejection> {
+    ) -> StreamResult<()> {
         if self.sender_identity != *participant_identity {
-            log::warn!(
-                "Dropping stream packet for '{}' from '{}': stream belongs to '{}'",
-                id,
-                participant_identity,
-                self.sender_identity
-            );
-            return Err(Rejection::WrongSender);
+            return Err(StreamError::ParticipantIdentityMismatch {
+                expected: self.sender_identity.clone(),
+                received: participant_identity.clone(),
+            });
         }
         if self.encryption_type != encryption_type {
-            return Err(Rejection::Fatal(StreamError::EncryptionTypeMismatch {
+            return Err(StreamError::EncryptionTypeMismatch {
                 expected: self.encryption_type,
                 received: encryption_type,
-            }));
+            });
         }
         Ok(())
     }
@@ -445,6 +434,19 @@ impl Manager {
         self.inner.open_streams.insert(id, descriptor);
     }
 
+    /// Handles a chunk or trailer that failed [`Descriptor::validate`].
+    ///
+    /// A [`StreamError::ParticipantIdentityMismatch`] drops only the offending packet and leaves
+    /// the stream open: closing it instead would let a third party cancel someone else's stream.
+    /// Any other error closes the stream with that error.
+    fn reject_packet(inner: &mut ManagerInner, id: &StreamId, error: StreamError) {
+        if let StreamError::ParticipantIdentityMismatch { .. } = error {
+            log::warn!("Dropping stream packet for '{}': {}", id, error);
+            return;
+        }
+        inner.close_stream_with_error(id, error);
+    }
+
     /// Handles an incoming chunk packet.
     async fn handle_chunk(
         &mut self,
@@ -466,13 +468,9 @@ impl Manager {
         };
 
         // Validated before the raw event is emitted, so a rejected chunk reaches no one.
-        match descriptor.validate(&id, &participant_identity, encryption_type) {
-            Ok(()) => {}
-            Err(Rejection::WrongSender) => return,
-            Err(Rejection::Fatal(error)) => {
-                inner.close_stream_with_error(&id, error);
-                return;
-            }
+        if let Err(error) = descriptor.validate(&participant_identity, encryption_type) {
+            Self::reject_packet(inner, &id, error);
+            return;
         }
 
         let _ = inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
@@ -588,13 +586,9 @@ impl Manager {
 
         // Checked before the attribute merge and the close below, so a rejected trailer can
         // neither inject attributes nor end the stream.
-        match descriptor.validate(&id, &participant_identity, encryption_type) {
-            Ok(()) => {}
-            Err(Rejection::WrongSender) => return,
-            Err(Rejection::Fatal(error)) => {
-                inner.close_stream_with_error(&id, error);
-                return;
-            }
+        if let Err(error) = descriptor.validate(&participant_identity, encryption_type) {
+            Self::reject_packet(inner, &id, error);
+            return;
         }
 
         let _ = inner.output_tx.send(

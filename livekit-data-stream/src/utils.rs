@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_common::EncryptionType;
+use livekit_common::{EncryptionType, ParticipantIdentity};
 use thiserror::Error;
 
 /// Error returned by the packet transport when a data-stream packet fails to send.
@@ -66,6 +66,14 @@ pub enum StreamError {
         expected: EncryptionType,
         /// The encryption type of the offending chunk.
         received: EncryptionType,
+    },
+
+    #[error("participant identity mismatch: expected {expected}, received {received}")]
+    ParticipantIdentityMismatch {
+        /// The participant whose header opened the stream.
+        expected: ParticipantIdentity,
+        /// The participant that sent the offending chunk or trailer.
+        received: ParticipantIdentity,
     },
 
     #[error("stream header exceeds maximum size")]
