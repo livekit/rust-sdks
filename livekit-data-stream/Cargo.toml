@@ -1,7 +1,7 @@
 [package]
 name = "livekit-data-stream"
 description = "Data stream core logic for LiveKit"
-version = "0.1.9"
+version = "0.2.0"
 readme = "README.md"
 license.workspace = true
 edition.workspace = true
@@ -22,8 +22,9 @@ log = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt", "macros"] }
 tokio-stream = { workspace = true, features = ["sync"] }
+tokio-util = { workspace = true }
 futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = { workspace = true }
 chrono = { workspace = true }

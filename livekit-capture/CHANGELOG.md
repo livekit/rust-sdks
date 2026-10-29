@@ -1,3 +1,34 @@
+## 0.1.8 (2026-10-28)
+
+### Features
+
+- Dropping a `RunningPump` now stops the pump and waits up to 5 seconds for its thread to exit, so the capture source is released by the time the drop returns; the same applies to a cancelled `RunningPump::join`, `RunningPump::finished` waits for the thread to exit without consuming the handle, and `PumpError` is now `#[non_exhaustive]`.
+- Create the well-known data channels as negotiated (fixed IDs) when the server supports it (protocol 18), saving the data channel open handshake round trip. Falls back to in-band channels against older servers.
+
+### Fixes
+
+- Keep NVIDIA's Jetson video codec plugin loaded while probing MMAPI encoder capabilities, preventing probe teardown from breaking subsequent GStreamer capture.
+- An incoming single-packet (inline) data stream whose payload is shorter or longer than the length in its header now fails with `StreamError::Incomplete` or `StreamError::LengthExceeded`, as a chunked stream already does. Before, it ended successfully.
+- Split outgoing data stream options into `SendTextOptions`, shared `SendByteOptions`, `StreamTextOptions` and `StreamByteOptions`, all `#[non_exhaustive]`. Remove `send_file_with_progress` and `stream_text_with_total_length` in favor of `on_progress` and `total_length` on the options.
+- Add data stream progress to `core-modules`: readers get `next_progress()`, which counts received bytes, and `send_text`, `send_bytes` and `send_file` take an optional `progress` delegate (`StreamProgressDelegate`) inside their options record, defaulting to none and ignored by incremental streams. The core adds `on_progress` on `SendTextOptions` and `SendByteOptions` and a `progress_stream()` accessor on the concrete readers that does not borrow the reader. The generated Swift option records no longer conform to `Equatable` or `Hashable`.
+- Let an incremental text stream declare its total length in the header: the core adds `StreamTextOptions::total_length`, and the `core-modules` `StreamTextOptions` record gets an optional `total_length` that `stream_text` passes to it. The receiver then reports progress against it and fails the stream if the length does not match.
+- A data stream that its sender closes early with a reason now fails with that reason (`StreamError::AbnormalEnd`), as in JS, even when its header declared a total length; before, the reader got `StreamError::Incomplete`.
+- Release local tracks when the server ends the room by detaching publisher senders before the publisher PeerConnection closes, and make `RtpSender::track()` return `None` for a detached sender instead of dereferencing null.
+- Add `close()` to the `core-modules` text and byte stream readers (`closeStream()` in Kotlin) and core `StreamCloser` handles returned by `closer()` to end pending reads with `DataStreamError::AlreadyClosed` and remove streams exactly once; dropping a reader has the same effect.
+- Add `InferenceGrants` and `AccessToken::with_inference_grants`, so Rust services can mint tokens for LiveKit Inference.
+- livekit-signaling: add an opt-out for region failover in connect - #1567 (@lukasIO)
+- livekit-signaling: let callers set the advertised protocol and capabilities - #1569 (@lukasIO)
+- Add `ObservabilityGrants` and `AccessToken::with_observability_grants`, so Rust services can mint tokens that publish observability data.
+- Remove the `use_legacy_data_streams` migration flag. The FFI `RoomDataStreamOptions.use_legacy_client_implementation` field is now deprecated and ignored, and the hidden `RoomDataStreamOptions::with_legacy_client_implementation` builder and the hidden `SignalOptions::use_legacy_data_streams` field are gone; clients always advertise data streams v2 support.
+
+## 0.1.7 (2026-10-23)
+
+### Fixes
+
+- fix: bump libwebrtc to webrtc-a545de4 to drop roots that trust the compromised eMudhra intermediates. The new build refreshes the TURN/TLS anchors compiled into `rtc_base/ssl_roots.h`, which no longer include `AAA Certificate Services`, the root that cross-signs the eight eMudhra intermediate CAs whose keys were disclosed on 2026-10-20.
+- Fix the VAAPI H.264 encoder leaking VA parameter buffers on every frame; they are now destroyed after vaEndPicture().
+- Stop the NVIDIA and Jetson encoders from reporting an already delivered frame as an encode error, which aborted the process in `SimulcastEncoderAdapter` when dynacast paused a simulcast layer or a track was unpublished mid-encode.
+
 ## 0.1.6 (2026-10-20)
 
 ### Fixes

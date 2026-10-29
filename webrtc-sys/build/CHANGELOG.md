@@ -57,6 +57,12 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.21 (2026-10-23)
+
+### Fixes
+
+- fix: bump libwebrtc to webrtc-a545de4 to drop roots that trust the compromised eMudhra intermediates. The new build refreshes the TURN/TLS anchors compiled into `rtc_base/ssl_roots.h`, which no longer include `AAA Certificate Services`, the root that cross-signs the eight eMudhra intermediate CAs whose keys were disclosed on 2026-10-20.
+
 ## 0.3.20 (2026-10-20)
 
 ### Fixes

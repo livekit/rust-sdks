@@ -19,7 +19,7 @@ use {
     chrono::{TimeDelta, Utc},
     livekit::{
         data_stream::backend::pseudo_random_text, RoomDataStreamOptions, RoomEvent, RoomOptions,
-        StreamByteOptions, StreamError, StreamReader, StreamTextOptions,
+        SendByteOptions, SendTextOptions, StreamError, StreamReader,
     },
     rand::{rngs::StdRng, RngCore, SeedableRng},
     std::time::Duration,
@@ -39,7 +39,7 @@ async fn test_send_bytes() -> Result<()> {
     const BYTES_TO_SEND: &[u8] = &[0xFA; 16];
 
     let send_text = async move {
-        let options = StreamByteOptions::new_with_topic("some-topic");
+        let options = SendByteOptions::new_with_topic("some-topic");
         let stream_info =
             sending_room.local_participant().send_bytes(BYTES_TO_SEND, options).await?;
 
@@ -92,7 +92,7 @@ async fn test_send_large_compressible_text() -> Result<()> {
     let expected = text.clone();
 
     let send = async move {
-        let options = StreamTextOptions::new_with_topic("some-topic");
+        let options = SendTextOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_text(&text, options).await?;
         assert_eq!(stream_info.is_compressed, true);
         assert_eq!(stream_info.is_inline, false);
@@ -131,7 +131,7 @@ async fn test_send_large_incompressible_random_bytes() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions::new_with_topic("some-topic");
+        let options = SendByteOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
         assert_eq!(stream_info.is_inline, false, "is_inline was not false");
@@ -166,7 +166,7 @@ async fn test_send_large_bytes() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions::new_with_topic("some-topic");
+        let options = SendByteOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, true, "is_compressed was not true");
         assert_eq!(stream_info.is_inline, true, "is_inline was not true");
@@ -202,7 +202,7 @@ async fn test_data_stream_compress_false() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions::new_with_topic("some-topic").with_compress(false); // <= Explictly disable compression
+        let options = SendByteOptions::new_with_topic("some-topic").with_compress(false); // <= Explictly disable compression
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
         assert_eq!(stream_info.is_inline, false, "is_inline was not false");
@@ -251,7 +251,7 @@ async fn test_receiver_rejects_oversized_payload() -> Result<()> {
     let text = pseudo_random_text(50_000);
 
     let send = async move {
-        let options = StreamTextOptions::new_with_topic("some-topic");
+        let options = SendTextOptions::new_with_topic("some-topic");
         // The send succeeds locally; rejection happens on the receiver as it decompresses.
         let stream_info = sending_room.local_participant().send_text(&text, options).await?;
         // Guard the test's premise: it only exercises the limit if the stream is actually sent
@@ -293,7 +293,7 @@ async fn test_send_text() -> Result<()> {
     const TEXT_TO_SEND: &str = "some-text";
 
     let send_text = async move {
-        let options = StreamTextOptions::new_with_topic("some-topic");
+        let options = SendTextOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_text(TEXT_TO_SEND, options).await?;
 
         assert!(!stream_info.id.is_empty());
