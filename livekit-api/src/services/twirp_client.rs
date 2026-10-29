@@ -302,7 +302,12 @@ impl TwirpClient {
     ) -> Option<Url> {
         let region_urls = match region_urls {
             Some(urls) => urls,
-            None => region_urls.insert(failover::region_urls(original, forward).await),
+            None => region_urls.insert(
+                // `force` is the test-only knob that points failover at the
+                // 127.0.0.1 mock; everywhere else the discovered URLs must be
+                // encrypted cloud URLs before we send the admin token to them.
+                failover::region_urls(original, forward, !self.failover.force).await,
+            ),
         };
         failover::pick_next(region_urls, attempted)
     }
