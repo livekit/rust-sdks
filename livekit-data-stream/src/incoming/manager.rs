@@ -45,6 +45,15 @@ const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 /// memory by opening streams it never closes.
 const DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT: usize = 500;
 
+/// Options for creating a [`Manager`]. Unset fields fall back to the defaults.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ManagerOptions {
+    /// Max number of bytes a single incoming stream may contain, defaults to 5gb.
+    pub max_payload_byte_length: Option<usize>,
+    /// Max number of incoming streams a single participant may have open at once, defaults to 500.
+    pub max_open_streams_per_participant: Option<usize>,
+}
+
 struct Descriptor {
     /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it too, which ends
     /// the stream's future in the manager's `closes`.
@@ -217,10 +226,7 @@ struct ManagerInner {
 }
 
 impl Manager {
-    pub fn new(
-        max_payload_byte_length: Option<usize>,
-        max_open_streams_per_participant: Option<usize>,
-    ) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
         // Unbounded: inbound wire packets must never be dropped (a dropped chunk is an
         // unrecoverable `MissedChunk`) and must not head-of-line-block the engine event loop.
         let (input_tx, input_rx) = mpsc::unbounded_channel();
@@ -230,9 +236,11 @@ impl Manager {
             input_rx,
             closes: FuturesUnordered::new(),
 
-            max_payload_byte_length: max_payload_byte_length
+            max_payload_byte_length: options
+                .max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
-            max_open_streams_per_participant: max_open_streams_per_participant
+            max_open_streams_per_participant: options
+                .max_open_streams_per_participant
                 .unwrap_or(DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT),
         };
         (manager, ManagerInput::new(input_tx), output_rx)
@@ -825,13 +833,17 @@ mod tests {
         }
 
         fn new_with_max_payload_length(max_payload_byte_length: Option<usize>) -> Self {
-            let (manager, input, output_rx) = Manager::new(max_payload_byte_length, None);
+            let (manager, input, output_rx) =
+                Manager::new(ManagerOptions { max_payload_byte_length, ..Default::default() });
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
 
         fn new_with_max_open_streams_per_participant(max_open_streams: Option<usize>) -> Self {
-            let (manager, input, output_rx) = Manager::new(None, max_open_streams);
+            let (manager, input, output_rx) = Manager::new(ManagerOptions {
+                max_open_streams_per_participant: max_open_streams,
+                ..Default::default()
+            });
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -1896,7 +1908,7 @@ mod tests {
         #[tokio::test]
         async fn closer_after_shutdown_does_nothing() {
             // A manager whose run loop the test owns, with one open text stream.
-            let (manager, input, mut output_rx) = Manager::new(None, None);
+            let (manager, input, mut output_rx) = Manager::new(ManagerOptions::default());
             let run = tokio::spawn(manager.run());
             let header = text_header("s1", Some(10), HashMap::new(), None, CompressionType::None);
             let packet = Packet::Header { header, encryption_type: EncryptionType::None };

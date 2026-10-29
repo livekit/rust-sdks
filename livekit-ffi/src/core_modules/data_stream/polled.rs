@@ -46,7 +46,7 @@ use tokio_util::sync::CancellationToken;
 use super::common::PacketDeliveryError;
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
-    TextStreamReader,
+    IncomingDataStreamManagerOptions, TextStreamReader,
 };
 use super::outgoing::{
     OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate, RemoteParticipantRegistryDelegate,
@@ -281,19 +281,14 @@ pub struct PolledIncomingDataStreamManager {
 
 /// Builds an incoming manager whose opened streams are pulled rather than pushed.
 ///
-/// `max_payload_byte_length` and `max_open_streams_per_participant` are fixed for the lifetime of
-/// the manager; see [`IncomingDataStreamManager::new`]. Hosts sourcing them from per-connection
-/// options should build a fresh manager per session rather than memoizing one.
-#[uniffi::export(default(max_open_streams_per_participant = None))]
+/// `options` are fixed for the lifetime of the manager; see [`IncomingDataStreamManager::new`].
+/// Hosts sourcing them from per-connection options should build a fresh manager per session
+/// rather than memoizing one.
+#[uniffi::export]
 pub fn polled_incoming_data_stream_manager(
-    max_payload_byte_length: Option<u64>,
-    max_open_streams_per_participant: Option<u32>,
+    options: IncomingDataStreamManagerOptions,
 ) -> PolledIncomingDataStreamManager {
     let streams = Arc::new(IncomingStreamQueue::new());
-    let manager = IncomingDataStreamManager::new(
-        streams.clone(),
-        max_payload_byte_length,
-        max_open_streams_per_participant,
-    );
+    let manager = IncomingDataStreamManager::new(streams.clone(), options);
     PolledIncomingDataStreamManager { manager, streams }
 }

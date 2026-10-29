@@ -727,10 +727,12 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            ds::incoming::Manager::new(
-                options.data_stream.max_payload_byte_length,
-                options.data_stream.max_open_streams_per_participant,
-            );
+            ds::incoming::Manager::new(ds::incoming::ManagerOptions {
+                max_payload_byte_length: options.data_stream.max_payload_byte_length,
+                max_open_streams_per_participant: options
+                    .data_stream
+                    .max_open_streams_per_participant,
+            });
         let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();

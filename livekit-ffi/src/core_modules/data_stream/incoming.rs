@@ -60,33 +60,46 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
     fn on_stream_closed(&self, stream_id: String, identity: String);
 }
 
+/// Options for creating an [`IncomingDataStreamManager`]. Unset fields fall back to the defaults.
+#[derive(uniffi::Record, Clone, Copy, Debug, Default)]
+pub struct IncomingDataStreamManagerOptions {
+    /// Caps the decompressed size of a single incoming stream (`None` = default, 5 GB).
+    #[uniffi(default)]
+    pub max_payload_byte_length: Option<u64>,
+    /// Caps how many incoming streams a single remote participant may have open at once
+    /// (`None` = default, 500); headers beyond it are dropped.
+    #[uniffi(default)]
+    pub max_open_streams_per_participant: Option<u32>,
+}
+
+impl From<IncomingDataStreamManagerOptions> for ds::incoming::ManagerOptions {
+    fn from(options: IncomingDataStreamManagerOptions) -> Self {
+        Self {
+            max_payload_byte_length: options.max_payload_byte_length.map(|n| n as usize),
+            max_open_streams_per_participant: options
+                .max_open_streams_per_participant
+                .map(|n| n as usize),
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl IncomingDataStreamManager {
     /// Creates a manager that surfaces opened streams to `delegate`.
     ///
-    /// `max_payload_byte_length` caps the decompressed size of a single incoming stream
-    /// (`None` = default, 5 GB) and is **fixed for the lifetime of the manager**. If the host
-    /// sources it from per-connection options that aren't final until connect — and can differ
-    /// between sessions of the same host object — construct a fresh manager for each session
-    /// rather than lazily memoizing one, or the first session's value is silently pinned. (Same
-    /// class of rough edge as a single room instance being `connect()`ed multiple times.)
-    /// Rebuilding is cheap and safe: dropping the manager cancels its tasks, and handler wiring
-    /// lives on the foreign side.
-    ///
-    /// `max_open_streams_per_participant` caps how many incoming streams a single remote
-    /// participant may have open at once (`None` = default, 500); headers beyond it are dropped.
-    /// It is fixed for the lifetime of the manager in the same way.
-    #[uniffi::constructor(default(max_open_streams_per_participant = None))]
+    /// `options` are **fixed for the lifetime of the manager**. If the host sources them from
+    /// per-connection options that aren't final until connect — and can differ between sessions
+    /// of the same host object — construct a fresh manager for each session rather than lazily
+    /// memoizing one, or the first session's values are silently pinned. (Same class of rough
+    /// edge as a single room instance being `connect()`ed multiple times.) Rebuilding is cheap and
+    /// safe: dropping the manager cancels its tasks, and handler wiring lives on the foreign side.
+    #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
-        max_payload_byte_length: Option<u64>,
-        max_open_streams_per_participant: Option<u32>,
+        options: IncomingDataStreamManagerOptions,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
-        let (manager, input, output) = ds::incoming::Manager::new(
-            max_payload_byte_length.map(|n| n as usize),
-            max_open_streams_per_participant.map(|n| n as usize),
-        );
+        let (manager, input, output) = ds::incoming::Manager::new(options.into());
 
         let rt = crate::runtime::runtime();
         rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
