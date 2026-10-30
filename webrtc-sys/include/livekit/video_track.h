@@ -120,6 +120,8 @@ class VideoTrackSource {
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
+    // Unique presentation timestamp used for metadata, guarded by `mutex_`.
+    int64_t last_metadata_timestamp_us_ = 0;
     VideoResolution resolution_;
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag_ =
