@@ -61,14 +61,11 @@ mod room_apis {
     fn configure_linker() {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
         match target_os.as_str() {
-            "windows" => {}
-            "linux" => {
-                println!("cargo:rustc-link-lib=static=webrtc");
-            }
+            "windows" | "linux" | "macos" => {}
             "android" => {
                 webrtc_sys_build::configure_jni_symbols().unwrap();
             }
-            "macos" | "ios" => {
+            "ios" => {
                 println!("cargo:rustc-link-arg=-ObjC");
             }
             _ => {
