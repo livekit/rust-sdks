@@ -19,8 +19,8 @@ use std::time::Duration;
 use livekit::prelude::*;
 use livekit::SendTextOptions;
 use livekit_token_source::{
-    TokenSourceConfigurable, TokenSourceFetchOptions, TokenSourceFixed, TokenSourceLiteral,
-    TokenSourceResponse, TokenSourceResult,
+    TokenSourceConfigurable, TokenSourceFetchOptions, TokenSourceFixed, TokenSourceResponse,
+    TokenSourceResult,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -31,58 +31,30 @@ use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
 use crate::error::{MessageSendError, SessionStartError};
 use crate::messages::{Message, MessageOrigin, MessageUpdate};
 
-/// Where a [`Session`] gets its credentials.
-///
-/// Created with [`configurable`](Self::configurable) for a source fetched with
-/// options, such as one dispatching an agent, or [`fixed`](Self::fixed) for one
-/// that takes none. A [`literal`](livekit_token_source::literal) source also
-/// converts directly through [`From`].
-pub struct SessionTokenSource(Source);
-
+/// Where a [`Session`] gets its credentials, chosen by the constructor used.
 // Built once per session and kept behind an `Arc`, so its size does not matter.
 #[allow(clippy::large_enum_variant)]
-enum Source {
+pub(crate) enum SessionTokenSource {
     /// A source whose credentials take no options.
     Fixed(Box<dyn TokenSourceFixed + Send + Sync>),
-    /// A source fetched with the given options, e.g. to dispatch an agent
-    /// through [`TokenSourceFetchOptions::with_agent_name`].
+    /// A source fetched with the given options, e.g. to dispatch an agent.
     Configurable(Box<dyn TokenSourceConfigurable + Send + Sync>, TokenSourceFetchOptions),
 }
 
 impl SessionTokenSource {
-    /// Wraps a source whose credentials take no options.
-    pub fn fixed(source: impl TokenSourceFixed + Send + Sync + 'static) -> Self {
-        Self(Source::Fixed(Box::new(source)))
-    }
-
-    /// Wraps a source fetched with `options`, e.g. to dispatch an agent through
-    /// [`TokenSourceFetchOptions::with_agent_name`].
-    pub fn configurable(
-        source: impl TokenSourceConfigurable + Send + Sync + 'static,
-        options: TokenSourceFetchOptions,
-    ) -> Self {
-        Self(Source::Configurable(Box::new(source), options))
-    }
-
     async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
-        match &self.0 {
-            Source::Fixed(source) => source.fetch().await,
-            Source::Configurable(source, options) => source.fetch(options).await,
+        match self {
+            Self::Fixed(source) => source.fetch().await,
+            Self::Configurable(source, options) => source.fetch(options).await,
         }
     }
 
     /// Drops cached credentials, so the next start fetches new ones. A fixed
     /// source has nothing to drop.
     pub(crate) async fn invalidate(&self) {
-        if let Source::Configurable(source, _) = &self.0 {
+        if let Self::Configurable(source, _) = self {
             source.invalidate().await;
         }
-    }
-}
-
-impl From<TokenSourceLiteral> for SessionTokenSource {
-    fn from(source: TokenSourceLiteral) -> Self {
-        Self::fixed(source)
     }
 }
 
@@ -143,14 +115,12 @@ pub enum SessionEvent {
 /// closes the room.
 ///
 /// ```no_run
-/// use livekit_session::{Session, SessionOptions, SessionTokenSource};
-/// use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
+/// use livekit_session::{Session, SessionOptions};
+/// use livekit_token_source::development_token_server;
 ///
 /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = development_token_server("my-token-server-id");
-/// let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
-/// let session =
-///     Session::new(SessionTokenSource::configurable(source, options), SessionOptions::default());
+/// let session = Session::with_agent(source, "my-agent", SessionOptions::default());
 ///
 /// session.start().await?;
 /// session.state().wait_for(|state| state.agent_state.is_connected()).await?;
@@ -202,12 +172,47 @@ impl Lifecycle {
 }
 
 impl Session {
-    /// Creates a session that gets its credentials from `source`. Nothing
-    /// happens until [`start`](Self::start).
-    pub fn new(source: impl Into<SessionTokenSource>, options: SessionOptions) -> Self {
+    /// Creates a session that gets its credentials from a fixed `source`, such
+    /// as a [`literal`](livekit_token_source::literal) one. Nothing happens
+    /// until [`start`](Self::start).
+    pub fn new(
+        source: impl TokenSourceFixed + Send + Sync + 'static,
+        options: SessionOptions,
+    ) -> Self {
+        Self::from_source(SessionTokenSource::Fixed(Box::new(source)), options)
+    }
+
+    /// Creates a session that fetches its credentials from `source` with
+    /// `fetch_options`. Nothing happens until [`start`](Self::start).
+    pub fn with_fetch_options(
+        source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        fetch_options: TokenSourceFetchOptions,
+        options: SessionOptions,
+    ) -> Self {
+        Self::from_source(
+            SessionTokenSource::Configurable(Box::new(source), fetch_options),
+            options,
+        )
+    }
+
+    /// Creates a session whose credentials dispatch the agent `agent_name`.
+    ///
+    /// Shorthand for [`with_fetch_options`](Self::with_fetch_options) with
+    /// [`TokenSourceFetchOptions::with_agent_name`]; use that to set further
+    /// options, such as agent metadata.
+    pub fn with_agent(
+        source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        agent_name: &str,
+        options: SessionOptions,
+    ) -> Self {
+        let fetch_options = TokenSourceFetchOptions::new().with_agent_name(agent_name);
+        Self::with_fetch_options(source, fetch_options, options)
+    }
+
+    fn from_source(source: SessionTokenSource, options: SessionOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
-                source: Arc::new(source.into()),
+                source: Arc::new(source),
                 options,
                 shared: Arc::new(Shared::new()),
                 lifecycle: Mutex::new(Lifecycle::Idle),
@@ -482,5 +487,38 @@ impl Default for SessionSnapshot {
             connection_state: SessionConnectionState::Disconnected,
             agent_state: AgentState::Disconnected,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use async_trait::async_trait;
+    use livekit_token_source::TokenSourceError;
+
+    /// Records the options it is fetched with, then fails.
+    struct RecordingSource(Arc<Mutex<Option<TokenSourceFetchOptions>>>);
+
+    #[async_trait]
+    impl TokenSourceConfigurable for RecordingSource {
+        async fn fetch(
+            &self,
+            options: &TokenSourceFetchOptions,
+        ) -> TokenSourceResult<TokenSourceResponse> {
+            *lock(&self.0) = Some(options.clone());
+            Err(TokenSourceError::Server { status: 500, body: "test".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn with_agent_fetches_with_the_agent_name() {
+        let fetched = Arc::default();
+        let source = RecordingSource(Arc::clone(&fetched));
+        let session = Session::with_agent(source, "my-agent", SessionOptions::default());
+
+        assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
+        let options = lock(&fetched).take().expect("source was not fetched");
+        assert_eq!(options, TokenSourceFetchOptions::new().with_agent_name("my-agent"));
     }
 }

@@ -36,7 +36,7 @@ use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
 use livekit_token_source::{
     literal, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
-    TokenSourceResponse, TokenSourceResult,
+    TokenSourceLiteral, TokenSourceResponse, TokenSourceResult,
 };
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
@@ -91,7 +91,7 @@ impl TestEnv {
     }
 
     /// Credentials for the session's user, optionally dispatching an agent.
-    fn user_source(&self, dispatch: bool) -> SessionTokenSource {
+    fn user_source(&self, dispatch: bool) -> TokenSourceLiteral {
         let token = self.token(USER, |token| {
             if !dispatch {
                 return token;
@@ -104,7 +104,7 @@ impl TestEnv {
                 ..Default::default()
             })
         });
-        literal(self.url.clone(), token).into()
+        literal(self.url.clone(), token)
     }
 
     /// Joins a participant of kind agent reporting `state`.
@@ -433,17 +433,12 @@ impl TokenSourceConfigurable for CountingSource {
 }
 
 impl CountingSource {
-    /// A session source handing out `participant_token` for `server_url`.
-    fn session_source(
-        server_url: &str,
-        participant_token: String,
-        invalidations: &Arc<AtomicUsize>,
-    ) -> SessionTokenSource {
-        let source = Self {
+    /// A source handing out `participant_token` for `server_url`.
+    fn new(server_url: &str, participant_token: String, invalidations: &Arc<AtomicUsize>) -> Self {
+        Self {
             response: TokenSourceResponse { server_url: server_url.to_owned(), participant_token },
             invalidations: invalidations.clone(),
-        };
-        SessionTokenSource::configurable(source, TokenSourceFetchOptions::new())
+        }
     }
 }
 
@@ -451,9 +446,12 @@ impl CountingSource {
 async fn every_disconnect_invalidates_the_token() -> Result<()> {
     let env = TestEnv::new();
     let invalidations = Arc::new(AtomicUsize::new(0));
-    let source =
-        CountingSource::session_source(&env.url, env.token(USER, |token| token), &invalidations);
-    let session = Session::new(source, SessionOptions::default());
+    let source = CountingSource::new(&env.url, env.token(USER, |token| token), &invalidations);
+    let session = Session::with_fetch_options(
+        source,
+        TokenSourceFetchOptions::new(),
+        SessionOptions::default(),
+    );
     let rooms =
         RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
     let disconnect = || async {
@@ -497,17 +495,20 @@ async fn a_rejected_or_cancelled_connect_invalidates_the_token() -> Result<()> {
     let env = TestEnv::new();
     let invalidations = Arc::new(AtomicUsize::new(0));
 
-    let source = CountingSource::session_source(&env.url, "not a token".into(), &invalidations);
+    let source = CountingSource::new(&env.url, "not a token".into(), &invalidations);
     let mut options = SessionOptions::default();
     options.room_options.join_retries = 0;
-    let session = Session::new(source, options);
+    let session = Session::with_fetch_options(source, TokenSourceFetchOptions::new(), options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
     assert_eq!(invalidations.load(Ordering::SeqCst), 1, "a rejected token must be invalidated");
 
     let server = SilentServer::bind().await?;
-    let source =
-        CountingSource::session_source(&server.url, env.token(USER, |t| t), &invalidations);
-    let session = server.session_with(source);
+    let source = CountingSource::new(&server.url, env.token(USER, |t| t), &invalidations);
+    let session = Session::with_fetch_options(
+        source,
+        TokenSourceFetchOptions::new(),
+        SilentServer::session_options(),
+    );
     let start = tokio::spawn({
         let session = session.clone();
         async move { session.start().await }
@@ -531,8 +532,9 @@ impl TokenSourceConfigurable for PendingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn end_cancels_a_pending_start() -> Result<()> {
-    let session = Session::new(
-        SessionTokenSource::configurable(PendingSource, TokenSourceFetchOptions::new()),
+    let session = Session::with_fetch_options(
+        PendingSource,
+        TokenSourceFetchOptions::new(),
         SessionOptions::default(),
     );
     let start = tokio::spawn({
@@ -581,16 +583,16 @@ impl SilentServer {
 
     /// A session connecting to this server.
     fn session(&self, env: &TestEnv) -> Session {
-        self.session_with(literal(self.url.clone(), env.token(USER, |t| t)).into())
+        Session::new(literal(self.url.clone(), env.token(USER, |t| t)), Self::session_options())
     }
 
-    /// A session connecting to this server with credentials from `source`.
-    fn session_with(&self, source: SessionTokenSource) -> Session {
+    /// Options for a session connecting to this server.
+    fn session_options() -> SessionOptions {
         let mut options = SessionOptions::default();
         options.room_options.join_retries = 0;
         // Long enough that only a cancel can end the handshake.
         options.room_options.connect_timeout = Duration::from_secs(60);
-        Session::new(source, options)
+        options
     }
 }
 
@@ -647,8 +649,9 @@ async fn dropping_a_start_during_connect_resets_the_session() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
-    let session = Session::new(
-        SessionTokenSource::configurable(PendingSource, TokenSourceFetchOptions::new()),
+    let session = Session::with_fetch_options(
+        PendingSource,
+        TokenSourceFetchOptions::new(),
         SessionOptions::default(),
     );
     assert!(timeout(Duration::from_millis(100), session.start()).await.is_err());
@@ -742,8 +745,9 @@ impl TokenSourceConfigurable for FailingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn failed_starts_spawn_nothing() -> Result<()> {
-    let session = Session::new(
-        SessionTokenSource::configurable(FailingSource, TokenSourceFetchOptions::new()),
+    let session = Session::with_fetch_options(
+        FailingSource,
+        TokenSourceFetchOptions::new(),
         SessionOptions::default(),
     );
     for _ in 0..2 {

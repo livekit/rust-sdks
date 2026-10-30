@@ -6,13 +6,11 @@ room, projects what the agent is doing, and merges chat and transcripts into one
 feed. It follows the same model as the Session in the JavaScript, Swift, Android and Flutter SDKs.
 
 ```rust
-use livekit_session::{Session, SessionOptions, SessionTokenSource};
-use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
+use livekit_session::{Session, SessionOptions};
+use livekit_token_source::development_token_server;
 
 let source = development_token_server("<token server id>");
-let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
-let session =
-    Session::new(SessionTokenSource::configurable(source, options), SessionOptions::default());
+let session = Session::with_agent(source, "my-agent", SessionOptions::default());
 
 session.start().await?;
 session.state().wait_for(|state| state.agent_state.is_connected()).await?;
@@ -23,12 +21,13 @@ See [`examples/session`](../examples/session) for a complete text chat.
 
 ## Credentials
 
-`Session::new` takes anything convertible into a `SessionTokenSource`:
+Which constructor to use depends on the kind of token source:
 
-- a configurable source with its fetch options, wrapped with `SessionTokenSource::configurable` as
-  above. The options are where the agent to dispatch is named;
-- a `literal` source holding a pre-generated token, passed directly;
-- any other fixed source, wrapped with `SessionTokenSource::fixed`.
+- `Session::with_agent` takes a configurable source and the name of the agent to dispatch, as
+  above;
+- `Session::with_fetch_options` takes a configurable source with its full `TokenSourceFetchOptions`,
+  for agent metadata, a room name or a participant identity;
+- `Session::new` takes a fixed source, such as a `literal` one holding a pre-generated token.
 
 On every disconnect, whether through `end`, by dropping the session or unexpectedly, the session
 calls `TokenSourceConfigurable::invalidate` before reporting it. Agents do not rejoin a room that
