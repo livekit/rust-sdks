@@ -151,3 +151,50 @@ async fn test_oversized_data_message_rejected() -> Result<()> {
         .context("did not receive both small packets before timeout")??;
     Ok(())
 }
+
+/// A transcription with a malformed track sid comes from another participant
+/// (the server forwards transcriptions from agents only), so it must be
+/// dropped, and later transcriptions must still arrive.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_transcription_with_invalid_track_sid_dropped() -> Result<()> {
+    use crate::common::{test_rooms_with_options, TestRoomOptions};
+    use anyhow::{ensure, Context};
+    use livekit::{Transcription, TranscriptionSegment};
+
+    let agent = TestRoomOptions { kind: "agent".to_string(), ..Default::default() };
+    let mut rooms = test_rooms_with_options([agent, TestRoomOptions::default()]).await?;
+    let (_receiving_room, mut receiving_event_rx) = rooms.pop().unwrap();
+    let (sending_room, _) = rooms.pop().unwrap();
+
+    let transcription = |track_id: &str, text: &str| Transcription {
+        participant_identity: sending_room.local_participant().identity().to_string(),
+        track_id: track_id.to_string(),
+        segments: vec![TranscriptionSegment {
+            id: text.to_string(),
+            text: text.to_string(),
+            r#final: true,
+            ..Default::default()
+        }],
+    };
+
+    sending_room.local_participant().publish_transcription(transcription("x", "bad")).await?;
+    sending_room
+        .local_participant()
+        .publish_transcription(transcription("TR_valid", "good"))
+        .await?;
+
+    let receive = async {
+        while let Some(event) = receiving_event_rx.recv().await {
+            if let RoomEvent::TranscriptionReceived { segments, .. } = event {
+                ensure!(segments[0].text == "good", "unexpected transcription: {:?}", segments);
+                break;
+            }
+        }
+        Ok(())
+    };
+    timeout(Duration::from_secs(15), receive)
+        .await
+        .context("valid transcription not received before timeout")??;
+    Ok(())
+}
