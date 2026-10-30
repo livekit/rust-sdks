@@ -13,7 +13,7 @@ let source = development_token_server("<token server id>");
 let session = Session::with_agent(source, "my-agent", SessionOptions::default());
 
 session.start().await?;
-session.state().wait_for(|state| state.agent_state.is_connected()).await?;
+session.state().wait_for(|state| state.agent.is_connected()).await?;
 session.send_text("Hello!").await?;
 ```
 
@@ -45,8 +45,9 @@ anything the session does not do itself, such as publishing a microphone.
 
 ## State
 
-`state()` returns a `tokio::sync::watch::Receiver<SessionSnapshot>`, and `snapshot()` returns its
-current value. A snapshot holds the connection state and the agent state:
+`state()` returns a `tokio::sync::watch::Receiver<SessionState>`: `borrow()` reads the current
+value, and `wait_for` awaits a condition. A `SessionState` holds the connection state (`connection`)
+and the agent state (`agent`):
 
 | Agent state | Meaning |
 | --- | --- |

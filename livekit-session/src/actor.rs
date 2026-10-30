@@ -33,29 +33,29 @@ use crate::dispatcher::Dispatcher;
 use crate::messages::{
     Message, MessageOrigin, MessageStore, MessageUpdate, TranscriptAggregator, TranscriptStream,
 };
-use crate::session::{SessionConnectionState, SessionEvent, SessionSnapshot, SessionTokenSource};
+use crate::session::{SessionConnectionState, SessionEvent, SessionState, SessionTokenSource};
 
 /// State shared between a [`Session`](crate::Session) and its actors. Holds no
 /// reference back to either, so it never keeps them alive.
 pub(crate) struct Shared {
-    /// The generation of the `start()` that currently owns the snapshot. An
+    /// The generation of the `start()` that currently owns the state. An
     /// actor from an earlier `start()` that is still shutting down must not
-    /// overwrite the snapshot of a newer one.
+    /// overwrite the state of a newer one.
     generation: Mutex<u64>,
-    state: watch::Sender<SessionSnapshot>,
+    state: watch::Sender<SessionState>,
     messages: Mutex<MessageStore>,
     events: Dispatcher<SessionEvent>,
-    /// Every snapshot published, so tests can assert on states a `watch`
+    /// Every state published, so tests can assert on states a `watch`
     /// receiver would skip.
     #[cfg(test)]
-    pub(crate) history: Mutex<Vec<SessionSnapshot>>,
+    pub(crate) history: Mutex<Vec<SessionState>>,
 }
 
 impl Shared {
     pub(crate) fn new() -> Self {
         Self {
             generation: Mutex::new(0),
-            state: watch::Sender::new(SessionSnapshot::default()),
+            state: watch::Sender::new(SessionState::default()),
             messages: Mutex::default(),
             events: Dispatcher::default(),
             #[cfg(test)]
@@ -63,39 +63,35 @@ impl Shared {
         }
     }
 
-    /// Starts a new generation, publishing its first snapshot.
-    pub(crate) fn begin(&self, snapshot: SessionSnapshot) -> u64 {
+    /// Starts a new generation, publishing its first state.
+    pub(crate) fn begin(&self, state: SessionState) -> u64 {
         let mut generation = lock(&self.generation);
         *generation += 1;
-        self.set(snapshot);
+        self.set(state);
         *generation
     }
 
-    /// Publishes `snapshot` if `generation` is still current.
-    pub(crate) fn publish(&self, generation: u64, snapshot: SessionSnapshot) {
+    /// Publishes `state` if `generation` is still current.
+    pub(crate) fn publish(&self, generation: u64, state: SessionState) {
         let current = lock(&self.generation);
         if *current == generation {
-            self.set(snapshot);
+            self.set(state);
         }
     }
 
-    fn set(&self, snapshot: SessionSnapshot) {
-        self.state.send_if_modified(|state| {
-            if *state == snapshot {
+    fn set(&self, state: SessionState) {
+        self.state.send_if_modified(|current| {
+            if *current == state {
                 return false;
             }
-            *state = snapshot;
+            *current = state;
             true
         });
         #[cfg(test)]
-        lock(&self.history).push(snapshot);
+        lock(&self.history).push(state);
     }
 
-    pub(crate) fn snapshot(&self) -> SessionSnapshot {
-        *self.state.borrow()
-    }
-
-    pub(crate) fn watch(&self) -> watch::Receiver<SessionSnapshot> {
+    pub(crate) fn watch(&self) -> watch::Receiver<SessionState> {
         self.state.subscribe()
     }
 
@@ -235,7 +231,7 @@ impl SessionActor {
         }
     }
 
-    /// Projects the agent state and publishes the snapshot.
+    /// Projects the agent state and publishes the session state.
     pub(crate) fn refresh(&mut self) {
         let participants = self.room.remote_participants();
         let agent_state = self.tracker.project(self.connection, participants.values());
@@ -244,7 +240,7 @@ impl SessionActor {
         }
         self.shared.publish(
             self.generation,
-            SessionSnapshot { connection_state: self.connection, agent_state },
+            SessionState { connection: self.connection, agent: agent_state },
         );
     }
 
@@ -281,7 +277,7 @@ impl SessionActor {
         // a disconnect keeps failing with `AlreadyStarted` until the cache is
         // clear.
         self.source.invalidate().await;
-        // Closed before the final snapshot, so that a `start()` prompted by it
+        // Closed before the final state, so that a `start()` prompted by it
         // already finds this actor gone.
         self.commands.close();
         match exit {
@@ -294,7 +290,7 @@ impl SessionActor {
                 log::info!("session room disconnected: {reason:?}");
             }
         }
-        self.shared.publish(self.generation, SessionSnapshot::default());
+        self.shared.publish(self.generation, SessionState::default());
     }
 
     fn on_room_event(&mut self, event: RoomEvent) {

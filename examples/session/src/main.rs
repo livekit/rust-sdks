@@ -4,7 +4,7 @@ use std::{env, time::Duration};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::{LocalAudioTrack, LocalTrack, PlatformAudio, TrackSource};
 use livekit_session::{
-    Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionSnapshot,
+    Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionState,
 };
 
 use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
@@ -41,8 +41,8 @@ fn print_message(message: &Message) {
     println!("{speaker}: {}", message.text);
 }
 
-fn print_state(snapshot: &SessionSnapshot) {
-    println!("[{:?}, agent {:?}]", snapshot.connection_state, snapshot.agent_state);
+fn print_state(state: &SessionState) {
+    println!("[{:?}, agent {:?}]", state.connection, state.agent);
 }
 
 /// Publishes the platform microphone so the agent can hear the user.
@@ -87,9 +87,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if changed.is_err() {
                     break;
                 }
-                let snapshot = *state.borrow_and_update();
-                print_state(&snapshot);
-                if !snapshot.is_connected() {
+                let current = *state.borrow_and_update();
+                print_state(&current);
+                if !current.connection.is_connected() {
                     break;
                 }
             }

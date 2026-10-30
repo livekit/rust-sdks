@@ -123,7 +123,7 @@ pub enum SessionEvent {
 /// let session = Session::with_agent(source, "my-agent", SessionOptions::default());
 ///
 /// session.start().await?;
-/// session.state().wait_for(|state| state.agent_state.is_connected()).await?;
+/// session.state().wait_for(|state| state.agent.is_connected()).await?;
 /// session.send_text("Hello!").await?;
 /// # Ok(())
 /// # }
@@ -237,9 +237,9 @@ impl Session {
             if matches!(*lifecycle, Lifecycle::Starting { .. }) || lifecycle.room().is_some() {
                 return Err(SessionStartError::AlreadyStarted);
             }
-            let generation = self.inner.shared.begin(SessionSnapshot {
-                connection_state: SessionConnectionState::Connecting,
-                agent_state: AgentState::Connecting,
+            let generation = self.inner.shared.begin(SessionState {
+                connection: SessionConnectionState::Connecting,
+                agent: AgentState::Connecting,
             });
             let starting = Lifecycle::Starting { generation, cancel: cancel_tx };
             let stale = match mem::replace(&mut *lifecycle, starting) {
@@ -337,7 +337,7 @@ impl Session {
                 Lifecycle::Idle => return,
                 Lifecycle::Starting { generation, cancel } => {
                     let _ = cancel.send(());
-                    self.inner.shared.publish(generation, SessionSnapshot::default());
+                    self.inner.shared.publish(generation, SessionState::default());
                     return;
                 }
                 Lifecycle::Running(running) => running,
@@ -350,15 +350,11 @@ impl Session {
         running.join().await;
     }
 
-    /// A receiver of the session's state, which also lets callers await a
-    /// condition with [`watch::Receiver::wait_for`].
-    pub fn state(&self) -> watch::Receiver<SessionSnapshot> {
+    /// A receiver of the session's state. [`borrow`](watch::Receiver::borrow)
+    /// reads the current value, and [`wait_for`](watch::Receiver::wait_for)
+    /// awaits a condition.
+    pub fn state(&self) -> watch::Receiver<SessionState> {
         self.inner.shared.watch()
-    }
-
-    /// The session's current state.
-    pub fn snapshot(&self) -> SessionSnapshot {
-        self.inner.shared.snapshot()
     }
 
     /// The session's room, while it is connected or reconnecting.
@@ -439,7 +435,7 @@ impl Drop for StartGuard<'_> {
         {
             *lifecycle = Lifecycle::Idle;
         }
-        self.inner.shared.publish(self.generation, SessionSnapshot::default());
+        self.inner.shared.publish(self.generation, SessionState::default());
     }
 }
 
@@ -466,27 +462,17 @@ impl SessionConnectionState {
 
 /// The observable state of a [`Session`] at one point in time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SessionSnapshot {
+#[non_exhaustive]
+pub struct SessionState {
     /// The state of the session's connection.
-    pub connection_state: SessionConnectionState,
+    pub connection: SessionConnectionState,
     /// What the agent is doing.
-    pub agent_state: AgentState,
+    pub agent: AgentState,
 }
 
-impl SessionSnapshot {
-    /// Whether the session is connected or reconnecting. See
-    /// [`SessionConnectionState::is_connected`].
-    pub fn is_connected(&self) -> bool {
-        self.connection_state.is_connected()
-    }
-}
-
-impl Default for SessionSnapshot {
+impl Default for SessionState {
     fn default() -> Self {
-        Self {
-            connection_state: SessionConnectionState::Disconnected,
-            agent_state: AgentState::Disconnected,
-        }
+        Self { connection: SessionConnectionState::Disconnected, agent: AgentState::Disconnected }
     }
 }
 

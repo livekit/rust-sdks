@@ -138,17 +138,17 @@ async fn set_agent_state(agent: &Room, state: &str) -> Result<()> {
 async fn wait_for(
     session: &Session,
     what: &str,
-    predicate: impl FnMut(&SessionSnapshot) -> bool,
-) -> Result<SessionSnapshot> {
+    predicate: impl FnMut(&SessionState) -> bool,
+) -> Result<SessionState> {
     let mut state = session.state();
-    let snapshot = timeout(WAIT, state.wait_for(predicate))
+    let reached = timeout(WAIT, state.wait_for(predicate))
         .await
-        .map_err(|_| anyhow!("timed out waiting for {what}; last {:?}", session.snapshot()))??;
-    Ok(*snapshot)
+        .map_err(|_| anyhow!("timed out waiting for {what}; last {:?}", current(session)))??;
+    Ok(*reached)
 }
 
 async fn wait_for_agent(session: &Session, agent_state: AgentState) -> Result<()> {
-    wait_for(session, &format!("{agent_state:?}"), |s| s.agent_state == agent_state).await?;
+    wait_for(session, &format!("{agent_state:?}"), |s| s.agent == agent_state).await?;
     Ok(())
 }
 
@@ -170,35 +170,40 @@ fn is_idle(session: &Session) -> bool {
     matches!(*lock(&session.inner.lifecycle), Lifecycle::Idle)
 }
 
+fn current(session: &Session) -> SessionState {
+    *session.state().borrow()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
     let env = TestEnv::new();
     let session = Session::new(env.user_source(false), SessionOptions::default());
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(session.room().is_none());
 
     session.start().await?;
-    assert_eq!(session.snapshot().connection_state, SessionConnectionState::Connected);
-    assert_eq!(session.snapshot().agent_state, AgentState::Connecting);
+    assert_eq!(current(&session).connection, SessionConnectionState::Connected);
+    assert_eq!(current(&session).agent, AgentState::Connecting);
     assert!(matches!(session.start().await, Err(SessionStartError::AlreadyStarted)));
 
     let mut state = session.state();
-    let wait = tokio::spawn(async move {
-        state.wait_for(|s| s.agent_state.is_connected()).await.map(|s| *s).ok()
-    });
+    let wait =
+        tokio::spawn(
+            async move { state.wait_for(|s| s.agent.is_connected()).await.map(|s| *s).ok() },
+        );
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     let connected = timeout(WAIT, wait).await??.ok_or_else(|| anyhow!("state closed"))?;
-    assert_eq!(connected.agent_state, AgentState::Listening);
+    assert_eq!(connected.agent, AgentState::Listening);
 
     set_agent_state(&agent, "speaking").await?;
     wait_for_agent(&session, AgentState::Speaking).await?;
 
     session.end().await;
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(session.room().is_none());
     // Ending again is a no-op.
     session.end().await;
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
     Ok(())
 }
@@ -230,17 +235,17 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
     room.simulate_scenario(SimulateScenario::FullReconnect).await?;
     eventually("a reconnect and the agent's return", || {
         let history = lock(&session.inner.shared.history);
-        history.iter().any(|s| s.connection_state == SessionConnectionState::Reconnecting)
+        history.iter().any(|s| s.connection == SessionConnectionState::Reconnecting)
             && history.last().is_some_and(|s| {
-                s.connection_state == SessionConnectionState::Connected
-                    && s.agent_state == AgentState::Listening
+                s.connection == SessionConnectionState::Connected
+                    && s.agent == AgentState::Listening
             })
     })
     .await?;
 
     let history = lock(&session.inner.shared.history).clone();
     assert!(
-        !history.iter().any(|s| s.agent_state == AgentState::Failed(AgentFailure::Left)),
+        !history.iter().any(|s| s.agent == AgentState::Failed(AgentFailure::Left)),
         "a full reconnect was reported as the agent leaving: {history:?}"
     );
     session.end().await;
@@ -456,10 +461,8 @@ async fn every_disconnect_invalidates_the_token() -> Result<()> {
         RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
     let disconnect = || async {
         rooms.remove_participant(&env.room, USER).await?;
-        wait_for(&session, "disconnect", |s| {
-            s.connection_state == SessionConnectionState::Disconnected
-        })
-        .await?;
+        wait_for(&session, "disconnect", |s| s.connection == SessionConnectionState::Disconnected)
+            .await?;
         anyhow::Ok(())
     };
 
@@ -541,12 +544,12 @@ async fn end_cancels_a_pending_start() -> Result<()> {
         let session = session.clone();
         async move { session.start().await }
     });
-    wait_for(&session, "connecting", |s| s.connection_state == SessionConnectionState::Connecting)
+    wait_for(&session, "connecting", |s| s.connection == SessionConnectionState::Connecting)
         .await?;
 
     session.end().await;
     assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
     Ok(())
 }
@@ -606,7 +609,7 @@ async fn assert_cancelled_connect_left_nothing(
     timeout(WAIT, closed)
         .await
         .map_err(|_| anyhow!("the half-open signal connection was not closed"))??;
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(session), SessionState::default());
     assert!(is_idle(session));
     assert_eq!(weak_shared(session).strong_count(), 1, "an actor was spawned");
 
@@ -655,7 +658,7 @@ async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
         SessionOptions::default(),
     );
     assert!(timeout(Duration::from_millis(100), session.start()).await.is_err());
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
     Ok(())
 }
@@ -752,7 +755,7 @@ async fn failed_starts_spawn_nothing() -> Result<()> {
     );
     for _ in 0..2 {
         assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
-        assert_eq!(session.snapshot(), SessionSnapshot::default());
+        assert_eq!(current(&session), SessionState::default());
         assert!(is_idle(&session));
     }
     assert_eq!(weak_shared(&session).strong_count(), 1);
@@ -762,7 +765,7 @@ async fn failed_starts_spawn_nothing() -> Result<()> {
     options.room_options.join_retries = 0;
     let session = Session::new(literal("ws://127.0.0.1:1", env.token(USER, |t| t)), options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
-    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
     assert_eq!(weak_shared(&session).strong_count(), 1);
     Ok(())
