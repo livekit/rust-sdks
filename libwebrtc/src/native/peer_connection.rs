@@ -219,12 +219,32 @@ impl PeerConnection {
         &self,
         options: OfferOptions,
     ) -> Result<SessionDescription, RtcError> {
+        self.create_offer_with_sys_options(options.into()).await
+    }
+
+    pub async fn create_offer_with_offer_to_receive_unset(
+        &self,
+        options: OfferOptions,
+    ) -> Result<SessionDescription, RtcError> {
+        let unset = sys_pc::ffi::RtcOfferAnswerOptions::default();
+        self.create_offer_with_sys_options(sys_pc::ffi::RtcOfferAnswerOptions {
+            offer_to_receive_audio: unset.offer_to_receive_audio,
+            offer_to_receive_video: unset.offer_to_receive_video,
+            ..options.into()
+        })
+        .await
+    }
+
+    async fn create_offer_with_sys_options(
+        &self,
+        options: sys_pc::ffi::RtcOfferAnswerOptions,
+    ) -> Result<SessionDescription, RtcError> {
         let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
         let ctx = Box::new(sys_pc::PeerContext(Box::new(tx)));
         type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
         self.sys_handle.create_offer(
-            options.into(),
+            options,
             ctx,
             |ctx, sdp| {
                 let tx = *ctx.0.downcast::<CtxType>().unwrap();
@@ -643,9 +663,10 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        peer_connection::BitrateSettings,
+        peer_connection::{BitrateSettings, OfferOptions},
         peer_connection_factory::{PeerConnectionFactory, RtcConfiguration},
-        RtcErrorType,
+        rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
+        MediaType, RtcErrorType,
     };
 
     #[tokio::test]
@@ -678,5 +699,23 @@ mod tests {
             .set_bitrate(BitrateSettings { start_bitrate_bps: Some(500_000), ..Default::default() })
             .expect_err("a closed connection should reject set_bitrate");
         assert_eq!(err.error_type, RtcErrorType::InvalidState, "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn offer_with_offer_to_receive_unset_keeps_recvonly() {
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::RecvOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+        let transceiver = pc.add_transceiver_for_media(MediaType::Audio, init).unwrap();
+
+        let offer =
+            pc.create_offer_with_offer_to_receive_unset(OfferOptions::default()).await.unwrap();
+
+        assert!(offer.to_string().contains("a=recvonly"), "unexpected offer: {offer:?}");
+        assert_eq!(transceiver.direction(), RtpTransceiverDirection::RecvOnly);
     }
 }

@@ -160,6 +160,19 @@ impl PeerConnection {
         self.handle.create_offer(options).await
     }
 
+    /// Creates an offer like [`create_offer`](Self::create_offer), but leaves libwebrtc's
+    /// legacy `offer_to_receive_*` options unset, so transceivers keep their directions.
+    /// `options.offer_to_receive_audio` and `options.offer_to_receive_video` are ignored.
+    ///
+    /// With [`create_offer`](Self::create_offer), a `false` there is sent as an explicit 0,
+    /// which makes libwebrtc turn every receive-only transceiver inactive.
+    pub async fn create_offer_with_offer_to_receive_unset(
+        &self,
+        options: OfferOptions,
+    ) -> Result<SessionDescription, RtcError> {
+        self.handle.create_offer_with_offer_to_receive_unset(options).await
+    }
+
     pub async fn create_answer(
         &self,
         options: AnswerOptions,

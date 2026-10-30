@@ -217,7 +217,7 @@ impl PeerTransport {
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
     /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published, so only the `inactive→recvonly` munging applies.
+    /// is published, so none of the SDP munging in `create_and_send_offer` applies.
     ///
     /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
     /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
@@ -236,16 +236,10 @@ impl PeerTransport {
         }
         drop(inner);
 
-        let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let sdp = offer.to_string();
-
-        // Apply inactive→recvonly munging for single PC mode
-        let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
-        if recvonly_munged != sdp {
-            if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                offer = parsed;
-            }
-        }
+        let offer = self
+            .peer_connection
+            .create_offer_with_offer_to_receive_unset(OfferOptions::default())
+            .await?;
 
         let mut inner = self.inner.lock().await;
         inner.pending_initial_offer = Some(offer.clone());
@@ -336,50 +330,6 @@ impl PeerTransport {
         } else {
             Some(start_kbps.min(cap_kbps))
         }
-    }
-
-    /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
-    /// This is needed because WebRTC can generate inactive direction even when transceivers
-    /// were configured as recvonly.
-    ///
-    /// We intentionally limit this to RTP m-sections, so non-RTP sections (for example
-    /// data-channel `m=application` sections) are not rewritten.
-    fn munge_inactive_to_recvonly_for_media(sdp: &str) -> String {
-        // Detect what line ending the original SDP uses
-        let uses_crlf = sdp.contains("\r\n");
-        let eol = if uses_crlf { "\r\n" } else { "\n" };
-
-        let lines: Vec<&str> =
-            if uses_crlf { sdp.split("\r\n").collect() } else { sdp.split('\n').collect() };
-
-        let mut out: Vec<String> = Vec::with_capacity(lines.len());
-        let mut in_rtp_media_section = false;
-
-        for line in lines {
-            let l = line.trim();
-
-            // Track whether the current m-section is RTP-based.
-            if l.starts_with("m=") {
-                // Example RTP m-line:
-                //   m=audio 9 UDP/TLS/RTP/SAVPF 111
-                // Example data channel m-line:
-                //   m=application 9 UDP/DTLS/SCTP webrtc-datachannel
-                in_rtp_media_section = l.contains("RTP/");
-            }
-
-            // Change inactive to recvonly for RTP media m-sections.
-            if in_rtp_media_section && l == "a=inactive" {
-                out.push("a=recvonly".to_string());
-            } else {
-                out.push(line.to_string());
-            }
-        }
-
-        let mut munged = out.join(eol);
-        if !munged.ends_with(eol) {
-            munged.push_str(eol);
-        }
-        munged
     }
 
     /// Munge SDP to add stereo=1 to opus audio fmtp lines for single PC mode
@@ -579,25 +529,16 @@ impl PeerTransport {
             return Ok(());
         }
 
-        let mut offer = self.peer_connection.create_offer(options).await?;
+        // The publisher receives on its own receive-only transceivers in single PC mode, and
+        // an explicit `offer_to_receive_*` of 0 would make libwebrtc turn them inactive.
+        let mut offer = if inner.single_pc_mode {
+            self.peer_connection.create_offer_with_offer_to_receive_unset(options).await?
+        } else {
+            self.peer_connection.create_offer(options).await?
+        };
         let mut sdp = offer.to_string();
 
         if inner.single_pc_mode {
-            // Fix inactive media m-lines to recvonly for single PC mode.
-            // WebRTC can generate a=inactive even when transceivers are recvonly.
-            let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
-            if recvonly_munged != sdp {
-                match SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                    Ok(parsed) => {
-                        offer = parsed;
-                        sdp = recvonly_munged;
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse recvonly-munged SDP: {e}");
-                    }
-                }
-            }
-
             // Apply stereo munging for single PC mode
             let stereo_munged = Self::munge_stereo_for_audio(&sdp);
             if stereo_munged != sdp {
@@ -1138,43 +1079,6 @@ a=fmtp:98 profile-id=0;x-google-start-bitrate=1000\n";
         assert!(!out.contains("x-google-start-bitrate=1000"));
         // ensure only one occurrence
         assert_eq!(out.matches("x-google-start-bitrate=").count(), 1);
-    }
-
-    #[test]
-    fn inactive_media_is_munged_to_recvonly_for_all_rtp_sections() {
-        let sdp = "v=0\n\
-o=- 0 0 IN IP4 127.0.0.1\n\
-s=-\n\
-t=0 0\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n\
-a=rtpmap:111 opus/48000/2\n\
-m=video 9 UDP/TLS/RTP/SAVPF 96\n\
-a=inactive\n\
-m=text 9 UDP/TLS/RTP/SAVPF 98\n\
-a=inactive\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n";
-        let out = PeerTransport::munge_inactive_to_recvonly_for_media(sdp);
-        assert!(out.contains("m=audio 9 UDP/TLS/RTP/SAVPF 111\na=recvonly\n"));
-        assert!(out.contains("m=text 9 UDP/TLS/RTP/SAVPF 98\na=recvonly\n"));
-        assert_eq!(out.matches("a=recvonly").count(), 4);
-        assert_eq!(out.matches("a=inactive").count(), 0);
-    }
-
-    #[test]
-    fn inactive_application_section_is_not_munged() {
-        let sdp = "v=0\n\
-o=- 0 0 IN IP4 127.0.0.1\n\
-s=-\n\
-t=0 0\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n\
-m=application 9 UDP/DTLS/SCTP webrtc-datachannel\n\
-a=inactive\n";
-        let out = PeerTransport::munge_inactive_to_recvonly_for_media(sdp);
-        assert!(out.contains("m=audio 9 UDP/TLS/RTP/SAVPF 111\na=recvonly\n"));
-        assert!(out.contains("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=inactive\n"));
     }
 
     #[test]
