@@ -138,6 +138,18 @@ ninja -C "$OUTPUT_DIR" :default \
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
+# prefix the bundled ffmpeg's symbols, as build_linux.sh does, so they don't
+# conflict with an ffmpeg the app links itself. Mach-O names carry a leading
+# underscore, and Chromium's macOS toolchain has llvm-objcopy but no llvm-nm.
+ffmpeg_public='av|avcodec|avdevice|avfilter|avformat|avio|avpriv|avsubtitle|avutil|swr|swresample|sws|swscale'
+ffmpeg_internal='ff|ffio|ffurl'
+
+ffmpeg_map="$OUTPUT_DIR/ffmpeg_prefix_symbols.txt"
+nm -gjU "$ARTIFACTS_DIR/lib/libwebrtc.a" 2>/dev/null | sort -u \
+  | grep -E "^_($ffmpeg_public|$ffmpeg_internal)_" \
+  | awk '{ print $1, "_LK_" substr($1, 2) }' > "$ffmpeg_map"
+src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$ffmpeg_map" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+
 # License generation - may fail locally due to GN warnings breaking JSON parsing
 # Use vpython3 from depot_tools for consistent Python version
 vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
