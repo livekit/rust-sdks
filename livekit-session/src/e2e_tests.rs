@@ -30,12 +30,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
-use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
-use livekit::e2ee::EncryptionType;
 use livekit::prelude::*;
-use livekit::{
-    E2eeOptions, SendTextOptions, SimulateScenario, StreamReader, StreamTextOptions, StreamWriter,
-};
+use livekit::{SendTextOptions, SimulateScenario, StreamReader, StreamTextOptions, StreamWriter};
 use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
 use livekit_token_source::{
@@ -171,7 +167,7 @@ fn weak_shared(session: &Session) -> Weak<Shared> {
 }
 
 fn is_idle(session: &Session) -> bool {
-    matches!(lock(&session.inner.state).lifecycle, Lifecycle::Idle)
+    matches!(*lock(&session.inner.lifecycle), Lifecycle::Idle)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -415,27 +411,6 @@ async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
     })
     .await??;
     assert_eq!(text, "for the app");
-    session.end().await;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn encryption_setting_before_start_is_applied_after_connect() -> Result<()> {
-    let env = TestEnv::new();
-    let mut options = SessionOptions::default();
-    options.room_options.encryption = Some(E2eeOptions {
-        encryption_type: EncryptionType::Gcm,
-        key_provider: KeyProvider::with_shared_key(KeyProviderOptions::default(), b"key".to_vec()),
-    });
-    let session = Session::new(env.user_source(false), options);
-
-    session.set_encryption_enabled(false);
-    session.start().await?;
-    let room = session.room().ok_or_else(|| anyhow!("no room"))?;
-    assert!(!room.e2ee_manager().enabled());
-
-    session.set_encryption_enabled(true);
-    assert!(room.e2ee_manager().enabled());
     session.end().await;
     Ok(())
 }

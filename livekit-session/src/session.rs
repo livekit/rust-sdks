@@ -98,7 +98,8 @@ pub struct SessionOptions {
     /// agent registered without a name is dispatched into every new room.
     pub agent_connect_timeout: Duration,
     /// Options for the session's room, including
-    /// [`encryption`](RoomOptions::encryption).
+    /// [`encryption`](RoomOptions::encryption), which can be toggled once
+    /// connected through [`Session::room`].
     pub room_options: RoomOptions,
 }
 
@@ -165,14 +166,7 @@ pub(crate) struct Inner {
     source: Arc<SessionTokenSource>,
     options: SessionOptions,
     pub(crate) shared: Arc<Shared>,
-    pub(crate) state: Mutex<State>,
-}
-
-pub(crate) struct State {
-    pub(crate) lifecycle: Lifecycle,
-    /// Set by [`Session::set_encryption_enabled`], applied to every room the
-    /// session connects.
-    encryption_enabled: Option<bool>,
+    pub(crate) lifecycle: Mutex<Lifecycle>,
 }
 
 pub(crate) enum Lifecycle {
@@ -206,7 +200,7 @@ impl Session {
                 source: Arc::new(source.into()),
                 options,
                 shared: Arc::new(Shared::new()),
-                state: Mutex::new(State { lifecycle: Lifecycle::Idle, encryption_enabled: None }),
+                lifecycle: Mutex::new(Lifecycle::Idle),
             }),
         }
     }
@@ -221,17 +215,15 @@ impl Session {
     pub async fn start(&self) -> Result<(), SessionStartError> {
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let generation = {
-            let mut state = lock(&self.inner.state);
-            if matches!(state.lifecycle, Lifecycle::Starting { .. })
-                || state.lifecycle.room().is_some()
-            {
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            if matches!(*lifecycle, Lifecycle::Starting { .. }) || lifecycle.room().is_some() {
                 return Err(SessionStartError::AlreadyStarted);
             }
             let generation = self.inner.shared.begin(SessionSnapshot {
                 connection_state: SessionConnectionState::Connecting,
                 agent_state: AgentState::Connecting,
             });
-            state.lifecycle = Lifecycle::Starting { generation, cancel: cancel_tx };
+            *lifecycle = Lifecycle::Starting { generation, cancel: cancel_tx };
             generation
         };
         let mut guard = StartGuard { inner: &self.inner, generation, armed: true };
@@ -251,15 +243,11 @@ impl Session {
         );
 
         {
-            let mut state = lock(&self.inner.state);
-            if matches!(state.lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation)
-            {
-                if let Some(enabled) = state.encryption_enabled {
-                    room.e2ee_manager().set_enabled(enabled);
-                }
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            if matches!(*lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation) {
                 actor.refresh();
                 let task = tokio::spawn(actor.run());
-                state.lifecycle = Lifecycle::Running(Running { room, commands: commands_tx, task });
+                *lifecycle = Lifecycle::Running(Running { room, commands: commands_tx, task });
                 guard.armed = false;
                 return Ok(());
             }
@@ -295,8 +283,8 @@ impl Session {
     /// and the session has ended regardless.
     pub async fn end(&self) {
         let running = {
-            let mut state = lock(&self.inner.state);
-            match mem::replace(&mut state.lifecycle, Lifecycle::Idle) {
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            match mem::replace(&mut *lifecycle, Lifecycle::Idle) {
                 Lifecycle::Idle => return,
                 Lifecycle::Starting { generation, cancel } => {
                     let _ = cancel.send(());
@@ -312,20 +300,6 @@ impl Session {
         let _ = running.commands.send(Command::End).await;
         if let Err(err) = running.task.await {
             log::error!("session actor failed: {err}");
-        }
-    }
-
-    /// Enables or disables end-to-end encryption for the session's room.
-    ///
-    /// Takes effect only when [`SessionOptions::room_options`] configures
-    /// [`encryption`](RoomOptions::encryption). Before
-    /// [`start`](Self::start), the setting is recorded and applied once the
-    /// room connects.
-    pub fn set_encryption_enabled(&self, enabled: bool) {
-        let mut state = lock(&self.inner.state);
-        state.encryption_enabled = Some(enabled);
-        if let Some(room) = state.lifecycle.room() {
-            room.e2ee_manager().set_enabled(enabled);
         }
     }
 
@@ -345,7 +319,7 @@ impl Session {
     /// The room is closed once the session ends, even if the caller still
     /// holds it.
     pub fn room(&self) -> Option<Arc<Room>> {
-        lock(&self.inner.state).lifecycle.room().cloned()
+        lock(&self.inner.lifecycle).room().cloned()
     }
 
     /// The agent's microphone track, once subscribed.
@@ -413,10 +387,10 @@ impl Drop for StartGuard<'_> {
         if !self.armed {
             return;
         }
-        let mut state = lock(&self.inner.state);
-        if matches!(state.lifecycle, Lifecycle::Starting { generation, .. } if generation == self.generation)
+        let mut lifecycle = lock(&self.inner.lifecycle);
+        if matches!(*lifecycle, Lifecycle::Starting { generation, .. } if generation == self.generation)
         {
-            state.lifecycle = Lifecycle::Idle;
+            *lifecycle = Lifecycle::Idle;
         }
         self.inner.shared.publish(self.generation, SessionSnapshot::default());
     }
