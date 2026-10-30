@@ -51,6 +51,8 @@ pub struct TestRoomOptions {
     pub grants: VideoGrants,
     /// Options used for creating the [`Room`].
     pub room: RoomOptions,
+    /// Participant kind for the generated token, for example `"agent"`.
+    pub kind: String,
 }
 
 impl Default for TestRoomOptions {
@@ -58,6 +60,7 @@ impl Default for TestRoomOptions {
         Self {
             grants: VideoGrants { room_join: true, ..Default::default() },
             room: Default::default(),
+            kind: Default::default(),
         }
     }
 }
@@ -95,6 +98,7 @@ pub async fn test_rooms_with_options(
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
                 .with_grants(options.grants)
+                .with_kind(&options.kind)
                 .with_identity(&format!("p{}", id))
                 .with_name(&format!("Participant {}", id))
                 .to_jwt()
