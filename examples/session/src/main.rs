@@ -23,7 +23,7 @@ fn token_source() -> Result<SessionTokenSource, Box<dyn Error>> {
     if let Ok(agent_name) = env::var("LIVEKIT_AGENT_NAME") {
         options = options.with_agent_name(agent_name);
     }
-    Ok((development_token_server(token_server_id), options).into())
+    Ok(SessionTokenSource::configurable(development_token_server(token_server_id), options))
 }
 
 /// Prints a message once it is complete. The user's own input is skipped, as

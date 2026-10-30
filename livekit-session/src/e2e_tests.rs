@@ -443,7 +443,10 @@ async fn every_disconnect_invalidates_the_token() -> Result<()> {
         },
         invalidations: invalidations.clone(),
     };
-    let session = Session::new((source, TokenSourceFetchOptions::new()), SessionOptions::default());
+    let session = Session::new(
+        SessionTokenSource::configurable(source, TokenSourceFetchOptions::new()),
+        SessionOptions::default(),
+    );
 
     session.start().await?;
     session.end().await;
@@ -484,8 +487,10 @@ impl TokenSourceConfigurable for PendingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn end_cancels_a_pending_start() -> Result<()> {
-    let session =
-        Session::new((PendingSource, TokenSourceFetchOptions::new()), SessionOptions::default());
+    let session = Session::new(
+        SessionTokenSource::configurable(PendingSource, TokenSourceFetchOptions::new()),
+        SessionOptions::default(),
+    );
     let start = tokio::spawn({
         let session = session.clone();
         async move { session.start().await }
@@ -593,8 +598,10 @@ async fn dropping_a_start_during_connect_resets_the_session() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
-    let session =
-        Session::new((PendingSource, TokenSourceFetchOptions::new()), SessionOptions::default());
+    let session = Session::new(
+        SessionTokenSource::configurable(PendingSource, TokenSourceFetchOptions::new()),
+        SessionOptions::default(),
+    );
     assert!(timeout(Duration::from_millis(100), session.start()).await.is_err());
     assert_eq!(session.snapshot(), SessionSnapshot::default());
     assert!(is_idle(&session));
@@ -686,8 +693,10 @@ impl TokenSourceConfigurable for FailingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn failed_starts_spawn_nothing() -> Result<()> {
-    let session =
-        Session::new((FailingSource, TokenSourceFetchOptions::new()), SessionOptions::default());
+    let session = Session::new(
+        SessionTokenSource::configurable(FailingSource, TokenSourceFetchOptions::new()),
+        SessionOptions::default(),
+    );
     for _ in 0..2 {
         assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
         assert_eq!(session.snapshot(), SessionSnapshot::default());

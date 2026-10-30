@@ -6,12 +6,13 @@ room, projects what the agent is doing, and merges chat and transcripts into one
 feed. It follows the same model as the Session in the JavaScript, Swift, Android and Flutter SDKs.
 
 ```rust
-use livekit_session::{Session, SessionOptions};
+use livekit_session::{Session, SessionOptions, SessionTokenSource};
 use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
 
 let source = development_token_server("<token server id>");
 let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
-let session = Session::new((source, options), SessionOptions::default());
+let session =
+    Session::new(SessionTokenSource::configurable(source, options), SessionOptions::default());
 
 session.start().await?;
 session.state().wait_for(|state| state.agent_state.is_connected()).await?;
@@ -24,9 +25,9 @@ See [`examples/session`](../examples/session) for a complete text chat.
 
 `Session::new` takes anything convertible into a `SessionTokenSource`:
 
-- a configurable source paired with its fetch options, as above. The options are where the agent
-  to dispatch is named;
-- a `literal` source holding a pre-generated token;
+- a configurable source with its fetch options, wrapped with `SessionTokenSource::configurable` as
+  above. The options are where the agent to dispatch is named;
+- a `literal` source holding a pre-generated token, passed directly;
 - any other fixed source, wrapped with `SessionTokenSource::fixed`.
 
 On every disconnect, whether through `end`, by dropping the session or unexpectedly, the session

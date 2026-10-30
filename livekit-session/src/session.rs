@@ -33,9 +33,10 @@ use crate::messages::{Message, MessageOrigin, MessageUpdate};
 
 /// Where a [`Session`] gets its credentials.
 ///
-/// Usually created through [`From`]: pass a [`TokenSourceConfigurable`] paired
-/// with the options to fetch with, or a [`literal`](livekit_token_source::literal)
-/// source directly. Wrap other fixed sources with [`SessionTokenSource::fixed`].
+/// Created with [`configurable`](Self::configurable) for a source fetched with
+/// options, such as one dispatching an agent, or [`fixed`](Self::fixed) for one
+/// that takes none. A [`literal`](livekit_token_source::literal) source also
+/// converts directly through [`From`].
 pub struct SessionTokenSource(Source);
 
 // Built once per session and kept behind an `Arc`, so its size does not matter.
@@ -54,6 +55,15 @@ impl SessionTokenSource {
         Self(Source::Fixed(Box::new(source)))
     }
 
+    /// Wraps a source fetched with `options`, e.g. to dispatch an agent through
+    /// [`TokenSourceFetchOptions::with_agent_name`].
+    pub fn configurable(
+        source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        options: TokenSourceFetchOptions,
+    ) -> Self {
+        Self(Source::Configurable(Box::new(source), options))
+    }
+
     async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
         match &self.0 {
             Source::Fixed(source) => source.fetch().await,
@@ -70,19 +80,9 @@ impl SessionTokenSource {
     }
 }
 
-// A blanket `From<T: TokenSourceFixed>` would conflict with the tuple impl
-// below, so custom fixed sources go through `SessionTokenSource::fixed`.
 impl From<TokenSourceLiteral> for SessionTokenSource {
     fn from(source: TokenSourceLiteral) -> Self {
         Self::fixed(source)
-    }
-}
-
-impl<T: TokenSourceConfigurable + Send + Sync + 'static> From<(T, TokenSourceFetchOptions)>
-    for SessionTokenSource
-{
-    fn from((source, options): (T, TokenSourceFetchOptions)) -> Self {
-        Self(Source::Configurable(Box::new(source), options))
     }
 }
 
@@ -143,13 +143,14 @@ pub enum SessionEvent {
 /// closes the room.
 ///
 /// ```no_run
-/// use livekit_session::{Session, SessionOptions};
+/// use livekit_session::{Session, SessionOptions, SessionTokenSource};
 /// use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
 ///
 /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = development_token_server("my-token-server-id");
 /// let options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
-/// let session = Session::new((source, options), SessionOptions::default());
+/// let session =
+///     Session::new(SessionTokenSource::configurable(source, options), SessionOptions::default());
 ///
 /// session.start().await?;
 /// session.state().wait_for(|state| state.agent_state.is_connected()).await?;
