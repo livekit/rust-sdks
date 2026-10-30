@@ -7,7 +7,7 @@ use livekit_session::{
     Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionState,
 };
 
-use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
+use livekit_token_source::{development_token_server};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 /// Prints a message once it is complete. The user's own input is skipped, as
