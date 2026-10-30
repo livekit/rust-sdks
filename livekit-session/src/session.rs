@@ -85,6 +85,20 @@ impl Default for SessionOptions {
     }
 }
 
+impl SessionOptions {
+    /// Sets [`agent_connect_timeout`](Self::agent_connect_timeout).
+    pub fn with_agent_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.agent_connect_timeout = timeout;
+        self
+    }
+
+    /// Sets [`room_options`](Self::room_options).
+    pub fn with_room_options(mut self, room_options: RoomOptions) -> Self {
+        self.room_options = room_options;
+        self
+    }
+}
+
 /// A change to a [`Session`]'s message feed. State changes are observed
 /// through [`Session::state`] instead.
 #[derive(Clone, Debug)]
