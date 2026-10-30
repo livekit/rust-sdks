@@ -5,7 +5,7 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     prelude::*,
-    SimulateScenario, StreamReader, StreamTextOptions, TextStreamReader,
+    SendTextOptions, SimulateScenario, StreamReader, TextStreamReader,
 };
 use livekit_api::access_token;
 use std::{env, error::Error, io::Write};
@@ -86,7 +86,7 @@ async fn run_interactive_chat(
                         }
 
                         // Send the message
-                        let options = StreamTextOptions::new_with_topic("lk.chat");
+                        let options = SendTextOptions::new_with_topic("lk.chat");
 
                         match room.local_participant().send_text(&input, options).await {
                             Ok(_) => {

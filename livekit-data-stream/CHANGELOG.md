@@ -1,3 +1,21 @@
+## 0.2.0 (2026-10-28)
+
+### Breaking Changes
+
+- `InputEvent` and `OutputEvent` are `#[non_exhaustive]`; exhaustive matches need a wildcard arm.
+- Split outgoing data stream options into `SendTextOptions`, shared `SendByteOptions`, `StreamTextOptions` and `StreamByteOptions`, all `#[non_exhaustive]`. Remove `send_file_with_progress` and `stream_text_with_total_length` in favor of `on_progress` and `total_length` on the options.
+
+### Features
+
+- Add data stream progress to `core-modules`: readers get `next_progress()`, which counts received bytes, and `send_text`, `send_bytes` and `send_file` take an optional `progress` delegate (`StreamProgressDelegate`) inside their options record, defaulting to none and ignored by incremental streams. The core adds `on_progress` on `SendTextOptions` and `SendByteOptions` and a `progress_stream()` accessor on the concrete readers that does not borrow the reader. The generated Swift option records no longer conform to `Equatable` or `Hashable`.
+- Let an incremental text stream declare its total length in the header: the core adds `StreamTextOptions::total_length`, and the `core-modules` `StreamTextOptions` record gets an optional `total_length` that `stream_text` passes to it. The receiver then reports progress against it and fails the stream if the length does not match.
+- Add `close()` to the `core-modules` text and byte stream readers (`closeStream()` in Kotlin) and core `StreamCloser` handles returned by `closer()` to end pending reads with `DataStreamError::AlreadyClosed` and remove streams exactly once; dropping a reader has the same effect.
+
+### Fixes
+
+- An incoming single-packet (inline) data stream whose payload is shorter or longer than the length in its header now fails with `StreamError::Incomplete` or `StreamError::LengthExceeded`, as a chunked stream already does. Before, it ended successfully.
+- A data stream that its sender closes early with a reason now fails with that reason (`StreamError::AbnormalEnd`), as in JS, even when its header declared a total length; before, the reader got `StreamError::Incomplete`.
+
 ## 0.1.9 (2026-10-20)
 
 ### Fixes

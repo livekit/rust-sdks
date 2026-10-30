@@ -316,6 +316,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.13.3 (2026-10-28)
+
+### Features
+
+- Add data stream progress to `core-modules`: readers get `next_progress()`, which counts received bytes, and `send_text`, `send_bytes` and `send_file` take an optional `progress` delegate (`StreamProgressDelegate`) inside their options record, defaulting to none and ignored by incremental streams. The core adds `on_progress` on `SendTextOptions` and `SendByteOptions` and a `progress_stream()` accessor on the concrete readers that does not borrow the reader. The generated Swift option records no longer conform to `Equatable` or `Hashable`.
+- Let an incremental text stream declare its total length in the header: the core adds `StreamTextOptions::total_length`, and the `core-modules` `StreamTextOptions` record gets an optional `total_length` that `stream_text` passes to it. The receiver then reports progress against it and fails the stream if the length does not match.
+- Add `close()` to the `core-modules` text and byte stream readers (`closeStream()` in Kotlin) and core `StreamCloser` handles returned by `closer()` to end pending reads with `DataStreamError::AlreadyClosed` and remove streams exactly once; dropping a reader has the same effect.
+- The `core-modules` text and byte stream writers' `close` takes an optional `reason`, which closes the stream abnormally, and `attributes` to send in the stream's trailer, which default to none and an empty map. This and the other changed or new data stream methods change the generated Swift protocols and Kotlin interfaces, so a hand-written conformer such as a test mock must be updated.
+- Replace `CaptureSourceEvent` with `JoinCaptureRequest`, which waits for a running capture to end and returns its result, and make disposing a capture handle wait until its capture thread exits.
+- Create the well-known data channels as negotiated (fixed IDs) when the server supports it (protocol 18), saving the data channel open handshake round trip. Falls back to in-band channels against older servers.
+- Signal sessions can now be driven over UniFFI: foreign callers can connect, send and receive encoded signal messages, resume, and close a `livekit-signaling` session with a host-supplied WebSocket transport.
+
+### Fixes
+
+- Keep NVIDIA's Jetson video codec plugin loaded while probing MMAPI encoder capabilities, preventing probe teardown from breaking subsequent GStreamer capture.
+- Report encoded capture sources as `VIDEO_SOURCE_ENCODED`, so their video source accepts encoded frame and feedback requests and rejects raw frames.
+- An incoming single-packet (inline) data stream whose payload is shorter or longer than the length in its header now fails with `StreamError::Incomplete` or `StreamError::LengthExceeded`, as a chunked stream already does. Before, it ended successfully.
+- Split outgoing data stream options into `SendTextOptions`, shared `SendByteOptions`, `StreamTextOptions` and `StreamByteOptions`, all `#[non_exhaustive]`. Remove `send_file_with_progress` and `stream_text_with_total_length` in favor of `on_progress` and `total_length` on the options.
+- A data stream that its sender closes early with a reason now fails with that reason (`StreamError::AbnormalEnd`), as in JS, even when its header declared a total length; before, the reader got `StreamError::Incomplete`.
+- Release local tracks when the server ends the room by detaching publisher senders before the publisher PeerConnection closes, and make `RtpSender::track()` return `None` for a detached sender instead of dereferencing null.
+- The `info()` of a `core-modules` data stream reader now includes the attributes from the stream's trailer, which the reader used to drop. They are present once the read that ends the stream returns.
+- Expose inference and observability grants on the UniFFI access-token surface: `TokenOptions` gains `inference_grants` and `observability_grants`, and verified `Claims` carry `inference` and `observability`.
+- Add `InferenceGrants` and `AccessToken::with_inference_grants`, so Rust services can mint tokens for LiveKit Inference.
+- livekit-signaling: add an opt-out for region failover in connect - #1567 (@lukasIO)
+- livekit-signaling: let callers set the advertised protocol and capabilities - #1569 (@lukasIO)
+- Add `ObservabilityGrants` and `AccessToken::with_observability_grants`, so Rust services can mint tokens that publish observability data.
+- Remove the `use_legacy_data_streams` migration flag. The FFI `RoomDataStreamOptions.use_legacy_client_implementation` field is now deprecated and ignored, and the hidden `RoomDataStreamOptions::with_legacy_client_implementation` builder and the hidden `SignalOptions::use_legacy_data_streams` field are gone; clients always advertise data streams v2 support.
+
 ## 0.13.2 (2026-10-23)
 
 ### Fixes

@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.54"
+version = "0.3.55"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.7"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "bytes",
  "chrono",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "async-compression",
  "bmrng",
@@ -3870,6 +3870,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3897,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.2"
+version = "0.13.3"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3919,6 +3920,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-signaling",
  "livekit-token",
  "log",
  "once_cell",
@@ -3973,7 +3975,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-rpc"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -3990,7 +3992,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4025,7 +4027,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-token"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hmac",
  "jsonwebtoken",
@@ -6476,9 +6478,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -8684,7 +8686,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.51"
+version = "0.3.52"
 dependencies = [
  "cc",
  "cxx",

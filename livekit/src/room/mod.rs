@@ -1920,7 +1920,10 @@ impl RoomSession {
         segments: Vec<TranscriptionSegment>,
     ) {
         let participant = self.get_local_or_remote_participant(&participant_identity);
-        let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
+        let Ok(track_sid) = TrackSid::try_from(track_sid) else {
+            log::warn!("dropping transcription with an invalid track sid");
+            return;
+        };
         let track_publication: Option<TrackPublication> = match &participant {
             Some(Participant::Local(ref participant)) => {
                 participant.get_track_publication(&track_sid).map(TrackPublication::Local)
@@ -2492,6 +2495,7 @@ async fn incoming_data_stream_task(
                 // The Rust SDK observes completion through the reader itself; the explicit
                 // closed signal exists for FFI hosts sequencing handlers on ordered topics.
                 ds::incoming::OutputEvent::StreamClosed(_) => {}
+                _ => log::debug!("ignoring an unknown incoming data stream event"),
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);

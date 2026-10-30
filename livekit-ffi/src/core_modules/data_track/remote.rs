@@ -206,8 +206,8 @@ impl RemoteDataTrackManager {
             return Err(HandleSignalResponseError::UnsupportedType);
         };
 
-        let event = remote::event_from_join(&mut msg)
-            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+        let event =
+            remote::event_from_join(&mut msg).map_err(HandleSignalResponseError::Internal)?;
         _ = self.input.send(event.into());
 
         Ok(())
@@ -232,7 +232,7 @@ impl RemoteDataTrackManager {
         };
 
         let event = remote::event_from_participant_update(&mut msg, &local_participant_identity)
-            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+            .map_err(HandleSignalResponseError::Internal)?;
         _ = self.input.send(event.into());
 
         Ok(())
@@ -247,7 +247,7 @@ impl RemoteDataTrackManager {
         };
 
         let event: remote::SfuSubscriberHandles =
-            msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
+            msg.try_into().map_err(HandleSignalResponseError::Internal)?;
         _ = self.input.send(event.into());
 
         Ok(())

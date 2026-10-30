@@ -62,30 +62,19 @@ impl CapturePump {
 enum CaptureState {
     /// Created but not started.
     Idle(CapturePump),
-    /// Started; the watcher task owns the running pump.
-    Running,
-    /// The capture ended; the terminal event has been dispatched.
+    /// Started.
+    Running(RunningPump),
+    /// Joined or failed to start.
     Finished,
 }
 
 pub struct FfiCaptureSource {
     pub handle_id: FfiHandleId,
-    /// Cancellation handle, usable in every state.
     stop: PumpStop,
     state: Mutex<CaptureState>,
 }
 
 impl FfiHandle for FfiCaptureSource {}
-
-impl Drop for FfiCaptureSource {
-    fn drop(&mut self) {
-        // Disposing a running capture stops it; the pump thread observes the
-        // signal within one bounded wait and drops the source (stopping the
-        // producer). The watcher task delivers the terminal event, which may
-        // trail the disposal.
-        self.stop.stop();
-    }
-}
 
 pub fn on_new_capture_source(
     server: &'static FfiServer,
@@ -144,9 +133,21 @@ async fn create_capture_source(
         }
     };
 
-    let (kind, resolution, codec, publish_options, rtc_source, stop) = match &pump {
+    Ok(register_capture_source(server, pump))
+}
+
+/// Stores the capture source and its RTC video source as client-owned
+/// handles.
+fn register_capture_source(
+    server: &'static FfiServer,
+    pump: CapturePump,
+) -> proto::OwnedCaptureSource {
+    // The source type must match how the pump built the RTC source, so the
+    // FFI video source accepts the matching frame and feedback requests.
+    let (kind, source_type, resolution, codec, publish_options, rtc_source, stop) = match &pump {
         CapturePump::Pixel(pump) => (
             proto::CaptureSourceKind::CaptureSourcePixel,
+            proto::VideoSourceType::VideoSourceNative,
             pump.source().resolution(),
             None,
             pump.publish_options(),
@@ -155,6 +156,7 @@ async fn create_capture_source(
         ),
         CapturePump::Encoded(pump) => (
             proto::CaptureSourceKind::CaptureSourceEncoded,
+            proto::VideoSourceType::VideoSourceEncoded,
             pump.source().resolution(),
             Some(pump.source().codec()),
             pump.publish_options(),
@@ -166,11 +168,8 @@ async fn create_capture_source(
     // The RTC source is a regular client-owned handle, used with the
     // existing CreateVideoTrack request.
     let source_handle_id = server.next_id();
-    let video_source = FfiVideoSource {
-        handle_id: source_handle_id,
-        source_type: proto::VideoSourceType::VideoSourceNative,
-        source: rtc_source,
-    };
+    let video_source =
+        FfiVideoSource { handle_id: source_handle_id, source_type, source: rtc_source };
     let video_source_info = proto::VideoSourceInfo::from(&video_source);
     server.store_handle(source_handle_id, video_source);
 
@@ -198,7 +197,7 @@ async fn create_capture_source(
         },
     );
 
-    Ok(proto::OwnedCaptureSource { handle: proto::FfiOwnedHandle { id: capture_handle_id }, info })
+    proto::OwnedCaptureSource { handle: proto::FfiOwnedHandle { id: capture_handle_id }, info }
 }
 
 /// Maps the pump-derived publish options into the proto options the client
@@ -236,11 +235,11 @@ pub fn on_start_capture(
     let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
 
     let mut state = ffi_capture.state.lock();
-    let pump = match std::mem::replace(&mut *state, CaptureState::Running) {
+    let pump = match std::mem::replace(&mut *state, CaptureState::Finished) {
         CaptureState::Idle(pump) => pump,
         other => {
             let error = match &other {
-                CaptureState::Running => "capture is already started",
+                CaptureState::Running(_) => "capture is already started",
                 _ => "capture has already finished",
             };
             *state = other;
@@ -251,31 +250,17 @@ pub fn on_start_capture(
     let running = match pump.spawn() {
         Ok(running) => running,
         Err(err) => {
-            *state = CaptureState::Finished;
             return Ok(proto::StartCaptureResponse {
                 error: Some(format!("failed to start capture: {err}")),
             });
         }
     };
-    drop(state);
-    drop(ffi_capture);
-
-    // The watcher owns the running pump and delivers the terminal event
-    // exactly once, whether the capture is stopped, ends, or fails.
-    server.async_runtime.spawn(async move {
-        let result = running.join().await;
-        if let Ok(ffi_capture) = server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
-            *ffi_capture.state.lock() = CaptureState::Finished;
-        }
-        let _ = server.send_event(proto::ffi_event::Message::CaptureSourceEvent(
-            proto::CaptureSourceEvent { capture_handle, message: Some(result.into()) },
-        ));
-    });
+    *state = CaptureState::Running(running);
 
     Ok(proto::StartCaptureResponse { error: None })
 }
 
-impl From<Result<PumpStats, PumpError>> for proto::capture_source_event::Message {
+impl From<Result<PumpStats, PumpError>> for proto::join_capture_callback::Message {
     fn from(result: Result<PumpStats, PumpError>) -> Self {
         match result {
             Ok(stats) => {
@@ -293,6 +278,7 @@ impl From<Result<PumpStats, PumpError>> for proto::capture_source_event::Message
                     PumpError::Source(_) => proto::CaptureErrorKind::Source,
                     PumpError::CaptureFailed => proto::CaptureErrorKind::Rtc,
                     PumpError::Panicked(_) => proto::CaptureErrorKind::Panicked,
+                    _ => proto::CaptureErrorKind::Source,
                 };
                 Self::Error(proto::CaptureError { error: err.to_string(), kind: kind.into() })
             }
@@ -309,19 +295,225 @@ pub fn on_stop_capture(
     Ok(proto::StopCaptureResponse { error: None })
 }
 
-#[cfg(all(test, feature = "capture-pattern"))]
+pub fn on_join_capture(
+    server: &'static FfiServer,
+    request: proto::JoinCaptureRequest,
+) -> FfiResult<proto::JoinCaptureResponse> {
+    let capture_handle = request.capture_handle;
+    let finished = {
+        let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(capture_handle)?;
+        let CaptureState::Running(running) = &*ffi_capture.state.lock() else {
+            return Err(FfiError::InvalidRequest("capture is not running".into()));
+        };
+        running.finished()
+    };
+
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        finished.await;
+        let running = match server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
+            Ok(ffi_capture) => {
+                match std::mem::replace(&mut *ffi_capture.state.lock(), CaptureState::Finished) {
+                    CaptureState::Running(running) => Ok(running),
+                    _ => Err("capture was already joined by another request"),
+                }
+            }
+            Err(_) => Err("capture source was disposed"),
+        };
+        let message = match running {
+            Ok(running) => running.join().await.into(),
+            Err(error) => proto::join_capture_callback::Message::Error(proto::CaptureError {
+                error: error.into(),
+                kind: proto::CaptureErrorKind::Source.into(),
+            }),
+        };
+        let _ =
+            server.send_event(proto::ffi_event::Message::JoinCapture(proto::JoinCaptureCallback {
+                async_id,
+                message: Some(message),
+            }));
+    });
+
+    Ok(proto::JoinCaptureResponse { async_id })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FFI_SERVER;
-    use std::time::Duration;
+    use crate::{server::FfiConfig, FFI_SERVER};
+    use livekit::webrtc::video_frame::BoxVideoFrame;
+    use livekit_capture::{
+        encoded::{EncodedVideoCodec, OwnedEncodedAccessUnit},
+        error::SourceError,
+        primitive::VideoResolution,
+    };
+    use std::{
+        sync::{mpsc, Arc},
+        time::Duration,
+    };
 
     fn server() -> &'static FfiServer {
         &FFI_SERVER
     }
 
-    #[serial_test::parallel]
+    struct DropObservedSource {
+        entered: Option<mpsc::Sender<()>>,
+        dropped: mpsc::Sender<()>,
+    }
+
+    impl Drop for DropObservedSource {
+        fn drop(&mut self) {
+            let _ = self.dropped.send(());
+        }
+    }
+
+    impl PixelVideoSource for DropObservedSource {
+        fn resolution(&self) -> VideoResolution {
+            VideoResolution { width: 64, height: 36 }
+        }
+
+        fn next_frame(&mut self, stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            while !stop.is_stopped() {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(None)
+        }
+    }
+
+    struct IdleEncodedSource;
+
+    impl EncodedVideoSource for IdleEncodedSource {
+        fn resolution(&self) -> VideoResolution {
+            VideoResolution { width: 64, height: 36 }
+        }
+
+        fn codec(&self) -> EncodedVideoCodec {
+            EncodedVideoCodec::H264
+        }
+
+        fn next_access_unit(
+            &mut self,
+            _stop: &PumpStop,
+        ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+            Ok(None)
+        }
+    }
+
+    #[serial_test::serial]
+    #[test]
+    fn capture_video_source_type_matches_pump_kind() {
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(|_| {}),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
+        let (pixel, encoded) = server().async_runtime.block_on(async {
+            let (entered, _) = mpsc::channel();
+            let (dropped, _) = mpsc::channel();
+            let pixel: Box<dyn PixelVideoSource> =
+                Box::new(DropObservedSource { entered: Some(entered), dropped });
+            let encoded: Box<dyn EncodedVideoSource> = Box::new(IdleEncodedSource);
+            (
+                register_capture_source(server(), CapturePump::Pixel(PixelVideoPump::new(pixel))),
+                register_capture_source(
+                    server(),
+                    CapturePump::Encoded(EncodedVideoPump::new(encoded)),
+                ),
+            )
+        });
+
+        assert_eq!(pixel.info.kind(), proto::CaptureSourceKind::CaptureSourcePixel);
+        assert_eq!(
+            pixel.info.video_source.info.r#type(),
+            proto::VideoSourceType::VideoSourceNative
+        );
+        assert_eq!(encoded.info.kind(), proto::CaptureSourceKind::CaptureSourceEncoded);
+        assert_eq!(
+            encoded.info.video_source.info.r#type(),
+            proto::VideoSourceType::VideoSourceEncoded
+        );
+
+        // The stored handles must accept only the requests that match their
+        // source type.
+        let pixel_video =
+            server().retrieve_handle::<FfiVideoSource>(pixel.info.video_source.handle.id).unwrap();
+        assert!(pixel_video.take_encoded_feedback().is_err());
+        let encoded_video = server()
+            .retrieve_handle::<FfiVideoSource>(encoded.info.video_source.handle.id)
+            .unwrap();
+        assert!(encoded_video.take_encoded_feedback().is_ok());
+        drop((pixel_video, encoded_video));
+
+        for source in [pixel, encoded] {
+            server().drop_handle(source.handle.id);
+            server().drop_handle(source.info.video_source.handle.id);
+        }
+        *server().config.lock() = None;
+    }
+
+    #[serial_test::serial]
+    #[test]
+    fn server_dispose_waits_for_running_capture_cleanup() {
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(|_| {}),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (dropped_tx, dropped_rx) = mpsc::channel();
+        let pump = server().async_runtime.block_on(async {
+            let source: Box<dyn PixelVideoSource> =
+                Box::new(DropObservedSource { entered: Some(entered_tx), dropped: dropped_tx });
+            PixelVideoPump::new(source)
+        });
+        let capture_handle = server().next_id();
+        server().store_handle(
+            capture_handle,
+            FfiCaptureSource {
+                handle_id: capture_handle,
+                stop: pump.stop_handle(),
+                state: Mutex::new(CaptureState::Idle(CapturePump::Pixel(pump))),
+            },
+        );
+
+        let response =
+            on_start_capture(server(), proto::StartCaptureRequest { capture_handle }).unwrap();
+        assert_eq!(response.error, None);
+        entered_rx.recv_timeout(Duration::from_secs(5)).expect("capture pump did not start");
+        on_join_capture(
+            server(),
+            proto::JoinCaptureRequest { capture_handle, request_async_id: None },
+        )
+        .unwrap();
+
+        server().async_runtime.block_on(server().dispose());
+        dropped_rx
+            .try_recv()
+            .expect("FFI server disposal returned before the capture source was cleaned up");
+    }
+
+    #[cfg(feature = "capture-pattern")]
+    #[serial_test::serial]
     #[test]
     fn pattern_capture_lifecycle() {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        server().setup(FfiConfig {
+            callback_fn: Arc::new(move |event| {
+                let _ = event_tx.send(event);
+            }),
+            capture_logs: false,
+            sdk: "livekit-ffi-test".to_owned(),
+            sdk_version: "test".to_owned(),
+        });
+
         let request = proto::NewCaptureSourceRequest {
             config: Some(proto::new_capture_source_request::Config::Pattern(
                 proto::PatternVideoSourceConfig {
@@ -341,7 +533,7 @@ mod tests {
         let capture_handle = source.handle.id;
 
         // Stopping before starting is allowed; the pump then exits
-        // immediately once started, and the watcher marks it finished.
+        // immediately once started, and join reports its result.
         let response =
             on_stop_capture(server(), proto::StopCaptureRequest { capture_handle }).unwrap();
         assert_eq!(response.error, None);
@@ -354,20 +546,28 @@ mod tests {
             on_start_capture(server(), proto::StartCaptureRequest { capture_handle }).unwrap();
         assert!(response.error.is_some(), "double start must be rejected");
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            {
-                let ffi_capture =
-                    server().retrieve_handle::<FfiCaptureSource>(capture_handle).unwrap();
-                if matches!(*ffi_capture.state.lock(), CaptureState::Finished) {
-                    break;
-                }
-            }
-            assert!(std::time::Instant::now() < deadline, "capture did not finish");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let response = on_join_capture(
+            server(),
+            proto::JoinCaptureRequest { capture_handle, request_async_id: Some(42) },
+        )
+        .unwrap();
+        assert_eq!(response.async_id, 42);
+
+        let event =
+            event_rx.recv_timeout(Duration::from_secs(5)).expect("capture join did not complete");
+        let callback = match event.message {
+            Some(proto::ffi_event::Message::JoinCapture(callback)) => callback,
+            other => panic!("expected join capture callback, got {other:?}"),
+        };
+        assert_eq!(callback.async_id, 42);
+        let finished = match callback.message {
+            Some(proto::join_capture_callback::Message::Finished(finished)) => finished,
+            other => panic!("expected finished capture result, got {other:?}"),
+        };
+        assert_eq!(finished.exit(), proto::CaptureExit::Stopped);
 
         server().drop_handle(capture_handle);
         server().drop_handle(source.info.video_source.handle.id);
+        *server().config.lock() = None;
     }
 }
