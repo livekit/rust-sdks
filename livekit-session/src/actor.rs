@@ -199,7 +199,7 @@ pub(crate) struct SessionActor {
     tracker: AgentTracker,
     aggregator: TranscriptAggregator,
     shared: Arc<Shared>,
-    source: Arc<SessionTokenSource>,
+    token_source: Arc<SessionTokenSource>,
 }
 
 impl SessionActor {
@@ -208,7 +208,7 @@ impl SessionActor {
         connection: Connection,
         commands: mpsc::Receiver<Command>,
         shared: Arc<Shared>,
-        source: Arc<SessionTokenSource>,
+        token_source: Arc<SessionTokenSource>,
     ) -> Self {
         let state = match connection.room.connection_state() {
             ConnectionState::Reconnecting => SessionConnectionState::Reconnecting,
@@ -227,7 +227,7 @@ impl SessionActor {
             tracker: AgentTracker::default(),
             aggregator: TranscriptAggregator::default(),
             shared,
-            source,
+            token_source,
         }
     }
 
@@ -276,7 +276,7 @@ impl SessionActor {
         // while the commands are still open, so that a `start()` prompted by
         // a disconnect keeps failing with `AlreadyStarted` until the cache is
         // clear.
-        self.source.invalidate().await;
+        self.token_source.invalidate().await;
         // Closed before the final state, so that a `start()` prompted by it
         // already finds this actor gone.
         self.commands.close();

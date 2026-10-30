@@ -134,8 +134,8 @@ pub enum SessionEvent {
 /// use livekit_token_source::development_token_server;
 ///
 /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-/// let source = development_token_server("my-token-server-id");
-/// let session = Session::with_agent(source, "my-agent", SessionOptions::default());
+/// let token_source = development_token_server("my-token-server-id");
+/// let session = Session::with_agent(token_source, "my-agent", SessionOptions::default());
 ///
 /// session.start().await?;
 /// session.state().wait_for(|state| state.agent.is_connected()).await?;
@@ -149,7 +149,7 @@ pub struct Session {
 }
 
 pub(crate) struct Inner {
-    source: Arc<SessionTokenSource>,
+    token_source: Arc<SessionTokenSource>,
     options: SessionOptions,
     pub(crate) shared: Arc<Shared>,
     pub(crate) lifecycle: Mutex<Lifecycle>,
@@ -187,26 +187,26 @@ impl Lifecycle {
 }
 
 impl Session {
-    /// Creates a session that gets its credentials from a fixed `source`, such
-    /// as a [`literal`](livekit_token_source::literal) one. Nothing happens
-    /// until [`start`](Self::start).
+    /// Creates a session that gets its credentials from a fixed
+    /// `token_source`, such as a [`literal`](livekit_token_source::literal)
+    /// one. Nothing happens until [`start`](Self::start).
     pub fn new(
-        source: impl TokenSourceFixed + Send + Sync + 'static,
-        options: SessionOptions,
+        token_source: impl TokenSourceFixed + Send + Sync + 'static,
+        session_options: SessionOptions,
     ) -> Self {
-        Self::from_source(SessionTokenSource::Fixed(Box::new(source)), options)
+        Self::from_source(SessionTokenSource::Fixed(Box::new(token_source)), session_options)
     }
 
-    /// Creates a session that fetches its credentials from `source` with
-    /// `fetch_options`. Nothing happens until [`start`](Self::start).
+    /// Creates a session that fetches its credentials from `token_source`
+    /// with `fetch_options`. Nothing happens until [`start`](Self::start).
     pub fn with_fetch_options(
-        source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        token_source: impl TokenSourceConfigurable + Send + Sync + 'static,
         fetch_options: TokenSourceFetchOptions,
-        options: SessionOptions,
+        session_options: SessionOptions,
     ) -> Self {
         Self::from_source(
-            SessionTokenSource::Configurable(Box::new(source), fetch_options),
-            options,
+            SessionTokenSource::Configurable(Box::new(token_source), fetch_options),
+            session_options,
         )
     }
 
@@ -216,19 +216,19 @@ impl Session {
     /// [`TokenSourceFetchOptions::with_agent_name`]; use that to set further
     /// options, such as agent metadata.
     pub fn with_agent(
-        source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        token_source: impl TokenSourceConfigurable + Send + Sync + 'static,
         agent_name: &str,
-        options: SessionOptions,
+        session_options: SessionOptions,
     ) -> Self {
         let fetch_options = TokenSourceFetchOptions::new().with_agent_name(agent_name);
-        Self::with_fetch_options(source, fetch_options, options)
+        Self::with_fetch_options(token_source, fetch_options, session_options)
     }
 
-    fn from_source(source: SessionTokenSource, options: SessionOptions) -> Self {
+    fn from_source(token_source: SessionTokenSource, session_options: SessionOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
-                source: Arc::new(source),
-                options,
+                token_source: Arc::new(token_source),
+                options: session_options,
                 shared: Arc::new(Shared::new()),
                 lifecycle: Mutex::new(Lifecycle::Idle),
             }),
@@ -285,7 +285,7 @@ impl Session {
             connection,
             commands_rx,
             self.inner.shared.clone(),
-            self.inner.source.clone(),
+            self.inner.token_source.clone(),
         );
 
         {
@@ -315,13 +315,13 @@ impl Session {
     /// that will not rejoin it.
     async fn fail(&self, err: SessionStartError) -> SessionStartError {
         if matches!(err, SessionStartError::Connect(_) | SessionStartError::Cancelled) {
-            self.inner.source.invalidate().await;
+            self.inner.token_source.invalidate().await;
         }
         err
     }
 
     async fn connect(&self) -> Result<Connection, SessionStartError> {
-        let credentials = self.inner.source.fetch().await?;
+        let credentials = self.inner.token_source.fetch().await?;
         let (room, events) = Room::connect(
             &credentials.server_url,
             &credentials.participant_token,

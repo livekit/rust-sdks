@@ -9,8 +9,8 @@ feed. It follows the same model as the Session in the JavaScript, Swift, Android
 use livekit_session::{Session, SessionOptions};
 use livekit_token_source::development_token_server;
 
-let source = development_token_server("<token server id>");
-let session = Session::with_agent(source, "my-agent", SessionOptions::default());
+let token_source = development_token_server("<token server id>");
+let session = Session::with_agent(token_source, "my-agent", SessionOptions::default());
 
 session.start().await?;
 session.state().wait_for(|state| state.agent.is_connected()).await?;
