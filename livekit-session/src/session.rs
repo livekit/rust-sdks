@@ -60,6 +60,7 @@ impl SessionTokenSource {
 
 /// Options for a [`Session`].
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct SessionOptions {
     /// How long after connecting an agent gets to become conversational
     /// before the agent state reports

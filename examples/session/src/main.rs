@@ -67,10 +67,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let voice = env::args().any(|arg| arg == "--voice");
     let audio = voice.then(PlatformAudio::new).transpose()?;
 
-    let session = create_session(SessionOptions {
-        agent_connect_timeout: Duration::from_secs(15),
-        room_options: Default::default(),
-    })?;
+    let mut options = SessionOptions::default();
+    options.agent_connect_timeout = Duration::from_secs(15);
+    let session = create_session(options)?;
     let mut events = session.subscribe();
     session.start().await?;
     if let Some(audio) = &audio {
