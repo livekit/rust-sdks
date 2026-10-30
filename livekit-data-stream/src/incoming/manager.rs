@@ -40,6 +40,20 @@ use super::{
 /// Max data stream payload size, defaults to 5gb
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
+/// Max number of incoming streams a single participant may have open at once, defaults to 500.
+/// Headers for new streams beyond this are dropped, so a participant can't exhaust the receiver's
+/// memory by opening streams it never closes.
+const DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT: usize = 500;
+
+/// Options for creating a [`Manager`]. Unset fields fall back to the defaults.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ManagerOptions {
+    /// Max number of bytes a single incoming stream may contain, defaults to 5gb.
+    pub max_payload_byte_length: Option<usize>,
+    /// Max number of incoming streams a single participant may have open at once, defaults to 500.
+    pub max_open_streams_per_participant: Option<usize>,
+}
+
 struct Descriptor {
     /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it too, which ends
     /// the stream's future in the manager's `closes`.
@@ -201,6 +215,9 @@ pub struct Manager {
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
+
+    /// Max number of streams a single participant may have open at once
+    max_open_streams_per_participant: usize,
 }
 
 struct ManagerInner {
@@ -209,9 +226,7 @@ struct ManagerInner {
 }
 
 impl Manager {
-    pub fn new(
-        max_payload_byte_length: Option<usize>,
-    ) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
         // Unbounded: inbound wire packets must never be dropped (a dropped chunk is an
         // unrecoverable `MissedChunk`) and must not head-of-line-block the engine event loop.
         let (input_tx, input_rx) = mpsc::unbounded_channel();
@@ -221,8 +236,12 @@ impl Manager {
             input_rx,
             closes: FuturesUnordered::new(),
 
-            max_payload_byte_length: max_payload_byte_length
+            max_payload_byte_length: options
+                .max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
+            max_open_streams_per_participant: options
+                .max_open_streams_per_participant
+                .unwrap_or(DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT),
         };
         (manager, ManagerInput::new(input_tx), output_rx)
     }
@@ -314,6 +333,22 @@ impl Manager {
 
         if self.inner.open_streams.contains_key(&id) {
             log::error!("Stream '{}' already open", id);
+            return;
+        }
+
+        let open_stream_count = self
+            .inner
+            .open_streams
+            .values()
+            .filter(|descriptor| descriptor.sender_identity == participant_identity)
+            .count();
+        if open_stream_count >= self.max_open_streams_per_participant {
+            log::error!(
+                "Participant '{}' already has {} streams open, dropping stream '{}'",
+                participant_identity,
+                self.max_open_streams_per_participant,
+                id
+            );
             return;
         }
 
@@ -798,7 +833,17 @@ mod tests {
         }
 
         fn new_with_max_payload_length(max_payload_byte_length: Option<usize>) -> Self {
-            let (manager, input, output_rx) = Manager::new(max_payload_byte_length);
+            let (manager, input, output_rx) =
+                Manager::new(ManagerOptions { max_payload_byte_length, ..Default::default() });
+            tokio::spawn(manager.run());
+            Self { input, output_rx }
+        }
+
+        fn new_with_max_open_streams_per_participant(max_open_streams: Option<usize>) -> Self {
+            let (manager, input, output_rx) = Manager::new(ManagerOptions {
+                max_open_streams_per_participant: max_open_streams,
+                ..Default::default()
+            });
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -1863,7 +1908,7 @@ mod tests {
         #[tokio::test]
         async fn closer_after_shutdown_does_nothing() {
             // A manager whose run loop the test owns, with one open text stream.
-            let (manager, input, mut output_rx) = Manager::new(None);
+            let (manager, input, mut output_rx) = Manager::new(ManagerOptions::default());
             let run = tokio::spawn(manager.run());
             let header = text_header("s1", Some(10), HashMap::new(), None, CompressionType::None);
             let packet = Packet::Header { header, encryption_type: EncryptionType::None };
@@ -2055,6 +2100,62 @@ mod tests {
             // The inline stream completes during header handling; no descriptor is registered.
             assert_eq!(h.open_stream_count().await, 0);
             assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
+
+        #[tokio::test]
+        async fn drops_headers_beyond_per_participant_limit() {
+            let mut h = Harness::new();
+            let text_header = |id: &str| Packet::Header {
+                header: text_header(id, None, HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            };
+
+            // Fill the sender's quota with streams that are never closed. Keep the readers alive
+            // so the streams aren't closed by reader drop.
+            let mut readers = Vec::new();
+            for i in 0..DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT {
+                h.send_packet(text_header(&format!("s{i}")));
+                readers.push(h.next_opened().await.0);
+            }
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT);
+
+            // One more from the same sender is dropped.
+            h.send_packet(text_header("over-limit"));
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT);
+
+            // The limit is per participant, so another sender can still open a stream.
+            h.send_packet_from(text_header("other"), "other");
+            let (_other_reader, identity) = h.next_opened().await;
+            assert_eq!(identity.as_str(), "other");
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT + 1);
+
+            // Once one of the sender's streams closes, it can open a new one.
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s0"),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(text_header("after-close"));
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(text_info(&reader).id, "after-close");
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT + 1);
+            drop(readers);
+        }
+
+        #[tokio::test]
+        async fn per_participant_limit_is_configurable() {
+            let mut h = Harness::new_with_max_open_streams_per_participant(Some(2));
+            let text_header = |id: &str| Packet::Header {
+                header: text_header(id, None, HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            };
+
+            h.send_packet(text_header("s1"));
+            let (reader1, _) = h.next_opened().await;
+            h.send_packet(text_header("s2"));
+            let (reader2, _) = h.next_opened().await;
+            h.send_packet(text_header("s3"));
+            assert_eq!(h.open_stream_count().await, 2);
+            drop((reader1, reader2));
         }
     }
 

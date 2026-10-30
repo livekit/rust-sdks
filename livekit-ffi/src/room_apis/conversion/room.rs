@@ -311,6 +311,10 @@ impl From<proto::RoomOptions> for RoomOptions {
                 data_stream_options = data_stream_options
                     .with_max_payload_byte_length(max_payload_byte_length as usize);
             }
+            if let Some(max_open_streams) = data_stream.max_open_streams_per_participant {
+                data_stream_options = data_stream_options
+                    .with_max_open_streams_per_participant(max_open_streams as usize);
+            }
             options.data_stream = data_stream_options;
         }
         options
