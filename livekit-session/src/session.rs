@@ -25,7 +25,7 @@ use livekit_token_source::{
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::actor::{lock, Command, Connection, SessionActor, Shared};
+use crate::actor::{lock, Connection, SessionActor, Shared};
 use crate::agent::{self, AgentState};
 use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
 use crate::error::{MessageSendError, SessionStartError};
@@ -163,13 +163,16 @@ pub(crate) enum Lifecycle {
 
 pub(crate) struct Running {
     room: Arc<Room>,
-    commands: mpsc::Sender<Command>,
+    /// Dropped to stop the actor.
+    stop: mpsc::Sender<()>,
     task: JoinHandle<()>,
 }
 
 impl Running {
-    /// Waits for the actor to stop, without asking it to.
+    /// Stops the actor, unless it already stopped on its own, and waits for
+    /// it.
     async fn join(self) {
+        drop(self.stop);
         if let Err(err) = self.task.await {
             log::error!("session actor failed: {err}");
         }
@@ -180,7 +183,7 @@ impl Lifecycle {
     /// The running room, unless its actor has already stopped on its own.
     fn room(&self) -> Option<&Arc<Room>> {
         match self {
-            Self::Running(running) if !running.commands.is_closed() => Some(&running.room),
+            Self::Running(running) if !running.stop.is_closed() => Some(&running.room),
             _ => None,
         }
     }
@@ -279,11 +282,11 @@ impl Session {
             Err(err) => return Err(self.fail(err).await),
         };
         let room = connection.room.clone();
-        let (commands_tx, commands_rx) = mpsc::channel(1);
+        let (stop_tx, stop_rx) = mpsc::channel(1);
         let mut actor = SessionActor::new(
             generation,
             connection,
-            commands_rx,
+            stop_rx,
             self.inner.shared.clone(),
             self.inner.token_source.clone(),
         );
@@ -293,7 +296,7 @@ impl Session {
             if matches!(*lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation) {
                 actor.refresh();
                 let task = tokio::spawn(actor.run());
-                *lifecycle = Lifecycle::Running(Running { room, commands: commands_tx, task });
+                *lifecycle = Lifecycle::Running(Running { room, stop: stop_tx, task });
                 guard.armed = false;
                 return Ok(());
             }
@@ -358,10 +361,6 @@ impl Session {
                 Lifecycle::Running(running) => running,
             }
         };
-
-        // Fails if the actor already stopped on its own, which still leaves
-        // its task to join.
-        let _ = running.commands.send(Command::End).await;
         running.join().await;
     }
 

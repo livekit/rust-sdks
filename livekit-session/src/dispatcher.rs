@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use tokio::sync::mpsc;
+
+use crate::actor::lock;
 
 /// Fans values out to any number of subscribers, each on its own unbounded
 /// channel. A subscriber whose receiver is dropped is removed on the next
@@ -34,20 +36,17 @@ impl<T> Default for Dispatcher<T> {
 impl<T: Clone> Dispatcher<T> {
     pub(crate) fn register(&self) -> mpsc::UnboundedReceiver<T> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.senders.lock().unwrap_or_else(PoisonError::into_inner).push(tx);
+        lock(&self.senders).push(tx);
         rx
     }
 
     pub(crate) fn dispatch(&self, value: &T) {
-        self.senders
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|sender| sender.send(value.clone()).is_ok());
+        lock(&self.senders).retain(|sender| sender.send(value.clone()).is_ok());
     }
 
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.senders.lock().unwrap_or_else(PoisonError::into_inner).len()
+        lock(&self.senders).len()
     }
 }
 

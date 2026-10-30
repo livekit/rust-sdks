@@ -7,8 +7,27 @@ use livekit_session::{
     Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionState,
 };
 
-use livekit_token_source::{development_token_server};
+use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
+
+/// Creates a session with credentials from a pre-generated token if one is
+/// given, and from a development token server otherwise.
+fn create_session(options: SessionOptions) -> Result<Session, Box<dyn Error>> {
+    if let (Ok(url), Ok(token)) = (env::var("LIVEKIT_URL"), env::var("LIVEKIT_TOKEN")) {
+        return Ok(Session::new(literal(url, token), options));
+    }
+    let token_server_id = env::var("LIVEKIT_TOKEN_SERVER_ID")
+        .map_err(|_| "set LIVEKIT_TOKEN_SERVER_ID, or LIVEKIT_URL and LIVEKIT_TOKEN")?;
+    let mut fetch_options = TokenSourceFetchOptions::new();
+    if let Ok(agent_name) = env::var("LIVEKIT_AGENT_NAME") {
+        fetch_options = fetch_options.with_agent_name(agent_name);
+    }
+    Ok(Session::with_fetch_options(
+        development_token_server(token_server_id),
+        fetch_options,
+        options,
+    ))
+}
 
 /// Prints a message once it is complete. The user's own input is skipped, as
 /// it is already on screen.
@@ -45,21 +64,15 @@ async fn publish_microphone(
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
-    let token_server_id = "your token server id".to_string();
-    let agent_name = "your agent name".to_string();
-
     // Platform audio captures the microphone and plays the agent's audio, with
     // echo cancellation between the two. It has to exist before the room
     // connects, and stay alive for as long as the session runs.
     let voice = env::args().any(|arg| arg == "--voice");
     let audio = voice.then(PlatformAudio::new).transpose()?;
 
-    let token_source = development_token_server(token_server_id);
-
     let session_options =
         SessionOptions::default().with_agent_connect_timeout(Duration::from_secs(15));
-
-    let session = Session::with_agent(token_source, &agent_name, session_options);
+    let session = create_session(session_options)?;
     let mut events = session.subscribe();
     session.start().await?;
     if let Some(audio) = &audio {

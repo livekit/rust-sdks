@@ -24,8 +24,8 @@ use crate::session::SessionConnectionState;
 ///
 /// Most code needs only the predicates: [`AgentState::is_connected`] to show
 /// that the agent is there, [`AgentState::is_pending`] to show that it is on
-/// its way, and [`AgentState::is_finished`] to show that the interaction is
-/// over.
+/// its way, and [`AgentState::is_finished`] to show that it is gone or never
+/// came.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AgentState {
@@ -68,7 +68,11 @@ impl AgentState {
         matches!(self, Self::Connecting | Self::Initializing | Self::Idle)
     }
 
-    /// Whether the interaction is over, expectedly or not.
+    /// Whether the agent is gone or never came: the session is disconnected,
+    /// or the agent [`Failed`](Self::Failed).
+    ///
+    /// A failure can still recover, so this becomes `false` again if an agent
+    /// joins later. Call [`Session::end`](crate::Session::end) to give up.
     pub fn is_finished(self) -> bool {
         matches!(self, Self::Disconnected | Self::Failed(_))
     }

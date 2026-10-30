@@ -119,7 +119,7 @@ impl Shared {
         lock(&self.messages).messages().to_vec()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "__lk-e2e-test"))]
     pub(crate) fn subscriber_count(&self) -> usize {
         self.events.len()
     }
@@ -129,12 +129,6 @@ impl Shared {
 /// consistent between statements, so a panicking holder cannot corrupt it.
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// A request from the [`Session`](crate::Session) to its actor.
-pub(crate) enum Command {
-    /// Close the room and stop.
-    End,
 }
 
 /// A connected room, handed to the actor that will run it.
@@ -164,7 +158,7 @@ struct Transcript {
 }
 
 enum Event {
-    Command(Option<Command>),
+    Stop,
     Room(RoomEvent),
     Reader(ReaderEvent),
     AgentDeadline,
@@ -172,10 +166,9 @@ enum Event {
 
 /// How the actor stopped.
 enum Exit {
-    /// [`Session::end`](crate::Session::end) asked it to.
-    Ended,
-    /// Every [`Session`](crate::Session) handle was dropped.
-    Dropped,
+    /// [`Session::end`](crate::Session::end) was called, or every
+    /// [`Session`](crate::Session) handle was dropped.
+    Stopped,
     /// The room disconnected.
     Disconnected(DisconnectReason),
 }
@@ -184,13 +177,15 @@ enum Exit {
 /// reads the session's text streams, and closes the room when the session
 /// ends or is dropped.
 ///
-/// Holds no [`Session`](crate::Session) and no command sender, so dropping the
-/// last session handle closes `commands` and stops the actor.
+/// Holds no [`Session`](crate::Session) and no `stop` sender, so dropping the
+/// last session handle closes `stop` and stops the actor.
 pub(crate) struct SessionActor {
     generation: u64,
     room: Arc<Room>,
     room_events: mpsc::UnboundedReceiver<RoomEvent>,
-    commands: mpsc::Receiver<Command>,
+    /// Never carries a value: the session stops the actor by dropping the
+    /// sender.
+    stop: mpsc::Receiver<()>,
     /// The session's text streams, read here rather than in tasks of their
     /// own, so that the transcript aggregator has a single writer.
     readers: SelectAll<BoxStream<'static, ReaderEvent>>,
@@ -206,7 +201,7 @@ impl SessionActor {
     pub(crate) fn new(
         generation: u64,
         connection: Connection,
-        commands: mpsc::Receiver<Command>,
+        stop: mpsc::Receiver<()>,
         shared: Arc<Shared>,
         token_source: Arc<SessionTokenSource>,
     ) -> Self {
@@ -220,7 +215,7 @@ impl SessionActor {
             generation,
             room: connection.room,
             room_events: connection.events,
-            commands,
+            stop,
             readers: SelectAll::new(),
             agent_deadline: Some(Box::pin(tokio::time::sleep(connection.agent_timeout))),
             connection: state,
@@ -254,14 +249,13 @@ impl SessionActor {
                 }
             };
             let event = tokio::select! {
-                command = self.commands.recv() => Event::Command(command),
+                _ = self.stop.recv() => Event::Stop,
                 Some(event) = self.room_events.recv() => Event::Room(event),
                 Some(event) = self.readers.next() => Event::Reader(event),
                 () = deadline => Event::AgentDeadline,
             };
             match event {
-                Event::Command(Some(Command::End)) => break Exit::Ended,
-                Event::Command(None) => break Exit::Dropped,
+                Event::Stop => break Exit::Stopped,
                 Event::Room(RoomEvent::Disconnected { reason }) => {
                     break Exit::Disconnected(reason)
                 }
@@ -273,15 +267,15 @@ impl SessionActor {
 
         // Agents do not rejoin a room that already existed, so the next start
         // needs a fresh token rather than the cached one for this room. Done
-        // while the commands are still open, so that a `start()` prompted by
-        // a disconnect keeps failing with `AlreadyStarted` until the cache is
+        // while `stop` is still open, so that a `start()` prompted by a
+        // disconnect keeps failing with `AlreadyStarted` until the cache is
         // clear.
         self.token_source.invalidate().await;
         // Closed before the final state, so that a `start()` prompted by it
         // already finds this actor gone.
-        self.commands.close();
+        self.stop.close();
         match exit {
-            Exit::Ended | Exit::Dropped => {
+            Exit::Stopped => {
                 if let Err(err) = self.room.close().await {
                     log::warn!("failed to close the session room: {err}");
                 }
