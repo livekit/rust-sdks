@@ -113,7 +113,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Fails only if the room already disconnected on its own.
-    let _ = session.end().await;
+    session.end().await;
     Ok(())
 }

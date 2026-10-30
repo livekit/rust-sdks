@@ -31,7 +31,7 @@ mod session;
 mod e2e_tests;
 
 pub use agent::{AgentFailure, AgentState};
-pub use error::{MessageSendError, SessionEndError, SessionStartError};
+pub use error::{MessageSendError, SessionStartError};
 pub use messages::{Message, MessageOrigin};
 pub use session::{
     Session, SessionConnectionState, SessionEvent, SessionOptions, SessionSnapshot,

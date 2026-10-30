@@ -37,7 +37,8 @@ already existed, so the next `start` needs fresh credentials rather than cached 
 
 `start` fetches credentials and connects the room. It resolves once the room is connected, not
 once the agent is. Calling it again while the session is connecting or connected fails with
-`AlreadyStarted`. `end` closes the room, or cancels a `start` still in progress.
+`AlreadyStarted`. `end` closes the room, or cancels a `start` still in progress, and does nothing
+when there is nothing to end.
 
 Dropping the last `Session` handle also closes the room. `room()` returns the connected room for
 anything the session does not do itself, such as publishing a microphone.

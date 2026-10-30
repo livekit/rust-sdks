@@ -197,10 +197,13 @@ async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
     set_agent_state(&agent, "speaking").await?;
     wait_for_agent(&session, AgentState::Speaking).await?;
 
-    session.end().await?;
+    session.end().await;
     assert_eq!(session.snapshot(), SessionSnapshot::default());
     assert!(session.room().is_none());
-    assert!(matches!(session.end().await, Err(SessionEndError::NotStarted)));
+    // Ending again is a no-op.
+    session.end().await;
+    assert_eq!(session.snapshot(), SessionSnapshot::default());
+    assert!(is_idle(&session));
     Ok(())
 }
 
@@ -214,7 +217,7 @@ async fn agent_leaving_is_reported_as_left() -> Result<()> {
 
     agent.close().await?;
     wait_for_agent(&session, AgentState::Failed(AgentFailure::Left)).await?;
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -244,7 +247,7 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
         !history.iter().any(|s| s.agent_state == AgentState::Failed(AgentFailure::Left)),
         "a full reconnect was reported as the agent leaving: {history:?}"
     );
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -259,7 +262,7 @@ async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()
 
     let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     wait_for_agent(&session, AgentState::Listening).await?;
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -273,7 +276,7 @@ async fn timeout_is_armed_without_dispatch() -> Result<()> {
     let session = Session::new(env.user_source(false), options);
     session.start().await?;
     wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -290,7 +293,7 @@ async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
 
     set_agent_state(&agent, "listening").await?;
     wait_for_agent(&session, AgentState::Listening).await?;
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -380,7 +383,7 @@ async fn messages_merge_chat_and_transcripts() -> Result<()> {
     );
 
     // A failed send adds nothing.
-    session.end().await?;
+    session.end().await;
     assert!(matches!(session.send_text("too late").await, Err(MessageSendError::NotConnected)));
     assert_eq!(session.messages().len(), 3);
     Ok(())
@@ -412,7 +415,7 @@ async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
     })
     .await??;
     assert_eq!(text, "for the app");
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -433,7 +436,7 @@ async fn encryption_setting_before_start_is_applied_after_connect() -> Result<()
 
     session.set_encryption_enabled(true);
     assert!(room.e2ee_manager().enabled());
-    session.end().await?;
+    session.end().await;
     Ok(())
 }
 
@@ -468,7 +471,7 @@ async fn every_disconnect_invalidates_the_token() -> Result<()> {
     let session = Session::new((source, TokenSourceFetchOptions::new()), SessionOptions::default());
 
     session.start().await?;
-    session.end().await?;
+    session.end().await;
     assert_eq!(invalidations.load(Ordering::SeqCst), 1, "end() must invalidate");
 
     session.start().await?;
@@ -482,7 +485,9 @@ async fn every_disconnect_invalidates_the_token() -> Result<()> {
     .await?;
     assert_eq!(invalidations.load(Ordering::SeqCst), 2);
     assert!(session.room().is_none());
-    assert!(matches!(session.end().await, Err(SessionEndError::NotStarted)));
+    // Ending after a disconnect is a no-op.
+    session.end().await;
+    assert!(is_idle(&session));
 
     session.start().await?;
     let weak_shared = weak_shared(&session);
@@ -513,7 +518,7 @@ async fn end_cancels_a_pending_start() -> Result<()> {
     wait_for(&session, "connecting", |s| s.connection_state == SessionConnectionState::Connecting)
         .await?;
 
-    session.end().await?;
+    session.end().await;
     assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
     assert_eq!(session.snapshot(), SessionSnapshot::default());
     assert!(is_idle(&session));
@@ -590,7 +595,7 @@ async fn end_cancels_a_start_during_connect() -> Result<()> {
     });
     timeout(WAIT, server.accepted).await??;
 
-    session.end().await?;
+    session.end().await;
     assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
     assert_cancelled_connect_left_nothing(&session, server.closed, baseline_tasks).await
 }
@@ -677,11 +682,11 @@ async fn repeated_start_and_end_leave_nothing_behind() -> Result<()> {
     };
 
     session.start().await?;
-    session.end().await?;
+    session.end().await;
     let after_one = settle().await;
     for _ in 0..3 {
         session.start().await?;
-        session.end().await?;
+        session.end().await;
     }
     let after_four = settle().await;
     assert!(after_four <= after_one, "tasks grew from {after_one} to {after_four}");

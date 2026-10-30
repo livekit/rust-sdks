@@ -28,7 +28,7 @@ use tokio::task::JoinHandle;
 use crate::actor::{lock, Command, Connection, SessionActor, Shared};
 use crate::agent::{self, AgentState};
 use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
-use crate::error::{MessageSendError, SessionEndError, SessionStartError};
+use crate::error::{MessageSendError, SessionStartError};
 use crate::messages::{Message, MessageOrigin, MessageUpdate};
 
 /// Where a [`Session`] gets its credentials.
@@ -290,35 +290,29 @@ impl Session {
 
     /// Closes the room, or cancels a [`start`](Self::start) still in progress.
     ///
-    /// Fails with [`NotStarted`](SessionEndError::NotStarted) when there is
-    /// nothing to end, including after the room disconnected on its own.
-    pub async fn end(&self) -> Result<(), SessionEndError> {
+    /// Does nothing when there is nothing to end, including after the room
+    /// disconnected on its own. A room that fails to close cleanly is logged,
+    /// and the session has ended regardless.
+    pub async fn end(&self) {
         let running = {
             let mut state = lock(&self.inner.state);
             match mem::replace(&mut state.lifecycle, Lifecycle::Idle) {
-                Lifecycle::Idle => return Err(SessionEndError::NotStarted),
+                Lifecycle::Idle => return,
                 Lifecycle::Starting { generation, cancel } => {
                     let _ = cancel.send(());
                     self.inner.shared.publish(generation, SessionSnapshot::default());
-                    return Ok(());
-                }
-                Lifecycle::Running(running) if running.commands.is_closed() => {
-                    return Err(SessionEndError::NotStarted);
+                    return;
                 }
                 Lifecycle::Running(running) => running,
             }
         };
 
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let closed = match running.commands.send(Command::End(reply_tx)).await {
-            Ok(()) => reply_rx.await.unwrap_or(Ok(())),
-            // The actor stopped on its own in the meantime.
-            Err(_) => Ok(()),
-        };
+        // Fails if the actor already stopped on its own, which still leaves
+        // its task to join.
+        let _ = running.commands.send(Command::End).await;
         if let Err(err) = running.task.await {
             log::error!("session actor failed: {err}");
         }
-        Ok(closed?)
     }
 
     /// Enables or disables end-to-end encryption for the session's room.

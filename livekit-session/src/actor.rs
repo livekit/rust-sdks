@@ -21,10 +21,10 @@ use futures_util::stream::{self, BoxStream, SelectAll};
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit::{
-    ConnectionState, DisconnectReason, RoomResult, StreamReader, StreamResult, TakeCell,
-    TextStreamInfo, TextStreamReader,
+    ConnectionState, DisconnectReason, StreamReader, StreamResult, TakeCell, TextStreamInfo,
+    TextStreamReader,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::time::Sleep;
 
 use crate::agent::AgentTracker;
@@ -137,8 +137,8 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A request from the [`Session`](crate::Session) to its actor.
 pub(crate) enum Command {
-    /// Close the room and stop, replying with the result of the close.
-    End(oneshot::Sender<RoomResult<()>>),
+    /// Close the room and stop.
+    End,
 }
 
 /// A connected room, handed to the actor that will run it.
@@ -177,7 +177,7 @@ enum Event {
 /// How the actor stopped.
 enum Exit {
     /// [`Session::end`](crate::Session::end) asked it to.
-    Ended(oneshot::Sender<RoomResult<()>>),
+    Ended,
     /// Every [`Session`](crate::Session) handle was dropped.
     Dropped,
     /// The room disconnected.
@@ -264,7 +264,7 @@ impl SessionActor {
                 () = deadline => Event::AgentDeadline,
             };
             match event {
-                Event::Command(Some(Command::End(reply))) => break Exit::Ended(reply),
+                Event::Command(Some(Command::End)) => break Exit::Ended,
                 Event::Command(None) => break Exit::Dropped,
                 Event::Room(RoomEvent::Disconnected { reason }) => {
                     break Exit::Disconnected(reason)
@@ -285,12 +285,9 @@ impl SessionActor {
         // already finds this actor gone.
         self.commands.close();
         match exit {
-            Exit::Ended(reply) => {
-                let _ = reply.send(self.room.close().await);
-            }
-            Exit::Dropped => {
+            Exit::Ended | Exit::Dropped => {
                 if let Err(err) = self.room.close().await {
-                    log::warn!("failed to close the room of a dropped session: {err}");
+                    log::warn!("failed to close the session room: {err}");
                 }
             }
             Exit::Disconnected(reason) => {

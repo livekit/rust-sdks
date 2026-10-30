@@ -35,18 +35,6 @@ pub enum SessionStartError {
     Connect(#[from] RoomError),
 }
 
-/// Why [`Session::end`](crate::Session::end) failed.
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum SessionEndError {
-    /// The session is not started, or has already ended or disconnected.
-    #[error("session is not started")]
-    NotStarted,
-    /// The room failed to close cleanly. The session has ended regardless.
-    #[error("failed to close the room: {0}")]
-    Room(#[from] RoomError),
-}
-
 /// Why [`Session::send_text`](crate::Session::send_text) failed.
 #[derive(Debug, Error)]
 #[non_exhaustive]
