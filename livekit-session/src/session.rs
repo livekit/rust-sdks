@@ -182,6 +182,15 @@ pub(crate) struct Running {
     task: JoinHandle<()>,
 }
 
+impl Running {
+    /// Waits for the actor to stop, without asking it to.
+    async fn join(self) {
+        if let Err(err) = self.task.await {
+            log::error!("session actor failed: {err}");
+        }
+    }
+}
+
 impl Lifecycle {
     /// The running room, unless its actor has already stopped on its own.
     fn room(&self) -> Option<&Arc<Room>> {
@@ -211,11 +220,14 @@ impl Session {
     /// Resolves once the room is connected, not once the agent is: wait for
     /// that on [`state`](Self::state). Fails with
     /// [`AlreadyStarted`](SessionStartError::AlreadyStarted) while the session
-    /// is connecting or connected. Dropping the future before it resolves
-    /// leaves the session disconnected.
+    /// is connecting or connected.
+    ///
+    /// A connect that fails or is cancelled invalidates the credentials, so a
+    /// retry fetches new ones. Dropping the future before it resolves leaves
+    /// the session disconnected, but cannot invalidate them.
     pub async fn start(&self) -> Result<(), SessionStartError> {
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        let generation = {
+        let (generation, stale) = {
             let mut lifecycle = lock(&self.inner.lifecycle);
             if matches!(*lifecycle, Lifecycle::Starting { .. }) || lifecycle.room().is_some() {
                 return Err(SessionStartError::AlreadyStarted);
@@ -224,14 +236,27 @@ impl Session {
                 connection_state: SessionConnectionState::Connecting,
                 agent_state: AgentState::Connecting,
             });
-            *lifecycle = Lifecycle::Starting { generation, cancel: cancel_tx };
-            generation
+            let starting = Lifecycle::Starting { generation, cancel: cancel_tx };
+            let stale = match mem::replace(&mut *lifecycle, starting) {
+                Lifecycle::Running(running) => Some(running),
+                _ => None,
+            };
+            (generation, stale)
         };
         let mut guard = StartGuard { inner: &self.inner, generation, armed: true };
+        // The actor of a room that disconnected on its own, which has stopped
+        // or is about to.
+        if let Some(stale) = stale {
+            stale.join().await;
+        }
 
         let connection = tokio::select! {
-            connection = self.connect() => connection?,
-            _ = cancel_rx => return Err(SessionStartError::Cancelled),
+            connection = self.connect() => connection,
+            _ = cancel_rx => Err(SessionStartError::Cancelled),
+        };
+        let connection = match connection {
+            Ok(connection) => connection,
+            Err(err) => return Err(self.fail(err).await),
         };
         let room = connection.room.clone();
         let (commands_tx, commands_rx) = mpsc::channel(1);
@@ -259,7 +284,20 @@ impl Session {
         if let Err(err) = room.close().await {
             log::warn!("failed to close the room of a cancelled start: {err}");
         }
-        Err(SessionStartError::Cancelled)
+        Err(self.fail(SessionStartError::Cancelled).await)
+    }
+
+    /// Invalidates the credentials when `err` means they may have reached the
+    /// server, then passes `err` through.
+    ///
+    /// A token the server rejected would otherwise be handed out again on
+    /// every retry, and one that created a room may have dispatched an agent
+    /// that will not rejoin it.
+    async fn fail(&self, err: SessionStartError) -> SessionStartError {
+        if matches!(err, SessionStartError::Connect(_) | SessionStartError::Cancelled) {
+            self.inner.source.invalidate().await;
+        }
+        err
     }
 
     async fn connect(&self) -> Result<Connection, SessionStartError> {
@@ -282,6 +320,11 @@ impl Session {
     /// Does nothing when there is nothing to end, including after the room
     /// disconnected on its own. A room that fails to close cleanly is logged,
     /// and the session has ended regardless.
+    ///
+    /// The session can be started again as soon as `end` is called, before
+    /// the credentials are invalidated. A `start` that overlaps it, from
+    /// another handle or right after cancelling a `start` running elsewhere,
+    /// may therefore reuse the token of the room being closed.
     pub async fn end(&self) {
         let running = {
             let mut lifecycle = lock(&self.inner.lifecycle);
@@ -299,9 +342,7 @@ impl Session {
         // Fails if the actor already stopped on its own, which still leaves
         // its task to join.
         let _ = running.commands.send(Command::End).await;
-        if let Err(err) = running.task.await {
-            log::error!("session actor failed: {err}");
-        }
+        running.join().await;
     }
 
     /// A receiver of the session's state, which also lets callers await a
@@ -359,7 +400,7 @@ impl Session {
     }
 
     /// Replaces the feed with `messages`, e.g. a conversation saved from an
-    /// earlier run. They are ordered by timestamp and renumbered from zero;
+    /// earlier run. They keep the order given and are renumbered from zero;
     /// later messages follow them.
     pub fn restore_messages(&self, messages: &[Message]) {
         self.inner.shared.restore(messages);

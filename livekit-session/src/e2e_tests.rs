@@ -432,37 +432,54 @@ impl TokenSourceConfigurable for CountingSource {
     }
 }
 
+impl CountingSource {
+    /// A session source handing out `participant_token` for `server_url`.
+    fn session_source(
+        server_url: &str,
+        participant_token: String,
+        invalidations: &Arc<AtomicUsize>,
+    ) -> SessionTokenSource {
+        let source = Self {
+            response: TokenSourceResponse { server_url: server_url.to_owned(), participant_token },
+            invalidations: invalidations.clone(),
+        };
+        SessionTokenSource::configurable(source, TokenSourceFetchOptions::new())
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn every_disconnect_invalidates_the_token() -> Result<()> {
     let env = TestEnv::new();
     let invalidations = Arc::new(AtomicUsize::new(0));
-    let source = CountingSource {
-        response: TokenSourceResponse {
-            server_url: env.url.clone(),
-            participant_token: env.token(USER, |token| token),
-        },
-        invalidations: invalidations.clone(),
+    let source =
+        CountingSource::session_source(&env.url, env.token(USER, |token| token), &invalidations);
+    let session = Session::new(source, SessionOptions::default());
+    let rooms =
+        RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
+    let disconnect = || async {
+        rooms.remove_participant(&env.room, USER).await?;
+        wait_for(&session, "disconnect", |s| {
+            s.connection_state == SessionConnectionState::Disconnected
+        })
+        .await?;
+        anyhow::Ok(())
     };
-    let session = Session::new(
-        SessionTokenSource::configurable(source, TokenSourceFetchOptions::new()),
-        SessionOptions::default(),
-    );
 
     session.start().await?;
     session.end().await;
     assert_eq!(invalidations.load(Ordering::SeqCst), 1, "end() must invalidate");
 
     session.start().await?;
-    let http_url = env.url.replacen("ws", "http", 1);
-    RoomClient::with_api_key(&http_url, &env.api_key, &env.api_secret)
-        .remove_participant(&env.room, USER)
-        .await?;
-    wait_for(&session, "disconnect", |s| {
-        s.connection_state == SessionConnectionState::Disconnected
-    })
-    .await?;
+    let stale_room = Arc::downgrade(&session.room().ok_or_else(|| anyhow!("no room"))?);
+    disconnect().await?;
     assert_eq!(invalidations.load(Ordering::SeqCst), 2);
     assert!(session.room().is_none());
+
+    // Restarting joins the stopped actor and releases its room.
+    session.start().await?;
+    assert!(stale_room.upgrade().is_none(), "the disconnected room is still held");
+    disconnect().await?;
+    assert_eq!(invalidations.load(Ordering::SeqCst), 3);
     // Ending after a disconnect is a no-op.
     session.end().await;
     assert!(is_idle(&session));
@@ -471,7 +488,34 @@ async fn every_disconnect_invalidates_the_token() -> Result<()> {
     let weak_shared = weak_shared(&session);
     drop(session);
     eventually("the actor to stop", || weak_shared.upgrade().is_none()).await?;
-    assert_eq!(invalidations.load(Ordering::SeqCst), 3, "dropping must invalidate");
+    assert_eq!(invalidations.load(Ordering::SeqCst), 4, "dropping must invalidate");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_or_cancelled_connect_invalidates_the_token() -> Result<()> {
+    let env = TestEnv::new();
+    let invalidations = Arc::new(AtomicUsize::new(0));
+
+    let source = CountingSource::session_source(&env.url, "not a token".into(), &invalidations);
+    let mut options = SessionOptions::default();
+    options.room_options.join_retries = 0;
+    let session = Session::new(source, options);
+    assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
+    assert_eq!(invalidations.load(Ordering::SeqCst), 1, "a rejected token must be invalidated");
+
+    let server = SilentServer::bind().await?;
+    let source =
+        CountingSource::session_source(&server.url, env.token(USER, |t| t), &invalidations);
+    let session = server.session_with(source);
+    let start = tokio::spawn({
+        let session = session.clone();
+        async move { session.start().await }
+    });
+    timeout(WAIT, server.accepted).await??;
+    session.end().await;
+    assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
+    assert_eq!(invalidations.load(Ordering::SeqCst), 2, "a cancelled connect must invalidate");
     Ok(())
 }
 
@@ -537,11 +581,16 @@ impl SilentServer {
 
     /// A session connecting to this server.
     fn session(&self, env: &TestEnv) -> Session {
+        self.session_with(literal(self.url.clone(), env.token(USER, |t| t)).into())
+    }
+
+    /// A session connecting to this server with credentials from `source`.
+    fn session_with(&self, source: SessionTokenSource) -> Session {
         let mut options = SessionOptions::default();
         options.room_options.join_retries = 0;
         // Long enough that only a cancel can end the handshake.
         options.room_options.connect_timeout = Duration::from_secs(60);
-        Session::new(literal(self.url.clone(), env.token(USER, |t| t)), options)
+        Session::new(source, options)
     }
 }
 

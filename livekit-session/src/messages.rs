@@ -257,20 +257,17 @@ impl MessageStore {
         &self.messages
     }
 
-    /// Replaces the feed with `messages`, ordered by `timestamp` and numbered
-    /// from zero. Of messages sharing an id and participant, the last wins.
+    /// Replaces the feed with `messages`, numbered from zero in the order
+    /// given. Of messages sharing an id and participant, the last wins.
     pub(crate) fn restore(&mut self, messages: &[Message]) {
-        let mut restored = messages.to_vec();
-        restored.sort_by_key(|message| message.timestamp);
-
         *self = Self::default();
-        for message in restored {
+        for message in messages {
             self.upsert(MessageUpdate {
-                id: message.id,
+                id: message.id.clone(),
                 timestamp: message.timestamp,
                 origin: message.origin,
-                participant_identity: message.participant_identity,
-                text: message.text,
+                participant_identity: message.participant_identity.clone(),
+                text: message.text.clone(),
                 is_final: message.is_final,
             });
         }
@@ -455,20 +452,21 @@ mod tests {
     }
 
     #[test]
-    fn restore_sorts_by_timestamp_and_renumbers() {
+    fn restore_keeps_the_given_order_and_renumbers() {
         let mut store = MessageStore::default();
         store.upsert(update("stale", 0, "dropped by restore"));
 
-        let mut later = store.upsert(update("later", 20, "later"));
-        later.seq = 7;
-        let mut earlier = later.clone();
-        earlier.id = "earlier".into();
-        earlier.timestamp = at(10);
-        earlier.seq = 3;
+        // Received first, but stamped later by a skewed sender clock.
+        let mut first = store.upsert(update("first", 20, "first"));
+        first.seq = 7;
+        let mut second = first.clone();
+        second.id = "second".into();
+        second.timestamp = at(10);
+        second.seq = 3;
 
-        store.restore(&[later, earlier]);
+        store.restore(&[first, second]);
         let feed: Vec<_> = store.messages().iter().map(|m| (m.id.as_str(), m.seq)).collect();
-        assert_eq!(feed, [("earlier", 0), ("later", 1)]);
+        assert_eq!(feed, [("first", 0), ("second", 1)]);
         assert_eq!(store.upsert(update("next", 0, "next")).seq, 2);
     }
 }
