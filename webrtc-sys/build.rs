@@ -132,8 +132,11 @@ fn main() {
         builder.define(key.as_str(), value);
     }
 
-    // Link webrtc library
-    println!("cargo:rustc-link-lib=static=webrtc");
+    // Link webrtc library: on linux and macOS, sealed into the bridge once it is compiled.
+    let sealed = target_os == "linux" || target_os == "macos";
+    if !sealed {
+        println!("cargo:rustc-link-lib=static=webrtc");
+    }
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -399,6 +402,9 @@ fn main() {
     // TODO(theomonnom) Only add this define when building tests
     builder.define("LIVEKIT_TEST", None);
     builder.warnings(false).compile("webrtcsys-cxx");
+    if sealed {
+        seal_libwebrtc(&builder, &target_os, &webrtc_lib.join("libwebrtc.a"));
+    }
 
     for entry in glob::glob("./src/**/*.cpp").unwrap() {
         println!("cargo:rerun-if-changed={}", entry.unwrap().display());
@@ -454,7 +460,10 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
     };
 
     println!("cargo:rustc-link-lib={}", clang_rt);
-    println!("cargo:rustc-link-arg=-ObjC");
+    // On macOS, sealing already loads libwebrtc's ObjC categories.
+    if target_os != "mac" {
+        println!("cargo:rustc-link-arg=-ObjC");
+    }
 
     let sysroot = Command::new("xcrun").args(["--sdk", sdk, "--show-sdk-path"]).output().unwrap();
 
@@ -473,6 +482,83 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
     }
 
     builder.flag(format!("-isysroot{}", sysroot).as_str());
+}
+
+/// Partially link the bridge with libwebrtc.a into one object whose only global symbols are
+/// the bridge's own entry points, and link it in place of both.
+///
+/// libwebrtc.a bundles its own FFmpeg, BoringSSL, opus, libvpx, dav1d and libaom, and on linux
+/// libc++ and libc++abi. In a static link the first definition of a name serves every caller,
+/// so an application linking any of these itself would otherwise call libwebrtc's copy, or
+/// hand its own to libwebrtc. Sealed, each keeps its own.
+///
+/// On linux the bridge also holds cxx's runtime, built against libwebrtc's libc++. Its Rust
+/// half is shared by every cxx bridge in the application, which the cxx crate's own runtime
+/// serves, so this copy stays private too: no bridge here hands Rust a C++ std type.
+fn seal_libwebrtc(builder: &cc::Build, target_os: &str, libwebrtc: &Path) {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let bridge = out_dir.join("libwebrtcsys-cxx.a");
+    let sealed = out_dir.join("webrtcsys-cxx.o");
+    // The namespace of every bridge here, which cxx puts in each of its symbols.
+    let entry_point = "livekit_ffi$";
+
+    // The bridge's compiler, whose target flags the link needs and compile-only flags it ignores.
+    let mut link = builder.get_compiler().to_command();
+    link.args(["-r", "-nostdlib", "-Wno-unused-command-line-argument", "-o"]).arg(&sealed);
+    if target_os == "macos" {
+        // ld -r turns every symbol it doesn't export into a local one, but requires each
+        // exported one to be defined, so the list names the entry points the bridge defines
+        // rather than matching the Rust ones it calls. -ObjC also pulls the members that only
+        // hold ObjC categories, which nothing references by name.
+        let defined = Command::new("nm").arg("-gjU").arg(&bridge).output().unwrap();
+        assert!(defined.status.success(), "nm failed on {}", bridge.display());
+        let exported = out_dir.join("webrtcsys-cxx.exp");
+        std::fs::write(
+            &exported,
+            String::from_utf8(defined.stdout)
+                .unwrap()
+                .lines()
+                .filter(|symbol| symbol.contains(entry_point))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        link.arg(format!("-Wl,-force_load,{}", bridge.display()))
+            .arg("-Wl,-ObjC")
+            .arg(format!("-Wl,-exported_symbols_list,{}", exported.display()));
+    } else {
+        // Keep each code and data input section its own, as the final link's --gc-sections
+        // needs to drop what the application doesn't reach: merged, any live function would
+        // keep every other one in its section alive, with the libraries they call. .eh_frame
+        // stays whole, as GNU ld's .eh_frame_hdr requires.
+        for kind in
+            [".text*", ".rodata*", ".data*", ".bss*", ".tdata*", ".tbss*", ".gcc_except_table*"]
+        {
+            link.arg(format!("-Wl,--unique={kind}"));
+        }
+        // COMDAT groups would dedupe against the application's own, every C++ object's
+        // DW.ref.__gxx_personality_v0 first, discarding sections the sealed object still
+        // references once its symbols are local.
+        link.arg("-Wl,--force-group-allocation")
+            .arg("-Wl,--whole-archive")
+            .arg(&bridge)
+            .arg("-Wl,--no-whole-archive");
+    }
+    run(link.arg(libwebrtc));
+    if target_os == "linux" {
+        run(Command::new("objcopy")
+            .arg("--wildcard")
+            .arg(format!("--keep-global-symbol=*{entry_point}*"))
+            .arg(&sealed));
+    }
+
+    std::fs::remove_file(&bridge).unwrap();
+    run(builder.get_archiver().arg("crs").arg(&bridge).arg(&sealed));
+}
+
+fn run(command: &mut Command) {
+    let status = command.status().unwrap_or_else(|e| panic!("failed to run {command:?}: {e}"));
+    assert!(status.success(), "{command:?} failed with {status}");
 }
 
 fn configure_android_sysroot(builder: &mut cc::Build) {
