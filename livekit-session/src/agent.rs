@@ -23,8 +23,8 @@ use crate::session::SessionConnectionState;
 /// What the session's agent is doing, projected from the room.
 ///
 /// Most code needs only the predicates: [`AgentState::is_connected`] to show
-/// that the agent is there, [`AgentState::can_listen`] to show that the user is
-/// being heard, and [`AgentState::is_finished`] to show that the interaction is
+/// that the agent is there, [`AgentState::is_pending`] to show that it is on
+/// its way, and [`AgentState::is_finished`] to show that the interaction is
 /// over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -60,15 +60,6 @@ impl AgentState {
     /// [`Initializing`](Self::Initializing) is not connected.
     pub fn is_connected(self) -> bool {
         matches!(self, Self::Listening | Self::Thinking | Self::Speaking)
-    }
-
-    /// Whether the user's speech is being captured, so a UI can show that the
-    /// microphone is live.
-    ///
-    /// The session does not publish a microphone itself; this is meaningful
-    /// only once the caller has published one through [`Session::room`](crate::Session::room).
-    pub fn can_listen(self) -> bool {
-        self.is_connected()
     }
 
     /// Whether an agent is expected but not yet conversational: connecting,
@@ -463,9 +454,11 @@ mod tests {
             Unknown,
         ];
         for state in states {
-            let connected = matches!(state, Listening | Thinking | Speaking);
-            assert_eq!(state.is_connected(), connected, "{state:?}");
-            assert_eq!(state.can_listen(), connected, "{state:?}");
+            assert_eq!(
+                state.is_connected(),
+                matches!(state, Listening | Thinking | Speaking),
+                "{state:?}"
+            );
             assert_eq!(
                 state.is_pending(),
                 matches!(state, Connecting | Initializing | Idle),

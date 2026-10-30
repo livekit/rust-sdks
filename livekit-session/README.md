@@ -59,8 +59,7 @@ current value. A snapshot holds the connection state and the agent state:
 | `Unknown` | The agent reports an activity this SDK does not recognize |
 
 `Failed` is not final: an agent that joins, or becomes conversational, replaces it. Most code
-needs only the predicates on `AgentState`: `is_connected`, `can_listen`, `is_pending` and
-`is_finished`.
+needs only the predicates on `AgentState`: `is_connected`, `is_pending` and `is_finished`.
 
 The agent's microphone and its avatar's camera are available from `agent_audio_track()` and
 `agent_avatar_video_track()`.
@@ -85,4 +84,4 @@ conversation.
   app subscribed to the room sees those `TextStreamOpened` events with the reader already taken.
   Streams on other topics are left to the app.
 - **No media.** The session never publishes a microphone. Publish one through `room()` to talk to
-  the agent by voice; `can_listen` is only meaningful once you have.
+  the agent by voice.
