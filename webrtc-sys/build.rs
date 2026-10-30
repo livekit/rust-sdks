@@ -496,7 +496,7 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
 /// half is shared by every cxx bridge in the application, which the cxx crate's own runtime
 /// serves, so this copy stays private too: no bridge here hands Rust a C++ std type.
 fn seal_libwebrtc(builder: &cc::Build, target_os: &str, libwebrtc: &Path) {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not set"));
     let bridge = out_dir.join("libwebrtcsys-cxx.a");
     let sealed = out_dir.join("webrtcsys-cxx.o");
     // The namespace of every bridge here, which cxx puts in each of its symbols.
@@ -510,19 +510,18 @@ fn seal_libwebrtc(builder: &cc::Build, target_os: &str, libwebrtc: &Path) {
         // exported one to be defined, so the list names the entry points the bridge defines
         // rather than matching the Rust ones it calls. -ObjC also pulls the members that only
         // hold ObjC categories, which nothing references by name.
-        let defined = Command::new("nm").arg("-gjU").arg(&bridge).output().unwrap();
-        assert!(defined.status.success(), "nm failed on {}", bridge.display());
+        let defined = String::from_utf8(run(Command::new("nm").arg("-gjU").arg(&bridge)))
+            .expect("nm listed a non-UTF-8 symbol");
         let exported = out_dir.join("webrtcsys-cxx.exp");
         std::fs::write(
             &exported,
-            String::from_utf8(defined.stdout)
-                .unwrap()
+            defined
                 .lines()
                 .filter(|symbol| symbol.contains(entry_point))
                 .collect::<Vec<_>>()
                 .join("\n"),
         )
-        .unwrap();
+        .expect("failed to write the bridge's exported symbols list");
         link.arg(format!("-Wl,-force_load,{}", bridge.display()))
             .arg("-Wl,-ObjC")
             .arg(format!("-Wl,-exported_symbols_list,{}", exported.display()));
@@ -552,13 +551,20 @@ fn seal_libwebrtc(builder: &cc::Build, target_os: &str, libwebrtc: &Path) {
             .arg(&sealed));
     }
 
-    std::fs::remove_file(&bridge).unwrap();
+    std::fs::remove_file(&bridge).expect("failed to remove the unsealed bridge archive");
     run(builder.get_archiver().arg("crs").arg(&bridge).arg(&sealed));
 }
 
-fn run(command: &mut Command) {
-    let status = command.status().unwrap_or_else(|e| panic!("failed to run {command:?}: {e}"));
-    assert!(status.success(), "{command:?} failed with {status}");
+/// Run a build tool, returning its standard output.
+fn run(command: &mut Command) -> Vec<u8> {
+    let output = command.output().unwrap_or_else(|e| panic!("failed to run {command:?}: {e}"));
+    assert!(
+        output.status.success(),
+        "{command:?} failed with {}:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
 }
 
 fn configure_android_sysroot(builder: &mut cc::Build) {
