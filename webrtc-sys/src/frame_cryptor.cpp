@@ -169,6 +169,17 @@ FrameCryptor::~FrameCryptor() {
   if (observer_) {
     unregister_observer();
   }
+  // Detach the transformer from the sender/receiver it was attached to in
+  // the constructor. Without this the RtpSender/RtpReceiver keeps the
+  // FrameCryptorTransformer (and the thread it owns) alive for as long as
+  // it exists, which outlives this object -- one leaked
+  // FrameCryptorTransformer thread per cryptor per room.
+  if (sender_) {
+    sender_->SetEncoderToPacketizerFrameTransformer(nullptr);
+  }
+  if (receiver_) {
+    receiver_->SetDepacketizerToDecoderFrameTransformer(nullptr);
+  }
 }
 
 void FrameCryptor::register_observer(
