@@ -28,6 +28,17 @@ pub mod ffi {
         NV12,
     }
 
+    /// Fields of an `EncodedVideoFrameBuffer` (a received or pre-encoded access
+    /// unit). `codec` is a `video_track::ffi::EncodedVideoCodec` value.
+    #[derive(Debug)]
+    pub struct EncodedBufferInfo {
+        pub is_encoded: bool,
+        pub codec: i32,
+        pub keyframe: bool,
+        pub stream_id: usize,
+        pub sequence_number: u64,
+    }
+
     unsafe extern "C++" {
         include!("livekit/video_frame_buffer.h");
 
@@ -46,6 +57,13 @@ pub mod ffi {
         type PlatformImageBuffer;
 
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
+        /// Encoded-frame fields; `is_encoded` is false for any other buffer.
+        fn encoded_info(self: &VideoFrameBuffer) -> EncodedBufferInfo;
+        /// The encoded access unit, or an empty slice for any other buffer.
+        fn encoded_payload(self: &VideoFrameBuffer) -> &[u8];
+        /// Asks the producer of this encoded buffer for a keyframe (a no-op for
+        /// other buffers).
+        fn request_encoded_keyframe(self: &VideoFrameBuffer);
         fn width(self: &VideoFrameBuffer) -> u32;
         fn height(self: &VideoFrameBuffer) -> u32;
 

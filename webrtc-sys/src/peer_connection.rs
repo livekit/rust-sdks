@@ -97,6 +97,17 @@ pub mod ffi {
         pub password: String,
     }
 
+    /// libwebrtc's pre-render smoothing (`RTCConfiguration::prerenderer_smoothing`).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum PrerendererSmoothing {
+        /// libwebrtc's default (on), except for a pass-through decoding
+        /// factory, which turns it off.
+        Default,
+        Enabled,
+        Disabled,
+    }
+
     pub struct RtcConfiguration {
         pub ice_servers: Vec<IceServer>,
         pub continual_gathering_policy: ContinualGatheringPolicy,
@@ -104,6 +115,9 @@ pub mod ffi {
         // WARP/SNAP: enable SCTP-INIT-in-SDP. Must be carried consistently across
         // create + set_configuration (it is an immutable RTCConfiguration field).
         pub enable_sctp_snap: bool,
+        // Read at creation only: SetConfiguration keeps the creation-time
+        // media config.
+        pub prerenderer_smoothing: PrerendererSmoothing,
     }
 
     extern "C++" {
@@ -213,6 +227,8 @@ pub mod ffi {
         fn ice_gathering_state(self: &PeerConnection) -> IceGatheringState;
         fn ice_connection_state(self: &PeerConnection) -> IceConnectionState;
         fn close(self: &PeerConnection);
+        /// Whether libwebrtc's pre-render smoothing is on for this connection.
+        fn prerenderer_smoothing(self: &PeerConnection) -> bool;
 
         fn _shared_peer_connection() -> SharedPtr<PeerConnection>; // Ignore
     }

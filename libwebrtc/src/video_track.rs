@@ -45,6 +45,16 @@ impl RtcVideoTrack {
     pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
         self.handle.packet_trailer_handler()
     }
+
+    /// Asks the sender of this remote track for a keyframe.
+    ///
+    /// libwebrtc sends a request (PLI) and repeats it until a keyframe
+    /// arrives. Use it when the application cannot decode what it received,
+    /// e.g. after a decode error. Has no effect on local tracks.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn request_keyframe(&self) {
+        self.handle.request_keyframe();
+    }
 }
 
 impl Debug for RtcVideoTrack {
