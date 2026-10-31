@@ -20,14 +20,13 @@
 #include <atomic>
 #include <cctype>
 #include <cstdlib>
+#include <deque>
 #include <optional>
 #include <string_view>
 #include <utility>
 
-#include "api/video/video_frame.h"
-#include "modules/video_coding/include/video_error_codes.h"
-
 #include "api/environment/environment_factory.h"
+#include "api/video/video_frame.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
@@ -37,8 +36,11 @@
 #include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
+#include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
+
 #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
 #endif
@@ -620,11 +622,15 @@ namespace {
 // garbage pointer), so forwarding such a frame is a crash, not a graceful
 // failure. Drop it instead: the selector switches shortly after, and the
 // pass-through encoder requests a fresh keyframe when it takes over.
-class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
+// Also preserve presentation timestamps across raw encoder backends that
+// discard them. The pass-through encoder copies them directly from its input.
+class VideoEncoderWrapper final : public webrtc::VideoEncoder,
+                                  private webrtc::EncodedImageCallback {
  public:
-  explicit EncodedFrameGuardEncoder(
-      std::unique_ptr<webrtc::VideoEncoder> encoder)
+  explicit VideoEncoderWrapper(std::unique_ptr<webrtc::VideoEncoder> encoder)
       : encoder_(std::move(encoder)) {}
+
+  ~VideoEncoderWrapper() override { Release(); }
 
   void SetFecControllerOverride(
       webrtc::FecControllerOverride* fec_controller_override) override {
@@ -638,10 +644,20 @@ class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
 
   int32_t RegisterEncodeCompleteCallback(
       webrtc::EncodedImageCallback* callback) override {
-    return encoder_->RegisterEncodeCompleteCallback(callback);
+    callback_ = callback;
+    return encoder_->RegisterEncodeCompleteCallback(callback ? this : nullptr);
   }
 
-  int32_t Release() override { return encoder_->Release(); }
+  int32_t Release() override {
+    // Release stops the backend's callbacks before their state is cleared or
+    // destroyed. The backend holds only a non-owning pointer to this wrapper.
+    const int32_t result = encoder_->Release();
+    encoder_->RegisterEncodeCompleteCallback(nullptr);
+    callback_ = nullptr;
+    webrtc::MutexLock lock(&timestamps_mutex_);
+    timestamps_.clear();
+    return result;
+  }
 
   int32_t Encode(
       const webrtc::VideoFrame& frame,
@@ -656,6 +672,14 @@ class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
                "pass-through backend";
       }
       return WEBRTC_VIDEO_CODEC_OK;
+    }
+    if (auto timestamp = frame.presentation_timestamp()) {
+      webrtc::MutexLock lock(&timestamps_mutex_);
+      // Retain keys for all simulcast layers, bounded even when frames drop.
+      timestamps_.emplace_back(frame.rtp_timestamp(), *timestamp);
+      if (timestamps_.size() > kMaxTimestampEntries) {
+        timestamps_.pop_front();
+      }
     }
     return encoder_->Encode(frame, frame_types);
   }
@@ -679,6 +703,36 @@ class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
   }
 
  private:
+  Result OnEncodedImage(
+      const webrtc::EncodedImage& image,
+      const webrtc::CodecSpecificInfo* codec_specific_info) override {
+    // EncodedImage copies share the encoded buffer; no payload is copied.
+    webrtc::EncodedImage output = image;
+    {
+      webrtc::MutexLock lock(&timestamps_mutex_);
+      auto it = std::find_if(timestamps_.rbegin(), timestamps_.rend(),
+                             [&image](const auto& entry) {
+                               return entry.first == image.RtpTimestamp();
+                             });
+      if (it != timestamps_.rend()) {
+        output.SetPresentationTimestamp(it->second);
+      }
+    }
+    return callback_->OnEncodedImage(output, codec_specific_info);
+  }
+
+  void OnFrameDropped(uint32_t rtp_timestamp, int spatial_id,
+                      bool is_end_of_temporal_unit) override {
+    callback_->OnFrameDropped(rtp_timestamp, spatial_id,
+                              is_end_of_temporal_unit);
+  }
+
+  // Registered before Encode and cleared only after Release joins callbacks.
+  webrtc::EncodedImageCallback* callback_ = nullptr;
+  webrtc::Mutex timestamps_mutex_;
+  std::deque<std::pair<uint32_t, webrtc::Timestamp>> timestamps_;
+  static constexpr size_t kMaxTimestampEntries = 300;
+  // Destroy the backend before the state its callbacks can access.
   std::unique_ptr<webrtc::VideoEncoder> encoder_;
 };
 
@@ -693,9 +747,8 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
         env, internal_factory_.get(), nullptr, format);
   }
 
-  if (encoder &&
-      BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
-    encoder = std::make_unique<EncodedFrameGuardEncoder>(std::move(encoder));
+  if (encoder && BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
+    encoder = std::make_unique<VideoEncoderWrapper>(std::move(encoder));
   }
 
   return encoder;

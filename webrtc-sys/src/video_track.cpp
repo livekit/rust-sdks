@@ -171,14 +171,16 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), webrtc::TimeMicros());
+  const int64_t metadata_timestamp_us =
+      std::max(aligned_timestamp_us, last_metadata_timestamp_us_ + 1);
+  last_metadata_timestamp_us_ = metadata_timestamp_us;
 
   // If a packet trailer was provided on this frame and we have a handler,
-  // store the mapping keyed by the aligned timestamp.  This is the value
-  // that CaptureTime() will return in TransformSend, so the lookup will
-  // succeed.
+  // carry its unique microsecond key separately from the capture time,
+  // which WebRTC truncates to milliseconds during encoding.
   if (frame_metadata.has_packet_trailer && packet_trailer_handler_) {
     packet_trailer_handler_->store_frame_metadata(
-        aligned_timestamp_us, frame_metadata.user_timestamp,
+        metadata_timestamp_us, frame_metadata.user_timestamp,
         frame_metadata.frame_id,
         rust::Slice<const uint8_t>(frame_metadata.user_data.data(),
                                    frame_metadata.user_data.size()));
@@ -211,6 +213,8 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
                 .set_video_frame_buffer(buffer)
                 .set_rotation(frame.rotation())
                 .set_timestamp_us(aligned_timestamp_us)
+                .set_presentation_timestamp(
+                    webrtc::Timestamp::Micros(metadata_timestamp_us))
                 .build());
     return true;
   }
@@ -245,6 +249,8 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
               .set_video_frame_buffer(buffer)
               .set_rotation(rotation)
               .set_timestamp_us(aligned_timestamp_us)
+              .set_presentation_timestamp(
+                  webrtc::Timestamp::Micros(metadata_timestamp_us))
               .build());
 
   return true;
