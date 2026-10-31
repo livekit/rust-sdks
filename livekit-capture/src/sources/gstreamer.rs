@@ -26,7 +26,10 @@ use thiserror::Error;
 
 use crate::{
     encoded::{
-        h26x::{access_unit_from_annex_b, access_unit_from_h264_avc, H26xParseError},
+        h26x::{
+            access_unit_from_annex_b, access_unit_from_h264_avc, access_unit_from_h265_hvcc,
+            H26xParseError,
+        },
         EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
     },
     error::SourceError,
@@ -47,6 +50,11 @@ enum GStreamerSampleFormat {
     },
     /// H.265 Annex-B access units, usually from `h265parse` with byte-stream caps.
     H265AnnexB,
+    /// H.265 access units with HVCC length-prefixed NAL units.
+    H265Hvcc {
+        /// Length-prefix size in bytes.
+        nal_length_size: u8,
+    },
     /// One already-delimited encoded access unit per appsink sample.
     AccessUnit {
         /// Codec carried by each appsink sample.
@@ -61,6 +69,7 @@ impl GStreamerSampleFormat {
             Self::H264AnnexB => EncodedVideoCodec::H264,
             Self::H264Avc { .. } => EncodedVideoCodec::H264,
             Self::H265AnnexB => EncodedVideoCodec::H265,
+            Self::H265Hvcc { .. } => EncodedVideoCodec::H265,
             Self::AccessUnit { codec } => codec,
         }
     }
@@ -825,6 +834,9 @@ fn access_unit_from_sample_payload(
             timestamp_us,
             resolution,
         ),
+        GStreamerSampleFormat::H265Hvcc { nal_length_size } => {
+            access_unit_from_h265_hvcc(payload, nal_length_size, timestamp_us, resolution)
+        }
         GStreamerSampleFormat::AccessUnit { codec } => {
             if payload.is_empty() {
                 return Err(H26xParseError::EmptyPayload);
@@ -1196,9 +1208,14 @@ fn sample_format_from_caps_structure(
                 Err(()) => return Ok(None),
             };
             match stream_format.as_deref() {
+                // As with H.264 `avc`, `hvc1` keeps the parameter sets in
+                // `codec_data` only; `hev1` carries them in-band.
+                Some("hev1") => Ok(Some(GStreamerSampleFormat::H265Hvcc {
+                    nal_length_size: h265_hvcc_nal_length_size_from_caps(structure),
+                })),
                 Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
                 Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
-                    "H.265 stream-format '{stream_format}'; expected byte-stream"
+                    "H.265 stream-format '{stream_format}'; expected byte-stream or hev1"
                 ))),
             }
         }
@@ -1243,6 +1260,23 @@ fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
 /// Reads the AVC NAL length-prefix size from `avcC` codec data.
 fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
     let length_size = (codec_data.get(4)? & 0x03) + 1;
+    (1..=4).contains(&length_size).then_some(length_size)
+}
+
+fn h265_hvcc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
+    let Ok(codec_data) = structure.get::<gst::Buffer>("codec_data") else {
+        return 4;
+    };
+    let Ok(codec_data) = codec_data.map_readable() else {
+        return 4;
+    };
+    h265_hvcc_nal_length_size_from_codec_data(codec_data.as_ref()).unwrap_or(4)
+}
+
+/// Reads the HVCC NAL length-prefix size from `hvcC` codec data
+/// (`lengthSizeMinusOne`, the low two bits of byte 21).
+fn h265_hvcc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
+    let length_size = (codec_data.get(21)? & 0x03) + 1;
     (1..=4).contains(&length_size).then_some(length_size)
 }
 
@@ -1338,6 +1372,36 @@ mod tests {
         assert_eq!(access_unit.codec, EncodedVideoCodec::H264);
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
         assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
+    }
+
+    #[test]
+    fn sample_payload_h265_hvcc_converts_to_annex_b_and_detects_keyframe() {
+        let access_unit = access_unit_from_sample_payload(
+            GStreamerSampleFormat::H265Hvcc { nal_length_size: 4 },
+            &[
+                0, 0, 0, 3, 0x40, 0x01, 0x0c, // VPS
+                0, 0, 0, 3, 0x42, 0x01, 0x02, // SPS
+                0, 0, 0, 3, 0x44, 0x01, 0x03, // PPS
+                0, 0, 0, 4, 0x26, 0x01, 0xaf, 0x08, // IDR_W_RADL
+            ],
+            1_000,
+            EncodedFrameType::Delta,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
+
+        assert_eq!(access_unit.codec, EncodedVideoCodec::H265);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(&access_unit.payload[..4], &[0, 0, 0, 1]);
+        assert_eq!(access_unit.payload.len(), 29);
+    }
+
+    #[test]
+    fn hvcc_length_size_comes_from_codec_data() {
+        let mut hvcc = [0u8; 23];
+        hvcc[21] = 0xfc | 0x01; // lengthSizeMinusOne = 1
+        assert_eq!(h265_hvcc_nal_length_size_from_codec_data(&hvcc), Some(2));
+        assert_eq!(h265_hvcc_nal_length_size_from_codec_data(&hvcc[..21]), None);
     }
 
     #[test]

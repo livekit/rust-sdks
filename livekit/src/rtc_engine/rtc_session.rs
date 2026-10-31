@@ -2050,8 +2050,13 @@ impl SessionInner {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
                 (sum > 0).then_some(sum)
             };
-            let is_screen_share = options.source == TrackSource::Screenshare;
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
+            // Screen share needs its bitrate immediately to stay legible. A
+            // pre-encoded track is already encoded at its own bitrate, which
+            // the sender cannot lower, so a capped starting estimate only
+            // queues its packets in the pacer until the estimate catches up.
+            let uncapped_start = options.source == TrackSource::Screenshare
+                || options.video_encoder == libwebrtc::rtp_sender::VideoEncoderBackend::PreEncoded;
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, uncapped_start).await;
         }
 
         let init = RtpTransceiverInit {
