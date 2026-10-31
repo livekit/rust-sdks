@@ -1,3 +1,10 @@
+## 0.1.9 (2026-10-31)
+
+### Fixes
+
+- Drop a transcription with an invalid track sid instead of panicking - #1600 (@lukasIO)
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+
 ## 0.1.8 (2026-10-28)
 
 ### Features
