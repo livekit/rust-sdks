@@ -42,10 +42,7 @@ use livekit_net::{
 };
 use livekit_protocol as proto;
 use prost::Message as _;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex, Once,
-};
+use std::sync::{Arc, Mutex, Once};
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Every URL the mock's HTTP client was asked for. Tests share it, so assert on a host unique
@@ -73,23 +70,33 @@ impl WsConnection for MockConn {
     async fn close(&self) {}
 }
 
-/// Open connections to a URL containing `silent`. Only one test dials that marker, so the
-/// count is not shared with concurrent tests.
-pub static SILENT_CONNS: AtomicUsize = AtomicUsize::new(0);
+/// The URL of every open connection to a URL containing `silent`.
+static SILENT_CONNS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Open connections to URLs containing `marker`. Tests run concurrently, so each dials a
+/// marker of its own.
+pub fn silent_conns(marker: &str) -> usize {
+    SILENT_CONNS.lock().unwrap().iter().filter(|url| url.contains(marker)).count()
+}
 
 /// Stays open and never answers, so a join or reconnect response never arrives.
-struct SilentConn;
+struct SilentConn {
+    url: String,
+}
 
 impl SilentConn {
-    fn new() -> Self {
-        SILENT_CONNS.fetch_add(1, Ordering::SeqCst);
-        Self
+    fn new(url: String) -> Self {
+        SILENT_CONNS.lock().unwrap().push(url.clone());
+        Self { url }
     }
 }
 
 impl Drop for SilentConn {
     fn drop(&mut self) {
-        SILENT_CONNS.fetch_sub(1, Ordering::SeqCst);
+        let mut conns = SILENT_CONNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(index) = conns.iter().position(|url| *url == self.url) {
+            conns.swap_remove(index);
+        }
     }
 }
 
@@ -121,7 +128,7 @@ impl WsClient for MockTransport {
         _timeout_ms: u64,
     ) -> Result<WsConnectResult, TransportError> {
         if url.contains("silent") {
-            return Ok(WsConnectResult { connection: Arc::new(SilentConn::new()) });
+            return Ok(WsConnectResult { connection: Arc::new(SilentConn::new(url)) });
         }
         let pong = proto::SignalResponse {
             message: Some(proto::signal_response::Message::PongResp(proto::Pong::default())),

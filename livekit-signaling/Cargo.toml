@@ -39,6 +39,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net", "time", "rt-multi-thread"] }
+tokio-util = { workspace = true }
 base64 = { version = "0.21", features = ["std"] }
 flate2 = "1"
 http = "1.1"
