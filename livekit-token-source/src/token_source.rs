@@ -71,6 +71,13 @@ pub trait TokenSourceConfigurable {
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse>;
 
+    /// Drops any cached credentials so the next fetch hits the backend.
+    ///
+    /// The default does nothing, for sources that cache nothing.
+    /// [`TokenSourceCached`] clears its store and then forwards to the source
+    /// it wraps, so a source cached more than once is cleared at every layer.
+    async fn invalidate(&self) {}
+
     /// Wraps this source in a caching layer that stores the last fetched
     /// credentials and serves them for repeat fetches with equal options, for
     /// as long as the token stays valid. See [`TokenSourceCached`].
