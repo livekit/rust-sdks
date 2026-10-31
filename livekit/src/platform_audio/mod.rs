@@ -471,12 +471,15 @@ impl PlatformAudio {
             runtime.platform_adm_ref_count()
         );
 
-        // Enable ADM recording since PlatformAudio needs microphone access
-        // Recording is disabled by default to prevent interference with NativeAudioSource
-        runtime.set_adm_recording_enabled(true);
-        log::info!("PlatformAudio: enabled ADM recording for microphone capture");
-
-        // Enable ADM playout for platform speakers with AEC
+        // Keep ADM recording disabled here. Enabling it in `new()` makes
+        // libwebrtc start the real microphone as soon as *any* audio send
+        // stream is added (including NativeAudioSource / sine tracks), which
+        // opens the mic even when PlatformAudio is only used for playout
+        // (Fixes #1560). Recording is turned on in `start_recording()` and
+        // when a Device track is created.
+        //
+        // Enable ADM playout so remote audio can use platform speakers / AEC
+        // without requiring a mic publish.
         runtime.set_adm_playout_enabled(true);
         log::info!("PlatformAudio: enabled ADM playout for platform speakers");
 
@@ -1067,6 +1070,10 @@ impl PlatformAudio {
     /// [`stop_recording`]: Self::stop_recording
     pub fn start_recording(&self) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
+
+        // Allow the Platform ADM to capture before init/start. Deferred from
+        // `new()` so NativeAudioSource publishes do not open the mic (#1560).
+        runtime.set_adm_recording_enabled(true);
 
         // Initialize recording if not already initialized
         if !runtime.recording_is_initialized() {
