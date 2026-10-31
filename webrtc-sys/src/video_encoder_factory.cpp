@@ -622,16 +622,13 @@ namespace {
 // garbage pointer), so forwarding such a frame is a crash, not a graceful
 // failure. Drop it instead: the selector switches shortly after, and the
 // pass-through encoder requests a fresh keyframe when it takes over.
-// Also preserve presentation timestamps across backends that discard them.
-// The RTP timestamp identifies encoder inputs and survives all supported
-// encoders; the presentation timestamp then survives RTP timestamp offsets.
+// Also preserve presentation timestamps across raw encoder backends that
+// discard them. The pass-through encoder copies them directly from its input.
 class VideoEncoderWrapper final : public webrtc::VideoEncoder,
                                   private webrtc::EncodedImageCallback {
  public:
-  explicit VideoEncoderWrapper(std::unique_ptr<webrtc::VideoEncoder> encoder,
-                               bool allow_encoded_frames)
-      : allow_encoded_frames_(allow_encoded_frames),
-        encoder_(std::move(encoder)) {}
+  explicit VideoEncoderWrapper(std::unique_ptr<webrtc::VideoEncoder> encoder)
+      : encoder_(std::move(encoder)) {}
 
   ~VideoEncoderWrapper() override { Release(); }
 
@@ -665,8 +662,8 @@ class VideoEncoderWrapper final : public webrtc::VideoEncoder,
   int32_t Encode(
       const webrtc::VideoFrame& frame,
       const std::vector<webrtc::VideoFrameType>* frame_types) override {
-    if (!allow_encoded_frames_ && livekit::EncodedVideoFrameBuffer::FromNative(
-                                      frame.video_frame_buffer().get())) {
+    if (livekit::EncodedVideoFrameBuffer::FromNative(
+            frame.video_frame_buffer().get())) {
       static std::atomic<bool> logged{false};
       if (!logged.exchange(true)) {
         RTC_LOG(LS_WARNING)
@@ -730,7 +727,6 @@ class VideoEncoderWrapper final : public webrtc::VideoEncoder,
                               is_end_of_temporal_unit);
   }
 
-  const bool allow_encoded_frames_;
   // Registered before Encode and cleared only after Release joins callbacks.
   webrtc::EncodedImageCallback* callback_ = nullptr;
   webrtc::Mutex timestamps_mutex_;
@@ -751,10 +747,8 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
         env, internal_factory_.get(), nullptr, format);
   }
 
-  if (encoder) {
-    encoder = std::make_unique<VideoEncoderWrapper>(
-        std::move(encoder),
-        BackendFromFormat(format) == VideoEncoderBackend::PreEncoded);
+  if (encoder && BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
+    encoder = std::make_unique<VideoEncoderWrapper>(std::move(encoder));
   }
 
   return encoder;
