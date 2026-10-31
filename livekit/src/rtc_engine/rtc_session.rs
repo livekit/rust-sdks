@@ -2060,22 +2060,16 @@ impl SessionInner {
             send_encodings: encodings,
         };
 
-        let transceiver =
-            self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
-
-        if track.kind() == TrackKind::Video {
-            transceiver.sender().set_video_encoder_backend(options.video_encoder);
-
-            let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
-                match track.kind() {
-                    TrackKind::Video => MediaType::Video,
-                    TrackKind::Audio => MediaType::Audio,
-                },
-            );
+        // Build codec preferences before add_transceiver. onnegotiationneeded can fire as soon
+        // as the transceiver is added; if createOffer runs before set_codec_preferences, the
+        // offer lists the default order (VP8 first) and an H.264 publish can answer as VP8
+        // (#1572). Computing the list first keeps the post-add window to a single sync call.
+        let video_prefs = if track.kind() == TrackKind::Video {
+            let capabilities =
+                LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(MediaType::Video);
 
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();
-            let mut unmatched = Vec::new();
 
             for codec in capabilities.codecs {
                 let mime_type = codec.mime_type.to_lowercase();
@@ -2089,13 +2083,20 @@ impl SessionInner {
                         }
                     }
                     partial_matched.push(codec);
-                } else {
-                    unmatched.push(codec);
                 }
             }
 
             matched.append(&mut partial_matched);
+            Some((options.video_encoder, matched))
+        } else {
+            None
+        };
 
+        let transceiver =
+            self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
+
+        if let Some((video_encoder, matched)) = video_prefs {
+            transceiver.sender().set_video_encoder_backend(video_encoder);
             transceiver.set_codec_preferences(matched)?;
         }
 
