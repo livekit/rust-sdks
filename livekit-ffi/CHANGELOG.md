@@ -316,6 +316,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.13.4 (2026-10-31)
+
+### Fixes
+
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+- A received transcription with an invalid track sid is now dropped with a warning. Before, it made the client panic, which aborts the process in release builds.
+
 ## 0.13.3 (2026-10-28)
 
 ### Features
