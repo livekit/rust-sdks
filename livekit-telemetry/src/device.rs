@@ -81,8 +81,8 @@ pub enum NetworkType {
     Unavailable,
 }
 
-/// What the host observes about the device; pushed with `Telemetry::set_device_state` whenever
-/// anything changes.
+/// What the host observes about the device; pushed with
+/// [`Telemetry::set_device_state`](crate::Telemetry::set_device_state) whenever anything changes.
 ///
 /// The host owns the OS APIs (thermal, power, memory, battery, network path, lifecycle) — they
 /// are not reachable from Rust without a JVM/ObjC bridge — and the core owns what to do with

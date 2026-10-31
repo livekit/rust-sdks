@@ -626,10 +626,6 @@ impl BatchCache for FileCache {
 /// A cache that never refuses a batch: what the primary cannot store (disk full, directory
 /// gone) goes to memory instead, so it still uploads — it just no longer survives the process.
 /// Every spill is counted as `cache_write_errors`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
-)]
 pub(crate) struct SpillCache {
     primary: std::sync::Arc<dyn BatchCache>,
     spill: MemoryCache,
@@ -642,10 +638,6 @@ pub(crate) struct SpillCache {
     spilling: AtomicBool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
-)]
 impl SpillCache {
     pub fn new(
         primary: std::sync::Arc<dyn BatchCache>,
@@ -675,7 +667,7 @@ impl SpillCache {
 
 impl BatchCache for SpillCache {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
-        outside_gate(|| {
+        logged_after(|| {
             let gate = self.open_gate()?;
             let err = match self.primary.push(id, body) {
                 Ok(evicted) => {
@@ -699,7 +691,7 @@ impl BatchCache for SpillCache {
     /// A batch spilled to memory is split in memory; one on disk is split on disk or not at all
     /// — never moved from disk to memory, where a crash would lose it.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
-        outside_gate(|| {
+        logged_after(|| {
             let _gate = self.open_gate()?;
             if self.spill.pending().iter().any(|id| id == old) {
                 self.spill.replace(old, new)
@@ -726,7 +718,7 @@ impl BatchCache for SpillCache {
     }
 
     fn clear(&self) -> io::Result<()> {
-        outside_gate(|| {
+        logged_after(|| {
             let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
             self.spill.clear()?;
             self.primary.clear()
@@ -739,13 +731,14 @@ impl BatchCache for SpillCache {
 }
 
 thread_local! {
-    /// Diagnostics held back while this thread holds the spill gate; `None` logs them at once.
+    /// Diagnostics held back while this thread holds a lock a host logger must not find taken
+    /// (the spill gate, the span registry); `None` logs them at once.
     static HELD_BACK: RefCell<Option<Vec<(log::Level, String)>>> = const { RefCell::new(None) };
 }
 
-/// Log `message` now, or once the spill gate this thread holds is released (see
-/// [`outside_gate`]): a host logger may call back into the cache, and must not find it locked.
-fn diagnostic(level: log::Level, message: String) {
+/// Log `message` now, or once the lock this thread holds is released (see [`logged_after`]): a
+/// host logger may call back into the pipeline, and must not find that lock taken.
+pub(crate) fn diagnostic(level: log::Level, message: String) {
     let now = HELD_BACK.with(|held| match held.borrow_mut().as_mut() {
         Some(queue) => {
             queue.push((level, message));
@@ -758,13 +751,9 @@ fn diagnostic(level: log::Level, message: String) {
     }
 }
 
-/// Run `gated`, which takes the spill gate, and log the diagnostics it raised once it returned,
-/// its gate released (into an outer `outside_gate`, if any).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`SpillCache` uses it, and the pipeline is not in place yet")
-)]
-fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
+/// Run `locked`, which takes a lock, and log the diagnostics raised under it once it returned and
+/// released that lock (into an outer `logged_after`, if any).
+pub(crate) fn logged_after<T>(locked: impl FnOnce() -> T) -> T {
     struct Release(Option<Vec<(log::Level, String)>>);
     impl Drop for Release {
         fn drop(&mut self) {
@@ -776,7 +765,7 @@ fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
         }
     }
     let _release = Release(HELD_BACK.with(|held| held.borrow_mut().replace(Vec::new())));
-    gated()
+    locked()
 }
 
 /// A batch file: our extension and a creation stamp in its name. Anything else in the directory
