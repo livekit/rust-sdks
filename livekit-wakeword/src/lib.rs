@@ -16,7 +16,7 @@ use std::path::Path;
 #[cfg(use_tract)]
 use std::sync::Once;
 
-use ort::session::Session;
+use ort::session::{builder::SessionBuilder, Session};
 
 #[cfg(use_tract)]
 static INIT_TRACT: Once = Once::new();
@@ -28,10 +28,11 @@ pub(crate) fn ensure_tract_backend() {
     });
 }
 
-pub(crate) mod embedding;
-pub(crate) mod melspectrogram;
+pub(crate) mod stream;
 pub mod wakeword;
 
+/// Graph optimizations requested when an ONNX session is created.
+pub use ort::session::builder::GraphOptimizationLevel;
 pub use wakeword::WakeWordModel;
 
 #[derive(Debug, thiserror::Error)]
@@ -44,18 +45,28 @@ pub enum WakeWordError {
     Io(#[from] std::io::Error),
     #[error("wake word model not found: {0}")]
     ModelNotFound(String),
+    /// The file is not a streaming wake word model; v1 classifier models are not
+    /// supported and must be retrained.
+    #[error("not a streaming wake word model (v1 classifiers are not supported): {0}")]
+    NotStreamingModel(String),
+    /// A streaming model did not return an output it declared.
+    #[error("wake word model output missing: {0}")]
+    ModelOutputMissing(String),
     #[error("unsupported sample rate: {0} Hz")]
     UnsupportedSampleRate(u32),
     #[error(transparent)]
     Resample(#[from] resampler::ResampleError),
 }
 
+/// The sample rate models run at; other input rates are resampled.
 pub const SAMPLE_RATE: usize = 16000;
-pub const MEL_BINS: usize = 32;
-pub const EMBEDDING_WINDOW: usize = 76; // mel frames per embedding
-pub const EMBEDDING_STRIDE: usize = 8; // mel frames between embeddings
-pub const EMBEDDING_DIM: usize = 96;
-pub const MIN_EMBEDDINGS: usize = 16; // classifier input length
+/// Samples of 16 kHz audio per model step (80 ms).
+pub const FRAME_SAMPLES: usize = 1280;
+
+// ONNX Runtime 1.27.0 on arm64 runs batch-1 convolutions through KleidiAI kernels
+// that return wrong results; older versions accept the entry and ignore it.
+#[cfg(not(use_tract))]
+const DISABLE_KLEIDIAI: &str = "mlas.disable_kleidiai";
 
 pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWordError> {
     use resampler::SampleRate;
@@ -74,15 +85,125 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
     }
 }
 
-pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
-    #[cfg(use_tract)]
-    ensure_tract_backend();
-    Ok(Session::builder()?.commit_from_memory(bytes)?)
+/// How every ONNX session a [`WakeWordModel`] creates is configured. Mirrors the
+/// `sess_options` parameter the Python SDK takes.
+///
+/// [`Default`] is what [`WakeWordModel::new`] uses. Pass a value of your own to
+/// [`WakeWordModel::with_session_options`] to trade latency for CPU, which is
+/// useful when detection runs as a background process on a small machine:
+///
+/// ```no_run
+/// # use livekit_wakeword::{SessionOptions, WakeWordModel};
+/// # fn main() -> Result<(), livekit_wakeword::WakeWordError> {
+/// let options = SessionOptions {
+///     intra_threads: Some(1),
+///     inter_threads: Some(1),
+///     parallel_execution: Some(false),
+///     intra_op_spinning: Some(false),
+///     inter_op_spinning: Some(false),
+///     ..Default::default()
+/// };
+/// let model = WakeWordModel::with_session_options(&["hey_livekit.onnx"], 16000, options)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// `optimization_level` is the only option the `ort-tract` backend used on every
+/// target except aarch64 Windows implements; the rest are skipped there rather than
+/// failing session creation, and since tract runs single-threaded without
+/// spin-waiting, they already describe what it does.
+#[derive(Clone, Debug)]
+pub struct SessionOptions {
+    /// Graph optimizations to apply when the session is created. Matters more than
+    /// it looks: `ort-tract` runs tract's `into_optimized()` only when some level is
+    /// requested, and [`GraphOptimizationLevel::Disable`] made each 80 ms step of the
+    /// hey livekit model take longer than 80 ms to run.
+    pub optimization_level: GraphOptimizationLevel,
+    /// Threads used to run a single operator. `Some(1)` keeps each session on the
+    /// calling thread.
+    pub intra_threads: Option<usize>,
+    /// Threads used to run operators in parallel, when `parallel_execution` is on.
+    pub inter_threads: Option<usize>,
+    /// Whether independent operators may run in parallel. `Some(false)` is ONNX
+    /// Runtime's sequential execution mode.
+    pub parallel_execution: Option<bool>,
+    /// Whether intra-op threads may spin before blocking. `Some(false)` trades a
+    /// little latency for markedly less CPU while idle.
+    pub intra_op_spinning: Option<bool>,
+    /// Whether inter-op threads may spin before blocking.
+    pub inter_op_spinning: Option<bool>,
+    /// Session config entries applied verbatim, for anything the fields above do
+    /// not cover. Unless this sets `mlas.disable_kleidiai`, it defaults to `"1"`, as
+    /// in the Python SDK, to avoid wrong results from ONNX Runtime's KleidiAI kernels.
+    pub config_entries: Vec<(String, String)>,
 }
 
-pub(crate) fn build_session_from_file(path: impl AsRef<Path>) -> Result<Session, WakeWordError> {
+impl Default for SessionOptions {
+    /// Requests [`GraphOptimizationLevel::Level3`], ONNX Runtime's own default, and
+    /// leaves every other option to the backend.
+    fn default() -> Self {
+        Self {
+            optimization_level: GraphOptimizationLevel::Level3,
+            intra_threads: None,
+            inter_threads: None,
+            parallel_execution: None,
+            intra_op_spinning: None,
+            inter_op_spinning: None,
+            config_entries: Vec::new(),
+        }
+    }
+}
+
+impl SessionOptions {
+    // The optimization level is the only session option `ort-tract` implements;
+    // every other one resolves to `ort-sys`' stub API and reports `NotImplemented`.
+    // Since tract runs single-threaded without spin-waiting, skipping those is
+    // closer to what the caller asked for than refusing to build the session.
+    #[cfg(use_tract)]
+    fn apply(&self, builder: SessionBuilder) -> Result<SessionBuilder, WakeWordError> {
+        Ok(builder.with_optimization_level(self.optimization_level)?)
+    }
+
+    #[cfg(not(use_tract))]
+    fn apply(&self, builder: SessionBuilder) -> Result<SessionBuilder, WakeWordError> {
+        let mut builder = builder.with_optimization_level(self.optimization_level)?;
+        if let Some(threads) = self.intra_threads {
+            builder = builder.with_intra_threads(threads)?;
+        }
+        if let Some(threads) = self.inter_threads {
+            builder = builder.with_inter_threads(threads)?;
+        }
+        if let Some(parallel) = self.parallel_execution {
+            builder = builder.with_parallel_execution(parallel)?;
+        }
+        if let Some(enable) = self.intra_op_spinning {
+            builder = builder.with_intra_op_spinning(enable)?;
+        }
+        if let Some(enable) = self.inter_op_spinning {
+            builder = builder.with_inter_op_spinning(enable)?;
+        }
+        for (key, value) in &self.config_entries {
+            builder = builder.with_config_entry(key, value)?;
+        }
+        if !self.config_entries.iter().any(|(key, _)| key == DISABLE_KLEIDIAI) {
+            builder = builder.with_config_entry(DISABLE_KLEIDIAI, "1")?;
+        }
+        Ok(builder)
+    }
+}
+
+pub(crate) fn build_session_from_memory(
+    bytes: &[u8],
+    options: &SessionOptions,
+) -> Result<Session, WakeWordError> {
     #[cfg(use_tract)]
     ensure_tract_backend();
-    let bytes = std::fs::read(path)?;
-    Ok(Session::builder()?.commit_from_memory(&bytes)?)
+    Ok(options.apply(Session::builder()?)?.commit_from_memory(bytes)?)
+}
+
+pub(crate) fn build_session_from_file(
+    path: impl AsRef<Path>,
+    options: &SessionOptions,
+) -> Result<Session, WakeWordError> {
+    build_session_from_memory(&std::fs::read(path)?, options)
 }
