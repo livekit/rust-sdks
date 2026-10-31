@@ -52,6 +52,8 @@ mod transport;
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
 mod destination;
 
+/// The process pipeline: [`global::install`] once, then reach it anywhere.
+pub mod global;
 /// Entry point and configuration.
 mod telemetry;
 mod trace;
@@ -74,6 +76,9 @@ pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTranspo
 /// The backend contract, end to end through the pipeline.
 #[cfg(test)]
 mod backend_tests;
+/// The device contract, end to end through the pipeline and the process-wide opt-out.
+#[cfg(test)]
+mod device_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
