@@ -19,13 +19,29 @@ use tokio::sync::Mutex;
 
 /// Data track published by the remote participant.
 #[derive(uniffi::Object)]
-pub struct RemoteDataTrack(pub(crate) DataTrack<Remote>);
+pub struct RemoteDataTrack {
+    pub(crate) inner: DataTrack<Remote>,
+    // room-apis mints this the first time the track is handed to the FFI handle map; see
+    // `crate::migrate_from_ffi!`. After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) handle_id: std::sync::OnceLock<crate::FfiHandleId>,
+}
+
+impl RemoteDataTrack {
+    pub(crate) fn new(inner: DataTrack<Remote>) -> Self {
+        Self {
+            inner,
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl RemoteDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
-        self.0.is_published()
+        self.inner.is_published()
     }
 
     /// Waits asynchronously until the track is unpublished.
@@ -34,22 +50,22 @@ impl RemoteDataTrack {
     /// If the track is already unpublished, this method returns immediately.
     ///
     pub async fn wait_for_unpublish(&self) {
-        self.0.wait_for_unpublish().await
+        self.inner.wait_for_unpublish().await
     }
 
     /// Information about the data track.
     pub fn info(&self) -> DataTrackInfo {
-        self.0.info().into()
+        self.inner.info().into()
     }
 
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> String {
-        self.0.publisher_identity().to_string()
+        self.inner.publisher_identity().to_string()
     }
 
     /// Subscribes to the data track.
     pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.0.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
+        self.inner.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
     }
 
     /// Subscribes to the data track with custom options.
@@ -57,7 +73,7 @@ impl RemoteDataTrack {
         &self,
         options: DataTrackSubscribeOptions,
     ) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.0
+        self.inner
             .subscribe_with_options(options.into())
             .await
             .map(|stream| DataTrackStream(Mutex::new(stream)))
@@ -69,7 +85,7 @@ impl RemoteDataTrack {
     /// set at any time. New options take affect with the next received packet.
     ///
     pub fn set_pipeline_options(&self, options: RemoteDataTrackPipelineOptions) {
-        self.0.set_pipeline_options(options.into())
+        self.inner.set_pipeline_options(options.into())
     }
 }
 

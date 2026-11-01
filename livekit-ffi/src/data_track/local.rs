@@ -17,13 +17,29 @@ use livekit_datatrack::api::{DataTrack, DataTrackFrameEncoding, Local, PushFrame
 
 /// Data track published by the local participant.
 #[derive(uniffi::Object)]
-pub struct LocalDataTrack(pub(crate) DataTrack<Local>);
+pub struct LocalDataTrack {
+    pub(crate) inner: DataTrack<Local>,
+    // room-apis mints this the first time the track is handed to the FFI handle map; see
+    // `crate::migrate_from_ffi!`. After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) handle_id: std::sync::OnceLock<crate::FfiHandleId>,
+}
+
+impl LocalDataTrack {
+    pub(crate) fn new(inner: DataTrack<Local>) -> Self {
+        Self {
+            inner,
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl LocalDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
-        self.0.is_published()
+        self.inner.is_published()
     }
 
     /// Waits asynchronously until the track is unpublished.
@@ -32,12 +48,12 @@ impl LocalDataTrack {
     /// If the track is already unpublished, this method returns immediately.
     ///
     pub async fn wait_for_unpublish(&self) {
-        self.0.wait_for_unpublish().await
+        self.inner.wait_for_unpublish().await
     }
 
     /// Information about the data track.
     pub fn info(&self) -> DataTrackInfo {
-        self.0.info().into()
+        self.inner.info().into()
     }
 
     /// Try pushing a frame to subscribers of the track.
@@ -45,12 +61,12 @@ impl LocalDataTrack {
         // `PushFrameError` returns ownership of the unpublished frame to the caller because Rust's
         // `try_push` moves it. Across the FFI boundary the frame is lowered by copy, so the caller
         // still holds its own value and can retry with it directly; just provide the reason.
-        self.0.try_push(frame.into()).map_err(|err| err.reason())
+        self.inner.try_push(frame.into()).map_err(|err| err.reason())
     }
 
     /// Unpublishes the track.
     pub fn unpublish(&self) {
-        self.0.unpublish();
+        self.inner.unpublish();
     }
 }
 
