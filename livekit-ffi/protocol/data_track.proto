@@ -138,6 +138,12 @@ message PublishDataTrackCallback {
   }
 }
 
+// Handle to a published local data track.
+//
+// Dropping the handle unpublishes the track, unless the track has also been
+// taken up over UniFFI (`LocalDataTrack.from_ffi_handle_id`). The two then
+// co-own it, and it is unpublished once both have released it.
+//
 message OwnedLocalDataTrack {
   required FfiOwnedHandle handle = 1;
   required DataTrackInfo info = 2;
@@ -168,6 +174,11 @@ message LocalDataTrackUnpublishResponse {}
 
 // MARK: - Remote
 
+// Handle to a data track published by a remote participant.
+//
+// The track can also be taken up over UniFFI
+// (`RemoteDataTrack.from_ffi_handle_id`); the two then co-own it.
+//
 message OwnedRemoteDataTrack {
   required FfiOwnedHandle handle = 1;
   required DataTrackInfo info = 2;
