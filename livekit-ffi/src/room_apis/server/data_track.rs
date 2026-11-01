@@ -230,3 +230,15 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
     }
 }
+
+/// Bridges the shared uniffi data track objects to the FFI handle map, as on
+/// [`super::resampler::SoxResampler`]. A nested module because the shared types have the same names
+/// as the `livekit` types this file wraps, and uniffi names an object after the type as written.
+///
+/// After the migration is complete, this module can be removed.
+mod migration {
+    use crate::data_track::{local::LocalDataTrack, remote::RemoteDataTrack};
+
+    crate::migrate_from_ffi!(LocalDataTrack);
+    crate::migrate_from_ffi!(RemoteDataTrack);
+}
