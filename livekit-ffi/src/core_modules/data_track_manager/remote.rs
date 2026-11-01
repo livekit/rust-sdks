@@ -171,7 +171,7 @@ impl DelegateForwardTask {
     fn forward_event(&self, event: remote::OutputEvent) {
         match event {
             remote::OutputEvent::TrackPublished(event) => {
-                let track = Arc::new(RemoteDataTrack(event.track));
+                let track = Arc::new(RemoteDataTrack::new(event.track));
                 self.delegate.on_track_published(track);
             }
             remote::OutputEvent::TrackUnpublished(event) => {

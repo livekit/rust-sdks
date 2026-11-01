@@ -75,7 +75,7 @@ impl LocalDataTrackManager {
         &self,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
-        self.input.publish_track(options.into()).await.map(LocalDataTrack)
+        self.input.publish_track(options.into()).await.map(LocalDataTrack::new)
     }
 
     /// Get serialized publish responses for all currently published tracks to support sync state.
