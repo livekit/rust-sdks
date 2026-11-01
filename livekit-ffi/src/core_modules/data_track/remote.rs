@@ -12,126 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::common::{
-    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
-};
+use super::common::{deserialize_signal_response, HandleSignalResponseError};
+use crate::data_track::remote::RemoteDataTrack;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, DataTrackSid, DataTrackSubscribeError, Remote},
+    api::DataTrackSid,
     backend::{remote, DecryptionProvider},
 };
 use livekit_protocol as proto;
 use prost::Message;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio_util::sync::{CancellationToken, DropGuard};
-
-/// Data track published by the remote participant.
-#[derive(uniffi::Object)]
-pub struct RemoteDataTrack(DataTrack<Remote>);
-
-#[uniffi::export(async_runtime = "tokio")]
-impl RemoteDataTrack {
-    /// Whether or not the track is currently published.
-    pub fn is_published(&self) -> bool {
-        self.0.is_published()
-    }
-
-    /// Waits asynchronously until the track is unpublished.
-    ///
-    /// Use this to trigger follow-up work once the track is no longer published.
-    /// If the track is already unpublished, this method returns immediately.
-    ///
-    pub async fn wait_for_unpublish(&self) {
-        self.0.wait_for_unpublish().await
-    }
-
-    /// Information about the data track.
-    pub fn info(&self) -> DataTrackInfo {
-        self.0.info().into()
-    }
-
-    /// Identity of the participant who published the track.
-    pub fn publisher_identity(&self) -> String {
-        self.0.publisher_identity().to_string()
-    }
-
-    /// Subscribes to the data track.
-    pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.0.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
-    }
-
-    /// Subscribes to the data track with custom options.
-    pub async fn subscribe_with_options(
-        &self,
-        options: DataTrackSubscribeOptions,
-    ) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.0
-            .subscribe_with_options(options.into())
-            .await
-            .map(|stream| DataTrackStream(Mutex::new(stream)))
-    }
-
-    /// Configures options for the pipeline handling incoming packets for this track.
-    ///
-    /// These options apply to all current and future subscriptions of this track, and may be
-    /// set at any time. New options take affect with the next received packet.
-    ///
-    pub fn set_pipeline_options(&self, options: RemoteDataTrackPipelineOptions) {
-        self.0.set_pipeline_options(options.into())
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct DataTrackSubscribeOptions {
-    /// Maximum number of received frames buffered internally. Zero is clamped to one.
-    #[uniffi(default = 16)]
-    pub buffer_size: u32,
-}
-
-impl From<DataTrackSubscribeOptions> for livekit_datatrack::api::DataTrackSubscribeOptions {
-    fn from(options: DataTrackSubscribeOptions) -> Self {
-        livekit_datatrack::api::DataTrackSubscribeOptions::default()
-            .with_buffer_size(options.buffer_size as usize)
-    }
-}
-
-/// FFI wrapper around [`livekit_datatrack::api::RemoteDataTrackPipelineOptions`]. The underlying
-/// type uses the builder pattern with private fields.
-///
-#[derive(uniffi::Record)]
-pub struct RemoteDataTrackPipelineOptions {
-    /// Maximum number of partial frames the depacketizer will track concurrently for this track.
-    ///
-    /// Higher values give more out-of-order tolerance for high-frequency senders at the cost of
-    /// additional buffering. Zero is clamped to one.
-    ///
-    #[uniffi(default = 1)]
-    pub max_partial_frames: u32,
-}
-
-impl From<RemoteDataTrackPipelineOptions>
-    for livekit_datatrack::api::RemoteDataTrackPipelineOptions
-{
-    fn from(options: RemoteDataTrackPipelineOptions) -> Self {
-        livekit_datatrack::api::RemoteDataTrackPipelineOptions::default()
-            .with_max_partial_frames(options.max_partial_frames as usize)
-    }
-}
-
-/// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
-#[derive(uniffi::Object)]
-pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
-
-#[uniffi::export(async_runtime = "tokio")]
-impl DataTrackStream {
-    /// Returns the next received frame or `None` if the subscription has ended.
-    pub async fn next(&self) -> Option<DataTrackFrame> {
-        // TODO: avoid mutex?
-        self.0.lock().await.next().await.map(Into::into)
-    }
-}
 
 /// System for managing data track subscriptions.
 #[derive(uniffi::Object)]
