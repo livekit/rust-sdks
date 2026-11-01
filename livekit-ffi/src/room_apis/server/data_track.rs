@@ -23,10 +23,6 @@ use tokio::sync::{oneshot, Notify};
 
 /// The shared uniffi objects. The handle map stores tracks as `Arc`s of these, so that
 /// `from_ffi_handle_id` can hand the same track to the uniffi side.
-///
-/// The handle map and the uniffi side then co-own the track. A [`lk::LocalDataTrack`] unpublishes
-/// itself when its last clone drops, so a local track stays published until both have released
-/// it: `livekit_ffi_drop_handle` alone unpublishes it only if the uniffi side never took it up.
 pub use crate::data_track::{local::LocalDataTrack, remote::RemoteDataTrack};
 
 // After the migration is complete, this impl can be removed.
