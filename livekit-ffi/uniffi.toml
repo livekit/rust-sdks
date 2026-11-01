@@ -54,14 +54,6 @@ omit_checksums = true
 # anything declared in a submodule is silently ignored (methods use the crate name and do work).
 # Those fields are named in Rust instead -- see data_stream/common.rs.
 
-[bindings.python]
-# Both surfaces now export types from livekit-common and livekit-datatrack, so livekit_ffi.py
-# imports their modules. UniFFI's default is a relative import (`from . import livekit_common`),
-# which only works inside a package. The release ships the .py files flat, to be imported as
-# `import livekit_ffi` (see ffi-builds.yml); an empty package name makes the imports absolute.
-# livekit-datatrack/uniffi.toml does the same for its own import of livekit_common.
-external_packages = { livekit_common = "", livekit_datatrack = "" }
-
 [bindings.dart]
 # Dart package name; must match the published pub package so the Native Assets
 # asset id resolves to `package:livekit_ffi/uniffi:livekit_ffi`.
