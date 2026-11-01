@@ -23,7 +23,8 @@
 //! Gated behind the `core-modules` feature, which is mutually exclusive with
 //! `room-apis`.
 
-/// Data tracks core from [`livekit-datatrack`].
+/// Data track managers from [`livekit-datatrack`]. The track objects themselves are shared by
+/// both surfaces; see [`crate::data_track`].
 pub mod data_track;
 
 /// Data streams v2 core from [`livekit-data-stream`].
@@ -37,9 +38,6 @@ pub mod signaling;
 
 /// Forward log messages from Rust.
 pub mod log_forward;
-
-/// Shared exports and utilities.
-pub mod common;
 
 /// Global async runtime.
 pub mod runtime;
