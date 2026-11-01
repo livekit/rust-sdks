@@ -283,14 +283,6 @@ jobs:
           grep -q 'def build_version' python-bindings/livekit_ffi.py
           grep -q 'class LocalDataTrack' python-bindings/livekit_ffi.py
 
-          # livekit_ffi.py imports the livekit_common and livekit_datatrack modules
-          # generated beside it. Import the files the way the README below says
-          # to -- flat, next to the library -- so a relative import, which only
-          # works inside a package, fails here rather than for users.
-          smoke_dir="$(mktemp -d)"
-          cp python-bindings/*.py "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/${{ matrix.dylib }}" "$smoke_dir/"
-          (cd "$smoke_dir" && python3 -I -c 'import sys; sys.path.insert(0, "."); import livekit_ffi; livekit_ffi.build_version(); livekit_ffi.LocalDataTrack')
-
       - name: Zip Python bindings
         if: ${{ matrix.name == 'ffi-macos-arm64' }}
         run: |

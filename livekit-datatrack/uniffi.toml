@@ -6,8 +6,3 @@ ffi_module_name = "RustLiveKitDataTrack"
 # mask the upper 16 bits of the checksum. For more info, see the similar comment in the root
 # Cargo.toml.
 omit_checksums = true
-
-[bindings.python]
-# Absolute import of livekit_common, so the modules work as flat files next to each other. See
-# livekit-ffi/uniffi.toml.
-external_packages = { livekit_common = "" }
