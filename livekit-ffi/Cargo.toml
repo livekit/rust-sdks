@@ -78,6 +78,10 @@ capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
+# End-to-end tests against a LiveKit server, as in the `livekit` crate. These
+# drive the room-apis request surface, so they imply it.
+__lk-e2e-test = ["room-apis"]
+
 [dependencies]
 # Shared by both surfaces.
 livekit-protocol = { workspace = true }
