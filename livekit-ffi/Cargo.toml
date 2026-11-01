@@ -87,9 +87,6 @@ futures-util = { workspace = true, default-features = false, features = ["sink"]
 bytes = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
-# Shared by both surfaces, which export the data track objects over UniFFI. In
-# room-apis these are the same crate instances `livekit` depends on, so the
-# `uniffi` features only add the derives and scaffolding.
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
 
