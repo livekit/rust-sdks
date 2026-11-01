@@ -25,7 +25,10 @@
 
 /// Data track managers from [`livekit-datatrack`]. The track objects themselves are shared by
 /// both surfaces; see [`crate::data_track`].
-pub mod data_track;
+///
+/// Not named `data_track`: the crate root republishes this module with a glob, and the root's own
+/// `data_track` would silently shadow it.
+pub mod data_track_manager;
 
 /// Data streams v2 core from [`livekit-data-stream`].
 pub mod data_stream;
