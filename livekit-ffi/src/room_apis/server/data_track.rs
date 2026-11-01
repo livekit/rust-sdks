@@ -16,46 +16,29 @@ use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::data_track::{
-    DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
-    LocalDataTrack, RemoteDataTrack,
+    self as lk, DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
 };
 use std::sync::{Arc, OnceLock};
 use tokio::sync::{oneshot, Notify};
 
-/// FFI wrapper around [`LocalDataTrack`].
-#[derive(Clone)]
-pub struct FfiLocalDataTrack {
-    pub handle_id: FfiHandleId,
-    pub inner: LocalDataTrack,
-}
+/// The shared uniffi objects. The handle map stores tracks as `Arc`s of these, so that
+/// `from_ffi_handle_id` can hand the same track to the uniffi side.
+pub use crate::data_track::{local::LocalDataTrack, remote::RemoteDataTrack};
 
-/// FFI wrapper around [`RemoteDataTrack`].
-#[derive(Clone)]
-pub struct FfiRemoteDataTrack {
-    pub handle_id: FfiHandleId,
-    pub inner: RemoteDataTrack,
-}
-
-impl FfiHandle for FfiLocalDataTrack {}
-impl FfiHandle for FfiRemoteDataTrack {}
-
-impl FfiLocalDataTrack {
-    pub fn from_track(
-        server: &'static FfiServer,
-        track: LocalDataTrack,
-    ) -> proto::OwnedLocalDataTrack {
-        let handle_id = server.next_id();
+// After the migration is complete, this impl can be removed.
+impl LocalDataTrack {
+    /// Stores a newly published track in the handle map.
+    pub fn from_track_ffi(track: lk::LocalDataTrack) -> proto::OwnedLocalDataTrack {
         let info = track.info().clone();
-        let track = Self { handle_id, inner: track };
-        server.store_handle(handle_id, track);
+        let handle_id = Arc::new(Self::new(track)).ffi_handle_id();
         proto::OwnedLocalDataTrack {
             handle: proto::FfiOwnedHandle { id: handle_id },
             info: info.into(),
         }
     }
 
-    pub fn is_published(
-        self,
+    pub fn is_published_ffi(
+        &self,
         _server: &'static FfiServer,
         _request: proto::LocalDataTrackIsPublishedRequest,
     ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
@@ -63,8 +46,8 @@ impl FfiLocalDataTrack {
         Ok(proto::LocalDataTrackIsPublishedResponse { is_published })
     }
 
-    pub fn unpublish(
-        self,
+    pub fn unpublish_ffi(
+        &self,
         _server: &'static FfiServer,
         _request: proto::LocalDataTrackUnpublishRequest,
     ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
@@ -72,27 +55,26 @@ impl FfiLocalDataTrack {
         Ok(proto::LocalDataTrackUnpublishResponse::default())
     }
 
-    pub fn try_push(
-        self,
+    pub fn try_push_ffi(
+        &self,
         _server: &'static FfiServer,
         request: proto::LocalDataTrackTryPushRequest,
     ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
         let frame: DataTrackFrame = request.frame.into();
+        // Unlike the uniffi `try_push`, which reports only the reason, the response carries the
+        // full error message.
         let error = self.inner.try_push(frame).err().map(Into::into);
         Ok(proto::LocalDataTrackTryPushResponse { error })
     }
 }
 
-impl FfiRemoteDataTrack {
-    pub fn from_track(
-        server: &'static FfiServer,
-        track: RemoteDataTrack,
-    ) -> proto::OwnedRemoteDataTrack {
-        let handle_id = server.next_id();
+// After the migration is complete, this impl can be removed.
+impl RemoteDataTrack {
+    /// Stores a newly published remote track in the handle map.
+    pub fn from_track_ffi(track: lk::RemoteDataTrack) -> proto::OwnedRemoteDataTrack {
         let info = track.info().clone();
         let publisher_identity = track.publisher_identity().to_string();
-        let track = Self { handle_id, inner: track };
-        server.store_handle(handle_id, track);
+        let handle_id = Arc::new(Self::new(track)).ffi_handle_id();
         proto::OwnedRemoteDataTrack {
             handle: proto::FfiOwnedHandle { id: handle_id },
             publisher_identity,
@@ -100,8 +82,8 @@ impl FfiRemoteDataTrack {
         }
     }
 
-    pub fn is_published(
-        self,
+    pub fn is_published_ffi(
+        &self,
         _server: &'static FfiServer,
         _request: proto::RemoteDataTrackIsPublishedRequest,
     ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
@@ -109,8 +91,8 @@ impl FfiRemoteDataTrack {
         Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
     }
 
-    pub fn set_pipeline_options(
-        self,
+    pub fn set_pipeline_options_ffi(
+        &self,
         _server: &'static FfiServer,
         request: proto::RemoteDataTrackSetPipelineOptionsRequest,
     ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
@@ -118,8 +100,8 @@ impl FfiRemoteDataTrack {
         Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
     }
 
-    pub fn subscribe(
-        self,
+    pub fn subscribe_ffi(
+        &self,
         server: &'static FfiServer,
         request: proto::SubscribeDataTrackRequest,
     ) -> FfiResult<proto::SubscribeDataTrackResponse> {
@@ -136,7 +118,8 @@ impl FfiRemoteDataTrack {
         server.store_handle(handle_id, stream);
 
         let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
-        let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
+        let task_handle =
+            server.async_runtime.spawn(task.run(self.inner.clone(), request.options.into()));
         server.watch_panic(task_handle);
 
         let stream =
@@ -178,7 +161,7 @@ struct SubscriptionTask {
 }
 
 impl SubscriptionTask {
-    async fn run(mut self, track: RemoteDataTrack, options: DataTrackSubscribeOptions) {
+    async fn run(mut self, track: lk::RemoteDataTrack, options: DataTrackSubscribeOptions) {
         let Some(mut stream) = self.wait_for_subscription(track, options).await else {
             return;
         };
@@ -190,7 +173,7 @@ impl SubscriptionTask {
 
     async fn wait_for_subscription(
         &mut self,
-        track: RemoteDataTrack,
+        track: lk::RemoteDataTrack,
         options: DataTrackSubscribeOptions,
     ) -> Option<DataTrackStream> {
         tokio::select! {
@@ -232,12 +215,11 @@ impl SubscriptionTask {
 }
 
 /// Bridges the shared uniffi data track objects to the FFI handle map, as on
-/// [`super::resampler::SoxResampler`]. A nested module because the shared types have the same names
-/// as the `livekit` types this file wraps, and uniffi names an object after the type as written.
+/// [`super::resampler::SoxResampler`].
 ///
 /// After the migration is complete, this module can be removed.
 mod migration {
-    use crate::data_track::{local::LocalDataTrack, remote::RemoteDataTrack};
+    use super::{LocalDataTrack, RemoteDataTrack};
 
     crate::migrate_from_ffi!(LocalDataTrack);
     crate::migrate_from_ffi!(RemoteDataTrack);
