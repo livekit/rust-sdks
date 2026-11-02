@@ -45,11 +45,6 @@ Out of scope:
 - Generated code: `livekit-protocol/src/livekit*.rs`, `logger*.rs`,
   `livekit-api/src/public_api/generated.rs`, and prost/uniffi output.
 - The `examples/`, `tools/`, and `livekit-ffi-node-bindings/` directories.
-- The vendored sources under `yuv-sys/libyuv` and `soxr-sys/src/*.c`.
-- libwebrtc. The prebuilt is built from the `webrtc-sdk/webrtc` fork plus the
-  patches in `webrtc-sys/libwebrtc/patches/`, and it is treated as upstream.
-  Report a libwebrtc bug only when one of those patches or the way
-  `webrtc-sys` calls libwebrtc causes it.
 - The NVIDIA, Jetson, and VAAPI hardware codecs. This image does not build the
   NVIDIA or Jetson paths.
 
@@ -70,7 +65,6 @@ Trusted:
   (`data_ptr` fields), so a host that passes a bad pointer or handle is not a
   finding.
 - API secrets, E2EE keys, and the options the application supplies.
-- libwebrtc internals, within the limits above.
 
 LiveKit server (`livekit/livekit`) is enrolled separately. Report
 server-side bugs there.
@@ -114,7 +108,6 @@ server-side bugs there.
   use.
 - **Low / not a finding:** misuse that requires a malicious host application
   or bad FFI pointers. Issues only in generated code, examples, or tools.
-  Upstream libwebrtc bugs not caused by LiveKit's patches or usage.
 
 ## Testing
 
