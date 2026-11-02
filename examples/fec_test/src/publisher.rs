@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
     writeln!(
         csv,
         "time,packets_sent,bytes_sent,retransmitted_packets_sent,frames_encoded,\
-         target_bitrate,sent_video_rate_bps,sent_fec_rate_bps,sent_nack_rate_bps,active_streams"
+         target_bitrate"
     )?;
 
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
@@ -231,20 +231,15 @@ async fn main() -> Result<()> {
             }
         }
 
-        let fec = room.fec_sender_stats();
         writeln!(
             csv,
-            "{:.3},{},{},{},{},{:.0},{},{},{},{}",
+            "{:.3},{},{},{},{},{:.0}",
             common::unix_time_secs(),
             packets_sent,
             bytes_sent,
             retransmitted,
             frames_encoded,
             target_bitrate,
-            fec.sent_video_rate_bps,
-            fec.sent_fec_rate_bps,
-            fec.sent_nack_rate_bps,
-            fec.active_streams,
         )?;
         csv.flush()?;
     }

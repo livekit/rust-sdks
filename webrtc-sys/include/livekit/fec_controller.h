@@ -20,15 +20,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <set>
 
 #include "api/environment/environment.h"
 #include "api/fec_controller.h"
 #include "api/fec_controller_override.h"
 
 namespace livekit_ffi {
-
-struct FecSenderMetrics;
 
 // Process-wide FlexFEC registry. Protection rates are bound to individual video
 // send-stream controllers. FlexFEC negotiation is enabled on the shared
@@ -37,23 +34,17 @@ class FecGlobalState {
  public:
   static FecGlobalState& Instance();
 
-  void RegisterController(class FixedRateFecController* controller);
   void DeregisterController(class FixedRateFecController* controller);
   void BindController(class FixedRateFecController* controller,
                       webrtc::VCMProtectionCallback* protection_callback);
   void ConfigureController(
       webrtc::FecControllerOverride* fec_controller_override,
       int fec_rate);
-  void AggregateMetrics(uint32_t& sent_video_rate_bps,
-                        uint32_t& sent_fec_rate_bps,
-                        uint32_t& sent_nack_rate_bps,
-                        uint32_t& active_streams);
 
  private:
   FecGlobalState() = default;
 
   std::mutex mutex_;
-  std::set<class FixedRateFecController*> controllers_;
   std::map<const void*, class FixedRateFecController*> controllers_by_owner_;
   std::map<const void*, int> fec_rates_by_owner_;
 };
@@ -83,18 +74,12 @@ class FixedRateFecController : public webrtc::FecController {
       webrtc::VideoFrameType encoded_image_frametype) override;
   bool UseLossVectorMask() override;
 
-  uint32_t sent_video_rate_bps() const { return sent_video_rate_bps_.load(); }
-  uint32_t sent_fec_rate_bps() const { return sent_fec_rate_bps_.load(); }
-  uint32_t sent_nack_rate_bps() const { return sent_nack_rate_bps_.load(); }
   void SetFecRate(int fec_rate) { fec_rate_.store(fec_rate); }
 
  private:
   std::atomic<webrtc::VCMProtectionCallback*> protection_callback_{nullptr};
   std::atomic<bool> fec_negotiated_{false};
   std::atomic<int> fec_rate_{0};
-  std::atomic<uint32_t> sent_video_rate_bps_{0};
-  std::atomic<uint32_t> sent_fec_rate_bps_{0};
-  std::atomic<uint32_t> sent_nack_rate_bps_{0};
 };
 
 class LkFecControllerFactory : public webrtc::FecControllerFactoryInterface {
@@ -102,8 +87,5 @@ class LkFecControllerFactory : public webrtc::FecControllerFactoryInterface {
   std::unique_ptr<webrtc::FecController> CreateFecController(
       const webrtc::Environment& env) override;
 };
-
-// cxx bridge entry points
-FecSenderMetrics fec_sender_metrics();
 
 }  // namespace livekit_ffi

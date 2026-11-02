@@ -929,14 +929,6 @@ impl Room {
         self.inner.rtc_engine.get_stats().await
     }
 
-    /// Aggregated send side FlexFEC rates as reported by the RTP layer
-    /// across the video send streams of the process. `sent_fec_rate_bps > 0`
-    /// confirms FEC packets are being generated and sent.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn fec_sender_stats(&self) -> libwebrtc::native::fec_controller::FecSenderMetrics {
-        libwebrtc::native::fec_controller::fec_sender_metrics()
-    }
-
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
         self.inner.dispatcher.register()
     }

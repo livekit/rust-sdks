@@ -31,7 +31,6 @@ Notes:
   These correspond to 0%, 15%, 25%, and 35% protection. The default is
   `Disabled`, which sends no repair packets.
 - Protection uses a fixed one-frame block and a random-loss mask.
-- `Room::fec_sender_stats` reports the aggregate FEC send rate.
 - FlexFEC protects the first simulcast layer only, publishing with
   `simulcast: false` is recommended for protected tracks.
 - FEC spends bandwidth proactively: it pays off on links where loss is

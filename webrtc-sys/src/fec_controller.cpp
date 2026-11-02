@@ -21,7 +21,6 @@
 #include "call/rtp_video_sender.h"
 #include "modules/include/module_fec_types.h"
 #include "rtc_base/logging.h"
-#include "webrtc-sys/src/fec_controller.rs.h"
 
 namespace livekit_ffi {
 namespace {
@@ -51,14 +50,8 @@ FecGlobalState& FecGlobalState::Instance() {
   return *instance;
 }
 
-void FecGlobalState::RegisterController(FixedRateFecController* controller) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  controllers_.insert(controller);
-}
-
 void FecGlobalState::DeregisterController(FixedRateFecController* controller) {
   std::lock_guard<std::mutex> lock(mutex_);
-  controllers_.erase(controller);
   for (auto it = controllers_by_owner_.begin();
        it != controllers_by_owner_.end();) {
     if (it->second == controller) {
@@ -114,29 +107,9 @@ void FecGlobalState::ConfigureController(
   RTC_LOG(LS_INFO) << "FlexFEC controller rate=" << fec_rate;
 }
 
-void FecGlobalState::AggregateMetrics(uint32_t& sent_video_rate_bps,
-                                      uint32_t& sent_fec_rate_bps,
-                                      uint32_t& sent_nack_rate_bps,
-                                      uint32_t& active_streams) {
-  sent_video_rate_bps = 0;
-  sent_fec_rate_bps = 0;
-  sent_nack_rate_bps = 0;
-  active_streams = 0;
-
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (const auto* controller : controllers_) {
-    sent_video_rate_bps += controller->sent_video_rate_bps();
-    sent_fec_rate_bps += controller->sent_fec_rate_bps();
-    sent_nack_rate_bps += controller->sent_nack_rate_bps();
-    active_streams++;
-  }
-}
-
 // ---------------------------------------------------------------------------
 
-FixedRateFecController::FixedRateFecController() {
-  FecGlobalState::Instance().RegisterController(this);
-}
+FixedRateFecController::FixedRateFecController() = default;
 
 FixedRateFecController::~FixedRateFecController() {
   FecGlobalState::Instance().DeregisterController(this);
@@ -184,9 +157,6 @@ uint32_t FixedRateFecController::UpdateFecRates(
                                 &sent_video_rate_bps, &sent_nack_rate_bps,
                                 &sent_fec_rate_bps);
   }
-  sent_video_rate_bps_.store(sent_video_rate_bps);
-  sent_nack_rate_bps_.store(sent_nack_rate_bps);
-  sent_fec_rate_bps_.store(sent_fec_rate_bps);
 
   if (fec_rate == 0 || !fec_negotiated_.load()) {
     return estimated_bitrate_bps;
@@ -222,16 +192,6 @@ bool FixedRateFecController::UseLossVectorMask() {
 std::unique_ptr<webrtc::FecController>
 LkFecControllerFactory::CreateFecController(const webrtc::Environment& env) {
   return std::make_unique<FixedRateFecController>();
-}
-
-// ---------------------------------------------------------------------------
-
-FecSenderMetrics fec_sender_metrics() {
-  FecSenderMetrics metrics{};
-  FecGlobalState::Instance().AggregateMetrics(
-      metrics.sent_video_rate_bps, metrics.sent_fec_rate_bps,
-      metrics.sent_nack_rate_bps, metrics.active_streams);
-  return metrics;
 }
 
 }  // namespace livekit_ffi

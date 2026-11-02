@@ -56,7 +56,6 @@ fn main() {
         "src/apm.rs",
         "src/audio_mixer.rs",
         "src/packet_trailer.rs",
-        "src/fec_controller.rs",
     ];
 
     if is_desktop {
