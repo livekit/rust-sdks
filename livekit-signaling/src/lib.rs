@@ -37,6 +37,7 @@ use tokio::{
     task::JoinHandle,
     time::{interval, sleep, Instant},
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::signal_stream::SignalStream;
 use livekit_net::HttpClientExt;
@@ -146,6 +147,10 @@ pub enum SignalError {
     RegionError(String),
     #[error("server sent leave during reconnect: reason={reason:?}, action={action:?}")]
     LeaveRequest { reason: proto::DisconnectReason, action: proto::leave_request::Action },
+    /// [`SignalOptions::cancellation_token`] was cancelled. Final: the session cannot be
+    /// resumed.
+    #[error("signal session cancelled")]
+    Cancelled,
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +207,15 @@ pub struct SignalOptions {
     /// Advertise-only: other participants read it to decide what to send this client, but
     /// nothing in this crate changes behavior on it.
     pub client_protocol: i32,
+    /// Ends the session for good once cancelled.
+    ///
+    /// A connect or resume in flight stops with [`SignalError::Cancelled`], the signal task
+    /// closes the transport without emitting [`SignalEvent::Close`], and later sends are
+    /// dropped. Unlike [`SignalClient::close`], which leaves the session resumable with
+    /// [`SignalClient::restart`].
+    ///
+    /// The default token is never cancelled.
+    pub cancellation_token: CancellationToken,
 }
 
 impl Default for SignalOptions {
@@ -216,6 +230,7 @@ impl Default for SignalOptions {
             protocol_version: PROTOCOL_VERSION,
             client_capabilities: CLIENT_CAPABILITIES.to_vec(),
             client_protocol: CLIENT_PROTOCOL_VERSION,
+            cancellation_token: CancellationToken::new(),
         }
     }
 }
@@ -365,18 +380,28 @@ impl SignalClient {
         options: SignalOptions,
         publisher_offer: Option<proto::SessionDescription>,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
+        let cancel = options.cancellation_token.clone();
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
             let (emitter, events) = mpsc::unbounded_channel();
             let signal_task =
                 tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+            // Cancelled after the transport came up: the signal task owns it now and closes it.
+            if cancel.is_cancelled() {
+                return Err(SignalError::Cancelled);
+            }
 
-            (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
+            Ok((
+                Self { inner, emitter, handle: Mutex::new(Some(signal_task)) },
+                join_response,
+                events,
+            ))
         };
 
         match SignalInner::connect(url, token, options.clone(), publisher_offer.clone()).await {
             Ok((inner, join_response, stream_events)) => {
-                Ok(handle_success(inner, join_response, stream_events))
+                handle_success(inner, join_response, stream_events)
             }
+            Err(err @ SignalError::Cancelled) => Err(err),
             Err(err) if !options.region_failover => Err(err),
             Err(err) => {
                 // fallback to region urls
@@ -391,7 +416,13 @@ impl SignalClient {
                 // that must NOT be fatal: log a warning and fall back to the
                 // original connection error rather than masking it with the
                 // fetch error.
-                let urls = match RegionUrlProvider::fetch_region_urls(url, token).await {
+                let Some(urls) = cancel
+                    .run_until_cancelled(RegionUrlProvider::fetch_region_urls(url, token))
+                    .await
+                else {
+                    return Err(SignalError::Cancelled);
+                };
+                let urls = match urls {
                     Ok(urls) => urls,
                     Err(region_err) => {
                         log::warn!(
@@ -417,8 +448,9 @@ impl SignalClient {
                     .await
                     {
                         Ok((inner, join_response, stream_events)) => {
-                            return Ok(handle_success(inner, join_response, stream_events))
+                            return handle_success(inner, join_response, stream_events)
                         }
+                        Err(err @ SignalError::Cancelled) => return Err(err),
                         Err(region_conn_err) => {
                             // This region is unreachable; drop it from the cache
                             // so the next attempt doesn't hand it out again.
@@ -453,6 +485,10 @@ impl SignalClient {
             tokio::spawn(signal_task(self.inner.clone(), self.emitter.clone(), stream_events));
 
         *self.handle.lock() = Some(signal_task);
+        // Cancelled after the transport came up: the signal task owns it now and closes it.
+        if self.inner.options.cancellation_token.is_cancelled() {
+            return Err(SignalError::Cancelled);
+        }
         Ok(reconnect_response)
     }
 
@@ -540,11 +576,20 @@ impl SignalInner {
         // The machine starts `Connecting` and is driven here, before there is a client to
         // hold it. A failed attempt ends `Closed` and is dropped with the error.
         let mut state = SignalState::default();
+        let cancel = &options.cancellation_token;
         let attempt = async {
-            let (stream, mut events, single_pc_mode_active) =
-                Self::open_transport(url, token, &options, publisher_offer.as_ref()).await?;
+            // No stream exists until `open_transport` returns, so dropping it on cancel is safe.
+            let (stream, mut events, single_pc_mode_active) = cancel
+                .run_until_cancelled(Self::open_transport(
+                    url,
+                    token,
+                    &options,
+                    publisher_offer.as_ref(),
+                ))
+                .await
+                .ok_or(SignalError::Cancelled)??;
             let (stream, join_response) =
-                close_on_err(stream, get_join_response(&mut events)).await?;
+                close_on_err(stream, get_join_response(&mut events), cancel).await?;
             SignalResult::Ok((stream, events, single_pc_mode_active, join_response))
         };
         let (stream, events, single_pc_mode_active, join_response) = match attempt.await {
@@ -703,6 +748,12 @@ impl SignalInner {
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
         let mut state = self.state.write().await;
+        // Checked under the write lock, which a resume holds for its whole attempt: a cancel
+        // either lands before this, or interrupts the attempt below.
+        let cancel = &self.options.cancellation_token;
+        if cancel.is_cancelled() {
+            return Err(SignalError::Cancelled);
+        }
         let old_stream = state.transition(SignalInput::Reconnect).map_err(|_| {
             SignalError::InvalidState(format!("resume the signal session from {state:?}"))
         })?;
@@ -724,10 +775,16 @@ impl SignalInner {
         .unwrap();
 
         let attempt = async {
-            let (new_stream, mut events) =
-                SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
+            let (new_stream, mut events) = cancel
+                .run_until_cancelled(SignalStream::connect(
+                    lk_url,
+                    &token,
+                    self.options.connect_timeout,
+                ))
+                .await
+                .ok_or(SignalError::Cancelled)??;
             let (new_stream, reconnect_response) =
-                close_on_err(new_stream, get_reconnect_response(&mut events)).await?;
+                close_on_err(new_stream, get_reconnect_response(&mut events), cancel).await?;
             SignalResult::Ok((new_stream, reconnect_response, events))
         };
         match attempt.await {
@@ -749,9 +806,11 @@ impl SignalInner {
         let mut state = self.state.write().await;
         let _ = state.transition(SignalInput::Reconnected);
         // Drain while still holding the write lock, so no concurrent send can overtake what
-        // was held during the resume.
+        // was held during the resume. A cancel abandons a drain the transport never completes,
+        // because the close it starts needs this lock.
         if let SignalState::Connected(stream) = &*state {
-            self.flush_queue(stream).await;
+            let _ =
+                self.options.cancellation_token.run_until_cancelled(self.flush_queue(stream)).await;
         }
     }
 
@@ -788,6 +847,17 @@ impl SignalInner {
     /// Pass-through signals go out on any transport; session-scoped signals wait in the queue
     /// until `Connected`.
     pub async fn send(&self, signal: proto::signal_request::Message) {
+        // A cancel abandons a write the transport never completes: the write holds the state
+        // lock, which the close the cancel starts needs. Nothing is held after a cancel either,
+        // because no flush would ever send it.
+        let sent =
+            self.options.cancellation_token.run_until_cancelled(self.send_or_hold(signal)).await;
+        if sent.is_none() {
+            log::debug!("dropping signal: session cancelled");
+        }
+    }
+
+    async fn send_or_hold(&self, signal: proto::signal_request::Message) {
         let state = self.state.read().await;
         let stream = match &*state {
             SignalState::Connected(stream) => {
@@ -852,6 +922,15 @@ async fn signal_task(
 
     let reason = loop {
         tokio::select! {
+            // Biased so a cancel wins over a transport loss that lands with it: the cancel is
+            // final, while a loss reports `Close` and invites a resume.
+            biased;
+            _ = inner.options.cancellation_token.cancelled() => {
+                // A requested close, so no `Close` event. Refused, and so a no-op, when a
+                // `close` or `restart` already owns the teardown.
+                inner.close(true).await;
+                return;
+            }
             signal = internal_events.recv() => {
                 if let Some(signal) = signal {
                     // Received a message from the server
@@ -1209,13 +1288,16 @@ fn get_validate_url(mut ws_url: url::Url) -> url::Url {
     ws_url
 }
 
-/// Await the server's first answer on a fresh `stream`, closing the stream if it fails.
-/// `SignalStream` has no `Drop`, so a dropped stream would leave its tasks holding the socket.
+/// Await the server's first answer on a fresh `stream`, closing the stream if it fails or
+/// `cancel` fires first. `SignalStream` has no `Drop`, so a dropped stream would leave its
+/// tasks holding the socket.
 async fn close_on_err<T>(
     stream: SignalStream,
     answer: impl std::future::Future<Output = SignalResult<T>>,
+    cancel: &CancellationToken,
 ) -> SignalResult<(SignalStream, T)> {
-    match answer.await {
+    let answer = cancel.run_until_cancelled(answer).await.unwrap_or(Err(SignalError::Cancelled));
+    match answer {
         Ok(answer) => Ok((stream, answer)),
         Err(err) => {
             stream.close(true).await;
@@ -1667,7 +1749,7 @@ mod tests {
     /// response times out. Dropping the stream instead leaves its tasks holding the socket.
     #[tokio::test(start_paused = true)]
     async fn an_unanswered_transport_is_released_on_timeout() {
-        use crate::test_transport::{install_mock_transport, SILENT_CONNS};
+        use crate::test_transport::{install_mock_transport, silent_conns};
         install_mock_transport();
         const SILENT_URL: &str = "wss://silent.localhost";
 
@@ -1676,7 +1758,7 @@ mod tests {
             .err()
             .expect("connect must fail without a join response");
         assert!(matches!(err, SignalError::Timeout(_)), "expected a timeout, got {err:?}");
-        assert_eq!(SILENT_CONNS.load(Ordering::SeqCst), 0, "a timed-out join left the socket open");
+        assert_eq!(silent_conns(SILENT_URL), 0, "a timed-out join left the socket open");
 
         let mut inner = make_stub_inner_with(resumable_join());
         Arc::get_mut(&mut inner).expect("no other owner yet").url = SILENT_URL.into();
@@ -1686,11 +1768,7 @@ mod tests {
             .err()
             .expect("restart must fail without a reconnect response");
         assert!(matches!(err, SignalError::Timeout(_)), "expected a timeout, got {err:?}");
-        assert_eq!(
-            SILENT_CONNS.load(Ordering::SeqCst),
-            0,
-            "a timed-out reconnect left the socket open"
-        );
+        assert_eq!(silent_conns(SILENT_URL), 0, "a timed-out reconnect left the socket open");
     }
 
     /// A connection whose peer is already gone: the first read ends the stream.
@@ -1739,6 +1817,124 @@ mod tests {
             .await
             .expect("a lost transport must report Close");
         assert!(matches!(event, Some(SignalEvent::Close(_))), "expected a Close event");
+    }
+
+    /// Polls `condition` until it holds, failing after five seconds.
+    async fn eventually(mut condition: impl FnMut() -> bool, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !condition() {
+            assert!(Instant::now() < deadline, "timed out waiting: {what}");
+            sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// A cancel stops a connect or resume that is waiting on the server, and closes the
+    /// transport it opened. A cancelled connect is not retried on other regions.
+    #[tokio::test]
+    async fn cancel_interrupts_an_attempt_waiting_on_the_server() {
+        use crate::test_transport::{install_mock_transport, silent_conns, HTTP_REQUESTS};
+        install_mock_transport();
+        // A cloud host, so a region fallback would show up as a `/settings/regions` request.
+        const URL: &str = "wss://silent-cancel.livekit.cloud";
+
+        let options = SignalOptions::default();
+        let cancel = options.cancellation_token.clone();
+        let connect =
+            tokio::spawn(async move { SignalClient::connect(URL, "t", options, None).await });
+        eventually(|| silent_conns(URL) == 1, "connect opened its transport").await;
+        cancel.cancel();
+        let result = connect.await.expect("connect task panicked");
+        assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
+        assert_eq!(silent_conns(URL), 0, "a cancelled connect left the socket open");
+        assert!(
+            !HTTP_REQUESTS.lock().unwrap().iter().any(|url| url.contains("silent-cancel")),
+            "a cancelled connect fell back to other regions"
+        );
+
+        let mut inner = make_stub_inner_with(resumable_join());
+        let cancel = CancellationToken::new();
+        let stub = Arc::get_mut(&mut inner).expect("no other owner yet");
+        stub.url = URL.into();
+        stub.options.cancellation_token = cancel.clone();
+        let restart = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.restart(proto::ReconnectReason::RrUnknown).await.err() }
+        });
+        eventually(|| silent_conns(URL) == 1, "restart opened its transport").await;
+        cancel.cancel();
+        let err = restart.await.expect("restart task panicked");
+        assert!(matches!(err, Some(SignalError::Cancelled)), "expected a cancel, got {err:?}");
+        assert_eq!(silent_conns(URL), 0, "a cancelled resume left the socket open");
+    }
+
+    /// A cancel ends a connected session for good: the signal task closes the transport without
+    /// reporting `Close`, a resume is refused, sends are dropped rather than held, and nothing
+    /// keeps the client alive.
+    #[tokio::test]
+    async fn cancel_closes_a_connected_session_for_good() {
+        crate::test_transport::install_mock_transport();
+        let (client, mut events) =
+            client_over(Arc::new(RecordingConn { sent: Mutex::new(Vec::new()) }));
+        let inner = Arc::downgrade(&client.inner);
+
+        client.inner.options.cancellation_token.cancel();
+        let signal_task = client.handle.lock().take().expect("the signal task is running");
+        tokio::time::timeout(Duration::from_secs(5), signal_task)
+            .await
+            .expect("the signal task should end on cancel")
+            .expect("the signal task panicked");
+        assert!(matches!(*client.inner.state.read().await, SignalState::Closed));
+        assert!(events.try_recv().is_err(), "a cancel reported a Close");
+
+        let err = client.restart(proto::ReconnectReason::RrUnknown).await.err();
+        assert!(matches!(err, Some(SignalError::Cancelled)), "expected a cancel, got {err:?}");
+        client.send(mute("TR_after")).await;
+        assert!(queued_sids(&client.inner).await.is_empty(), "a cancelled session held a send");
+
+        drop(client);
+        assert!(inner.upgrade().is_none(), "the signal client outlived its cancel");
+    }
+
+    /// A connection whose writes never complete, as on a peer that stopped reading.
+    struct StalledConn;
+
+    #[async_trait::async_trait]
+    impl livekit_net::WsConnection for StalledConn {
+        async fn send(&self, _frame: Vec<u8>) -> Result<(), livekit_net::TransportError> {
+            std::future::pending().await
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, livekit_net::TransportError> {
+            std::future::pending().await
+        }
+        async fn close(&self) {}
+    }
+
+    /// A write the transport never completes holds the state lock, which the close needs. A
+    /// cancel must abandon the write, so the signal task can still close the transport.
+    #[tokio::test]
+    async fn cancel_abandons_a_write_the_transport_never_completes() {
+        crate::test_transport::install_mock_transport();
+        let (client, _events) = client_over(Arc::new(StalledConn));
+        let client = Arc::new(client);
+        let send = tokio::spawn({
+            let client = client.clone();
+            async move { client.send(mute("TR_stalled")).await }
+        });
+        sleep(Duration::from_millis(50)).await;
+        assert!(!send.is_finished(), "the write should be stalled");
+
+        client.inner.options.cancellation_token.cancel();
+        tokio::time::timeout(Duration::from_secs(5), send)
+            .await
+            .expect("a cancel should abandon the stalled write")
+            .expect("the send task panicked");
+        let signal_task = client.handle.lock().take().expect("the signal task is running");
+        // The close waits out the stalled writer before it aborts it.
+        tokio::time::timeout(Duration::from_secs(10), signal_task)
+            .await
+            .expect("the signal task should close the transport")
+            .expect("the signal task panicked");
+        assert!(matches!(*client.inner.state.read().await, SignalState::Closed));
     }
 
     async fn state_named(name: &str) -> SignalState {
