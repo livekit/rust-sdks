@@ -1596,12 +1596,16 @@ async fn forward_event(
             let info = track.info().clone();
             let publisher_identity = track.publisher_identity().to_string();
             let track = Arc::new(data_track::RemoteDataTrack::new(track));
-            let track = proto::OwnedRemoteDataTrack {
-                handle: proto::FfiOwnedHandle { id: track.ffi_handle_id() },
-                publisher_identity,
-                info: info.into(),
-            };
-            let _ = send_event(proto::DataTrackPublished { track }.into());
+            let _ = send_event(
+                proto::DataTrackPublished {
+                    track: proto::OwnedRemoteDataTrack {
+                        handle: proto::FfiOwnedHandle { id: track.ffi_handle_id() },
+                        publisher_identity,
+                        info: info.into(),
+                    },
+                }
+                .into(),
+            );
         }
         RoomEvent::DataTrackUnpublished(sid) => {
             let _ = send_event(proto::DataTrackUnpublished { sid: sid.to_string() }.into());
