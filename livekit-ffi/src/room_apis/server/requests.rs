@@ -1326,7 +1326,8 @@ fn on_local_data_track_is_published(
 ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
-    track.is_published_ffi(server, request)
+    let is_published = track.is_published();
+    Ok(proto::LocalDataTrackIsPublishedResponse { is_published })
 }
 
 fn on_local_data_track_unpublish(
@@ -1335,7 +1336,8 @@ fn on_local_data_track_unpublish(
 ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
-    track.unpublish_ffi(server, request)
+    track.unpublish();
+    Ok(proto::LocalDataTrackUnpublishResponse::default())
 }
 
 fn on_local_data_track_try_push(
@@ -1344,7 +1346,11 @@ fn on_local_data_track_try_push(
 ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
-    track.try_push_ffi(server, request)
+    let frame: DataTrackFrame = request.frame.into();
+    // Pushes through the inner track: unlike the uniffi `try_push`, which reports only the reason,
+    // the response carries the full error message.
+    let error = track.inner.try_push(frame).err().map(Into::into);
+    Ok(proto::LocalDataTrackTryPushResponse { error })
 }
 
 fn on_subscribe_local_data_track(
@@ -1353,7 +1359,12 @@ fn on_subscribe_local_data_track(
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
-    track.subscribe_ffi(server, request)
+    let stream = data_track::FfiDataTrackStream::subscribe(
+        server,
+        track.inner.clone(),
+        request.options.into(),
+    );
+    Ok(proto::SubscribeDataTrackResponse { stream })
 }
 
 fn on_remote_data_track_is_published(
@@ -1362,7 +1373,8 @@ fn on_remote_data_track_is_published(
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
-    track.is_published_ffi(server, request)
+    let is_published = track.is_published();
+    Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
 }
 
 fn on_remote_data_track_set_pipeline_options(
@@ -1371,7 +1383,9 @@ fn on_remote_data_track_set_pipeline_options(
 ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
-    track.set_pipeline_options_ffi(server, request)
+    // Through the inner track, so that unset proto fields keep livekit's defaults.
+    track.inner.set_pipeline_options(request.options.into());
+    Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
 }
 
 fn on_data_track_stream_read(

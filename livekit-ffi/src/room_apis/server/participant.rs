@@ -295,7 +295,12 @@ impl FfiParticipant {
         let handle = server.async_runtime.spawn(async move {
             let result = match local.publish_data_track(request.options).await {
                 Ok(track) => {
-                    let ffi_track = data_track::LocalDataTrack::from_track_ffi(track);
+                    let info = track.info().clone();
+                    let track = Arc::new(data_track::LocalDataTrack::new(track));
+                    let ffi_track = proto::OwnedLocalDataTrack {
+                        handle: proto::FfiOwnedHandle { id: track.ffi_handle_id() },
+                        info: info.into(),
+                    };
                     proto::publish_data_track_callback::Result::Track(ffi_track)
                 }
                 Err(err) => proto::publish_data_track_callback::Result::Error(err.into()),
