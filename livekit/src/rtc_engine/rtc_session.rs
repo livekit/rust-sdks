@@ -2067,19 +2067,7 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             let sender = transceiver.sender();
             #[cfg(not(target_arch = "wasm32"))]
-            {
-                let fec_rate = if self.options.fec_enabled {
-                    options.fec.fec_rate()
-                } else {
-                    if options.fec != crate::options::FecProtection::Disabled {
-                        log::warn!(
-                            "Ignoring per-track FEC protection because RoomOptions::fec_enabled is false"
-                        );
-                    }
-                    0
-                };
-                sender.set_video_sender_options(options.video_encoder, fec_rate);
-            }
+            sender.set_video_sender_options(options.video_encoder, options.fec.fec_rate());
             #[cfg(target_arch = "wasm32")]
             sender.set_video_encoder_backend(options.video_encoder);
 
@@ -2115,14 +2103,12 @@ impl SessionInner {
 
             // libwebrtc's codec preference matching drops any codec missing
             // from the list and never re-adds flexfec. Retain rtx and
-            // flexfec-03 so retransmissions and FEC negotiate when publishing
-            // FEC is enabled for this room.
-            if self.options.fec_enabled {
-                for codec in unmatched {
-                    let mime_type = codec.mime_type.to_lowercase();
-                    if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {
-                        matched.push(codec);
-                    }
+            // flexfec-03 so retransmissions and FEC negotiate. Repair packets
+            // are generated only when this track's protection level is non-zero.
+            for codec in unmatched {
+                let mime_type = codec.mime_type.to_lowercase();
+                if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {
+                    matched.push(codec);
                 }
             }
 

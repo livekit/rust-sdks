@@ -20,9 +20,8 @@
 //! stream at its configured rate. FlexFEC negotiation is enabled automatically
 //! when the peer connection factory is created.
 //!
-//! Field-trial availability and metrics are process wide because the peer
-//! connection factory is a singleton; protection rates are configured per
-//! send stream.
+//! Metrics are process wide because the peer connection factory is a
+//! singleton; protection rates are configured per send stream.
 
 use webrtc_sys::fec_controller as sys_fec;
 
@@ -45,12 +44,4 @@ pub fn fec_sender_metrics() -> FecSenderMetrics {
         sent_nack_rate_bps: metrics.sent_nack_rate_bps,
         active_streams: metrics.active_streams,
     }
-}
-
-/// Sets additional WebRTC field trials. Returns `false` when the peer
-/// connection factory already exists and the trials can no longer take
-/// effect. The `LK_WEBRTC_FIELD_TRIALS` environment variable is appended to
-/// whatever is configured here.
-pub fn set_field_trials(field_trials: &str) -> bool {
-    sys_fec::ffi::set_field_trials(field_trials.to_owned())
 }

@@ -17,7 +17,6 @@
 #include "livekit/fec_controller.h"
 
 #include <algorithm>
-#include <cstdlib>
 
 #include "call/rtp_video_sender.h"
 #include "modules/include/module_fec_types.h"
@@ -50,31 +49,6 @@ const void* ControllerOwner(
 FecGlobalState& FecGlobalState::Instance() {
   static FecGlobalState* instance = new FecGlobalState();
   return *instance;
-}
-
-bool FecGlobalState::SetFieldTrials(const std::string& field_trials) {
-  if (factory_created_.load()) {
-    return false;
-  }
-  std::lock_guard<std::mutex> lock(mutex_);
-  field_trials_ = field_trials;
-  return true;
-}
-
-std::string FecGlobalState::BuildFieldTrialsString() {
-  std::string trials;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    trials = field_trials_;
-  }
-  if (const char* env_trials = std::getenv("LK_WEBRTC_FIELD_TRIALS")) {
-    trials += env_trials;
-  }
-  return trials;
-}
-
-void FecGlobalState::MarkFactoryCreated() {
-  factory_created_.store(true);
 }
 
 void FecGlobalState::RegisterController(FixedRateFecController* controller) {
@@ -258,11 +232,6 @@ FecSenderMetrics fec_sender_metrics() {
       metrics.sent_video_rate_bps, metrics.sent_fec_rate_bps,
       metrics.sent_nack_rate_bps, metrics.active_streams);
   return metrics;
-}
-
-bool set_field_trials(rust::String field_trials) {
-  return FecGlobalState::Instance().SetFieldTrials(
-      std::string(field_trials));
 }
 
 }  // namespace livekit_ffi

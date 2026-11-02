@@ -1,12 +1,8 @@
 ---
 livekit: minor
+livekit-ffi: minor
 libwebrtc: patch
 webrtc-sys: patch
 ---
 
-# Add per-track FlexFEC protection levels
-
-Enable FlexFEC receiver negotiation automatically and replace the global
-protection parameters with `RoomOptions::fec_enabled` plus per-track disabled,
-low, medium, and high protection levels. FlexFEC now always uses a one-frame
-block and a random-loss mask.
+Negotiate FlexFEC for every published video track and choose send-side protection per track: disabled, low, medium, or high. Repair packets use a one-frame block and a random-loss mask, and disabled sends none.

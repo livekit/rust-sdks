@@ -821,7 +821,6 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 10, name: "data_stream", kind: "message", T: RoomDataStreamOptions, opt: true },
     { no: 11, name: "other_sdks", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
-    { no: 12, name: "fec_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ],
 );
 

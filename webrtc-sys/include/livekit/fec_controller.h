@@ -21,32 +21,21 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <string>
 
 #include "api/environment/environment.h"
 #include "api/fec_controller.h"
 #include "api/fec_controller_override.h"
-#include "rust/cxx.h"
 
 namespace livekit_ffi {
 
 struct FecSenderMetrics;
 
-// Process-wide FlexFEC registry. Negotiation field trials belong to the shared
-// PeerConnectionFactory, while protection rates are bound to individual video
-// send-stream controllers.
+// Process-wide FlexFEC registry. Protection rates are bound to individual video
+// send-stream controllers. FlexFEC negotiation is enabled on the shared
+// PeerConnectionFactory.
 class FecGlobalState {
  public:
   static FecGlobalState& Instance();
-
-  // Returns false when the factory already exists and the trials cannot
-  // take effect anymore.
-  bool SetFieldTrials(const std::string& field_trials);
-  // Field trials string merged with the LK_WEBRTC_FIELD_TRIALS environment
-  // variable, consumed at factory creation.
-  std::string BuildFieldTrialsString();
-  void MarkFactoryCreated();
-  bool IsFactoryCreated() const { return factory_created_.load(); }
 
   void RegisterController(class FixedRateFecController* controller);
   void DeregisterController(class FixedRateFecController* controller);
@@ -63,9 +52,7 @@ class FecGlobalState {
  private:
   FecGlobalState() = default;
 
-  std::atomic<bool> factory_created_{false};
   std::mutex mutex_;
-  std::string field_trials_;
   std::set<class FixedRateFecController*> controllers_;
   std::map<const void*, class FixedRateFecController*> controllers_by_owner_;
   std::map<const void*, int> fec_rates_by_owner_;
@@ -118,6 +105,5 @@ class LkFecControllerFactory : public webrtc::FecControllerFactoryInterface {
 
 // cxx bridge entry points
 FecSenderMetrics fec_sender_metrics();
-bool set_field_trials(rust::String field_trials);
 
 }  // namespace livekit_ffi

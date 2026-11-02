@@ -2151,11 +2151,6 @@ export declare class RoomOptions extends Message<RoomOptions> {
    */
   otherSdks?: string;
 
-  /**
-   * @generated from field: optional bool fec_enabled = 12;
-   */
-  fecEnabled?: boolean;
-
   constructor(data?: PartialMessage<RoomOptions>);
 
   static readonly runtime: typeof proto2;

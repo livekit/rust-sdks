@@ -132,10 +132,7 @@ async fn main() -> Result<()> {
 
     let token = common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity)?;
 
-    let mut options = RoomOptions::default();
-    options.fec_enabled = args.fec;
-
-    let (room, mut events) = Room::connect(&args.url, &token, options).await?;
+    let (room, mut events) = Room::connect(&args.url, &token, RoomOptions::default()).await?;
     log::info!("connected to room {} as {} (fec: {})", room.name(), args.identity, args.fec);
 
     let source =

@@ -161,8 +161,8 @@ async fn main() -> Result<()> {
 
 ### Publish video with FlexFEC
 
-FlexFEC must be enabled when connecting to the room, then configured for each
-published video track. Assuming `video_track` is a `LocalVideoTrack`:
+Set the protection level when publishing each video track. Assuming
+`video_track` is a `LocalVideoTrack`:
 
 ```rust
 use livekit::{
@@ -170,9 +170,7 @@ use livekit::{
     prelude::{LocalTrack, Room, RoomOptions},
 };
 
-let mut room_options = RoomOptions::default();
-room_options.fec_enabled = true;
-let (room, mut room_events) = Room::connect(&url, &token, room_options).await?;
+let (room, mut room_events) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
 let publish_options = TrackPublishOptions {
     fec: FecProtection::Medium,
@@ -187,10 +185,9 @@ room.local_participant()
 ```
 
 The available per-track levels are `Disabled` (0%, and the default), `Low`
-(15%), `Medium` (25%), and `High` (35%). If a non-disabled level is selected
-without setting `RoomOptions::fec_enabled`, the SDK logs a warning and disables
-FEC for that track. Receivers negotiate FlexFEC automatically and require no
-additional configuration.
+(15%), `Medium` (25%), and `High` (35%). `Disabled` negotiates FlexFEC but
+sends no repair packets. Receivers negotiate FlexFEC automatically and require
+no additional configuration.
 
 ### Receive video frames of a subscribed track
 

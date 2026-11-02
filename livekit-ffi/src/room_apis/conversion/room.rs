@@ -314,7 +314,6 @@ impl From<proto::RoomOptions> for RoomOptions {
         options.connect_timeout =
             value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
         options.sdk_options.other_sdks = value.other_sdks;
-        options.fec_enabled = value.fec_enabled.unwrap_or(options.fec_enabled);
         if let Some(data_stream) = value.data_stream {
             let mut data_stream_options = RoomDataStreamOptions::default();
             if let Some(max_payload_byte_length) = data_stream.max_payload_byte_length {
@@ -440,14 +439,6 @@ mod tests {
         let options = RoomOptions::from(proto::RoomOptions::default());
 
         assert!(options.sdk_options.other_sdks.is_none());
-    }
-
-    #[test]
-    fn fec_enabled_round_trips_from_room_options() {
-        let options =
-            RoomOptions::from(proto::RoomOptions { fec_enabled: Some(true), ..Default::default() });
-
-        assert!(options.fec_enabled);
     }
 
     #[test]

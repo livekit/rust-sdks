@@ -125,8 +125,6 @@ pub struct EngineOptions {
     pub join_retries: u32,
     /// Enable single peer connection mode
     pub single_peer_connection: bool,
-    /// Allow published video tracks to negotiate FlexFEC.
-    pub fec_enabled: bool,
 }
 
 #[derive(Debug)]

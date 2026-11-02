@@ -29,10 +29,5 @@ pub mod ffi {
 
         /// Snapshot of the aggregated send side FEC rates.
         fn fec_sender_metrics() -> FecSenderMetrics;
-
-        /// Sets the WebRTC field trials applied when the peer connection
-        /// factory is created. Returns false when the factory already exists
-        /// and the trials cannot take effect.
-        fn set_field_trials(field_trials: String) -> bool;
     }
 }

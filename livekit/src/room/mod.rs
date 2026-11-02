@@ -450,11 +450,6 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
-    /// Allow published video tracks to use proactive FlexFEC protection.
-    ///
-    /// Receiving FlexFEC is always enabled. Set the protection level for each
-    /// published track with [`FecProtection`](options::FecProtection).
-    pub fec_enabled: bool,
     pub data_stream: RoomDataStreamOptions,
 }
 
@@ -473,7 +468,6 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
-            fec_enabled: false,
             data_stream: Default::default(),
         }
     }
@@ -591,7 +585,6 @@ impl Room {
                 signal_options,
                 join_retries: options.join_retries,
                 single_peer_connection: options.single_peer_connection,
-                fec_enabled: options.fec_enabled,
             },
             Some(e2ee_manager.clone()),
         )

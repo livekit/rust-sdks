@@ -115,9 +115,10 @@ impl AudioPreset {
 
 /// Proactive FlexFEC protection applied to a published video track.
 ///
-/// The room must be connected with [`RoomOptions::fec_enabled`](crate::RoomOptions::fec_enabled)
-/// before a level other than [`Self::Disabled`] can take effect. FlexFEC protects only the first
-/// simulcast layer, so disabling simulcast is recommended for protected tracks.
+/// FlexFEC is negotiated for every published video track. [`Self::Disabled`] sends no repair
+/// packets and does not reserve encoder bitrate. Any other level spends a fixed fraction of the
+/// track's bitrate on repair packets. FlexFEC protects only the first simulcast layer, so
+/// disabling simulcast is recommended for protected tracks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FecProtection {

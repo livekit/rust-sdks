@@ -35,7 +35,6 @@
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/audio/audio_device.h"
 #include "api/audio_options.h"
-#include "api/field_trials.h"
 #include "livekit/adm_proxy.h"
 #include "livekit/fec_controller.h"
 #include "livekit/audio_track.h"
@@ -104,9 +103,8 @@ class EnableFlexFecFieldTrials final : public webrtc::FieldTrialsView {
 };
 
 // An Environment accepts a single FieldTrialsView, so to enable several
-// independent trial groups we combine their views into one: Lookup delegates
-// to each sub-view and returns the first non-empty result. Built-in groups are
-// placed first so optional custom trials cannot disable required SDK behavior.
+// independent trial groups we combine their views into one. Lookup delegates
+// to each sub-view and returns the first non-empty result.
 class CompositeFieldTrials final : public webrtc::FieldTrialsView {
  public:
   explicit CompositeFieldTrials(
@@ -136,8 +134,8 @@ class CompositeFieldTrials final : public webrtc::FieldTrialsView {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views_;
 };
 
-// FlexFEC, zero_playout_delay, enable_warp, and process-wide configured field
-// trials are independent and may all be enabled; compose their views into one.
+// FlexFEC, zero_playout_delay, and enable_warp are independent and may all be
+// enabled; compose their views into one.
 webrtc::Environment CreateEnvironment(bool zero_playout_delay,
                                       bool enable_warp) {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
@@ -151,20 +149,6 @@ webrtc::Environment CreateEnvironment(bool zero_playout_delay,
     views.push_back(std::make_unique<EnableWarpFieldTrials>());
   }
 
-  std::string trials = FecGlobalState::Instance().BuildFieldTrialsString();
-  if (!trials.empty()) {
-    auto field_trials = webrtc::FieldTrials::Create(trials);
-    if (field_trials) {
-      RTC_LOG(LS_INFO) << "using field trials: " << trials;
-      views.push_back(std::move(field_trials));
-    } else {
-      RTC_LOG(LS_ERROR) << "invalid field trials string, ignoring: " << trials;
-    }
-  }
-
-  if (views.empty()) {
-    return webrtc::CreateEnvironment();
-  }
   return webrtc::CreateEnvironment(
       std::make_unique<CompositeFieldTrials>(std::move(views)));
 }
@@ -229,7 +213,6 @@ PeerConnectionFactory::PeerConnectionFactory(
   // protection remains disabled until its encoder configures a non-zero rate
   // through the controller override.
   dependencies.fec_controller_factory = std::make_unique<LkFecControllerFactory>();
-  FecGlobalState::Instance().MarkFactoryCreated();
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =

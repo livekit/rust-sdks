@@ -13,9 +13,7 @@ without waiting for retransmissions:
 ```rust,ignore
 use livekit::options::{FecProtection, TrackPublishOptions};
 
-let mut options = RoomOptions::default();
-options.fec_enabled = true;
-let (room, events) = Room::connect(&url, &token, options).await?;
+let (room, events) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
 room.local_participant()
     .publish_track(track, TrackPublishOptions {
@@ -27,11 +25,11 @@ room.local_participant()
 
 Notes:
 
-- `RoomOptions::fec_enabled` enables FEC negotiation for published tracks.
-  Receivers negotiate FlexFEC automatically and need no room option.
+- FlexFEC is negotiated for every published video track. Receivers negotiate it
+  automatically and need no room option.
 - Each video track selects `Disabled`, `Low`, `Medium`, or `High` protection.
   These correspond to 0%, 15%, 25%, and 35% protection. The default is
-  `Disabled`.
+  `Disabled`, which sends no repair packets.
 - Protection uses a fixed one-frame block and a random-loss mask.
 - `Room::fec_sender_stats` reports the aggregate FEC send rate.
 - FlexFEC protects the first simulcast layer only, publishing with
