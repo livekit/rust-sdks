@@ -1593,7 +1593,14 @@ async fn forward_event(
             let _ = send_event(proto::TokenRefreshed { token: token.into() }.into());
         }
         RoomEvent::DataTrackPublished(track) => {
-            let track = data_track::RemoteDataTrack::from_track_ffi(track);
+            let info = track.info().clone();
+            let publisher_identity = track.publisher_identity().to_string();
+            let track = Arc::new(data_track::RemoteDataTrack::new(track));
+            let track = proto::OwnedRemoteDataTrack {
+                handle: proto::FfiOwnedHandle { id: track.ffi_handle_id() },
+                publisher_identity,
+                info: info.into(),
+            };
             let _ = send_event(proto::DataTrackPublished { track }.into());
         }
         RoomEvent::DataTrackUnpublished(sid) => {
