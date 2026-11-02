@@ -70,18 +70,20 @@ then
   gclient sync -D --no-history
 fi
 
+source "$COMMAND_DIR/apply_patch.sh"
+
 cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
+apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch "$COMMAND_DIR/patches/android_use_libunwind.patch"
+apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
 # livekit prefixed jni
-git apply "$COMMAND_DIR/patches/jni_prefix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/jni_prefix.patch"
 
 cd third_party/libyuv
-git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch"
 
 cd ../../..
 
@@ -147,6 +149,11 @@ cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 mkdir -p "$COMMAND_DIR/prefixed-jni/libs"
 cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$COMMAND_DIR/prefixed-jni/libs/classes.jar"
+# Upstream compiles the Android Java sources with --release 21 since m150 (class file
+# major version 65). Consumers on Android Gradle Plugin 7.x (e.g. Unity 2022.3) reject
+# those class files. Stamp them back to Java 17 (major 61) before shadowing, like
+# webrtc-sdk/android does for its Maven artifacts.
+python3 "$COMMAND_DIR/tools/downgrade_android_class_version.py" "$COMMAND_DIR/prefixed-jni/libs/classes.jar"
 cd "$COMMAND_DIR/prefixed-jni" && ./gradlew shadowJar
 cp "$COMMAND_DIR/prefixed-jni/build/libs/prefixed-jni-all.jar" "$ARTIFACTS_DIR/libwebrtc.jar"
 

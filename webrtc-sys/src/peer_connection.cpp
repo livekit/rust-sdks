@@ -112,6 +112,22 @@ void PeerConnection::set_configuration(RtcConfiguration config) const {
   }
 }
 
+void PeerConnection::set_bitrate(BitrateSettings settings) const {
+  webrtc::BitrateSettings bitrate;
+  if (settings.has_min_bitrate_bps)
+    bitrate.min_bitrate_bps = settings.min_bitrate_bps;
+  if (settings.has_start_bitrate_bps)
+    bitrate.start_bitrate_bps = settings.start_bitrate_bps;
+  if (settings.has_max_bitrate_bps)
+    bitrate.max_bitrate_bps = settings.max_bitrate_bps;
+
+  auto result = peer_connection_->SetBitrate(bitrate);
+
+  if (!result.ok()) {
+    throw std::runtime_error(serialize_error(to_error(result)));
+  }
+}
+
 void PeerConnection::create_offer(
     RtcOfferAnswerOptions options,
     rust::Box<PeerContext> ctx,
@@ -170,9 +186,10 @@ void PeerConnection::add_ice_candidate(
     std::shared_ptr<IceCandidate> candidate,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
+  auto owned_ctx = std::make_shared<rust::Box<PeerContext>>(std::move(ctx));
   peer_connection_->AddIceCandidate(
-      candidate->release(), [&](const webrtc::RTCError& err) {
-        on_complete(std::move(ctx), to_error(err));
+      candidate->release(), [owned_ctx, on_complete](const webrtc::RTCError& err) {
+        on_complete(std::move(*owned_ctx), to_error(err));
       });
 }
 

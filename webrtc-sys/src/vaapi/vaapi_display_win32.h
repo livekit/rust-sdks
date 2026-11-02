@@ -10,14 +10,14 @@ namespace livekit_ffi {
 class VaapiDisplayWin32 {
  public:
   VaapiDisplayWin32();
-  ~VaapiDisplayWin32() {}
+  ~VaapiDisplayWin32();
 
   // Initialize the VAAPI display
   bool Open();
 
   // Check if the VAAPI display is open
   bool isOpen() const;
-  
+
   // Close the VAAPI display
   void Close();
 

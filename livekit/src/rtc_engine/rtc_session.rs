@@ -20,14 +20,17 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
-use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
+use livekit_rpc::api::{RpcError, RpcErrorCode};
+use livekit_signaling::{
+    SignalClient, SignalEvent, SignalEvents, NEGOTIATED_DATA_CHANNELS_PROTOCOL,
+};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -59,14 +62,32 @@ use crate::{
         peer_transport::PeerTransport,
         rtc_events::{RtcEvent, RtcEvents},
     },
-    track::LocalTrack,
+    track::{LocalTrack, TrackSource},
     DataPacketKind,
 };
+
+/// Connection-state transition counts per transport, sampled before a resume begins.
+///
+/// A resume compares against these to tell a transport that actually reconnected from one
+/// still reporting a `Connected` that predates the failure. See
+/// [`SessionInner::wait_pc_reconnected_with_snapshot`].
+#[derive(Debug, Clone, Copy)]
+pub struct PcGenerationSnapshot {
+    publisher_connected: u32,
+    publisher_disconnect: u32,
+    subscriber_connected: u32,
+    subscriber_disconnect: u32,
+}
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+
+// Fixed SCTP stream IDs used when the data channels are created as negotiated; must match the server.
+const NEGOTIATED_RELIABLE_DC_ID: i32 = 100;
+const NEGOTIATED_LOSSY_DC_ID: i32 = 101;
+const NEGOTIATED_DATA_TRACK_DC_ID: i32 = 102;
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
@@ -186,6 +207,10 @@ pub enum SessionEvent {
     Close {
         source: String,
         reason: DisconnectReason,
+        /// Cause reported to the server on the next resume, so it can attribute
+        /// client reconnects. Distinct from `reason`, which is the disconnect
+        /// reason used if recovery ultimately fails.
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     },
@@ -219,6 +244,8 @@ pub enum SessionEvent {
     SubscribedQualityUpdate {
         update: proto::SubscribedQualityUpdate,
     },
+    /// A publisher answer was applied; dynacast layers must be re-applied.
+    RefreshPublishingLayers,
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -356,9 +383,15 @@ struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
     fast_publish: AtomicBool,
+    /// When this connection attempt began, taken at the top of [`RtcSession::connect`] before
+    /// the peer connections or the signal client exist. Every session is one attempt, so a
+    /// full restart or a join retry times itself from scratch.
+    connect_started: Instant,
 
     publisher_pc: PeerTransport,
-    /// In single peer connection mode, this is None and publisher_pc handles both send/receive
+    /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
+    /// send and receive. `wait_pc_connection_inner` relies on that equivalence, reading absence
+    /// as "no second transport to wait for".
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
@@ -499,6 +532,7 @@ impl RtcSession {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
@@ -516,7 +550,8 @@ impl RtcSession {
                 true,
             );
 
-            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+            // always try to open negotiated data channels and close them if we know the server doesn't support it after receiving the join response
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter, true)?;
 
             Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
@@ -540,13 +575,14 @@ impl RtcSession {
             None
         };
 
-        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
-            url,
-            token,
-            options.signal_options.clone(),
-            publisher_offer.clone(),
-        )
-        .await?;
+        // A token of this session's own, cancelled by `close`: the engine reuses its options for
+        // the next session of a full reconnect. It replaces any configured token, because a
+        // cancel from outside would end signalling without the engine noticing. The engine
+        // ends with `close` instead.
+        let mut signal_options = options.signal_options.clone();
+        signal_options.cancellation_token = Default::default();
+        let (signal_client, mut join_response, signal_events) =
+            SignalClient::connect(url, token, signal_options, publisher_offer.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -566,9 +602,30 @@ impl RtcSession {
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
+        let server_protocol =
+            join_response.server_info.as_ref().map(|info| info.protocol).unwrap_or_default();
+        let use_negotiated_dcs = uses_negotiated_data_channels(
+            single_pc_mode,
+            server_protocol,
+            options.signal_options.protocol_version,
+        );
+        log::debug!(
+            "server protocol {}, negotiated data channels: {}",
+            server_protocol,
+            use_negotiated_dcs
+        );
+
         let sent_publisher_offer;
         let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, dcs)) = early_publisher_pc {
+            if let Some((pub_pc, mut dcs)) = early_publisher_pc {
+                if !use_negotiated_dcs {
+                    // The SCTP section is already in the offer, so in-band channels can be
+                    // opened on it without sdp renegotiation.
+                    dcs.0.close();
+                    dcs.1.close();
+                    dcs.2.close();
+                    dcs = Self::create_data_channels(&pub_pc, &emitter, false)?;
+                }
                 if single_pc_mode {
                     pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
                     sent_publisher_offer = publisher_offer.is_some();
@@ -585,7 +642,7 @@ impl RtcSession {
                     proto::SignalTarget::Publisher,
                     single_pc_mode,
                 );
-                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+                let dcs = Self::create_data_channels(&publisher_pc, &emitter, use_negotiated_dcs)?;
                 (publisher_pc, dcs.0, dcs.1, dcs.2)
             };
 
@@ -620,6 +677,7 @@ impl RtcSession {
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
+            connect_started,
             signal_client,
             publisher_pc,
             subscriber_pc,
@@ -715,22 +773,37 @@ impl RtcSession {
     fn create_data_channels(
         publisher_pc: &PeerTransport,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
+        negotiated: bool,
     ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
         let reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
-            DataChannelInit { ordered: true, ..Default::default() },
+            DataChannelInit {
+                ordered: true,
+                negotiated,
+                id: if negotiated { NEGOTIATED_RELIABLE_DC_ID } else { -1 },
+                ..Default::default()
+            },
         )?;
 
-        let lossy_options =
-            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+        let lossy_options = DataChannelInit {
+            ordered: false,
+            max_retransmits: Some(0),
+            negotiated,
+            id: if negotiated { NEGOTIATED_LOSSY_DC_ID } else { -1 },
+            ..Default::default()
+        };
 
         let lossy_dc = publisher_pc
             .peer_connection()
             .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
 
-        let data_track_dc = publisher_pc
-            .peer_connection()
-            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        let data_track_dc = publisher_pc.peer_connection().create_data_channel(
+            DATA_TRACK_DC_LABEL,
+            DataChannelInit {
+                id: if negotiated { NEGOTIATED_DATA_TRACK_DC_ID } else { -1 },
+                ..lossy_options
+            },
+        )?;
         handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
         Ok((reliable_dc, lossy_dc, data_track_dc))
@@ -821,8 +894,11 @@ impl RtcSession {
         self.inner.publish_data(data, kind, is_raw_packet).await
     }
 
-    pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
-        self.inner.restart().await
+    pub async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
+        self.inner.restart(reason).await
     }
 
     pub async fn restart_publisher(&self) -> EngineResult<()> {
@@ -854,18 +930,33 @@ impl RtcSession {
         self.inner.publisher_pc.peer_connection().connection_state()
     }
 
+    /// Test-only: the publisher PeerConnection's senders. A closed PeerConnection reports none,
+    /// so tests take these before teardown to inspect what the senders still hold afterwards.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.publisher_pc.peer_connection().senders()
+    }
+
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
     }
 
-    /// Wait for PCs to be connected on the resume path.
-    ///
-    /// Sleeps `settle_delay` before polling, giving the just-issued ICE
-    /// restart offer/answer round-trip a chance to take effect when the
-    /// failure was signal-only (PCs may still report `Connected` immediately
-    /// after a WS hiccup, even though the new ufrag/pwd hasn't propagated yet).
-    pub async fn wait_pc_reconnected(&self, settle_delay: Duration) -> EngineResult<()> {
-        self.inner.wait_pc_connection_with_delay(settle_delay).await
+    /// Sample each transport's connection-state transition counts. Must be taken *before* the
+    /// resume touches the signalling link, so anything the resume causes shows up as a change.
+    pub fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
+        self.inner.pc_generation_snapshot()
+    }
+
+    /// Wait for the PeerConnections to have reconnected, judged against `snapshot` rather
+    /// than against the current `PeerConnectionState`, which stays `Connected` for tens of
+    /// seconds after a far end goes away. `settle_delay` bounds only the ambiguous
+    /// never-dropped case. See [`SessionInner::wait_pc_reconnected_with_snapshot`].
+    pub async fn wait_pc_reconnected(
+        &self,
+        snapshot: PcGenerationSnapshot,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        self.inner.wait_pc_reconnected_with_snapshot(snapshot, settle_delay).await
     }
 
     /// Ensure the publisher peer connection is connected and the data channel is open.
@@ -1128,6 +1219,7 @@ impl SessionInner {
                                 self.on_session_disconnected(
                                     format!("signal client closed: {:?}", reason).as_str(),
                                     DisconnectReason::UnknownReason,
+                                    proto::ReconnectReason::RrSignalDisconnected,
                                     proto::leave_request::Action::Resume,
                                     false,
                                 );
@@ -1234,7 +1326,7 @@ impl SessionInner {
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
-                                    retry_queue.trim(sent as usize);
+                                    retry_queue.trim(reliable_buffered_amount as usize);
                                 }
                             }
                         }
@@ -1319,9 +1411,10 @@ impl SessionInner {
     }
 
     /// Updates the packet receive state (TTL map) for reliable packets.
-    fn update_packet_rx_state(&self, packet: &proto::DataPacket) {
+    /// Returns `false` if the packet is a duplicate and must be dropped.
+    fn update_packet_rx_state(&self, packet: &proto::DataPacket) -> bool {
         if packet.sequence <= 0 || packet.participant_sid.is_empty() {
-            return;
+            return true;
         };
         let mut rx_state = self.packet_rx_state.lock();
         if rx_state
@@ -1329,9 +1422,10 @@ impl SessionInner {
             .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
         {
             log::warn!("Ignoring duplicate/out-of-order reliable data message");
-            return;
+            return false;
         }
         rx_state.set(&packet.participant_sid, Some(packet.sequence));
+        true
     }
 
     async fn on_signal_event(
@@ -1361,6 +1455,7 @@ impl SessionInner {
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
+                let _ = self.emitter.send(SessionEvent::RefreshPublishingLayers);
 
                 if self.single_pc_mode {
                     self.process_remote_track_addition(&self.publisher_pc.peer_connection());
@@ -1427,6 +1522,8 @@ impl SessionInner {
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
+                    // The server initiated this and already knows why.
+                    proto::ReconnectReason::RrUnknown,
                     leave.action(),
                     true,
                 );
@@ -1591,6 +1688,18 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
+                // Durably record leaving `Connected` before waking waiters: a resume that
+                // polls after this point must be able to see that the transport broke, even
+                // though it may since have returned to `Connected`.
+                if target == SignalTarget::Publisher {
+                    self.publisher_pc.note_connection_state(state);
+                }
+                if target == SignalTarget::Subscriber {
+                    if let Some(ref sub_pc) = self.subscriber_pc {
+                        sub_pc.note_connection_state(state);
+                    }
+                }
+
                 self.pc_state_notify.notify_waiters();
 
                 if state == PeerConnectionState::Failed {
@@ -1598,6 +1707,10 @@ impl SessionInner {
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
+                        match target {
+                            SignalTarget::Subscriber => proto::ReconnectReason::RrSubscriberFailed,
+                            SignalTarget::Publisher => proto::ReconnectReason::RrPublisherFailed,
+                        },
                         proto::leave_request::Action::Resume,
                         false,
                     );
@@ -1658,8 +1771,8 @@ impl SessionInner {
                 let mut packet = proto::DataPacket::decode(&*data).map_err(|err| {
                     EngineError::Internal(format!("failed to decode data packet: {}", err).into())
                 })?;
-                if kind == DataPacketKind::Reliable {
-                    self.update_packet_rx_state(&packet);
+                if kind == DataPacketKind::Reliable && !self.update_packet_rx_state(&packet) {
+                    return Ok(());
                 }
                 if let Some(detail) = packet.value.take() {
                     let participant_sid: Option<ParticipantSid> =
@@ -1675,7 +1788,7 @@ impl SessionInner {
                     );
                 }
             }
-            RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
+            RtcEvent::DataChannelBufferedAmountChange { sent, kind } => {
                 let ev = DataChannelEvent {
                     kind,
                     detail: DataChannelEventDetail::BufferedAmountChange(sent),
@@ -1753,11 +1866,32 @@ impl SessionInner {
                 })
             }
             proto::data_packet::Value::RpcResponse(rpc_response) => {
+                // Anything we cannot turn into a payload has to become an error. Reporting
+                // neither resolves the caller with an empty string, so a response we failed
+                // to understand would look like a successful empty one.
                 let (payload, error) = match rpc_response.value {
-                    None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
-                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (None, None),
+                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (
+                        None,
+                        Some(
+                            RpcError::built_in(
+                                RpcErrorCode::ApplicationError,
+                                Some("Compressed RPC responses are not supported".to_string()),
+                            )
+                            .to_proto(),
+                        ),
+                    ),
+                    None => (
+                        None,
+                        Some(
+                            RpcError::built_in(
+                                RpcErrorCode::ApplicationError,
+                                Some("RPC response carried no value".to_string()),
+                            )
+                            .to_proto(),
+                        ),
+                    ),
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
                     request_id: rpc_response.request_id,
@@ -1917,7 +2051,8 @@ impl SessionInner {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
                 (sum > 0).then_some(sum)
             };
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+            let is_screen_share = options.source == TrackSource::Screenshare;
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {
@@ -2003,6 +2138,7 @@ impl SessionInner {
         &self,
         source: &str,
         reason: DisconnectReason,
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     ) {
@@ -2014,6 +2150,7 @@ impl SessionInner {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
+            reconnect_reason,
             action,
             retry_now,
         });
@@ -2027,26 +2164,56 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
+
+        // Detach the senders while the publisher PC is still open: libwebrtc refuses
+        // RemoveTrack on a closed PC and `RtpSenderBase::Stop()` keeps the track, so a
+        // server-initiated disconnect (which closes here before the room unpublishes)
+        // would otherwise leave every local track attached to its sender.
+        for sender in self.publisher_pc.peer_connection().senders() {
+            if let Err(err) = self.remove_track(sender) {
+                log::warn!("failed to remove sender from publisher pc before close: {:?}", err);
+            }
+        }
         self.publisher_pc.close();
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.close();
         }
 
-        self.signal_client
-            .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
-                action: proto::leave_request::Action::Disconnect.into(),
-                reason: reason as i32,
-                ..Default::default()
-            }))
-            .await;
+        // A server-initiated Leave already ended the session on the server, and the socket it
+        // arrived on is closing under us: there is nothing to answer.
+        if !self.disconnecting.load(Ordering::Acquire) {
+            self.signal_client
+                .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Disconnect.into(),
+                    reason: reason as i32,
+                    ..Default::default()
+                }))
+                .await;
+        }
 
+        // Final, unlike `close` alone: a resume racing this teardown is refused or stopped
+        // instead of reopening the session.
+        self.signal_client.options().cancellation_token.cancel();
         self.signal_client.close().await;
+    }
+
+    /// Close the signal link locally and report it as lost. A requested close emits no
+    /// `SignalEvent::Close`, so the resume has to be started here.
+    async fn simulate_signal_loss(&self) {
+        self.signal_client.close().await;
+        self.on_session_disconnected(
+            "simulated signal loss",
+            DisconnectReason::UnknownReason,
+            proto::ReconnectReason::RrSignalDisconnected,
+            proto::leave_request::Action::Resume,
+            false,
+        );
     }
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::DisconnectSignalOnResume => {
                 // Tell the server to drop the signalling link during the next
@@ -2061,7 +2228,7 @@ impl SessionInner {
                         ),
                     }))
                     .await;
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::Speaker => {
                 self.signal_client
@@ -2235,12 +2402,15 @@ impl SessionInner {
 
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
-    async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+    async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
         // Start accumulating before the signal client reconnects: once
         // `restart` returns, the resumed stream immediately delivers events
         // (including the post-resume participant snapshot) on a concurrent task.
         *self.resume_seen_identities.lock() = Some(HashSet::new());
-        let reconnect_response = self.signal_client.restart().await?;
+        let reconnect_response = self.signal_client.restart(reason).await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
 
         let rtc_config =
@@ -2261,6 +2431,21 @@ impl SessionInner {
         Ok(reconnect_response)
     }
 
+    fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
+        let (subscriber_connected, subscriber_disconnect) = self
+            .subscriber_pc
+            .as_ref()
+            .map(|pc| (pc.connected_generation(), pc.disconnect_generation()))
+            .unwrap_or((0, 0));
+
+        PcGenerationSnapshot {
+            publisher_connected: self.publisher_pc.connected_generation(),
+            publisher_disconnect: self.publisher_pc.disconnect_generation(),
+            subscriber_connected,
+            subscriber_disconnect,
+        }
+    }
+
     async fn restart_publisher(&self) -> EngineResult<()> {
         // In single-PC mode the publisher is the only transport, so always restart its ICE
         // even if the user hasn't explicitly published a track yet. Otherwise only restart
@@ -2273,18 +2458,58 @@ impl SessionInner {
         Ok(())
     }
 
-    /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
+    /// Wait for the transports to connect, timing out after [`ICE_CONNECT_TIMEOUT`].
+    ///
+    /// For the initial connect, where transports start from `New`: reaching `Connected` is
+    /// itself the proof, since there is no earlier connection to confuse it with.
+    ///
+    /// This is also where connection setup time is known: from [`Self::connect_started`] to
+    /// the transports reporting connected. It is handed to the publisher transport, which
+    /// lowers the start bitrate hint for a slow connection before the first video offer is
+    /// created. Resumes go through [`Self::wait_pc_reconnected_with_snapshot`] instead and
+    /// keep the estimator they have.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
-        self.wait_pc_connection_with_delay(Duration::ZERO).await
+        self.wait_pc_connection_inner(None, Duration::ZERO).await?;
+        let setup = self.connect_started.elapsed();
+        log::info!("connection setup took {} ms", setup.as_millis());
+        self.publisher_pc.set_connection_setup_time(setup).await;
+        Ok(())
     }
 
-    /// Like [`Self::wait_pc_connection`] but sleeps `settle_delay` before polling.
-    async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
-        let wait_connected = async move {
-            if !settle_delay.is_zero() {
-                tokio::time::sleep(settle_delay).await;
-            }
+    /// Wait for the transports to have *reconnected*, which a resume cannot establish by
+    /// reading `PeerConnectionState`.
+    ///
+    /// That state is a level, and the level is identical for a transport that reconnected and
+    /// one whose far end has vanished: ICE holds `Connected` until its receiving timeout, and
+    /// only reaches `Failed` after consent expiry tens of seconds later. Trusting it let a
+    /// resume declare success while the subscriber was dead, emitting `Resumed` — and so
+    /// `RoomEvent::Reconnected` — for a session that received no further media.
+    ///
+    /// So compare against the transition counts taken before the resume started. A transport
+    /// counts as reconnected when it is `Connected` *and* either:
+    ///   - it entered `Connected` since the snapshot, meaning ICE and DTLS completed on this
+    ///     attempt; or
+    ///   - it never left `Connected` for the whole settle window, so the pre-existing
+    ///     connection is still good (the signal-only failure, where media never broke).
+    ///
+    /// A transport that dropped and has not reconnected since is not recovered, whatever it
+    /// reports now.
+    async fn wait_pc_reconnected_with_snapshot(
+        &self,
+        snapshot: PcGenerationSnapshot,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        self.wait_pc_connection_inner(Some(snapshot), settle_delay).await
+    }
 
+    async fn wait_pc_connection_inner(
+        &self,
+        snapshot: Option<PcGenerationSnapshot>,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        let started = Instant::now();
+
+        let wait_connected = async move {
             loop {
                 let notified = self.pc_state_notify.notified();
 
@@ -2292,11 +2517,37 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                let publisher_connected = self.publisher_pc.is_connected();
-                let subscriber_connected = if self.single_pc_mode || !self.subscriber_primary {
-                    true // No subscriber in single PC mode or if PC is publisher primary
-                } else {
-                    self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
+                // The settle window gates only the "nothing ever broke" branch; a transport
+                // that reconnected is accepted as soon as it does.
+                let settled = started.elapsed() >= settle_delay;
+
+                let publisher_ok = Self::transport_recovered(
+                    &self.publisher_pc,
+                    snapshot.as_ref().map(|s| (s.publisher_connected, s.publisher_disconnect)),
+                    settled,
+                );
+
+                // The subscriber transport exists exactly when this is not single-PC mode
+                // (see `RtcSession::connect`), where the publisher is the only transport and
+                // there is nothing else to wait for.
+                let subscriber_ok = match self.subscriber_pc.as_ref() {
+                    None => {
+                        debug_assert!(
+                            self.single_pc_mode,
+                            "subscriber_pc absent outside single-PC mode"
+                        );
+                        self.single_pc_mode
+                    }
+                    // Present, but a publisher-primary connection does not carry media on it,
+                    // so it is not on the critical path for this wait.
+                    Some(_) if !self.subscriber_primary => true,
+                    Some(pc) => Self::transport_recovered(
+                        pc,
+                        snapshot
+                            .as_ref()
+                            .map(|s| (s.subscriber_connected, s.subscriber_disconnect)),
+                        settled,
+                    ),
                 };
 
                 // In single-PC mode the publisher is the only transport, so it must always
@@ -2304,7 +2555,7 @@ impl SessionInner {
                 let need_publisher =
                     self.single_pc_mode || self.has_published.load(Ordering::Acquire);
 
-                if subscriber_connected && (!need_publisher || publisher_connected) {
+                if subscriber_ok && (!need_publisher || publisher_ok) {
                     break;
                 }
 
@@ -2321,6 +2572,22 @@ impl SessionInner {
                 Err(err)
             }
         }
+    }
+
+    /// `generations` carries the `(connected, disconnect)` counts sampled before the resume,
+    /// or `None` on the initial connect. See [`Self::wait_pc_reconnected_with_snapshot`].
+    fn transport_recovered(
+        pc: &PeerTransport,
+        generations: Option<(u32, u32)>,
+        settled: bool,
+    ) -> bool {
+        recovery_decision(
+            pc.is_connected(),
+            pc.connected_generation(),
+            pc.disconnect_generation(),
+            generations,
+            settled,
+        )
     }
 
     /// Start publisher negotiation
@@ -2591,6 +2858,41 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
     dc.on_message(on_message.into());
 }
 
+/// Whether a transport counts as recovered, split out from the transport so the rule can be
+/// exercised without a PeerConnection. See
+/// [`SessionInner::wait_pc_reconnected_with_snapshot`] for why the current state is not enough.
+///
+/// `generations` is the `(connected, disconnect)` pair sampled before the resume began, or
+/// `None` on the initial connect.
+fn recovery_decision(
+    connected: bool,
+    connected_generation: u32,
+    disconnect_generation: u32,
+    generations: Option<(u32, u32)>,
+    settled: bool,
+) -> bool {
+    if !connected {
+        return false;
+    }
+
+    let Some((snap_connected, snap_disconnect)) = generations else {
+        return true; // initial connect: reaching Connected is the whole contract
+    };
+
+    if connected_generation != snap_connected {
+        return true; // entered Connected on this attempt, so ICE and DTLS completed
+    }
+
+    if disconnect_generation != snap_disconnect {
+        return false; // dropped and not back since; the current state is stale
+    }
+
+    // Never dropped, never re-entered: either the media plane was fine throughout (a
+    // signal-only failure) or the far end is gone and ICE has not noticed. Indistinguishable
+    // until the settle window gives ICE time to time out.
+    settled
+}
+
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
         fn $fncname(value: $proto, mut config: RtcConfiguration) -> RtcConfiguration {
@@ -2618,9 +2920,99 @@ macro_rules! make_rtc_config {
 make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
 make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
+/// Whether the data channels are created as negotiated rather than opened in-band.
+///
+/// Both sides must speak [`NEGOTIATED_DATA_CHANNELS_PROTOCOL`]: the server decides from the
+/// protocol the client advertised, so a client that advertises less must not go by the server's
+/// protocol alone. Dual peer connection has the server open the channels, so there is nothing to
+/// save there.
+fn uses_negotiated_data_channels(
+    single_pc_mode: bool,
+    server_protocol: i32,
+    client_protocol: u32,
+) -> bool {
+    single_pc_mode
+        && server_protocol.min(client_protocol as i32) >= NEGOTIATED_DATA_CHANNELS_PROTOCOL as i32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{
+        parse_sdp_max_message_size, recovery_decision, uses_negotiated_data_channels,
+        DEFAULT_MAX_MESSAGE_SIZE,
+    };
+
+    /// The server picks negotiated data channels from the protocol the client advertised, so a
+    /// client advertising 16 to a protocol 18 server must open them in-band, as the server does.
+    #[test]
+    fn negotiated_data_channels_need_both_sides_at_protocol_18() {
+        assert!(!uses_negotiated_data_channels(true, 18, 16));
+        assert!(!uses_negotiated_data_channels(true, 16, 18));
+        assert!(uses_negotiated_data_channels(true, 18, 18));
+        assert!(!uses_negotiated_data_channels(false, 18, 18));
+    }
+
+    /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
+    const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
+
+    /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
+    /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so
+    /// `RoomEvent::Reconnected` with `ConnectionState::Connected`, for a session receiving no
+    /// media. The dropped-and-not-back-since history has to win over the current state, and
+    /// no amount of settling may override it.
+    #[test]
+    fn stale_connected_after_a_drop_is_not_recovery() {
+        assert!(!recovery_decision(
+            /* connected= */ true,
+            /* connected_generation= */ 7, // unchanged: never re-entered Connected
+            /* disconnect_generation= */ 4, // bumped: it dropped at some point
+            SNAPSHOT, /* settled= */ true,
+        ));
+    }
+
+    /// Re-entering `Connected` means ICE and DTLS completed on this attempt, so it is accepted
+    /// straight away and a real reconnection never pays the settle delay.
+    ///
+    /// Note this must be evidence of *connecting*, not of negotiating: the server sends its
+    /// subscriber offer while the old transport can still read `Connected`, so accepting a
+    /// completed negotiation here would reproduce the defect above.
+    #[test]
+    fn reconnection_is_accepted_immediately() {
+        assert!(recovery_decision(
+            /* connected= */ true,
+            /* connected_generation= */ 8, // entered Connected since the snapshot
+            /* disconnect_generation= */ 4, // it did drop — irrelevant, it is back
+            SNAPSHOT, /* settled= */ false, // still inside the settle window
+        ));
+    }
+
+    /// A signal-only failure leaves the media plane untouched, so the existing connection is
+    /// still good — but that is indistinguishable from a far end that vanished until ICE has
+    /// had time to notice.
+    #[test]
+    fn untouched_connection_is_accepted_only_after_settling() {
+        let untouched = |settled| recovery_decision(true, 7, 3, SNAPSHOT, settled);
+
+        assert!(!untouched(false), "must not accept before ICE could notice a dead path");
+        assert!(untouched(true));
+    }
+
+    #[test]
+    fn transport_not_currently_connected_is_never_recovered() {
+        for connected_generation in [7, 8] {
+            for settled in [false, true] {
+                assert!(!recovery_decision(false, connected_generation, 3, SNAPSHOT, settled));
+            }
+        }
+    }
+
+    /// The initial connect has no earlier connection to confuse `Connected` with, so it is
+    /// taken at face value rather than gated on a transition.
+    #[test]
+    fn initial_connect_takes_connected_at_face_value() {
+        assert!(recovery_decision(true, 0, 0, None, false));
+        assert!(!recovery_decision(false, 0, 0, None, true));
+    }
 
     #[test]
     fn parses_max_message_size_from_application_section() {

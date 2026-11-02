@@ -17,7 +17,13 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_signaling::{SignalError, SignalOptions};
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{borrow::Cow, collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fmt::Debug,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
@@ -47,25 +53,37 @@ mod rtc_events;
 mod rtc_session;
 
 // Re-exported to preserve the public `rtc_engine::RECONNECT_*` paths.
+#[allow(deprecated)]
+pub use reconnect_strategy::RECONNECT_BACKOFF_MULTIPLIER;
 pub use reconnect_strategy::{
-    RECONNECT_ATTEMPTS, RECONNECT_BACKOFF_MULTIPLIER, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY,
+    RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY, RECONNECT_MAX_DURATION,
 };
 
 pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-/// Settling delay before checking PeerConnection state on the resume path.
+/// How long a resume waits before accepting "this transport never left `Connected`" as
+/// evidence that it is still good.
 ///
-/// Lets a freshly issued ICE-restart offer/answer round-trip take effect when the
-/// underlying PC was still in `Connected` at the moment we started the reconnect
-/// (e.g. signal-only failure). Without this, the resume can return success
-/// immediately and the next failure detector then trips the engine into a real
-/// disconnect.
+/// Only the ambiguous case waits: a transport that re-entered `Connected` during the resume
+/// has demonstrably reconnected and is accepted immediately. But a transport whose far end
+/// has silently gone away also still reports `Connected`, because ICE holds that state until
+/// its receiving timeout — so this has to outlast that timeout, or a dead transport is
+/// accepted as healthy.
 ///
-/// Only applied to the resume path. Full reconnect builds brand-new PCs which
-/// don't suffer from the "looks-Connected-but-isn't" race.
-pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(1);
+/// The cost is resume latency for a signal-only failure, where the media plane was fine and
+/// there is no reconnection to short-circuit on. Resume-only; a full reconnect builds new
+/// PeerConnections and has no stale state to misread.
+///
+/// This window cannot be replaced by watching for an ICE restart to take effect. Measured
+/// against a dev server, a same-node resume does perform a real subscriber ICE restart — the
+/// server's offer carries a fresh ice-ufrag and both transports gather a new generation — yet
+/// neither `IceConnectionState` nor `PeerConnectionState` leaves `Connected` at any point,
+/// because libwebrtc keeps the old candidate pair selected until the new one is ready. So
+/// "nothing transitioned" is the *normal* outcome of a healthy resume, and requiring an
+/// observed transition would time out every signal-only resume into a full reconnect.
+pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
@@ -228,6 +246,8 @@ pub enum EngineEvent {
     SubscribedQualityUpdate {
         update: proto::SubscribedQualityUpdate,
     },
+    /// A publisher answer was applied; dynacast layers must be re-applied.
+    RefreshPublishingLayers,
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -249,6 +269,12 @@ struct EngineHandle {
     // Carried through so that, if reconnection ultimately fails, the engine
     // closes with the original cause rather than a generic `UnknownReason`.
     reconnect_reason: DisconnectReason,
+
+    // The cause reported to the server on each resume attempt of this episode, so
+    // server-side telemetry can attribute why clients reconnect. Set from the
+    // failure that started the episode and not overwritten by later failures,
+    // which are consequences of the first.
+    reported_reconnect_reason: proto::ReconnectReason,
     engine_task: Option<(JoinHandle<()>, oneshot::Sender<()>)>,
 }
 
@@ -269,7 +295,7 @@ struct EngineInner {
     reconnecting_lock: AsyncRwLock<()>,
 
     // Signalled when a server-requested reconnect wants the next attempt to fire
-    // immediately, collapsing the exponential backoff wait between attempts.
+    // immediately, collapsing the backoff wait between attempts.
     retry_now_notify: Arc<Notify>,
     /// Test-only fault injection: number of upcoming resume attempts to force to
     /// fail. Each forced failure decrements this counter and makes
@@ -312,6 +338,15 @@ impl RtcEngine {
 
     pub async fn close(&self, reason: DisconnectReason) {
         self.inner.close(reason).await
+    }
+
+    /// Test-only: returns a probe that reports whether the engine internals have been
+    /// dropped. `Drop` running is not observable from the outside, and a reference cycle
+    /// would silently prevent it, so lifecycle tests assert on this instead.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
     }
 
     pub async fn publish_data(
@@ -487,6 +522,7 @@ impl EngineInner {
                             can_reconnect: true,
                             full_reconnect: false,
                             reconnect_reason: DisconnectReason::UnknownReason,
+                            reported_reconnect_reason: proto::ReconnectReason::RrUnknown,
                             engine_task: None,
                         }),
                         options,
@@ -502,8 +538,11 @@ impl EngineInner {
 
                     // Start initial tasks
                     let (close_tx, close_rx) = oneshot::channel();
-                    let session_task =
-                        tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
+                    let session_task = tokio::spawn(Self::engine_task(
+                        Arc::downgrade(&inner),
+                        session_events,
+                        close_rx,
+                    ));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
                     Ok((inner, join_response, engine_rx))
@@ -541,16 +580,26 @@ impl EngineInner {
         Err(last_error.unwrap())
     }
 
+    /// Forwards session events to the engine for as long as the engine is alive.
+    ///
+    /// Takes a [`Weak`] reference because the engine owns this task: its `JoinHandle` and
+    /// stop signal live in [`EngineHandle`], inside the very [`EngineInner`] this task would
+    /// otherwise hold. A strong reference makes the two keep each other alive, so nothing
+    /// but an explicit `close()` can release them, and merely dropping the engine leaks the
+    /// session, both peer connections, and the signal client with its open websocket.
+    /// Upgrading per event also lets the task stop on its own once the engine is gone.
     async fn engine_task(
-        self: Arc<Self>,
+        this: Weak<Self>,
         mut session_events: SessionEvents,
         mut close_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
                 Some(event) = session_events.recv() => {
+                    let Some(inner) = this.upgrade() else {
+                        break;
+                    };
                     let debug = format!("{:?}", event);
-                    let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
                     let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_session_event(event).await {
@@ -580,7 +629,7 @@ impl EngineInner {
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
-            SessionEvent::Close { source, reason, action, retry_now } => {
+            SessionEvent::Close { source, reason, reconnect_reason, action, retry_now } => {
                 match action {
                     proto::leave_request::Action::Resume
                     | proto::leave_request::Action::Reconnect => {
@@ -605,6 +654,7 @@ impl EngineInner {
                             retry_now,
                             action == proto::leave_request::Action::Reconnect,
                             reason,
+                            reconnect_reason,
                         );
                     }
                     proto::leave_request::Action::Disconnect => {
@@ -739,6 +789,9 @@ impl EngineInner {
             SessionEvent::SubscribedQualityUpdate { update } => {
                 let _ = self.engine_tx.send(EngineEvent::SubscribedQualityUpdate { update });
             }
+            SessionEvent::RefreshPublishingLayers => {
+                let _ = self.engine_tx.send(EngineEvent::RefreshPublishingLayers);
+            }
             SessionEvent::LocalDataTrackInput(event) => {
                 let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
             }
@@ -807,6 +860,7 @@ impl EngineInner {
         retry_now: bool,
         full_reconnect: bool,
         reason: DisconnectReason,
+        reported_reconnect_reason: proto::ReconnectReason,
     ) {
         let mut running_handle = self.running_handle.write();
 
@@ -841,8 +895,9 @@ impl EngineInner {
         // full reconnect in `try_restart_connection`.
         running_handle.full_reconnect |= full_reconnect;
         // Remember the cause so a failed reconnection closes with it rather than
-        // a generic UnknownReason.
+        // a generic UnknownReason, and so each attempt can report it to the server.
         running_handle.reconnect_reason = reason;
+        running_handle.reported_reconnect_reason = reported_reconnect_reason;
 
         tokio::spawn({
             let inner = self.clone();
@@ -923,6 +978,9 @@ impl EngineInner {
         let mut resuming_emitted = false;
         let mut restarting_emitted = false;
 
+        let started = tokio::time::Instant::now();
+        let deadline = started + RECONNECT_MAX_DURATION;
+
         for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
@@ -931,6 +989,15 @@ impl EngineInner {
 
             if is_closed {
                 return Err(EngineError::Connection("attempt canncelled, engine is closed".into()));
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                log::error!(
+                    "reconnect deadline of {:?} reached after {} attempts",
+                    RECONNECT_MAX_DURATION,
+                    i - 1
+                );
+                break;
             }
 
             if full_reconnect {
@@ -1021,14 +1088,19 @@ impl EngineInner {
                 }
             }
 
-            // Exponential backoff with full jitter between attempts (DELTA 3).
+            // Quadratic backoff plus up to 1 s of jitter between attempts (DELTA 3,
+            // see reconnect_strategy).
             // A server-requested reconnect signals retry_now_notify to collapse
             // this wait so the next attempt fires immediately; a close signals
             // close_notifier to break out of the loop early (the next iteration's
             // `is_closed` check then returns) instead of waiting out the backoff.
+            if i == RECONNECT_ATTEMPTS {
+                break; // no attempt left to wait for
+            }
             let backoff = reconnect_strategy::delay(i);
+            let wake = deadline.min(tokio::time::Instant::now() + backoff);
             tokio::select! {
-                _ = tokio::time::sleep(backoff) => {}
+                _ = tokio::time::sleep_until(wake) => {}
                 _ = self.retry_now_notify.notified() => {
                     log::debug!("retry_now signalled, skipping reconnect backoff");
                 }
@@ -1039,7 +1111,7 @@ impl EngineInner {
         }
 
         Err(EngineError::Connection(
-            format!("failed to reconnect after {}", RECONNECT_ATTEMPTS).into(),
+            format!("gave up reconnecting after {:?}", started.elapsed()).into(),
         ))
     }
 
@@ -1088,7 +1160,7 @@ impl EngineInner {
         handle.full_reconnect = false;
 
         let (close_tx, close_rx) = oneshot::channel();
-        let task = tokio::spawn(self.clone().engine_task(session_events, close_rx));
+        let task = tokio::spawn(Self::engine_task(Arc::downgrade(self), session_events, close_rx));
         handle.engine_task = Some((task, close_tx));
 
         Ok(())
@@ -1100,9 +1172,10 @@ impl EngineInner {
     /// each non-trivial seam is its own method so the sequence — and the reason
     /// for the ordering — is explicit rather than implied by statement order.
     /// Mirrors the resume chain in `livekit/specs/signalling-reconnection.allium`:
+    ///   0. sample the PC transition counts, before anything can perturb them;
     ///   1. reopen the signalling link (queue gate stays on until step 4);
     ///   2. SyncState before the publisher re-offer;
-    ///   3. re-offer the publisher, then await PC reconnection + settle;
+    ///   3. re-offer the publisher, then await *demonstrated* PC recovery;
     ///   4. re-check link liveness, then drain the queue.
     async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
         // Test-only: force the configured number of resume attempts to fail so tests
@@ -1125,24 +1198,35 @@ impl EngineInner {
             // the next cycle; pre-fix it was dropped and the engine resumed again.
             if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
                 log::warn!("test fault injection: simulating concurrent failure during resume");
-                self.reconnection_needed(false, false, DisconnectReason::UnknownReason);
+                self.reconnection_needed(
+                    false,
+                    false,
+                    DisconnectReason::UnknownReason,
+                    proto::ReconnectReason::RrUnknown,
+                );
             }
         }
 
         let session = self.running_handle.read().session.clone();
 
+        // 0. Sample the transports' connection-state transition counts BEFORE anything can
+        //    perturb them, so step 3 can tell a transport that reconnected from one still
+        //    reporting a `Connected` that predates the failure.
+        let pc_snapshot = session.pc_generation_snapshot();
+
         // 1. Reopen the signalling link. The SignalClient stays gated
         //    (`reconnecting=true`) so queueable mutations buffer until step 4.
-        let reconnect_response = session.restart().await?;
+        let reported_reason = self.running_handle.read().reported_reconnect_reason;
+        let reconnect_response = session.restart(reported_reason).await?;
 
         // 2. Hand the ReconnectResponse to the room and wait until it has sent
         //    SyncState, which must precede the publisher re-offer.
         self.resume_sync_state(reconnect_response).await;
 
-        // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
-        //    PeerConnections to reconnect, applying the settle delay.
+        // 3. Re-offer the publisher (strictly AFTER SyncState), then wait for the transports
+        //    to have demonstrably reconnected rather than merely to report `Connected`.
         session.restart_publisher().await?;
-        session.wait_pc_reconnected(PC_RECONNECT_SETTLE_DELAY).await?;
+        session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await

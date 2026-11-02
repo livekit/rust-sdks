@@ -1699,7 +1699,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .with_grants(access_token::VideoGrants {
             room_join: true,
             room: args.room_name.clone(),
-            can_subscribe: true,
+            can_subscribe: Some(true),
             ..Default::default()
         })
         .to_jwt()?;

@@ -125,6 +125,13 @@ export declare enum VideoEncoderBackend {
    * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
    */
   ENCODER_BACKEND_VIDEOTOOLBOX = 5,
+
+  /**
+   * Pre-encoded passthrough: the application supplies encoded frames.
+   *
+   * @generated from enum value: ENCODER_BACKEND_PRE_ENCODED = 6;
+   */
+  ENCODER_BACKEND_PRE_ENCODED = 6,
 }
 
 /**
@@ -2048,15 +2055,13 @@ export declare class RoomDataStreamOptions extends Message<RoomDataStreamOptions
   maxPayloadByteLength?: bigint;
 
   /**
-   * Temporary migration aid for SDKs that still implement data streams in
-   * their own client-side code on top of the FFI instead of using the FFI
-   * data stream API. When true, this client does not advertise data streams
-   * v2 support: ClientInfo.client_protocol is capped at 1 (DATA_STREAM_RPC),
-   * so remote clients will not use v2-only behavior toward this client.
-   * Defaults to false (v2 advertised). Will be removed once all FFI
-   * consumers migrate.
+   * Deprecated: no client SDK uses this anymore, and it is ignored. It was a
+   * temporary migration aid for SDKs that implemented data streams in their
+   * own client-side code on top of the FFI; data streams v2 support is now
+   * always advertised. Kept only so the field number is not reused.
    *
-   * @generated from field: optional bool use_legacy_client_implementation = 2;
+   * @generated from field: optional bool use_legacy_client_implementation = 2 [deprecated = true];
+   * @deprecated
    */
   useLegacyClientImplementation?: boolean;
 

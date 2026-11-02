@@ -362,6 +362,49 @@ async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Res
     Ok(())
 }
 
+/// Test device selection by index.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_platform_audio_device_selection_by_index() -> Result<()> {
+    use livekit::reset_platform_audio;
+
+    reset_platform_audio();
+
+    let Some(audio) = try_create_platform_audio("test_platform_audio_device_selection_by_index")
+    else {
+        return Ok(());
+    };
+
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
+
+    if let Some(device) = recording_devices.first() {
+        audio.set_recording_device_by_index(device.index)?;
+        log::info!("Selected recording device by index {}: {}", device.index, device.name);
+    }
+
+    if let Some(device) = playout_devices.first() {
+        audio.set_playout_device_by_index(device.index)?;
+        log::info!("Selected playout device by index {}: {}", device.index, device.name);
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let out_of_bounds_index = usize::MAX / 2;
+        assert_eq!(
+            audio.set_recording_device_by_index(out_of_bounds_index),
+            Err(AudioError::DeviceNotFound)
+        );
+        assert_eq!(
+            audio.set_playout_device_by_index(out_of_bounds_index),
+            Err(AudioError::DeviceNotFound)
+        );
+    }
+
+    drop(audio);
+    Ok(())
+}
+
 /// Test audio processing configuration without room connection.
 #[test_log::test(tokio::test)]
 #[serial]

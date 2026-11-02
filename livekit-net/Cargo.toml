@@ -1,6 +1,6 @@
 [package]
 name = "livekit-net"
-version = "0.1.2"
+version = "0.1.4"
 license.workspace = true
 description = "Pluggable, host-providable network transport for LiveKit signalling"
 edition.workspace = true
@@ -42,11 +42,16 @@ rustls-tls-webpki-roots = [
 ]
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 async-trait = "0.1"
 
 # Optional: scaffolding for the `uniffi` feature. `scaffolding-ffi-buffer-fns`
-# matches livekit-datatrack/livekit-uniffi so the ABI is consistent when these
+# matches livekit-datatrack/livekit-ffi so the ABI is consistent when these
 # crates are combined into one cdylib. No runtime feature: the exported traits
 # are `with_foreign` (host-driven futures) and the exported setters are sync, so
 # the crate stays runtime-agnostic.

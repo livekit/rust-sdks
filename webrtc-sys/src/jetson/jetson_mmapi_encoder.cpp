@@ -17,6 +17,7 @@
 #include "jetson_mmapi_encoder.h"
 
 #include "jetson_plane_layout.h"
+#include "jetson_runtime_loader.h"
 
 #include <cerrno>
 #include <linux/v4l2-controls.h>
@@ -47,9 +48,19 @@ constexpr int kDefaultOutputBufferCount = 4;
 constexpr int kDefaultCaptureBufferCount = 4;
 constexpr int kMinBitstreamBufferSize = 1024 * 1024;
 
+/// Checks whether a path identifies an accessible character device.
+///
+/// A character device is a special filesystem node, typically under `/dev`,
+/// through which a process communicates with a kernel driver as a byte stream.
+/// Requiring this device type rejects regular files or directories that happen
+/// to exist at the expected path but cannot represent an encoder interface.
+///
+/// Returns true when the path exists, is a character device, and is readable
+/// and writable by the current process.
 bool DeviceExists(const char* path) {
   struct stat st = {};
-  return stat(path, &st) == 0;
+  return stat(path, &st) == 0 && S_ISCHR(st.st_mode) &&
+         access(path, R_OK | W_OK) == 0;
 }
 
 void CopyPlane(uint8_t* dst,
@@ -166,14 +177,34 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
   if (!device.has_value()) {
     return false;
   }
+  // The MMAPI/v4l2 symbols below are lazily bound and abort the process if
+  // invoked while the Jetson userspace libraries are absent, so the library
+  // probe must pass before any of them is called.
+  if (!lk_jetson_runtime_libs_available()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson encoder device exists, but the Jetson multimedia "
+           "libraries (libnvbufsurface/libv4l2) could not be loaded.";
+    return false;
+  }
+  // NvVideoEncoder closes its libv4l2 handle when destroyed. Keep an
+  // independent reference to NVIDIA's codec plugin so that the temporary
+  // capability probe cannot unload process-global GLib state needed by a
+  // later GStreamer pipeline.
+  if (!lk_jetson_pin_v4l2_codec_plugin()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson video codec plugin could not be pinned for capability "
+           "discovery.";
+    return false;
+  }
+
   std::unique_ptr<NvVideoEncoder> encoder(
-      NvVideoEncoder::createVideoEncoder("livekit-encoder"));
+      NvVideoEncoder::createVideoEncoder("livekit-encoder-probe"));
   if (!encoder) {
     return false;
   }
   const uint32_t pixfmt = CodecToV4L2PixFmt(codec);
-  if (encoder->setCapturePlaneFormat(pixfmt, 64, 64,
-                                     kMinBitstreamBufferSize) < 0) {
+  if (encoder->setCapturePlaneFormat(pixfmt, 64, 64, kMinBitstreamBufferSize) <
+      0) {
     const uint32_t fallback_pixfmt = CodecToV4L2FallbackPixFmt(codec);
     if (fallback_pixfmt == pixfmt ||
         encoder->setCapturePlaneFormat(fallback_pixfmt, 64, 64,
@@ -234,6 +265,16 @@ bool JetsonMmapiEncoder::Initialize(int width,
   auto device = FindEncoderDevice();
   if (!device.has_value()) {
     RTC_LOG(LS_WARNING) << "Jetson MMAPI encoder device not found.";
+    return false;
+  }
+
+  // Re-checked here rather than relying on the factory's IsSupported() gate:
+  // this is a public entry point, and an unresolved lazily-bound symbol
+  // aborts the process instead of returning an error.
+  if (!lk_jetson_runtime_libs_available()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson encoder device exists, but the Jetson multimedia "
+           "libraries (libnvbufsurface/libv4l2) could not be loaded.";
     return false;
   }
 

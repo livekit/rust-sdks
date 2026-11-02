@@ -33,19 +33,35 @@ pub struct EncryptedPayload {
 /// An error indicating a payload could not be encrypted.
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
-#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum EncryptionError {
-    #[error("Encryption failed")]
-    Failed,
+    #[error("Encryption failed: {reason}")]
+    Failed { reason: String },
+}
+
+// Required because foreign code implements `EncryptionProvider::encrypt`: an exception that is
+// NOT an `EncryptionError` surfaces through this catch-all rather than aborting.
+#[cfg(feature = "uniffi")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for EncryptionError {
+    fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed { reason: error.reason }
+    }
 }
 
 /// An error indicating a payload could not be decrypted.
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
-#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum DecryptionError {
-    #[error("Decryption failed")]
-    Failed,
+    #[error("Decryption failed: {reason}")]
+    Failed { reason: String },
+}
+
+// Required because foreign code implements `DecryptionProvider::decrypt`: an exception that is
+// NOT a `DecryptionError` surfaces through this catch-all rather than aborting.
+#[cfg(feature = "uniffi")]
+impl From<uniffi::UnexpectedUniFFICallbackError> for DecryptionError {
+    fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed { reason: error.reason }
+    }
 }
 
 /// Provider for encrypting payloads for E2EE.

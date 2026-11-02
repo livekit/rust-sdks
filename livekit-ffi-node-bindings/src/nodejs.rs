@@ -120,7 +120,9 @@ impl FfiHandle {
         }
         self.disposed = true;
         let (_, handle, _) = self.handle.get_u64();
-        if !FFI_SERVER.drop_handle(handle) {
+        // `livekit_dispose` already dropped every handle the server owned, so one
+        // that outlives it has nothing left to release.
+        if !FFI_SERVER.drop_handle(handle) && FFI_SERVER.is_setup() {
             return Err(Error::from_reason("trying to drop an invalid handle"));
         }
 
@@ -134,7 +136,12 @@ impl FfiHandle {
 }
 
 impl ObjectFinalize for FfiHandle {
-    fn finalize(mut self, env: Env) -> Result<()> {
-        self.dispose()
+    fn finalize(mut self, _env: Env) -> Result<()> {
+        // An error returned from a finalizer is raised as an uncaught exception
+        // wherever GC happens to run, where no caller can handle it.
+        if let Err(err) = self.dispose() {
+            log::warn!("failed to dispose FfiHandle during finalization: {}", err.reason);
+        }
+        Ok(())
     }
 }

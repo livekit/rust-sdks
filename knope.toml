@@ -145,21 +145,7 @@ versioned_files = [
 changelog = "livekit-ffi/CHANGELOG.md"
 # Assets makes knope create a draft release; CI uploads the actual binaries and publishes.
 assets = "marker"
-scopes = ["ffi", "livekit-ffi"]
-
-[packages.livekit-uniffi]
-# Not in workspace.dependencies (not consumed by other crates here), so no
-# root Cargo.toml entry is needed.
-versioned_files = [
-  "livekit-uniffi/Cargo.toml",
-  "Cargo.lock",
-]
-changelog = "livekit-uniffi/CHANGELOG.md"
-# No `assets` marker: knope publishes the release + tag directly, and
-# uniffi-packages.yml reacts to the published release to build/publish the Swift
-# and Android wrapper packages. (Re-add the marker if the release itself needs
-# to host assets, e.g. the Dart/Flutter cdylibs.)
-scopes = ["uniffi", "livekit-uniffi"]
+scopes = ["ffi", "livekit-ffi", "uniffi", "livekit-uniffi"]
 
 [packages.livekit-wakeword]
 versioned_files = [
@@ -177,6 +163,14 @@ versioned_files = [
 ]
 changelog = "livekit-datatrack/CHANGELOG.md"
 
+[packages.livekit-telemetry]
+versioned_files = [
+  "livekit-telemetry/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-telemetry" },
+]
+changelog = "livekit-telemetry/CHANGELOG.md"
+
 [packages.livekit-common]
 versioned_files = [
   "livekit-common/Cargo.toml",
@@ -193,6 +187,14 @@ versioned_files = [
 ]
 changelog = "livekit-data-stream/CHANGELOG.md"
 
+[packages.livekit-rpc]
+versioned_files = [
+  "livekit-rpc/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-rpc" },
+]
+changelog = "livekit-rpc/CHANGELOG.md"
+
 [packages.device-info]
 versioned_files = [
   "device-info/Cargo.toml",
@@ -208,3 +210,11 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-token-source" },
 ]
 changelog = "livekit-token-source/CHANGELOG.md"
+
+[packages.livekit-capture]
+versioned_files = [
+  "livekit-capture/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-capture" },
+]
+changelog = "livekit-capture/CHANGELOG.md"

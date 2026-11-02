@@ -67,13 +67,13 @@ impl RoomClient {
         Self::build(
             host,
             ServiceBase::with_api_key(api_key, api_secret),
-            crate::http_client::Client::new(),
+            crate::http_client::client(),
         )
     }
 
     /// Authenticates with a pre-signed token, sent verbatim on every request.
     pub fn with_token(host: &str, token: &str) -> Self {
-        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::client())
     }
 
     /// Builds the client from an already-constructed HTTP client so the unified
@@ -433,8 +433,10 @@ impl RoomClient {
         data: Vec<u8>,
         options: SendDataOptions,
     ) -> ServiceResult<()> {
-        let mut rng = rand::rng();
-        let nonce: Vec<u8> = (0..16).map(|_| rng.random::<u8>()).collect();
+        let nonce: Vec<u8> = {
+            let mut rng = rand::rng();
+            (0..16).map(|_| rng.random::<u8>()).collect()
+        };
         #[allow(deprecated)]
         self.client
             .request(

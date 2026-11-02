@@ -28,14 +28,13 @@ use super::{
 };
 use crate::{
     data_stream::api::{
-        ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
-        TextStreamInfo, TextStreamWriter,
+        ByteStreamInfo, ByteStreamWriter, SendByteOptions, SendTextOptions, StreamByteOptions,
+        StreamResult, StreamTextOptions, TextStreamInfo, TextStreamWriter,
     },
     data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
     rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, EngineResult, RtcEngine},
     ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
@@ -666,9 +665,14 @@ impl LocalParticipant {
         let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
-            let sender = track.transceiver().unwrap().sender();
+            let remove_result = {
+                let sender = track.transceiver().unwrap().sender();
+                self.inner.rtc_engine.remove_track(sender)
+            };
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            // The peer connection may already be closed after a server-initiated
+            // disconnect. Always release the local publication/track graph even
+            // when removing its sender is no longer possible.
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =
@@ -678,7 +682,11 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
-            self.inner.rtc_engine.publisher_negotiation_needed();
+            if remove_result.is_ok() {
+                self.inner.rtc_engine.publisher_negotiation_needed();
+            }
+
+            remove_result?;
 
             Ok(publication)
         } else {
@@ -909,7 +917,7 @@ impl LocalParticipant {
         let session = self.session().ok_or_else(|| {
             RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
         })?;
-        let transport = crate::room::rpc::SessionTransport(session.clone());
+        let transport = crate::room::rpc_transport::SessionTransport(session.clone());
         session.rpc_client.perform_rpc(data, &transport).await
     }
 
@@ -941,7 +949,7 @@ impl LocalParticipant {
     ///
     /// This method sends a complete text string to participants in the room as a text stream.
     /// The text is sent in a single operation, and the method returns information about the
-    /// stream used to send the text.
+    /// stream used to send the text. `options.on_progress` reports once on completion.
     ///
     /// # Arguments
     ///
@@ -952,7 +960,7 @@ impl LocalParticipant {
     pub async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_text(text, options, session.as_ref()).await
@@ -962,7 +970,9 @@ impl LocalParticipant {
     ///
     /// This method reads a file from the specified path and sends its contents
     /// to participants in the room as a byte stream, and the method returns information
-    /// the stream used to send the file.
+    /// about the stream used to send the file.
+    ///
+    /// `options.on_progress` reports progress as described by [`SendByteOptions::on_progress`].
     ///
     /// # Arguments
     ///
@@ -973,7 +983,7 @@ impl LocalParticipant {
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,
-        options: StreamByteOptions,
+        options: SendByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_file(path, options, session.as_ref()).await
@@ -981,7 +991,8 @@ impl LocalParticipant {
 
     /// Send an in-memory blob of bytes to participants in the room.
     ///
-    /// This method sends a provided byte slice as a byte stream.
+    /// This method sends a provided byte slice as a byte stream. `options.on_progress` reports
+    /// once on completion.
     ///
     /// # Arguments
     ///
@@ -991,7 +1002,7 @@ impl LocalParticipant {
     pub async fn send_bytes(
         &self,
         data: impl AsRef<[u8]>,
-        options: StreamByteOptions,
+        options: SendByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_bytes(data, options, session.as_ref()).await

@@ -1,6 +1,6 @@
 [package]
 name = "livekit-region"
-version = "0.1.0"
+version = "0.1.1"
 license.workspace = true
 description = "Internal region-discovery cache shared by the LiveKit signalling and server-API clients"
 edition.workspace = true
@@ -9,3 +9,8 @@ readme = "README.md"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"

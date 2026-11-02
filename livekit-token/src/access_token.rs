@@ -40,81 +40,80 @@ pub enum AccessTokenError {
     Encoding(#[from] jsonwebtoken::errors::Error),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
 pub struct VideoGrants {
     // actions on rooms
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room_create: bool,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room_list: bool,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room_record: bool,
 
     // actions on a particular room
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room_admin: bool,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room_join: bool,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub room: String,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub destination_room: String,
 
     // permissions within a room
-    #[serde(default = "default_true")]
-    pub can_publish: bool,
-    #[serde(default = "default_true")]
-    pub can_subscribe: bool,
-    #[serde(default = "default_true")]
-    pub can_publish_data: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub can_publish: Option<bool>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub can_subscribe: Option<bool>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub can_publish_data: Option<bool>,
 
     // TrackSource types that a participant may publish.
     // When set, it supercedes CanPublish. Only sources explicitly set here can be published
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub can_publish_sources: Vec<String>, // keys keep track of each source
 
     // by default, a participant is not allowed to update its own metadata
-    #[serde(default)]
-    pub can_update_own_metadata: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub can_update_own_metadata: Option<bool>,
 
     // actions on ingresses
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub ingress_admin: bool, // applies to all ingress
 
     // participant is not visible to other participants (useful when making bots)
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub hidden: bool,
 
     // indicates to the room that current participant is a recorder
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
     pub recorder: bool,
+
+    // indicates to the room that current participant is an agent
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent: bool,
 }
 
-/// Used for fields that default to true instead of using the `Default` trait.
-fn default_true() -> bool {
-    true
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
-impl Default for VideoGrants {
-    fn default() -> Self {
-        Self {
-            room_create: false,
-            room_list: false,
-            room_record: false,
-            room_admin: false,
-            room_join: false,
-            room: "".to_string(),
-            destination_room: "".to_string(),
-            can_publish: true,
-            can_subscribe: true,
-            can_publish_data: true,
-            can_publish_sources: Vec::default(),
-            can_update_own_metadata: false,
-            ingress_admin: false,
-            hidden: false,
-            recorder: false,
-        }
+impl VideoGrants {
+    pub fn can_publish(&self) -> bool {
+        self.can_publish.unwrap_or(true)
+    }
+
+    pub fn can_subscribe(&self) -> bool {
+        self.can_subscribe.unwrap_or(true)
+    }
+
+    pub fn can_publish_data(&self) -> bool {
+        self.can_publish_data.unwrap_or_else(|| self.can_publish())
+    }
+
+    pub fn can_update_own_metadata(&self) -> bool {
+        self.can_update_own_metadata.unwrap_or(false)
     }
 }
 
@@ -122,14 +121,146 @@ impl Default for VideoGrants {
 #[serde(rename_all = "camelCase")]
 pub struct SIPGrants {
     // manage sip resources
+    #[serde(default, skip_serializing_if = "is_default")]
     pub admin: bool,
     // make outbound calls
+    #[serde(default, skip_serializing_if = "is_default")]
     pub call: bool,
 }
 
 impl Default for SIPGrants {
     fn default() -> Self {
         Self { admin: false, call: false }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentGrants {
+    // create/update/delete Cloud Agents
+    #[serde(skip_serializing_if = "is_default")]
+    pub admin: bool,
+    // manage simulations and scenarios
+    #[serde(skip_serializing_if = "is_default")]
+    pub simulation_admin: bool,
+    // access the project's agent databases
+    #[serde(skip_serializing_if = "is_default")]
+    pub database_admin: bool,
+    // manage the project's agent dispatch queue
+    #[serde(skip_serializing_if = "is_default")]
+    pub dispatch_admin: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentEndpointGrants {
+    // invoke an agent's non-public HTTP endpoints
+    #[serde(skip_serializing_if = "is_default")]
+    pub call: bool,
+    // empty grants every agent in the project
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_name: String,
+    // empty grants every deployment
+    #[serde(skip_serializing_if = "is_default")]
+    pub deployment: String,
+}
+
+impl AgentEndpointGrants {
+    pub fn allows(&self, agent_name: &str, deployment: &str) -> bool {
+        self.call
+            && (self.agent_name.is_empty() || self.agent_name == agent_name)
+            && (self.deployment.is_empty() || self.deployment == deployment)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentThreadGrants {
+    #[serde(skip_serializing_if = "is_default")]
+    pub all: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub scope: String,
+    #[serde(skip_serializing_if = "is_default")]
+    pub thread_ids: Vec<String>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub list: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub create: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub write: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub read: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub delete: bool,
+}
+
+impl AgentThreadGrants {
+    pub fn can_create(&self, scope: &str) -> bool {
+        self.create && self.in_scope(scope)
+    }
+
+    pub fn can_list(&self, scope: &str) -> bool {
+        self.list && self.in_scope(scope)
+    }
+
+    pub fn can_update(&self) -> bool {
+        self.all && self.write
+    }
+
+    pub fn can_read(&self, thread_id: &str) -> bool {
+        self.read && self.includes(thread_id)
+    }
+
+    pub fn can_write(&self, thread_id: &str) -> bool {
+        self.write && self.includes(thread_id)
+    }
+
+    pub fn can_delete(&self, thread_id: &str) -> bool {
+        self.delete && self.includes(thread_id)
+    }
+
+    fn in_scope(&self, scope: &str) -> bool {
+        self.all || (!self.scope.is_empty() && self.scope == scope)
+    }
+
+    fn includes(&self, thread_id: &str) -> bool {
+        !thread_id.is_empty() && (self.all || self.thread_ids.iter().any(|id| id == thread_id))
+    }
+}
+
+/// Grants for LiveKit Inference, set with [`AccessToken::with_inference_grants`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct InferenceGrants {
+    /// Use LiveKit Inference (LLM, STT, TTS).
+    #[serde(skip_serializing_if = "is_default")]
+    pub perform: bool,
+}
+
+impl InferenceGrants {
+    /// Allows using LiveKit Inference (LLM, STT, TTS).
+    pub fn with_perform(mut self) -> Self {
+        self.perform = true;
+        self
+    }
+}
+
+/// Grants for LiveKit observability, set with [`AccessToken::with_observability_grants`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ObservabilityGrants {
+    /// Publish observability data.
+    #[serde(skip_serializing_if = "is_default")]
+    pub write: bool,
+}
+
+impl ObservabilityGrants {
+    /// Allows publishing observability data.
+    pub fn with_write(mut self) -> Self {
+        self.write = true;
+        self
     }
 }
 
@@ -140,14 +271,34 @@ pub struct Claims {
     pub exp: usize,  // Expiration
     pub iss: String, // ApiKey
     pub nbf: usize,
+    #[serde(skip_serializing_if = "is_default")]
     pub sub: String, // Identity
 
+    #[serde(skip_serializing_if = "is_default")]
     pub name: String,
+    #[serde(skip_serializing_if = "is_default")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "is_default")]
     pub video: VideoGrants,
+    #[serde(skip_serializing_if = "is_default")]
     pub sip: SIPGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent: AgentGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_endpoint: AgentEndpointGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub agent_thread: AgentThreadGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub inference: InferenceGrants,
+    #[serde(skip_serializing_if = "is_default")]
+    pub observability: ObservabilityGrants,
+    #[serde(skip_serializing_if = "is_default")]
     pub sha256: String, // Used to verify the integrity of the message body
+    #[serde(skip_serializing_if = "is_default")]
     pub metadata: String,
+    #[serde(skip_serializing_if = "is_default")]
     pub attributes: HashMap<String, String>,
+    #[serde(skip_serializing_if = "is_default")]
     pub room_config: Option<livekit_protocol::RoomConfiguration>,
 }
 
@@ -188,8 +339,14 @@ impl AccessToken {
                 nbf: now.as_secs() as usize,
                 sub: Default::default(),
                 name: Default::default(),
+                kind: Default::default(),
                 video: VideoGrants::default(),
                 sip: SIPGrants::default(),
+                agent: AgentGrants::default(),
+                agent_endpoint: AgentEndpointGrants::default(),
+                agent_thread: AgentThreadGrants::default(),
+                inference: InferenceGrants::default(),
+                observability: ObservabilityGrants::default(),
                 sha256: Default::default(),
                 metadata: Default::default(),
                 attributes: HashMap::new(),
@@ -225,6 +382,32 @@ impl AccessToken {
         self
     }
 
+    pub fn with_agent_grants(mut self, grants: AgentGrants) -> Self {
+        self.claims.agent = grants;
+        self
+    }
+
+    pub fn with_agent_endpoint_grants(mut self, grants: AgentEndpointGrants) -> Self {
+        self.claims.agent_endpoint = grants;
+        self
+    }
+
+    pub fn with_agent_thread_grants(mut self, grants: AgentThreadGrants) -> Self {
+        self.claims.agent_thread = grants;
+        self
+    }
+
+    pub fn with_inference_grants(mut self, grants: InferenceGrants) -> Self {
+        self.claims.inference = grants;
+        self
+    }
+
+    /// Sets the observability grants for this token.
+    pub fn with_observability_grants(mut self, grants: ObservabilityGrants) -> Self {
+        self.claims.observability = grants;
+        self
+    }
+
     pub fn with_identity(mut self, identity: &str) -> Self {
         self.claims.sub = identity.to_owned();
         self
@@ -232,6 +415,11 @@ impl AccessToken {
 
     pub fn with_name(mut self, name: &str) -> Self {
         self.claims.name = name.to_owned();
+        self
+    }
+
+    pub fn with_kind(mut self, kind: &str) -> Self {
+        self.claims.kind = kind.to_owned();
         self
     }
 
@@ -326,7 +514,10 @@ impl TokenVerifier {
 mod tests {
     use std::time::Duration;
 
-    use super::{AccessToken, Claims, TokenVerifier, VideoGrants};
+    use super::{
+        AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, InferenceGrants,
+        ObservabilityGrants, SIPGrants, TokenVerifier, VideoGrants,
+    };
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
@@ -436,5 +627,143 @@ mod tests {
             .expect("Failed to parse token with wrong signature");
         assert_eq!(claims.sub, "test");
         assert_eq!(claims.name, "test");
+    }
+
+    #[test]
+    fn test_agent_grant_and_kind() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_identity("agent-1")
+            .with_kind("agent")
+            .with_grants(VideoGrants {
+                room_join: true,
+                room: "test-room".to_string(),
+                agent: true,
+                ..Default::default()
+            })
+            .to_jwt()
+            .expect("Failed to create token");
+
+        let verifier = TokenVerifier::with_api_key(TEST_API_KEY, TEST_API_SECRET);
+        let claims = verifier.verify(&token).expect("Failed to verify token.");
+        assert_eq!(claims.kind, "agent");
+        assert!(claims.video.agent);
+
+        let payload = |token: &str| {
+            let _ = Claims::from_unverified(token).expect("Failed to parse token");
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token)
+                .expect("Failed to decode token")
+                .claims
+        };
+        let bare = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_grants(VideoGrants::default())
+            .to_jwt()
+            .expect("Failed to create token");
+        let p = payload(&bare);
+        let mut keys: Vec<&str> = p.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["exp", "iss", "nbf"], "{p}");
+
+        let agent = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_grants(VideoGrants {
+                agent: true,
+                can_publish: Some(false),
+                ..Default::default()
+            })
+            .to_jwt()
+            .expect("Failed to create token");
+        let p = payload(&agent);
+        assert_eq!(p["video"], serde_json::json!({"agent": true, "canPublish": false}), "{p}");
+        let claims = Claims::from_unverified(&agent).expect("Failed to parse token");
+        assert!(claims.video.agent && !claims.video.can_publish() && claims.video.can_subscribe());
+        assert!(!claims.video.can_publish_data(), "absent canPublishData follows canPublish");
+    }
+
+    #[test]
+    fn test_defaults_are_not_serialized() {
+        assert_eq!(serde_json::to_string(&VideoGrants::default()).unwrap(), "{}");
+        let parsed: VideoGrants = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed, VideoGrants::default());
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), "{}");
+        let explicit = VideoGrants {
+            can_publish: Some(false),
+            can_publish_data: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&explicit).unwrap(),
+            r#"{"canPublish":false,"canPublishData":true}"#
+        );
+        assert!(explicit.can_publish_data());
+
+        assert_eq!(serde_json::to_string(&SIPGrants::default()).unwrap(), "{}");
+        let parsed: SIPGrants = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed, SIPGrants::default());
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), "{}");
+
+        let claims = Claims { exp: 1, iss: "k".to_string(), nbf: 0, ..Default::default() };
+        let json = r#"{"exp":1,"iss":"k","nbf":0}"#;
+        assert_eq!(serde_json::to_string(&claims).unwrap(), json);
+        let parsed: Claims = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed, claims);
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), json);
+    }
+
+    #[test]
+    fn test_agent_grants_claim_names() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
+            .with_agent_endpoint_grants(AgentEndpointGrants {
+                call: true,
+                agent_name: "a".into(),
+                ..Default::default()
+            })
+            .with_agent_thread_grants(AgentThreadGrants {
+                scope: "s".into(),
+                thread_ids: vec!["t".into()],
+                list: true,
+                read: true,
+                ..Default::default()
+            })
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["agent"], serde_json::json!({"databaseAdmin": true}));
+        assert_eq!(p["agentEndpoint"], serde_json::json!({"call": true, "agentName": "a"}));
+        assert_eq!(
+            p["agentThread"],
+            serde_json::json!({"scope": "s", "threadIds": ["t"], "list": true, "read": true})
+        );
+        let claims = Claims::from_unverified(&token).unwrap();
+        assert!(claims.agent_thread.can_list("s") && claims.agent_thread.can_read("t"));
+        assert!(!claims.agent_thread.can_read("u") && !claims.agent_thread.can_create("s"));
+        assert!(claims.agent_endpoint.allows("a", "default"));
+    }
+
+    #[test]
+    fn test_inference_grants_claim_name() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_inference_grants(InferenceGrants::default().with_perform())
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["inference"], serde_json::json!({"perform": true}));
+        assert!(Claims::from_unverified(&token).unwrap().inference.perform);
+    }
+
+    #[test]
+    fn test_observability_grants_claim_name() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_observability_grants(ObservabilityGrants::default().with_write())
+            .to_jwt()
+            .unwrap();
+        let p =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
+        assert_eq!(p["observability"], serde_json::json!({"write": true}));
+        assert!(Claims::from_unverified(&token).unwrap().observability.write);
     }
 }

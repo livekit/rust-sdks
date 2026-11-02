@@ -9,7 +9,7 @@
   - Enables proper integration testing
   - Enables shared implementation amongst multiple _consumers_:
     - [`livekit`](../livekit/): Rust client SDK
-    - [`livekit-uniffi`](../livekit-uniffi/): will eventually power downstream client SDKs such as Swift and Kotlin
+    - [`livekit-ffi`](../livekit-ffi/) (`core-modules` feature): will eventually power downstream client SDKs such as Swift and Kotlin
 
 ## Local vs. remote split
 

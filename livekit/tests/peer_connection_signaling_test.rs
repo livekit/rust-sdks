@@ -150,8 +150,8 @@ fn create_token(
     let grants = VideoGrants {
         room_join: true,
         room: room_name.to_string(),
-        can_publish: true,
-        can_subscribe: true,
+        can_publish: Some(true),
+        can_subscribe: Some(true),
         ..Default::default()
     };
     AccessToken::with_api_key(api_key, api_secret)
@@ -868,8 +868,8 @@ async fn test_connect_can_subscribe_false_impl(mode: SignalingMode) -> Result<()
     let grants = VideoGrants {
         room_join: true,
         room: room_name.clone(),
-        can_publish: true,
-        can_subscribe: false,
+        can_publish: Some(true),
+        can_subscribe: Some(false),
         ..Default::default()
     };
     let token = AccessToken::with_api_key(&api_key, &api_secret)

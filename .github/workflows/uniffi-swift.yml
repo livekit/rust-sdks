@@ -1,7 +1,8 @@
 name: UniFFI Swift package
 
-# Builds livekit-uniffi as a Swift xcframework and publishes it to the
-# livekit-uniffi-xcframework hosting repo (draft release + PR).
+# Builds livekit-ffi/core-modules as a Swift xcframework and
+# publishes it to the livekit-ffi-xcframework hosting repo
+# (draft release + PR).
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
 # release has been resolved. Not triggered directly.
@@ -14,7 +15,7 @@ on:
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in PR/release bodies for traceability
+        description: Source release tag (e.g., livekit-ffi/v0.13.0) — surfaced in PR/release bodies for traceability
         required: true
         type: string
       dry_run:
@@ -28,10 +29,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  HOSTING_REPO: livekit/livekit-uniffi-xcframework
-  # SPM_NAME must match the value in livekit-uniffi/Makefile.toml [env].
-  SPM_NAME: LiveKitUniFFI
-  OUTPUT_DIR: livekit-uniffi/packages/swift/LiveKitUniFFI
+  HOSTING_REPO: livekit/livekit-ffi-xcframework
+  # SPM_NAME must match the value in livekit-ffi/Makefile.toml [env].
+  SPM_NAME: LiveKitFFI
+  OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitFFI
 
 jobs:
   build-and-publish:
@@ -40,7 +41,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Build the tagged source, not the dispatch ref (which defaults to main).
           ref: ${{ inputs.tag_name }}
@@ -51,12 +52,12 @@ jobs:
           xcode-version: latest-stable
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           cache: false
           rustflags: ""
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Install Common Deps for UniFFI Tasks
         uses: ./.github/actions/uniffi-deps
@@ -77,7 +78,7 @@ jobs:
             aarch64-apple-visionos-sim
 
       - name: Build Swift package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         env:
           SPM_VERSION: ${{ inputs.version }}
           SPM_HOSTING_REPO: ${{ env.HOSTING_REPO }}

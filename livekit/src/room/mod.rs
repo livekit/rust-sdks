@@ -27,6 +27,9 @@ use livekit_datatrack::{
     backend as dt,
 };
 use livekit_protocol as proto;
+use livekit_rpc::backend::{
+    HandleRequestOptions, RpcClientManager, RpcServerManager, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC,
+};
 use livekit_signaling::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
@@ -36,7 +39,10 @@ use proto::SignalTarget;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use thiserror::Error;
@@ -72,7 +78,8 @@ pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
-pub mod rpc;
+mod rpc_transport;
+use rpc_transport::SessionTransport;
 pub mod track;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -346,7 +353,7 @@ pub struct ChatMessage {
     pub generated: Option<bool>,
 }
 
-#[deprecated(note = "RPC requests are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC requests are now handled internally by the `livekit-rpc` crate.")]
 #[derive(Debug, Clone)]
 pub struct RpcRequest {
     pub destination_identity: String,
@@ -357,7 +364,7 @@ pub struct RpcRequest {
     pub version: u32,
 }
 
-#[deprecated(note = "RPC responses are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC responses are now handled internally by the `livekit-rpc` crate.")]
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcResponse {
@@ -367,7 +374,7 @@ pub struct RpcResponse {
     error: Option<proto::RpcError>,
 }
 
-#[deprecated(note = "RPC acks are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC acks are now handled internally by the `livekit-rpc` crate.")]
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcAck {
@@ -405,12 +412,11 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 #[derive(Debug, Clone)]
 pub struct RoomDataStreamOptions {
     max_payload_byte_length: Option<usize>,
-    use_legacy_client_implementation: bool,
 }
 
 impl Default for RoomDataStreamOptions {
     fn default() -> Self {
-        Self { max_payload_byte_length: None, use_legacy_client_implementation: false }
+        Self { max_payload_byte_length: None }
     }
 }
 
@@ -421,14 +427,6 @@ impl RoomDataStreamOptions {
     /// be thrown.
     pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
         self.max_payload_byte_length = Some(byte_length);
-        self
-    }
-
-    /// Advertise only legacy (v1) data stream support. Temporary migration aid for SDKs
-    /// implementing data streams in their own client-side code on top of the FFI.
-    #[doc(hidden)]
-    pub fn with_legacy_client_implementation(mut self, enabled: bool) -> Self {
-        self.use_legacy_client_implementation = enabled;
         self
     }
 }
@@ -537,9 +535,11 @@ pub(crate) struct RoomSession {
     pub(crate) outgoing_stream_manager: ds::outgoing::Manager,
     local_dt_input: dt::local::ManagerInput,
     remote_dt_input: dt::remote::ManagerInput,
-    pub(crate) rpc_client: rpc::RpcClientManager,
-    pub(crate) rpc_server: rpc::RpcServerManager,
+    pub(crate) rpc_client: RpcClientManager,
+    pub(crate) rpc_server: RpcServerManager,
     handle: AsyncMutex<Option<Handle>>,
+    /// Set once the room reaches `Disconnected`, which is final from then on.
+    disconnected: AtomicBool,
 }
 
 struct Handle {
@@ -583,8 +583,6 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
-        signal_options.use_legacy_data_streams =
-            options.data_stream.use_legacy_client_implementation;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -758,16 +756,21 @@ impl Room {
             outgoing_stream_manager,
             local_dt_input,
             remote_dt_input,
-            rpc_client: rpc::RpcClientManager::new(),
-            rpc_server: rpc::RpcServerManager::new(),
+            rpc_client: RpcClientManager::new(),
+            rpc_server: RpcServerManager::new(),
             handle: Default::default(),
+            disconnected: AtomicBool::new(false),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
-            let inner = inner.clone();
+            let weak_inner = Arc::downgrade(&inner);
             move |participant_identity, state| {
+                let Some(inner) = weak_inner.upgrade() else {
+                    return;
+                };
+
                 // Forward e2ee events to the room
                 // (Ignore if the participant is not in the room anymore)
 
@@ -913,6 +916,20 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
         self.inner.rtc_engine.session().publisher_connection_state()
+    }
+
+    /// Test-only: the publisher's RTP senders. A sender that keeps its track after teardown
+    /// keeps the track's native source alive with it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.rtc_engine.session().publisher_senders()
+    }
+
+    /// Test-only: returns a probe that reports whether the room session has been dropped.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
@@ -1117,11 +1134,11 @@ impl RoomSession {
                 let session = self.clone();
                 let caller = caller_identity.unwrap();
                 tokio::spawn(async move {
-                    let transport = rpc::SessionTransport(session.clone());
+                    let transport = SessionTransport(session.clone());
                     session
                         .rpc_server
                         .handle_v1_request(
-                            rpc::HandleRequestOptions {
+                            HandleRequestOptions {
                                 caller_identity: caller,
                                 request_id,
                                 method,
@@ -1168,6 +1185,16 @@ impl RoomSession {
             EngineEvent::SubscribedQualityUpdate { update } => {
                 self.handle_subscribed_quality_update(update);
             }
+            EngineEvent::RefreshPublishingLayers => {
+                if self.options.dynacast {
+                    for publication in self.local_participant.track_publications().values() {
+                        let Some(LocalTrack::Video(track)) = publication.track() else { continue };
+                        if let Err(e) = track.refresh_publishing_layers() {
+                            log::warn!("dynacast: failed to refresh publishing layers: {}", e);
+                        }
+                    }
+                }
+            }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
             }
@@ -1179,7 +1206,7 @@ impl RoomSession {
         Ok(())
     }
 
-    async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
+    async fn close(self: &Arc<Self>, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
         // remove published tracks
@@ -1188,7 +1215,9 @@ impl RoomSession {
         }
 
         self.rtc_engine.close(reason).await;
+        self.handle_disconnected(reason);
         self.e2ee_manager.cleanup();
+        self.rpc_client.fail_all_pending();
 
         let _ = handle.close_tx.send(());
         let _ = handle.incoming_forward_task.await;
@@ -1209,8 +1238,11 @@ impl RoomSession {
     /// Returns true if the state changed
     fn update_connection_state(&self, state: ConnectionState) -> bool {
         let mut info = self.info.write();
-        if info.state == state {
+        if info.state == state || self.disconnected.load(Ordering::Relaxed) {
             return false;
+        }
+        if state == ConnectionState::Disconnected {
+            self.disconnected.store(true, Ordering::Relaxed);
         }
 
         info.state = state;
@@ -1675,8 +1707,9 @@ impl RoomSession {
     }
 
     fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        if self.update_connection_state(ConnectionState::Connected) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        }
 
         let _ = tx.send(());
 
@@ -1784,8 +1817,9 @@ impl RoomSession {
 
                 local_participant.update_track_subscription_permissions().await;
 
-                session.update_connection_state(ConnectionState::Connected);
-                session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                if session.update_connection_state(ConnectionState::Connected) {
+                    session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                }
             }
         });
     }
@@ -1901,7 +1935,10 @@ impl RoomSession {
         segments: Vec<TranscriptionSegment>,
     ) {
         let participant = self.get_local_or_remote_participant(&participant_identity);
-        let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
+        let Ok(track_sid) = TrackSid::try_from(track_sid) else {
+            log::warn!("dropping transcription with an invalid track sid");
+            return;
+        };
         let track_publication: Option<TrackPublication> = match &participant {
             Some(Participant::Local(ref participant)) => {
                 participant.get_track_publication(&track_sid).map(TrackPublication::Local)
@@ -2290,6 +2327,10 @@ impl RoomSession {
             .incoming_data_stream_input
             .send(ds::incoming::InputEvent::AbortStreamsFrom(remote_participant.identity()));
 
+        // Likewise fail any RPC calls still in flight to them; otherwise the caller waits out
+        // its full response timeout and reports ResponseTimeout instead of a disconnect.
+        self.rpc_client.handle_participant_disconnected(&remote_participant.identity());
+
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
@@ -2425,10 +2466,10 @@ async fn incoming_data_stream_task(
                     AnyStreamReader::Text(reader) => {
                         let topic = reader.info().topic.clone();
                         match topic.as_str() {
-                            rpc::RPC_REQUEST_TOPIC => {
+                            RPC_REQUEST_TOPIC => {
                                 let session = session.clone();
                                 tokio::spawn(async move {
-                                    let transport = rpc::SessionTransport(session.clone());
+                                    let transport = SessionTransport(session.clone());
                                     session.rpc_server.handle_v2_request_stream(
                                         reader,
                                         participant_identity,
@@ -2436,7 +2477,7 @@ async fn incoming_data_stream_task(
                                     ).await;
                                 });
                             }
-                            rpc::RPC_RESPONSE_TOPIC => {
+                            RPC_RESPONSE_TOPIC => {
                                 let session = session.clone();
                                 tokio::spawn(async move {
                                     session.rpc_client.handle_v2_response_stream(reader).await;
@@ -2469,6 +2510,7 @@ async fn incoming_data_stream_task(
                 // The Rust SDK observes completion through the reader itself; the explicit
                 // closed signal exists for FFI hosts sequencing handlers on ordered topics.
                 ds::incoming::OutputEvent::StreamClosed(_) => {}
+                _ => log::debug!("ignoring an unknown incoming data stream event"),
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);
@@ -2480,7 +2522,7 @@ async fn incoming_data_stream_task(
 
 /// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
 /// handled within the `livekit` crate and never surfaced through `RoomEvent`.
-const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC];
 
 fn is_internal_topic(topic: &str) -> bool {
     INTERNAL_DATA_STREAM_TOPICS.contains(&topic)

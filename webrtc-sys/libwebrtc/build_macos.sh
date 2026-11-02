@@ -70,24 +70,15 @@ then
   gclient sync -D --no-history
 fi
 
+source "$COMMAND_DIR/apply_patch.sh"
+
 cd src
 
-# Apply patches only if not already applied (check with --reverse --check)
-apply_patch_if_needed() {
-  local patch="$1"
-  if git apply --reverse --check "$patch" 2>/dev/null; then
-    echo "Patch already applied: $(basename "$patch")"
-  else
-    echo "Applying patch: $(basename "$patch")"
-    git apply "$patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn || true
-  fi
-}
-
-apply_patch_if_needed "$COMMAND_DIR/patches/add_licenses.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/add_deps.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
+apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
 
 cd ..
 
