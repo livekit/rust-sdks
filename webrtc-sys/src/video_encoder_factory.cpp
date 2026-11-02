@@ -649,8 +649,8 @@ class VideoEncoderWrapper final : public webrtc::VideoEncoder,
   }
 
   int32_t Release() override {
-    // Release stops the backend's callbacks before their state is cleared or
-    // destroyed. The backend holds only a non-owning pointer to this wrapper.
+    // Release and unregister the backend before clearing local state.
+    // The backend holds only a non-owning pointer to this wrapper.
     const int32_t result = encoder_->Release();
     encoder_->RegisterEncodeCompleteCallback(nullptr);
     callback_ = nullptr;
@@ -727,7 +727,7 @@ class VideoEncoderWrapper final : public webrtc::VideoEncoder,
                               is_end_of_temporal_unit);
   }
 
-  // Registered before Encode and cleared only after Release joins callbacks.
+  // Non-owning downstream callback registered by WebRTC.
   webrtc::EncodedImageCallback* callback_ = nullptr;
   webrtc::Mutex timestamps_mutex_;
   std::deque<std::pair<uint32_t, webrtc::Timestamp>> timestamps_;
