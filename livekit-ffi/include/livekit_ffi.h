@@ -26,7 +26,8 @@
 #include <new>
 #include <ostream>
 
-/// # Safety: The "C" callback must be threadsafe and not block
+/// Receives each event and async response from the library as an encoded
+/// FfiEvent protobuf (data, length). It must be threadsafe and not block.
 using FfiCallbackFn = void (*)(const uint8_t *, size_t);
 
 using FfiHandleId = uint64_t;
@@ -35,6 +36,9 @@ constexpr static const FfiHandleId INVALID_HANDLE = 0;
 
 extern "C" {
 
+/// Sets up the library before the first request: the callback that receives
+/// events, whether to forward the library's logs as events, and the client SDK's
+/// name and version (NUL-terminated strings).
 void livekit_ffi_initialize(FfiCallbackFn cb, bool capture_logs,
                             const char *sdk, const char *sdk_version);
 
@@ -43,6 +47,7 @@ FfiHandleId livekit_ffi_request(const uint8_t *data, size_t len,
 
 bool livekit_ffi_drop_handle(FfiHandleId handle_id);
 
+/// Shuts the library down: closes every room and stops log capture.
 void livekit_ffi_dispose();
 
 } // extern "C"
