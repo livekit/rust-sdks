@@ -2164,10 +2164,23 @@ impl SessionInner {
         self.signal_client.close().await;
     }
 
+    /// Close the signal link locally and report it as lost. A requested close emits no
+    /// `SignalEvent::Close`, so the resume has to be started here.
+    async fn simulate_signal_loss(&self) {
+        self.signal_client.close().await;
+        self.on_session_disconnected(
+            "simulated signal loss",
+            DisconnectReason::UnknownReason,
+            proto::ReconnectReason::RrSignalDisconnected,
+            proto::leave_request::Action::Resume,
+            false,
+        );
+    }
+
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::DisconnectSignalOnResume => {
                 // Tell the server to drop the signalling link during the next
@@ -2182,7 +2195,7 @@ impl SessionInner {
                         ),
                     }))
                     .await;
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::Speaker => {
                 self.signal_client
