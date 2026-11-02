@@ -1349,7 +1349,7 @@ fn on_local_data_track_try_push(
     let frame: DataTrackFrame = request.frame.into();
     // Pushes through the inner track: unlike the uniffi `try_push`, which reports only the reason,
     // the response carries the full error message.
-    let error = track.inner.try_push(frame).err().map(Into::into);
+    let error = track.inner().try_push(frame).err().map(Into::into);
     Ok(proto::LocalDataTrackTryPushResponse { error })
 }
 
@@ -1361,7 +1361,7 @@ fn on_subscribe_local_data_track(
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
     let stream = data_track::FfiDataTrackStream::subscribe(
         server,
-        track.inner.clone(),
+        track.inner().clone(),
         request.options.into(),
     );
     Ok(proto::SubscribeDataTrackResponse { stream })
@@ -1384,7 +1384,7 @@ fn on_remote_data_track_set_pipeline_options(
     let track =
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
     // Through the inner track, so that unset proto fields keep livekit's defaults.
-    track.inner.set_pipeline_options(request.options.into());
+    track.inner().set_pipeline_options(request.options.into());
     Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
 }
 

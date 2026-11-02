@@ -136,14 +136,3 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
     }
 }
-
-/// Bridges the shared uniffi data track objects to the FFI handle map, as on
-/// [`super::resampler::SoxResampler`].
-///
-/// After the migration is complete, this module can be removed.
-mod migration {
-    use super::{LocalDataTrack, RemoteDataTrack};
-
-    crate::migrate_from_ffi!(LocalDataTrack);
-    crate::migrate_from_ffi!(RemoteDataTrack);
-}
