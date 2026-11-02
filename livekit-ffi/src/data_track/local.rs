@@ -18,12 +18,14 @@ use livekit_datatrack::api::{DataTrack, DataTrackFrameEncoding, Local, PushFrame
 /// Data track published by the local participant.
 #[derive(uniffi::Object)]
 pub struct LocalDataTrack {
-    pub(crate) inner: DataTrack<Local>,
-    // room-apis mints this the first time the track is handed to the FFI handle map; see
-    // `crate::migrate_from_ffi!`. After the migration is complete, this field can be removed.
+    inner: DataTrack<Local>,
+    // After the migration is complete, this field can be removed.
     #[cfg(feature = "room-apis")]
-    pub(crate) handle_id: std::sync::OnceLock<crate::FfiHandleId>,
+    handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
+// After the migration is complete, this call can be removed.
+#[cfg(feature = "room-apis")]
+crate::migrate_from_ffi!(LocalDataTrack);
 
 impl LocalDataTrack {
     pub(crate) fn new(inner: DataTrack<Local>) -> Self {
@@ -32,6 +34,13 @@ impl LocalDataTrack {
             #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The wrapped track, for the room-apis request handlers. After the migration is complete,
+    /// this can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) fn inner(&self) -> &DataTrack<Local> {
+        &self.inner
     }
 }
 
