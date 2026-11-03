@@ -141,9 +141,28 @@ pub(crate) struct Connection {
     pub agent_timeout: Duration,
 }
 
+/// An incoming text stream the session reads.
+enum ReaderEvent {
+    TranscriptChunk(Arc<Transcript>, StreamResult<String>),
+    TranscriptEnd(Arc<Transcript>),
+    Chat {
+        info: TextStreamInfo,
+        participant_identity: ParticipantIdentity,
+        text: StreamResult<String>,
+    },
+}
+
+/// An `lk.transcription` stream being read.
+struct Transcript {
+    stream: TranscriptStream,
+    /// Kept for its attributes, which the trailer can still update.
+    info: TextStreamInfo,
+}
+
 enum Event {
     Stop,
     Room(RoomEvent),
+    Reader(ReaderEvent),
     AgentDeadline,
 }
 
@@ -172,9 +191,13 @@ pub(crate) struct SessionActor {
     /// Never carries a value: the session stops the actor by dropping the
     /// sender.
     stop: mpsc::Receiver<()>,
+    /// The session's text streams, read here rather than in tasks of their
+    /// own, so that the transcript aggregator has a single writer.
+    readers: SelectAll<BoxStream<'static, ReaderEvent>>,
     agent_deadline: Option<Pin<Box<Sleep>>>,
     connection: SessionConnectionState,
     tracker: AgentTracker,
+    aggregator: TranscriptAggregator,
     shared: Arc<Shared>,
 }
 
@@ -197,9 +220,11 @@ impl SessionActor {
             _platform_audio: connection.platform_audio,
             room_events: connection.events,
             stop,
+            readers: SelectAll::new(),
             agent_deadline: Some(Box::pin(tokio::time::sleep(connection.agent_timeout))),
             connection: state,
             tracker: AgentTracker::default(),
+            aggregator: TranscriptAggregator::default(),
             shared,
         }
     }
@@ -229,6 +254,7 @@ impl SessionActor {
             let event = tokio::select! {
                 _ = self.stop.recv() => Event::Stop,
                 Some(event) = self.room_events.recv() => Event::Room(event),
+                Some(event) = self.readers.next() => Event::Reader(event),
                 () = deadline => Event::AgentDeadline,
             };
             match event {
@@ -237,6 +263,7 @@ impl SessionActor {
                     break Exit::Disconnected(reason)
                 }
                 Event::Room(event) => self.on_room_event(event),
+                Event::Reader(event) => self.on_reader_event(event),
                 Event::AgentDeadline => self.on_agent_deadline(),
             }
         };
@@ -259,6 +286,10 @@ impl SessionActor {
 
     fn on_room_event(&mut self, event: RoomEvent) {
         match event {
+            RoomEvent::TextStreamOpened { reader, topic, participant_identity } => {
+                self.on_text_stream(&reader, &topic, participant_identity);
+                return;
+            }
             RoomEvent::Reconnecting
             | RoomEvent::ConnectionStateChanged(ConnectionState::Reconnecting) => {
                 self.connection = SessionConnectionState::Reconnecting;
@@ -277,6 +308,79 @@ impl SessionActor {
             _ => return,
         }
         self.refresh();
+    }
+
+    /// Takes the reader of a stream on a topic the session owns. Streams on
+    /// other topics are left untaken for the app.
+    fn on_text_stream(
+        &mut self,
+        reader: &TakeCell<TextStreamReader>,
+        topic: &str,
+        participant_identity: ParticipantIdentity,
+    ) {
+        if topic != TOPIC_TRANSCRIPTION && topic != TOPIC_CHAT {
+            return;
+        }
+        let Some(reader) = reader.take() else {
+            log::warn!("a {topic} stream was taken before the session could read it");
+            return;
+        };
+        let info = reader.info().clone();
+
+        if topic == TOPIC_CHAT {
+            let read = async move {
+                ReaderEvent::Chat { info, participant_identity, text: reader.read_all().await }
+            };
+            self.readers.push(stream::once(read).boxed());
+            return;
+        }
+
+        let is_local = participant_identity == self.room.local_participant().identity();
+        let transcript = Arc::new(Transcript {
+            stream: TranscriptStream {
+                id: info.id.clone(),
+                timestamp: info.timestamp,
+                participant_identity,
+                is_local,
+            },
+            info,
+        });
+        let end = stream::once(future::ready(ReaderEvent::TranscriptEnd(transcript.clone())));
+        let chunks =
+            reader.map(move |chunk| ReaderEvent::TranscriptChunk(transcript.clone(), chunk));
+        self.readers.push(chunks.chain(end).boxed());
+    }
+
+    fn on_reader_event(&mut self, event: ReaderEvent) {
+        let update = match event {
+            ReaderEvent::TranscriptChunk(transcript, Ok(chunk)) => {
+                self.aggregator.on_chunk(&transcript.stream, &transcript.info.attributes(), &chunk)
+            }
+            ReaderEvent::TranscriptChunk(transcript, Err(err)) => {
+                log::warn!("failed to read transcript stream {}: {err}", transcript.stream.id);
+                None
+            }
+            ReaderEvent::TranscriptEnd(transcript) => {
+                self.aggregator.on_stream_end(&transcript.stream, &transcript.info.attributes())
+            }
+            ReaderEvent::Chat { info, participant_identity, text: Ok(text) } => {
+                Some(MessageUpdate {
+                    id: info.id,
+                    timestamp: info.timestamp,
+                    origin: MessageOrigin::Chat,
+                    participant_identity,
+                    text,
+                    is_final: true,
+                })
+            }
+            ReaderEvent::Chat { info, text: Err(err), .. } => {
+                log::warn!("failed to read chat stream {}: {err}", info.id);
+                None
+            }
+        };
+        if let Some(update) = update {
+            self.shared.upsert(update);
+        }
     }
 
     fn on_agent_deadline(&mut self) {
