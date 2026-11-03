@@ -45,6 +45,10 @@ const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 /// memory by opening streams it never closes.
 const DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT: usize = 500;
 
+/// Only every this-many headers dropped for being over the open-stream limit are logged, so a
+/// sender flooding headers at the cap can't flood the logs too.
+const OVER_LIMIT_LOG_INTERVAL: u64 = 100;
+
 /// Options for creating a [`Manager`]. Unset fields fall back to the defaults.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ManagerOptions {
@@ -221,6 +225,8 @@ pub struct Manager {
 
 struct ManagerInner {
     open_streams: HashMap<ParticipantIdentity, HashMap<StreamId, Descriptor>>,
+    /// Headers dropped so far for being over the per-participant open-stream limit.
+    dropped_over_limit_count: u64,
     output_tx: UnboundedSender<OutputEvent>,
 }
 
@@ -231,7 +237,11 @@ impl Manager {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
+            inner: ManagerInner {
+                open_streams: HashMap::new(),
+                dropped_over_limit_count: 0,
+                output_tx,
+            },
             input_rx,
             closes: FuturesUnordered::new(),
 
@@ -336,12 +346,18 @@ impl Manager {
             return;
         }
         if maybe_sender_streams.map_or(0, HashMap::len) >= self.max_open_streams_per_participant {
-            log::error!(
-                "Participant '{}' already has {} streams open, dropping stream '{}'",
-                participant_identity,
-                self.max_open_streams_per_participant,
-                id
-            );
+            // Logs the first drop, then every `OVER_LIMIT_LOG_INTERVAL`th.
+            if self.inner.dropped_over_limit_count % OVER_LIMIT_LOG_INTERVAL == 0 {
+                log::error!(
+                    "Participant '{}' already has {} streams open, dropping stream '{}' \
+                     ({} dropped over the limit so far)",
+                    participant_identity,
+                    self.max_open_streams_per_participant,
+                    id,
+                    self.inner.dropped_over_limit_count + 1
+                );
+            }
+            self.inner.dropped_over_limit_count += 1;
             return;
         }
 
