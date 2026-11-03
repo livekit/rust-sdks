@@ -284,6 +284,148 @@ mod tests {
         Utc.timestamp_opt(1_800_000_000 + seconds, 0).unwrap()
     }
 
+    fn stream(id: &str, participant: &str, seconds: i64) -> TranscriptStream {
+        TranscriptStream {
+            id: id.into(),
+            timestamp: at(seconds),
+            participant_identity: participant.to_owned().into(),
+            is_local: participant == "user",
+        }
+    }
+
+    fn attributes(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    fn segment(id: &str, is_final: &str) -> HashMap<String, String> {
+        attributes(&[(ATTRIBUTE_SEGMENT_ID, id), (ATTRIBUTE_TRANSCRIPTION_FINAL, is_final)])
+    }
+
+    fn text(update: Option<MessageUpdate>) -> Option<(String, bool)> {
+        update.map(|update| (update.text, update.is_final))
+    }
+
+    #[test]
+    fn chunks_on_one_stream_append() {
+        let mut aggregator = TranscriptAggregator::default();
+        let agent = stream("s1", "agent", 0);
+        let open = segment("seg", "false");
+
+        aggregator.on_chunk(&agent, &open, "Hello");
+        aggregator.on_chunk(&agent, &open, " world");
+        let update = aggregator.on_chunk(&agent, &open, "!").unwrap();
+        assert_eq!(update.text, "Hello world!");
+        assert_eq!(update.origin, MessageOrigin::AgentTranscript);
+        assert!(!update.is_final);
+
+        // The trailer marks the segment final before the stream ends.
+        let update = aggregator.on_stream_end(&agent, &segment("seg", "true")).unwrap();
+        assert_eq!((update.id.as_str(), update.text.as_str()), ("seg", "Hello world!"));
+        assert!(update.is_final);
+        assert!(aggregator.partials.is_empty());
+    }
+
+    #[test]
+    fn a_new_stream_for_the_same_segment_replaces() {
+        let mut aggregator = TranscriptAggregator::default();
+        let interim = segment("seg", "false");
+
+        let first = stream("s1", "user", 0);
+        aggregator.on_chunk(&first, &interim, "Hello");
+        assert_eq!(aggregator.on_stream_end(&first, &interim), None);
+
+        let second = stream("s2", "user", 5);
+        let update = aggregator.on_chunk(&second, &interim, "Hello world").unwrap();
+        assert_eq!(update.text, "Hello world");
+        assert_eq!(update.origin, MessageOrigin::UserTranscript);
+        assert_eq!(update.timestamp, at(0), "timestamp stays at the segment's first stream");
+        aggregator.on_stream_end(&second, &interim);
+
+        let last = stream("s3", "user", 9);
+        let done = segment("seg", "true");
+        aggregator.on_chunk(&last, &done, "Hello world!");
+        let update = aggregator.on_stream_end(&last, &done).unwrap();
+        assert_eq!((update.text.as_str(), update.is_final), ("Hello world!", true));
+        assert_eq!(update.timestamp, at(0));
+    }
+
+    #[test]
+    fn id_falls_back_to_the_stream_id() {
+        let mut aggregator = TranscriptAggregator::default();
+        let update = aggregator.on_chunk(&stream("s1", "agent", 0), &HashMap::new(), "Hi").unwrap();
+        assert_eq!(update.id, "s1");
+    }
+
+    #[test]
+    fn final_attribute_parsing() {
+        for (value, parsed) in [
+            ("true", Some(true)),
+            ("TRUE", Some(true)),
+            (" true ", Some(true)),
+            ("false", Some(false)),
+            ("yes", None),
+        ] {
+            let attrs = attributes(&[(ATTRIBUTE_TRANSCRIPTION_FINAL, value)]);
+            assert_eq!(parse_final(&attrs), parsed, "{value:?}");
+        }
+        assert_eq!(parse_final(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn stream_ending_without_final_attribute_finalizes() {
+        let mut aggregator = TranscriptAggregator::default();
+        let agent = stream("s1", "agent", 0);
+        let attrs = attributes(&[(ATTRIBUTE_SEGMENT_ID, "seg")]);
+        aggregator.on_chunk(&agent, &attrs, "Hi");
+        assert_eq!(text(aggregator.on_stream_end(&agent, &attrs)), Some(("Hi".into(), true)));
+    }
+
+    #[test]
+    fn stream_ending_after_being_superseded_does_not_finalize() {
+        let mut aggregator = TranscriptAggregator::default();
+        let attrs = attributes(&[(ATTRIBUTE_SEGMENT_ID, "seg")]);
+        let first = stream("s1", "user", 0);
+        let second = stream("s2", "user", 1);
+        aggregator.on_chunk(&first, &attrs, "Hel");
+        aggregator.on_chunk(&second, &attrs, "Hello");
+        assert_eq!(aggregator.on_stream_end(&first, &attrs), None);
+        assert_eq!(text(aggregator.on_stream_end(&second, &attrs)), Some(("Hello".into(), true)));
+    }
+
+    #[test]
+    fn empty_chunks_are_skipped() {
+        let mut aggregator = TranscriptAggregator::default();
+        assert_eq!(aggregator.on_chunk(&stream("s1", "agent", 0), &HashMap::new(), ""), None);
+        assert!(aggregator.partials.is_empty());
+    }
+
+    #[test]
+    fn same_segment_from_two_participants_is_two_messages() {
+        let mut aggregator = TranscriptAggregator::default();
+        let mut store = MessageStore::default();
+        let attrs = segment("seg", "false");
+        store.upsert(aggregator.on_chunk(&stream("s1", "agent", 0), &attrs, "A").unwrap());
+        store.upsert(aggregator.on_chunk(&stream("s2", "user", 0), &attrs, "B").unwrap());
+        assert_eq!(aggregator.partials.len(), 2);
+        assert_eq!(store.messages().len(), 2);
+    }
+
+    #[test]
+    fn a_new_segment_drops_the_participants_previous_partials() {
+        let mut aggregator = TranscriptAggregator::default();
+        aggregator.on_chunk(&stream("s1", "agent", 0), &segment("one", "false"), "first");
+        aggregator.on_chunk(&stream("s2", "user", 0), &segment("one", "false"), "mine");
+        aggregator.on_chunk(&stream("s3", "agent", 1), &segment("two", "false"), "second");
+
+        let mut keys: Vec<_> = aggregator
+            .partials
+            .keys()
+            .map(|(segment, participant)| (segment.as_str(), participant.as_str()))
+            .collect();
+        keys.sort();
+        assert_eq!(keys, [("one", "user"), ("two", "agent")]);
+    }
+
     fn update(id: &str, seconds: i64, text: &str) -> MessageUpdate {
         MessageUpdate {
             id: id.into(),
