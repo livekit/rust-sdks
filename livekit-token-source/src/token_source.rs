@@ -134,6 +134,8 @@ pub fn endpoint(endpoint_url: impl Into<String>) -> TokenSourceEndpoint {
     TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers: HashMap::new() }
 }
 
+
+
 impl TokenSourceEndpoint {
     /// Adds a single header to the headers sent with every request, keeping any set previously.
     pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
