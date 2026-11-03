@@ -885,25 +885,6 @@ impl TelemetryExportQueue {
         }
     }
 
-    /// Drop queued requests nobody waits for any more (their exporter timed out or stopped):
-    /// with one request out at a time, anything still queued when a new one comes is stale.
-    fn discard_stale(&self) {
-        let Some(mut rx) = self.try_poll() else { return };
-        let mut live = Vec::new();
-        while let Some(queued) = rx.try_recv() {
-            if !queued.done.is_closed() {
-                live.push(queued);
-            }
-        }
-        drop(rx);
-        let tx = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        for queued in live {
-            if let Some(tx) = &tx {
-                let _ = tx.try_send(queued);
-            }
-        }
-    }
-
     /// The receiver, unless another poller holds it.
     fn try_poll(&self) -> Option<Polling<'_>> {
         Some(Polling { queue: self, rx: Some(self.rx.try_lock().ok()?) })
@@ -942,21 +923,48 @@ impl Drop for Polling<'_> {
             // the host dropped it.
             rx.close();
             while rx.try_recv().is_ok() {}
+            return;
+        }
+        // Destroys what nobody waits for any more (its exporter timed out or stopped). A
+        // [`Forget`] that found the receiver taken relies on this: it closed its answer channel
+        // under the in-flight lock before it tried the receiver.
+        let mut live = Vec::new();
+        while let Ok(queued) = rx.try_recv() {
+            if !queued.done.is_closed() {
+                live.push(queued);
+            }
+        }
+        // ponytail: drains and re-queues, as there is no peek; the slot holds one request.
+        let tx = self.queue.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for queued in live {
+            if let Some(tx) = &tx {
+                let _ = tx.try_send(queued);
+            }
         }
         // `rx` is let go here, before `_inflight`: still under the lock.
     }
 }
 
-/// Forgets an in-flight entry when the exporter stops waiting for its answer (timeout,
-/// shutdown, opt-out), so nothing is kept for an answer nobody will read.
+/// The exporter's wait for an answer. When the exporter stops waiting (timeout, shutdown,
+/// opt-out), it forgets the in-flight entry and destroys the request if it is still queued, so
+/// nothing is kept for an answer nobody will read.
 struct Forget<'a> {
     queue: &'a TelemetryExportQueue,
     id: u64,
+    wait: oneshot::Receiver<Result<ExportResponse, ExportError>>,
 }
 
 impl Drop for Forget<'_> {
     fn drop(&mut self) {
-        self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+        // Closed first, under the in-flight lock: `serve` no longer hands the request out, and a
+        // poller that lets go of the receiver after this sees it is stale.
+        {
+            let mut inflight = self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            self.wait.close();
+            inflight.remove(&self.id);
+        }
+        // Destroys it now, unless a poller holds the receiver: that poller does when it lets go.
+        drop(self.queue.try_poll());
     }
 }
 
@@ -967,11 +975,12 @@ impl TelemetryTransport for TelemetryExportQueue {
             reason: "export queue closed".into(),
             retry_after_ms: None,
         };
-        self.discard_stale();
+        // With one request out at a time, anything still queued now is stale: destroyed here.
+        drop(self.try_poll());
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let (done, wait) = oneshot::channel();
         let queued = QueuedExport { export: PendingExport { id, request }, done };
-        let _forget = Forget { queue: self, id };
+        let mut forget = Forget { queue: self, id, wait };
         let Some(tx) = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return Err(closed());
         };
@@ -992,7 +1001,7 @@ impl TelemetryTransport for TelemetryExportQueue {
             self.queued.fetch_add(1, Ordering::SeqCst);
         }
         drop(tx);
-        wait.await.unwrap_or(Err(ExportError::Retryable {
+        (&mut forget.wait).await.unwrap_or(Err(ExportError::Retryable {
             reason: "host dropped the export".into(),
             retry_after_ms: None,
         }))
