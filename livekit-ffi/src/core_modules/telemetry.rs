@@ -778,8 +778,9 @@ fn run_hook(slot: &Mutex<Option<Box<dyn Fn() + Send + Sync>>>) {
 #[uniffi::export(async_runtime = "tokio")]
 impl TelemetryExportQueue {
     /// End the serving loop: nothing is handed out or queued from now on, and `next` resolves
-    /// `None`. Whatever is still queued is discarded, never served: at once, or, while a `next` or
-    /// `try_next` call holds the queue, when that call returns. A request handed out before this
+    /// `None`. Whatever is still queued is discarded, never served: at once, or, while something
+    /// else holds the queue (a `next` or `try_next` call, or the queue's own cleanup), when that
+    /// holder lets go. A request handed out before this
     /// call stays answerable with `complete` or `fail`, even when the host sees it only after this
     /// returns. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
     /// `telemetry_configure_pulled` replaced this queue.
@@ -912,10 +913,12 @@ struct Polling<'a> {
 }
 
 impl Polling<'_> {
+    /// The next queued request, waiting for one; `None` once every sender is gone.
     async fn recv(&mut self) -> Option<QueuedExport> {
         self.rx.as_mut()?.recv().await
     }
 
+    /// The queued request, if one is there right now.
     fn try_recv(&mut self) -> Option<QueuedExport> {
         self.rx.as_mut()?.try_recv().ok()
     }
@@ -1335,9 +1338,8 @@ mod tests {
         });
     }
 
-    /// A `send` that reserved room before `finish` and enqueues after it leaves nothing queued:
-    /// its request is discarded at once, and the exporter hears it was not delivered instead of
-    /// waiting for an answer that cannot come.
+    /// A `send` that reserved room before `finish` and resumes after it never enqueues: the
+    /// exporter hears at once that its request was not delivered, and nothing is queued.
     #[test]
     fn a_send_racing_finish_leaves_nothing_queued() {
         let queue = TelemetryExportQueue::new();
