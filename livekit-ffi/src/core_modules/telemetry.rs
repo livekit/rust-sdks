@@ -1217,10 +1217,14 @@ mod tests {
         };
         held.recv_timeout(wait).expect("try_next holds the receiver");
         queue.finish();
+        // The documented limit: the poller that holds the receiver discards for `finish`, when it
+        // lets go. Until then the request stays queued, never served.
+        let waiting = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Empty));
+        assert!(waiting, "precondition: the paused poller still holds the request");
         resume.send(()).expect("resume");
         assert!(polling.join().expect("try_next"), "nothing is served once finished");
         let dropped = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
-        assert!(dropped, "the queued request is discarded: its exporter hears it was dropped");
+        assert!(dropped, "discarded once the poller let go: its exporter hears it was dropped");
         let (done, _late) = oneshot::channel();
         let late = QueuedExport { export: PendingExport { id: 8, request: request() }, done };
         let refill = tx.try_send(late);
@@ -1288,8 +1292,14 @@ mod tests {
         );
     }
 
-    /// A `send` waiting for room when `finish` runs cannot enqueue afterwards: it hears at once
-    /// that its request was not delivered instead of waiting for an answer that cannot come.
+    /// Poll `future` once.
+    fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
+        let waker = std::task::Waker::noop();
+        std::pin::Pin::new(future).poll(&mut std::task::Context::from_waker(waker))
+    }
+
+    /// A `send` waiting for room when `finish` runs cannot enqueue afterwards: it hears that its
+    /// request was not delivered instead of waiting for an answer that cannot come.
     #[test]
     fn a_send_waiting_for_room_across_finish_cannot_refill_the_queue() {
         runtime().block_on(async {
@@ -1299,19 +1309,16 @@ mod tests {
             let tx = queue.tx.lock().expect("lock").clone().expect("open");
             assert!(tx.try_send(live).is_ok(), "the queue's one slot is taken");
             drop(tx);
-            let sending = {
-                let queue = queue.clone();
-                tokio::spawn(async move { queue.send(request()).await })
-            };
-            // One turn of this single-threaded runtime: the send runs until it waits for room.
-            tokio::task::yield_now().await;
+            let mut sending = queue.send(request());
+            // Polled by hand: this one poll runs the send up to its wait for room.
+            assert!(poll_once(&mut sending).is_pending(), "the send waits for room");
             let waiting = queue.tx.lock().expect("lock").as_ref().map(mpsc::Sender::strong_count);
             assert_eq!(waiting, Some(2), "precondition: the send holds a sender, waiting for room");
             queue.finish();
             let closed = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
             assert!(closed, "the queued request is discarded");
             let sent = tokio::time::timeout(Duration::from_secs(5), sending).await;
-            assert!(matches!(sent, Ok(Ok(Err(_)))), "the waiting send hears at once: {sent:?}");
+            assert!(matches!(sent, Ok(Err(_))), "the waiting send hears at once: {sent:?}");
             let left = queue.rx.try_lock().expect("rx").try_recv();
             assert!(left.is_err(), "nothing stays queued");
         });
@@ -1343,7 +1350,47 @@ mod tests {
         resume.send(()).expect("resume");
         let sent = sending.join().expect("send");
         assert!(matches!(sent, Ok(Err(_))), "the exporter hears it was not delivered: {sent:?}");
+        let enqueued = queue.queued.load(Ordering::SeqCst);
+        assert_eq!(enqueued, 0, "a permit from before finish never enqueues after it");
         assert!(queue.rx.try_lock().expect("rx").try_recv().is_err(), "nothing stays queued");
+    }
+
+    /// The room left in the queue: its one slot is free once nothing is queued or reserved.
+    fn room(queue: &TelemetryExportQueue) -> usize {
+        queue.tx.lock().expect("lock").as_ref().map_or(0, mpsc::Sender::capacity)
+    }
+
+    /// A request nobody served is destroyed, credentials and all, as soon as its exporter stops
+    /// waiting (timeout, shutdown), even with no host polling: no later send, poll or `finish`
+    /// is needed.
+    #[test]
+    fn an_unserved_request_is_destroyed_when_its_exporter_stops_waiting() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let mut sending = queue.send(request());
+            assert!(poll_once(&mut sending).is_pending(), "queued, waiting for the host");
+            assert_eq!(room(&queue), 0, "precondition: the request holds the queue's slot");
+            drop(sending); // The exporter's timeout or shutdown cancels the wait.
+            assert_eq!(room(&queue), 1, "the request is gone at once");
+            let left = queue.rx.try_lock().expect("rx").try_recv();
+            assert!(left.is_err(), "nothing stays queued");
+        });
+    }
+
+    /// A poller that holds the receiver when the exporter stops waiting destroys the request
+    /// when it lets go. Until then the request stays queued, never served: the documented limit.
+    #[test]
+    fn a_request_left_behind_a_busy_poller_is_destroyed_when_it_lets_go() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let held = queue.try_poll().expect("the receiver is free");
+            let mut sending = queue.send(request());
+            assert!(poll_once(&mut sending).is_pending(), "queued, waiting for the host");
+            drop(sending);
+            assert_eq!(room(&queue), 0, "precondition: the poller still holds the request");
+            drop(held);
+            assert_eq!(room(&queue), 1, "the request is gone once the poller let go");
+        });
     }
 
     /// A platform's log line loses its credentials before it is captured: the upload carries the
