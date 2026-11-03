@@ -751,3 +751,108 @@ async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
     assert!(is_idle(&session));
     Ok(())
 }
+
+// Lifecycle (AGENTS.md "Memory lifecycle")
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_the_session_closes_the_room() -> Result<()> {
+    let env = TestEnv::new();
+    let (_observer, mut observer_events) = env.join_observer().await?;
+    let session = Session::new(env.user_source(false), text_options());
+    session.start().await?;
+    // Otherwise the server may fold the user's join and leave into nothing.
+    next_participant_event(&mut observer_events, |event| {
+        matches!(event, RoomEvent::ParticipantConnected(p) if p.identity().as_str() == USER)
+    })
+    .await?;
+
+    let room = session.room().ok_or_else(|| anyhow!("no room"))?;
+    let weak_room = Arc::downgrade(&room);
+    let weak_shared = weak_shared(&session);
+    drop(room);
+    drop(session);
+
+    eventually("the actor to stop", || weak_shared.upgrade().is_none()).await?;
+    eventually("the room to be released", || weak_room.upgrade().is_none()).await?;
+    next_participant_event(&mut observer_events, |event| {
+        matches!(event, RoomEvent::ParticipantDisconnected(p) if p.identity().as_str() == USER)
+    })
+    .await
+}
+
+async fn next_participant_event(
+    events: &mut UnboundedReceiver<RoomEvent>,
+    mut predicate: impl FnMut(&RoomEvent) -> bool,
+) -> Result<()> {
+    timeout(WAIT, async {
+        while let Some(event) = events.recv().await {
+            if predicate(&event) {
+                return Ok(());
+            }
+        }
+        bail!("room events ended")
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for a participant event"))?
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_start_and_end_leave_nothing_behind() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let settle = || async {
+        // Room teardown finishes in tasks of its own after close returns.
+        sleep(Duration::from_millis(500)).await;
+        metrics.num_alive_tasks()
+    };
+
+    session.start().await?;
+    session.end().await;
+    let after_one = settle().await;
+    for _ in 0..3 {
+        session.start().await?;
+        session.end().await;
+    }
+    let after_four = settle().await;
+    assert!(after_four <= after_one, "tasks grew from {after_one} to {after_four}");
+    assert_eq!(session.inner.shared.subscriber_count(), 0);
+
+    let weak_shared = weak_shared(&session);
+    assert_eq!(weak_shared.strong_count(), 1, "only the session holds the shared state");
+    drop(session);
+    assert!(weak_shared.upgrade().is_none());
+    Ok(())
+}
+
+/// A source that always fails.
+struct FailingSource;
+
+#[async_trait]
+impl TokenSourceConfigurable for FailingSource {
+    async fn fetch(&self, _: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse> {
+        Err(TokenSourceError::Server { status: 500, body: "test".into() })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_starts_spawn_nothing() -> Result<()> {
+    let session =
+        Session::with_fetch_options(FailingSource, TokenSourceFetchOptions::new(), text_options());
+    for _ in 0..2 {
+        assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
+        assert_eq!(current(&session), SessionState::default());
+        assert!(is_idle(&session));
+    }
+    assert_eq!(weak_shared(&session).strong_count(), 1);
+
+    let env = TestEnv::new();
+    let mut options = text_options();
+    options.room_options.join_retries = 0;
+    let session = Session::new(literal("ws://127.0.0.1:1", env.token(USER, |t| t)), options);
+    assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    assert_eq!(weak_shared(&session).strong_count(), 1);
+    Ok(())
+}
