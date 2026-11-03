@@ -8,3 +8,5 @@ livekit-rpc: patch
 
 Limit each remote participant to 500 concurrently open incoming data streams by default. Headers for new streams beyond the limit are dropped with an error log. The limit is configurable with `RoomDataStreamOptions::with_max_open_streams_per_participant` and `max_open_streams_per_participant` on the FFI `RoomDataStreamOptions`.
 
+
+Incoming stream ids are now scoped to their sender: a chunk or trailer only applies to a stream opened by the same participant, and two participants may have streams with the same id open at once.
