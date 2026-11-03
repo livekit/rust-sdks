@@ -233,10 +233,12 @@ fn test_session_options_preserve_scores() {
     );
 }
 
-/// Every optimization level builds a model that still detects the wake word.
+/// Every optimization level reproduces the Python runtime. The tiny model keeps the
+/// unoptimized level affordable in debug builds, where hey livekit took minutes.
 #[test]
 fn test_optimization_levels() {
-    let (sample_rate, samples) = common::read_wav("positive.wav");
+    let audio = chirp();
+    let expected = python_scores();
 
     for level in [
         GraphOptimizationLevel::Disable,
@@ -245,13 +247,16 @@ fn test_optimization_levels() {
     ] {
         let options = SessionOptions { optimization_level: level, ..Default::default() };
         let mut model = WakeWordModel::with_session_options(
-            &[fixture("hey_livekit.onnx")],
-            sample_rate,
+            &[fixture("streaming_tiny.onnx")],
+            SAMPLE_RATE as u32,
             options,
         )
         .unwrap();
-        let score = model.predict_clip(&samples).unwrap()["hey_livekit"];
-        assert!(score > THRESHOLD, "{level:?} scored {score}");
+        for (step, frame) in audio.chunks_exact(FRAME_SAMPLES).enumerate() {
+            let score = model.predict(frame).unwrap()["streaming_tiny"];
+            let want = expected[step];
+            assert!((score - want).abs() < 1e-4, "{level:?} step {step}: {score} vs {want}");
+        }
     }
 }
 
