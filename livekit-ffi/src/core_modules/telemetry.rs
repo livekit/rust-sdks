@@ -720,7 +720,8 @@ pub struct TelemetryExportQueue {
     /// Bounded to one request: the exporter has one request out at a time, so nothing piles up
     /// behind a host that stopped serving. `None` once finished.
     tx: Mutex<Option<mpsc::Sender<QueuedExport>>>,
-    /// The requests waiting for the host.
+    /// The requests waiting for the host, taken through [`Polling`]: once the queue is finished,
+    /// whoever lets go of the receiver closes and drains it.
     rx: tokio::sync::Mutex<mpsc::Receiver<QueuedExport>>,
     /// The requests handed out and not answered yet, by id. This lock is a hand-out's commit
     /// point: `serve` checks `finished` and inserts under it, and `finish` raises `finished` under
@@ -769,8 +770,8 @@ fn run_hook(slot: &Mutex<Option<Box<dyn Fn() + Send + Sync>>>) {
 #[uniffi::export(async_runtime = "tokio")]
 impl TelemetryExportQueue {
     /// End the serving loop: `next` resolves `None` from now on, and whatever is still queued is
-    /// discarded, never served. A request already handed out stays answerable with `complete` or
-    /// `fail`. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
+    /// discarded, never served, and nothing is queued afterwards. A request already handed out
+    /// stays answerable with `complete` or `fail`. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
     /// `telemetry_configure_pulled` replaced this queue.
     /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
     pub fn finish(&self) {
@@ -781,10 +782,8 @@ impl TelemetryExportQueue {
         self.finished.store(true, Ordering::SeqCst);
         drop(inflight);
         self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
-        // Dropping what is queued tells its exporter the host dropped it.
-        if let Ok(mut rx) = self.rx.try_lock() {
-            while rx.try_recv().is_ok() {}
-        }
+        // Discards what is queued, unless a poller holds the receiver: it does when it lets go.
+        drop(self.try_poll());
     }
 
     /// The next request to perform; `None` once finished. A request the exporter already gave up
@@ -794,7 +793,7 @@ impl TelemetryExportQueue {
             if self.finished.load(Ordering::SeqCst) {
                 return None;
             }
-            let queued = self.rx.lock().await.recv().await?;
+            let queued = Polling { queue: self, rx: Some(self.rx.lock().await) }.recv().await?;
             if let Some(export) = self.serve(queued) {
                 return Some(export);
             }
@@ -809,14 +808,14 @@ impl TelemetryExportQueue {
     /// request nobody polls for still times out and is withdrawn exactly as with
     /// [`next`](Self::next); `None` also once finished, or while a `next` is waiting.
     pub fn try_next(&self) -> Option<PendingExport> {
-        let mut rx = self.rx.try_lock().ok()?;
+        let mut rx = self.try_poll()?;
         #[cfg(test)]
         run_hook(&self.holding_rx);
         loop {
             if self.finished.load(Ordering::SeqCst) {
                 return None;
             }
-            if let Some(export) = self.serve(rx.try_recv().ok()?) {
+            if let Some(export) = self.serve(rx.try_recv()?) {
                 return Some(export);
             }
         }
@@ -883,9 +882,9 @@ impl TelemetryExportQueue {
     /// Drop queued requests nobody waits for any more (their exporter timed out or stopped):
     /// with one request out at a time, anything still queued when a new one comes is stale.
     fn discard_stale(&self) {
-        let Ok(mut rx) = self.rx.try_lock() else { return };
+        let Some(mut rx) = self.try_poll() else { return };
         let mut live = Vec::new();
-        while let Ok(queued) = rx.try_recv() {
+        while let Some(queued) = rx.try_recv() {
             if !queued.done.is_closed() {
                 live.push(queued);
             }
@@ -897,6 +896,59 @@ impl TelemetryExportQueue {
                 let _ = tx.try_send(queued);
             }
         }
+    }
+
+    /// The receiver, unless another poller holds it.
+    fn try_poll(&self) -> Option<Polling<'_>> {
+        Some(Polling { queue: self, rx: Some(self.rx.try_lock().ok()?) })
+    }
+
+    /// After an enqueue: once `finish` has run, discard what is queued, as `finish` would have. A
+    /// sender that reserved room before the receiver was closed still enqueues. The flag is read
+    /// under the lock `finish` raises it under, so either this sees it, or whoever discards for
+    /// `finish` sees the request.
+    fn discard_if_finished(&self) {
+        let finished = {
+            let _inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            self.finished.load(Ordering::SeqCst)
+        };
+        if finished {
+            drop(self.try_poll());
+        }
+    }
+}
+
+/// The receiver, held by one poller at a time (`next`, `try_next`, the stale sweep, `finish`).
+/// It is let go under the in-flight lock, closed and drained first once the queue is finished.
+/// `finish` raises the flag under that lock before it tries the receiver, so whoever holds the
+/// receiver when `finish` runs discards what is queued, and no sender can refill it.
+struct Polling<'a> {
+    queue: &'a TelemetryExportQueue,
+    /// Taken only when it is let go.
+    rx: Option<tokio::sync::MutexGuard<'a, mpsc::Receiver<QueuedExport>>>,
+}
+
+impl Polling<'_> {
+    async fn recv(&mut self) -> Option<QueuedExport> {
+        self.rx.as_mut()?.recv().await
+    }
+
+    fn try_recv(&mut self) -> Option<QueuedExport> {
+        self.rx.as_mut()?.try_recv().ok()
+    }
+}
+
+impl Drop for Polling<'_> {
+    fn drop(&mut self) {
+        let _inflight = self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut rx) = self.rx.take() else { return };
+        if self.queue.finished.load(Ordering::SeqCst) {
+            // Closed first, so no sender can refill it. Dropping what is queued tells its exporter
+            // the host dropped it.
+            rx.close();
+            while rx.try_recv().is_ok() {}
+        }
+        // `rx` is let go here, before `_inflight`: still under the lock.
     }
 }
 
@@ -936,6 +988,7 @@ impl TelemetryTransport for TelemetryExportQueue {
         run_hook(&self.before_enqueue);
         permit.send(queued);
         drop(tx);
+        self.discard_if_finished();
         #[cfg(test)]
         self.queued.fetch_add(1, Ordering::SeqCst);
         wait.await.unwrap_or(Err(ExportError::Retryable {
