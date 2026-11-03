@@ -577,3 +577,43 @@ async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed()
     assert!(session.agent_avatar_video_track().is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restarting_after_a_server_side_disconnect() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    let rooms =
+        RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
+    let disconnect = || async {
+        rooms.remove_participant(&env.room, USER).await?;
+        wait_for(&session, "disconnect", |s| s.connection == SessionConnectionState::Disconnected)
+            .await?;
+        anyhow::Ok(())
+    };
+
+    session.start().await?;
+    let stale_room = Arc::downgrade(&session.room().ok_or_else(|| anyhow!("no room"))?);
+    disconnect().await?;
+    assert!(session.room().is_none());
+
+    // Restarting joins the stopped actor and releases its room.
+    session.start().await?;
+    assert!(stale_room.upgrade().is_none(), "the disconnected room is still held");
+    disconnect().await?;
+    // Ending after a disconnect is a no-op.
+    session.end().await;
+    assert!(is_idle(&session));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_token_fails_the_start() -> Result<()> {
+    let env = TestEnv::new();
+    let mut options = text_options();
+    options.room_options.join_retries = 0;
+    let session = Session::new(literal(env.url.clone(), "not a token"), options);
+    assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    Ok(())
+}
