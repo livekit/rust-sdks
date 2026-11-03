@@ -361,6 +361,88 @@ mod tests {
     }
 
     #[test]
+    fn session_state_takes_precedence() {
+        let mut tracker = AgentTracker::default();
+        let participants = [Fake::agent("agent", Some("speaking"))];
+        assert_eq!(tracker.project(Disconnected, &participants), AgentState::Disconnected);
+        assert_eq!(tracker.project(Connecting, &participants), AgentState::Connecting);
+        assert_eq!(tracker.project(Reconnecting, &participants), AgentState::Speaking);
+    }
+
+    #[test]
+    fn agent_leaving_while_connected_is_left() {
+        let mut tracker = AgentTracker::default();
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Connecting);
+        project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Failed(AgentFailure::Left));
+    }
+
+    #[test]
+    fn agent_missing_while_reconnecting_is_not_left() {
+        let mut tracker = AgentTracker::default();
+        project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
+        assert_eq!(tracker.project(Reconnecting, NO_ONE), AgentState::Connecting);
+        assert_eq!(
+            tracker.project(Reconnecting, &[Fake::agent("agent", Some("listening"))]),
+            AgentState::Listening
+        );
+    }
+
+    #[test]
+    fn left_recovers_when_an_agent_returns() {
+        let mut tracker = AgentTracker::default();
+        project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Failed(AgentFailure::Left));
+        assert_eq!(
+            project(&mut tracker, &[Fake::agent("agent-2", Some("initializing"))]),
+            AgentState::Initializing
+        );
+    }
+
+    #[test]
+    fn disconnect_resets_has_ever_connected() {
+        let mut tracker = AgentTracker::default();
+        project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
+        tracker.project(Disconnected, NO_ONE);
+        assert_eq!(tracker.project(Connecting, NO_ONE), AgentState::Connecting);
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Connecting);
+    }
+
+    #[test]
+    fn timeout_without_agent_fails_until_an_agent_joins() {
+        let mut tracker = AgentTracker::default();
+        assert!(tracker.time_out(Connected, NO_ONE));
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Failed(AgentFailure::Timeout));
+        assert_eq!(
+            project(&mut tracker, &[Fake::agent("agent", Some("initializing"))]),
+            AgentState::Initializing
+        );
+    }
+
+    #[test]
+    fn timeout_with_initializing_agent_fails_until_it_is_conversational() {
+        let mut tracker = AgentTracker::default();
+        let stuck = [Fake::agent("agent", Some("initializing"))];
+        assert!(tracker.time_out(Connected, &stuck));
+        assert_eq!(project(&mut tracker, &stuck), AgentState::Failed(AgentFailure::Timeout));
+        assert_eq!(
+            project(&mut tracker, &[Fake::agent("agent", Some("listening"))]),
+            AgentState::Listening
+        );
+        // Recovered for good: falling back to idle is not a timeout.
+        assert_eq!(project(&mut tracker, &[Fake::agent("agent", Some("idle"))]), AgentState::Idle);
+    }
+
+    #[test]
+    fn timeout_does_not_count_once_conversational_or_disconnected() {
+        let mut tracker = AgentTracker::default();
+        assert!(!tracker.time_out(Connected, &[Fake::agent("agent", Some("speaking"))]));
+        assert!(!tracker.time_out(Connecting, NO_ONE));
+        assert!(!tracker.time_out(Disconnected, NO_ONE));
+        assert_eq!(project(&mut tracker, NO_ONE), AgentState::Connecting);
+    }
+
+    #[test]
     fn predicates_match_for_every_state() {
         use AgentState::*;
         let states = [
