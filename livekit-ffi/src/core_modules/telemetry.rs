@@ -757,6 +757,10 @@ pub struct TelemetryExportQueue {
     /// only: holds a reserved sender there while `finish` runs).
     #[cfg(test)]
     before_enqueue: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Runs inside a poller's release after it read `finished`, before it lets the receiver go
+    /// (tests only: holds a poller there while `finish` runs, if `finish` can).
+    #[cfg(test)]
+    releasing_rx: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 /// Run the test hook in `slot`, if one is set.
@@ -855,6 +859,8 @@ impl TelemetryExportQueue {
             holding_rx: Mutex::new(None),
             #[cfg(test)]
             before_enqueue: Mutex::new(None),
+            #[cfg(test)]
+            releasing_rx: Mutex::new(None),
         })
     }
 
@@ -942,7 +948,10 @@ impl Drop for Polling<'_> {
     fn drop(&mut self) {
         let _inflight = self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner());
         let Some(mut rx) = self.rx.take() else { return };
-        if self.queue.finished.load(Ordering::SeqCst) {
+        let finished = self.queue.finished.load(Ordering::SeqCst);
+        #[cfg(test)]
+        run_hook(&self.queue.releasing_rx);
+        if finished {
             // Closed first, so no sender can refill it. Dropping what is queued tells its exporter
             // the host dropped it.
             rx.close();
@@ -1218,6 +1227,64 @@ mod tests {
         assert!(
             matches!(refill, Err(mpsc::error::TrySendError::Closed(_))),
             "closed: a sender kept from before cannot refill it"
+        );
+    }
+
+    /// A poller's release and `finish` are ordered by the in-flight lock. A poller that read
+    /// `finished == false` keeps the lock until it let the receiver go, so `finish` cannot raise
+    /// the flag and fail to take the receiver in between. The test runs the worst schedule the
+    /// code allows: `finish` runs inside the poller's release when it can take the lock there,
+    /// and right after the release when it cannot. Either way a request that a kept sender
+    /// queued meanwhile is discarded, and the receiver ends closed.
+    #[test]
+    fn a_poller_releasing_the_receiver_and_finish_never_both_skip_the_drain() {
+        let queue = TelemetryExportQueue::new();
+        let wait = Duration::from_secs(5);
+        let tx = queue.tx.lock().expect("lock").clone().expect("open");
+        let (read, flag_read) = std::sync::mpsc::channel();
+        let (go, resume) = std::sync::mpsc::channel::<()>();
+        let resume = Mutex::new(resume);
+        let fired = AtomicBool::new(false);
+        // Only the poller's release is held: `finish`'s own release passes.
+        *queue.releasing_rx.lock().expect("lock") = Some(Box::new(move || {
+            if !fired.swap(true, Ordering::SeqCst) {
+                let _ = read.send(());
+                let _ = resume.lock().expect("lock").recv_timeout(wait);
+            }
+        }));
+        let polling = {
+            let queue = queue.clone();
+            std::thread::spawn(move || queue.try_next().is_none())
+        };
+        flag_read
+            .recv_timeout(wait)
+            .expect("the poller read the flag and still holds the receiver");
+        // A kept sender queues while the poller holds the receiver.
+        let (done, mut answer) = oneshot::channel();
+        let queued = QueuedExport { export: PendingExport { id: 7, request: request() }, done };
+        assert!(tx.try_send(queued).is_ok(), "queued behind the poller");
+        // Chooses the schedule, asserts nothing: can `finish` raise the flag right now?
+        let finish_can_run_inside = queue.inflight.try_lock().is_ok();
+        if finish_can_run_inside {
+            queue.finish();
+            go.send(()).expect("resume");
+        } else {
+            go.send(()).expect("resume");
+        }
+        let served_nothing = polling.join().expect("try_next");
+        if !finish_can_run_inside {
+            queue.finish();
+        }
+        let schedule = if finish_can_run_inside { "inside the release" } else { "after it" };
+        assert!(served_nothing, "nothing served ({schedule})");
+        let dropped = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
+        assert!(dropped, "finish ran {schedule}: the queued request is discarded");
+        let (done, _late) = oneshot::channel();
+        let late = QueuedExport { export: PendingExport { id: 8, request: request() }, done };
+        let refill = tx.try_send(late);
+        assert!(
+            matches!(refill, Err(mpsc::error::TrySendError::Closed(_))),
+            "finish ran {schedule}: closed, a kept sender cannot refill it"
         );
     }
 
