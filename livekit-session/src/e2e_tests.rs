@@ -617,3 +617,41 @@ async fn a_rejected_token_fails_the_start() -> Result<()> {
     assert!(is_idle(&session));
     Ok(())
 }
+
+/// A source that never answers, so `start` stays connecting.
+struct PendingSource;
+
+#[async_trait]
+impl TokenSourceConfigurable for PendingSource {
+    async fn fetch(&self, _: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn end_cancels_a_pending_start() -> Result<()> {
+    let session =
+        Session::with_fetch_options(PendingSource, TokenSourceFetchOptions::new(), text_options());
+    let start = tokio::spawn({
+        let session = session.clone();
+        async move { session.start().await }
+    });
+    wait_for(&session, "connecting", |s| s.connection == SessionConnectionState::Connecting)
+        .await?;
+
+    session.end().await;
+    assert!(matches!(start.await?, Err(SessionStartError::Cancelled)));
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
+    let session =
+        Session::with_fetch_options(PendingSource, TokenSourceFetchOptions::new(), text_options());
+    assert!(timeout(Duration::from_millis(100), session.start()).await.is_err());
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    Ok(())
+}
