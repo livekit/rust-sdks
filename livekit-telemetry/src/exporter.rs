@@ -1193,14 +1193,8 @@ impl Exporter {
 
     /// Keep credentials only for Rooms still alive or with batches still cached.
     fn retire_credentials(&self) {
-        let live: HashMap<String, Option<String>> = {
-            let scopes = self.shared.scopes.lock().unwrap_or_else(|e| e.into_inner());
-            scopes
-                .iter()
-                .filter_map(|s| s.upgrade())
-                .map(|s| (s.hex().to_owned(), s.route()))
-                .collect()
-        };
+        // Listed before the registry is locked, as a cache may read storage. Only this task adds
+        // batches, so none appears between this listing and the prune.
         let backlog = self
             .shared
             .cache
@@ -1211,6 +1205,14 @@ impl Exporter {
                 Some((batch.host.map(str::to_owned), batch.owner?.to_owned()))
             })
             .collect();
+        // Locked through the prune, scopes before destinations: a Room that registered after the
+        // snapshot would set its token before the prune and lose it, though alive.
+        let scopes = self.shared.scopes.lock().unwrap_or_else(|e| e.into_inner());
+        let live: HashMap<String, Option<String>> = scopes
+            .iter()
+            .filter_map(|s| s.upgrade())
+            .map(|s| (s.hex().to_owned(), s.route()))
+            .collect();
         #[cfg(test)]
         {
             let hook = self.shared.retiring.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -1219,6 +1221,7 @@ impl Exporter {
             }
         }
         self.destinations().retain_owners(&live, &backlog);
+        drop(scopes);
     }
 
     fn destinations(&self) -> std::sync::MutexGuard<'_, crate::destination::Destinations> {
