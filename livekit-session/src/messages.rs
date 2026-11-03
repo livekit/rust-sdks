@@ -130,3 +130,58 @@ impl MessageStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use chrono::TimeZone;
+
+    fn at(seconds: i64) -> DateTime<Utc> {
+        Utc.timestamp_opt(1_800_000_000 + seconds, 0).unwrap()
+    }
+
+    fn update(id: &str, seconds: i64, text: &str) -> MessageUpdate {
+        MessageUpdate {
+            id: id.into(),
+            timestamp: at(seconds),
+            origin: MessageOrigin::Chat,
+            participant_identity: "remote".to_owned().into(),
+            text: text.into(),
+            is_final: true,
+        }
+    }
+
+    #[test]
+    fn upsert_keeps_seq_and_orders_by_receive_order() {
+        let mut store = MessageStore::default();
+        // The second message has the earlier sender clock.
+        assert_eq!(store.upsert(update("a", 10, "first")).seq, 0);
+        assert_eq!(store.upsert(update("b", 0, "second")).seq, 1);
+        let updated = store.upsert(update("a", 10, "first, edited"));
+        assert_eq!(updated.seq, 0);
+
+        let feed: Vec<_> = store.messages().iter().map(|m| (m.id.as_str(), m.seq)).collect();
+        assert_eq!(feed, [("a", 0), ("b", 1)]);
+        assert_eq!(store.messages()[0].text, "first, edited");
+    }
+
+    #[test]
+    fn restore_keeps_the_given_order_and_renumbers() {
+        let mut store = MessageStore::default();
+        store.upsert(update("stale", 0, "dropped by restore"));
+
+        // Received first, but stamped later by a skewed sender clock.
+        let mut first = store.upsert(update("first", 20, "first"));
+        first.seq = 7;
+        let mut second = first.clone();
+        second.id = "second".into();
+        second.timestamp = at(10);
+        second.seq = 3;
+
+        store.restore(&[first, second]);
+        let feed: Vec<_> = store.messages().iter().map(|m| (m.id.as_str(), m.seq)).collect();
+        assert_eq!(feed, [("first", 0), ("second", 1)]);
+        assert_eq!(store.upsert(update("next", 0, "next")).seq, 2);
+    }
+}
