@@ -251,6 +251,10 @@ pub(crate) struct Shared {
     /// under (to hold a producer exactly where a racing purge could slip in).
     #[cfg(test)]
     pub pause: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Test-only: runs inside credential retirement, between its snapshot of the live sessions
+    /// and the prune that applies it.
+    #[cfg(test)]
+    pub retiring: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Upload passes started, for tests that must see the exporter stay idle.
     #[cfg(test)]
     pub passes: std::sync::atomic::AtomicU64,
@@ -543,6 +547,8 @@ impl Telemetry {
             passes: Default::default(),
             #[cfg(test)]
             pause: Mutex::new(None),
+            #[cfg(test)]
+            retiring: Mutex::new(None),
             wake: tokio::sync::Notify::new(),
             overflowed: AtomicBool::new(false),
             released: AtomicBool::new(false),
