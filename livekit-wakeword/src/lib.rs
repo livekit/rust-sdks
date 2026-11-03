@@ -92,9 +92,10 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
 /// [`WakeWordModel::with_session_options`] to trade latency for CPU, which is
 /// useful when detection runs as a background process on a small machine:
 ///
-/// ```no_run
+/// ```
 /// # use livekit_wakeword::{SessionOptions, WakeWordModel};
 /// # fn main() -> Result<(), livekit_wakeword::WakeWordError> {
+/// # let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/hey_livekit.onnx");
 /// let options = SessionOptions {
 ///     intra_threads: Some(1),
 ///     inter_threads: Some(1),
@@ -103,7 +104,7 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
 ///     inter_op_spinning: Some(false),
 ///     ..Default::default()
 /// };
-/// let model = WakeWordModel::with_session_options(&["hey_livekit.onnx"], 16000, options)?;
+/// let model = WakeWordModel::with_session_options(&[path], 16000, options)?;
 /// # Ok(())
 /// # }
 /// ```

@@ -61,6 +61,14 @@ impl StreamingClassifier {
             state_outputs.push(format!("{}_out", input.name()));
         }
 
+        // Every output a step reads must be declared, so a graph outside the
+        // contract is rejected here rather than failing warm-up.
+        let outputs = session.outputs();
+        let declares = |name: &str| outputs.iter().any(|o| o.name() == name);
+        if !declares(SCORE_OUTPUT) || !state_outputs.iter().all(|name| declares(name)) {
+            return Err(not_streaming());
+        }
+
         let mut classifier = Self {
             session,
             chunk_index,

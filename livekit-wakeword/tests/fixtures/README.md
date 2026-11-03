@@ -12,3 +12,6 @@ Python and Swift clients test against the same files.
   `integration.rs`).
 - `not_streaming.onnx` — a single Identity node with a v1-style `embeddings` input,
   used to check that non-streaming models are rejected.
+- `no_score_output.onnx` — a single Identity node from a `chunk` input to an `other`
+  output (no `score`), used to check that graphs outside the streaming contract are
+  rejected at load. Rust-only.

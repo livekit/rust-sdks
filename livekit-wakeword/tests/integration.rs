@@ -201,6 +201,10 @@ fn test_rejects_non_streaming_model() {
     let result = WakeWordModel::new(&[fixture("not_streaming.onnx")], SAMPLE_RATE as u32);
     assert!(matches!(result, Err(WakeWordError::NotStreamingModel(_))));
 
+    // A `chunk` input alone is not enough: the `score` output must be declared too.
+    let result = WakeWordModel::new(&[fixture("no_score_output.onnx")], SAMPLE_RATE as u32);
+    assert!(matches!(result, Err(WakeWordError::NotStreamingModel(_))));
+
     let result = WakeWordModel::new(&[fixture("missing.onnx")], SAMPLE_RATE as u32);
     assert!(matches!(result, Err(WakeWordError::ModelNotFound(_))));
 }
