@@ -773,9 +773,11 @@ fn run_hook(slot: &Mutex<Option<Box<dyn Fn() + Send + Sync>>>) {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl TelemetryExportQueue {
-    /// End the serving loop: `next` resolves `None` from now on, and whatever is still queued is
-    /// discarded, never served, and nothing is queued afterwards. A request already handed out
-    /// stays answerable with `complete` or `fail`. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
+    /// End the serving loop: nothing is handed out or queued from now on, and `next` resolves
+    /// `None`. Whatever is still queued is discarded, never served: at once, or, while a `next` or
+    /// `try_next` call holds the queue, when that call returns. A request handed out before this
+    /// call stays answerable with `complete` or `fail`, even when the host sees it only after this
+    /// returns. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
     /// `telemetry_configure_pulled` replaced this queue.
     /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
     pub fn finish(&self) {
@@ -791,7 +793,9 @@ impl TelemetryExportQueue {
     }
 
     /// The next request to perform; `None` once finished. A request the exporter already gave up
-    /// on (timed out, cancelled by shutdown or the opt-out) is never handed out.
+    /// on (timed out, cancelled by shutdown or the opt-out) is never handed out. A request handed
+    /// out just before [`finish`](Self::finish) can reach the caller after it; it stays
+    /// answerable.
     pub async fn next(&self) -> Option<PendingExport> {
         loop {
             if self.finished.load(Ordering::SeqCst) {
@@ -891,10 +895,12 @@ impl TelemetryExportQueue {
     }
 }
 
-/// The receiver, held by one poller at a time (`next`, `try_next`, the stale sweep, `finish`).
-/// It is let go under the in-flight lock, closed and drained first once the queue is finished.
-/// `finish` raises the flag under that lock before it tries the receiver, so whoever holds the
-/// receiver when `finish` runs discards what is queued, and no sender can refill it.
+/// The receiver, held by one poller at a time (`next`, `try_next`, a send's stale sweep, an
+/// exporter that stopped waiting, `finish`). It is let go under the in-flight lock: closed and
+/// drained once the queue is finished, else rid of the requests nobody waits for. `finish` and a
+/// stopped exporter commit under that lock before they try the receiver, so whoever holds it
+/// then does their cleanup when it lets go. Senders enqueue under that lock too, so none
+/// enqueues after `finish`.
 struct Polling<'a> {
     queue: &'a TelemetryExportQueue,
     /// Taken only when it is let go.
