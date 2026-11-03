@@ -27,6 +27,9 @@ mod error;
 mod messages;
 mod session;
 
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+mod e2e_tests;
+
 pub use agent::{AgentFailure, AgentState};
 pub use error::{MessageSendError, SessionStartError};
 pub use messages::{Message, MessageOrigin};
