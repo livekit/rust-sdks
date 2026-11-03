@@ -722,12 +722,16 @@ pub struct TelemetryExportQueue {
     tx: Mutex<Option<mpsc::Sender<QueuedExport>>>,
     /// The requests waiting for the host.
     rx: tokio::sync::Mutex<mpsc::Receiver<QueuedExport>>,
-    /// The requests handed out and not answered yet, by id. `serve` and `finish` read `finished`
-    /// under this lock, so nothing is handed out once `finish` returned.
+    /// The requests handed out and not answered yet, by id. This lock is a hand-out's commit
+    /// point: `serve` checks `finished` and inserts under it, and `finish` raises `finished` under
+    /// it, so a request is handed out only when its `serve` took the lock before `finish` did.
+    /// Such a request can still reach the host after `finish` returned, and `finish` keeps its
+    /// entry, so its answer still reaches the exporter. An entry goes once it is answered, or once
+    /// its exporter stops waiting ([`Forget`]).
     inflight: Mutex<HashMap<u64, oneshot::Sender<Result<ExportResponse, ExportError>>>>,
     /// The next request id.
     seq: AtomicU64,
-    /// `finish` was called: nothing is served from now on.
+    /// `finish` took the in-flight lock: nothing is served from then on.
     finished: AtomicBool,
     /// Serves the process pipeline (`telemetry_configure_pulled`): nothing is handed out once
     /// the app opted out, even before the purge has cancelled the request. `false` only for the
@@ -765,17 +769,17 @@ fn run_hook(slot: &Mutex<Option<Box<dyn Fn() + Send + Sync>>>) {
 #[uniffi::export(async_runtime = "tokio")]
 impl TelemetryExportQueue {
     /// End the serving loop: `next` resolves `None` from now on, and whatever is still queued is
-    /// discarded, never served. Call after `telemetry_shutdown` or `telemetry_disable`, or when a
-    /// later `telemetry_configure_pulled` replaced this queue.
+    /// discarded, never served. A request already handed out stays answerable with `complete` or
+    /// `fail`. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
+    /// `telemetry_configure_pulled` replaced this queue.
     /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
     pub fn finish(&self) {
         #[cfg(test)]
         run_hook(&self.before_finish);
-        {
-            let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-            self.finished.store(true, Ordering::SeqCst);
-            inflight.clear();
-        }
+        // Under the lock `serve` commits under. What it handed out stays, to be answered.
+        let inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        self.finished.store(true, Ordering::SeqCst);
+        drop(inflight);
         self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
         // Dropping what is queued tells its exporter the host dropped it.
         if let Ok(mut rx) = self.rx.try_lock() {
