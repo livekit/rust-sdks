@@ -411,6 +411,27 @@ mod tests {
         assert_eq!(log::max_level(), LevelFilter::Debug, "a looser level is kept as is");
     }
 
+    /// With telemetry off, a core warning costs the telemetry copy nothing: its message is not
+    /// even formatted.
+    #[test]
+    fn telemetry_off_builds_no_copy() {
+        let _off = crate::telemetry::PROCESS_PIPELINE.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(livekit_telemetry::global::stats().is_none(), "precondition: telemetry is off");
+        /// Counts how often it is formatted.
+        struct Counted<'a>(&'a AtomicUsize);
+        impl std::fmt::Display for Counted<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                f.write_str("careful")
+            }
+        }
+        let formatted = AtomicUsize::new(0);
+        let logger = Logger::new();
+        logger.forward.store(LevelFilter::Error as usize, Ordering::Relaxed);
+        logger.log(&record(Level::Warn, "livekit::room", format_args!("{}", Counted(&formatted))));
+        assert_eq!(formatted.load(Ordering::Relaxed), 0, "nothing was built for telemetry");
+    }
+
     /// The console entry is unchanged by the copy.
     #[test]
     fn the_console_entry_is_what_it_always_was() {
