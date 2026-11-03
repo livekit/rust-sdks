@@ -197,3 +197,84 @@ fn current(session: &Session) -> SessionState {
 fn text_options() -> SessionOptions {
     SessionOptions::default().with_platform_audio(false)
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    assert_eq!(current(&session), SessionState::default());
+    assert!(session.room().is_none());
+
+    session.start().await?;
+    assert_eq!(current(&session).connection, SessionConnectionState::Connected);
+    assert_eq!(current(&session).agent, AgentState::Connecting);
+    assert!(matches!(session.start().await, Err(SessionStartError::AlreadyStarted)));
+    let room = session.room().ok_or_else(|| anyhow!("no room"))?;
+    assert!(room.local_participant().track_publications().is_empty());
+    drop(room);
+
+    let mut state = session.state();
+    let wait =
+        tokio::spawn(
+            async move { state.wait_for(|s| s.agent.is_connected()).await.map(|s| *s).ok() },
+        );
+    let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    let connected = timeout(WAIT, wait).await??.ok_or_else(|| anyhow!("state closed"))?;
+    assert_eq!(connected.agent, AgentState::Listening);
+
+    set_agent_state(&agent, "speaking").await?;
+    wait_for_agent(&session, AgentState::Speaking).await?;
+
+    session.end().await;
+    assert_eq!(current(&session), SessionState::default());
+    assert!(session.room().is_none());
+    // Ending again is a no-op.
+    session.end().await;
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_leaving_is_reported_as_left() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    session.start().await?;
+    let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+
+    agent.close().await?;
+    wait_for_agent(&session, AgentState::Failed(AgentFailure::Left)).await?;
+    session.end().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn full_reconnect_does_not_report_left() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    session.start().await?;
+    let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+    lock(&session.inner.shared.history).clear();
+
+    let room = session.room().ok_or_else(|| anyhow!("no room"))?;
+    room.simulate_scenario(SimulateScenario::FullReconnect).await?;
+    eventually("a reconnect and the agent's return", || {
+        let history = lock(&session.inner.shared.history);
+        history.iter().any(|s| s.connection == SessionConnectionState::Reconnecting)
+            && history.last().is_some_and(|s| {
+                s.connection == SessionConnectionState::Connected
+                    && s.agent == AgentState::Listening
+            })
+    })
+    .await?;
+
+    let history = lock(&session.inner.shared.history).clone();
+    assert!(
+        !history.iter().any(|s| s.agent == AgentState::Failed(AgentFailure::Left)),
+        "a full reconnect was reported as the agent leaving: {history:?}"
+    );
+    session.end().await;
+    Ok(())
+}
