@@ -262,3 +262,132 @@ impl AgentTracker {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use SessionConnectionState::{Connected, Connecting, Disconnected, Reconnecting};
+
+    const NO_ONE: &[Fake] = &[];
+
+    #[derive(Clone)]
+    struct Fake {
+        identity: &'static str,
+        kind: ParticipantKind,
+        attributes: Vec<(&'static str, &'static str)>,
+    }
+
+    impl Fake {
+        fn agent(identity: &'static str, state: Option<&'static str>) -> Self {
+            let attributes = state.map(|s| vec![(ATTRIBUTE_AGENT_STATE, s)]).unwrap_or_default();
+            Self { identity, kind: ParticipantKind::Agent, attributes }
+        }
+
+        fn standard(identity: &'static str) -> Self {
+            Self { identity, kind: ParticipantKind::Standard, attributes: vec![] }
+        }
+
+        fn avatar_for(identity: &'static str, agent: &'static str) -> Self {
+            Self {
+                identity,
+                kind: ParticipantKind::Agent,
+                attributes: vec![(ATTRIBUTE_PUBLISH_ON_BEHALF, agent)],
+            }
+        }
+    }
+
+    impl AgentCandidate for Fake {
+        fn identity(&self) -> ParticipantIdentity {
+            self.identity.to_owned().into()
+        }
+
+        fn kind(&self) -> ParticipantKind {
+            self.kind
+        }
+
+        fn attributes(&self) -> HashMap<String, String> {
+            self.attributes.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        }
+    }
+
+    fn project(tracker: &mut AgentTracker, participants: &[Fake]) -> AgentState {
+        tracker.project(Connected, participants)
+    }
+
+    #[test]
+    fn attribute_values_map_to_states() {
+        let mut tracker = AgentTracker::default();
+        for (value, state) in [
+            ("initializing", AgentState::Initializing),
+            ("idle", AgentState::Idle),
+            ("listening", AgentState::Listening),
+            ("thinking", AgentState::Thinking),
+            ("speaking", AgentState::Speaking),
+        ] {
+            assert_eq!(project(&mut tracker, &[Fake::agent("agent", Some(value))]), state);
+        }
+    }
+
+    #[test]
+    fn missing_attribute_is_idle_and_unrecognized_is_unknown() {
+        let mut tracker = AgentTracker::default();
+        assert_eq!(project(&mut tracker, &[Fake::agent("agent", None)]), AgentState::Idle);
+        assert_eq!(
+            project(&mut tracker, &[Fake::agent("agent", Some("dancing"))]),
+            AgentState::Unknown
+        );
+    }
+
+    #[test]
+    fn avatar_worker_is_never_the_agent() {
+        let mut tracker = AgentTracker::default();
+        let participants = [Fake::avatar_for("avatar", "agent"), Fake::standard("user")];
+        assert_eq!(project(&mut tracker, &participants), AgentState::Connecting);
+
+        let participants =
+            [Fake::avatar_for("avatar", "agent"), Fake::agent("agent", Some("speaking"))];
+        assert_eq!(find_agent(&participants).map(|p| p.identity), Some("agent"));
+        assert_eq!(
+            find_avatar_worker(&participants, &"agent".to_owned().into()).map(|p| p.identity),
+            Some("avatar")
+        );
+    }
+
+    #[test]
+    fn lowest_identity_wins_among_several_agents() {
+        let participants = [Fake::agent("b", None), Fake::agent("a", None)];
+        assert_eq!(find_agent(&participants).map(|p| p.identity), Some("a"));
+    }
+
+    #[test]
+    fn predicates_match_for_every_state() {
+        use AgentState::*;
+        let states = [
+            Disconnected,
+            Connecting,
+            Initializing,
+            Idle,
+            Listening,
+            Thinking,
+            Speaking,
+            Failed(AgentFailure::Timeout),
+            Failed(AgentFailure::Left),
+            Unknown,
+        ];
+        for state in states {
+            assert_eq!(
+                state.is_connected(),
+                matches!(state, Listening | Thinking | Speaking),
+                "{state:?}"
+            );
+            assert_eq!(
+                state.is_pending(),
+                matches!(state, Connecting | Initializing | Idle),
+                "{state:?}"
+            );
+            assert_eq!(state.is_finished(), matches!(state, Disconnected | Failed(_)), "{state:?}");
+        }
+        assert!(!Initializing.is_connected());
+    }
+}
