@@ -351,3 +351,125 @@ async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
     session.end().await;
     Ok(())
 }
+
+async fn next_message(
+    events: &mut UnboundedReceiver<SessionEvent>,
+    mut predicate: impl FnMut(&Message) -> bool,
+) -> Result<Message> {
+    timeout(WAIT, async {
+        while let Some(event) = events.recv().await {
+            if let SessionEvent::MessageUpserted(message) = event {
+                if predicate(&message) {
+                    return Ok(message);
+                }
+            }
+        }
+        bail!("session events ended")
+    })
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn messages_merge_chat_and_transcripts() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    let mut events = session.subscribe();
+    session.start().await?;
+    let (agent, mut agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+
+    // User input reaches the agent on lk.chat, under the id the feed uses.
+    let sent = session.send_text("hello agent").await?;
+    assert_eq!((sent.origin, sent.text.as_str()), (MessageOrigin::UserInput, "hello agent"));
+    let received = timeout(WAIT, async {
+        while let Some(event) = agent_events.recv().await {
+            if let RoomEvent::TextStreamOpened { reader, topic, .. } = event {
+                if topic == TOPIC_CHAT {
+                    let reader = reader.take().ok_or_else(|| anyhow!("reader taken"))?;
+                    let id = reader.info().id.clone();
+                    return Ok((id, reader.read_all().await?));
+                }
+            }
+        }
+        bail!("agent events ended")
+    })
+    .await??;
+    assert_eq!(received, (sent.id.clone(), "hello agent".to_owned()));
+
+    // An agent transcript appends on one stream, finalized by the trailer.
+    let mut options = StreamTextOptions::new_with_topic(TOPIC_TRANSCRIPTION);
+    options.attributes = HashMap::from([
+        (ATTRIBUTE_SEGMENT_ID.to_owned(), "seg-1".to_owned()),
+        (ATTRIBUTE_TRANSCRIPTION_FINAL.to_owned(), "false".to_owned()),
+    ]);
+    let writer = agent.local_participant().stream_text(options).await?;
+    writer.write("Hel").await?;
+    writer.write("lo").await?;
+    let partial = next_message(&mut events, |m| m.id == "seg-1" && m.text == "Hello").await?;
+    assert!(!partial.is_final);
+    writer
+        .close_with_options(
+            None,
+            Some(HashMap::from([(ATTRIBUTE_TRANSCRIPTION_FINAL.to_owned(), "true".to_owned())])),
+        )
+        .await?;
+    let done = next_message(&mut events, |m| m.id == "seg-1" && m.is_final).await?;
+    assert_eq!(done.origin, MessageOrigin::AgentTranscript);
+    assert_eq!(done.text, "Hello");
+    assert_eq!(done.seq, partial.seq);
+    assert_eq!(done.participant_identity.as_str(), AGENT);
+
+    // Chat from the agent reaches the feed too.
+    agent
+        .local_participant()
+        .send_text("hello user", SendTextOptions::new_with_topic(TOPIC_CHAT))
+        .await?;
+    let chat = next_message(&mut events, |m| m.origin == MessageOrigin::Chat).await?;
+    assert_eq!(chat.text, "hello user");
+
+    let feed: Vec<_> = session.messages().into_iter().map(|m| (m.origin, m.text)).collect();
+    assert_eq!(
+        feed,
+        [
+            (MessageOrigin::UserInput, "hello agent".to_owned()),
+            (MessageOrigin::AgentTranscript, "Hello".to_owned()),
+            (MessageOrigin::Chat, "hello user".to_owned()),
+        ]
+    );
+
+    // A failed send adds nothing.
+    session.end().await;
+    assert!(matches!(session.send_text("too late").await, Err(MessageSendError::NotConnected)));
+    assert_eq!(session.messages().len(), 3);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    session.start().await?;
+    let mut app_events = session.room().ok_or_else(|| anyhow!("no room"))?.subscribe();
+    let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+
+    agent
+        .local_participant()
+        .send_text("for the app", SendTextOptions::new_with_topic("app.custom"))
+        .await?;
+    let text = timeout(WAIT, async {
+        while let Some(event) = app_events.recv().await {
+            if let RoomEvent::TextStreamOpened { reader, topic, .. } = event {
+                if topic == "app.custom" {
+                    let reader = reader.take().ok_or_else(|| anyhow!("session took the reader"))?;
+                    return Ok(reader.read_all().await?);
+                }
+            }
+        }
+        bail!("app events ended")
+    })
+    .await??;
+    assert_eq!(text, "for the app");
+    session.end().await;
+    Ok(())
+}
