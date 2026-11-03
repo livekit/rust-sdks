@@ -270,7 +270,7 @@ pub fn log(record: LogRecord) {
     }
 }
 
-/// [`log`] with the record built only when a pipeline is installed at the call. The installed
+/// [`log()`] with the record built only when a pipeline is installed at the call. The installed
 /// pipeline is read once, as a snapshot: when there is none, `record` never runs and the call
 /// costs one read-lock acquisition. When there is one, `record` runs after the read and its record
 /// goes to that pipeline: a call that overlaps an uninstall or a replace can still build its
