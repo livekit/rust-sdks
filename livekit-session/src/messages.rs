@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use livekit::prelude::ParticipantIdentity;
 
+use crate::constants::{ATTRIBUTE_SEGMENT_ID, ATTRIBUTE_TRANSCRIPTION_FINAL};
+
 /// One entry of a session's message feed: a transcript segment or a chat
 /// message.
 ///
@@ -67,6 +69,147 @@ pub(crate) struct MessageUpdate {
     pub participant_identity: ParticipantIdentity,
     pub text: String,
     pub is_final: bool,
+}
+
+/// An incoming `lk.transcription` stream. Its attributes are passed
+/// separately on every call, since a trailer can still change them.
+#[derive(Clone, Debug)]
+pub(crate) struct TranscriptStream {
+    pub id: String,
+    pub timestamp: DateTime<Utc>,
+    pub participant_identity: ParticipantIdentity,
+    /// Whether the transcript is of the local user, i.e. the agent sent it on
+    /// the local participant's behalf.
+    pub is_local: bool,
+}
+
+impl TranscriptStream {
+    /// The segment id, falling back to the stream id when the agent sent
+    /// none.
+    fn segment_id(&self, attributes: &HashMap<String, String>) -> String {
+        attributes.get(ATTRIBUTE_SEGMENT_ID).cloned().unwrap_or_else(|| self.id.clone())
+    }
+
+    fn origin(&self) -> MessageOrigin {
+        if self.is_local {
+            MessageOrigin::UserTranscript
+        } else {
+            MessageOrigin::AgentTranscript
+        }
+    }
+}
+
+/// Parses `lk.transcription_final`. Agents write the strings `"true"` and
+/// `"false"`; anything else counts as absent.
+fn parse_final(attributes: &HashMap<String, String>) -> Option<bool> {
+    let value = attributes.get(ATTRIBUTE_TRANSCRIPTION_FINAL)?.trim();
+    if value.eq_ignore_ascii_case("true") {
+        Some(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// A transcript segment still being received.
+#[derive(Debug)]
+struct Partial {
+    text: String,
+    /// The timestamp of the segment's first stream, kept as the segment grows.
+    timestamp: DateTime<Utc>,
+    /// The stream that last wrote the segment.
+    stream_id: String,
+}
+
+/// Turns `lk.transcription` chunks into transcript messages.
+///
+/// Agents send transcripts in two shapes on the same topic. Agent speech is
+/// one stream whose chunks append to the text, finalized by the stream's
+/// trailer. User speech is a new stream per interim result, each carrying the
+/// full text so far, with the last one marked final. Both are handled by one
+/// rule: a chunk appends when it arrives on the stream that last wrote the
+/// segment, and replaces the text when it arrives on a new stream.
+#[derive(Debug, Default)]
+pub(crate) struct TranscriptAggregator {
+    /// Keyed by segment and participant: the same segment id from two
+    /// participants is two messages.
+    partials: HashMap<(String, ParticipantIdentity), Partial>,
+}
+
+impl TranscriptAggregator {
+    /// Applies a chunk, returning the updated message. Empty chunks change
+    /// nothing.
+    pub(crate) fn on_chunk(
+        &mut self,
+        stream: &TranscriptStream,
+        attributes: &HashMap<String, String>,
+        chunk: &str,
+    ) -> Option<MessageUpdate> {
+        if chunk.is_empty() {
+            return None;
+        }
+        let segment_id = stream.segment_id(attributes);
+        let key = (segment_id.clone(), stream.participant_identity.clone());
+
+        if !self.partials.contains_key(&key) {
+            // A new segment means the participant's previous turn is over.
+            self.partials.retain(|(segment, participant), _| {
+                participant != &stream.participant_identity || segment == &segment_id
+            });
+        }
+        let partial = self.partials.entry(key).or_insert_with(|| Partial {
+            text: String::new(),
+            timestamp: stream.timestamp,
+            stream_id: stream.id.clone(),
+        });
+        if partial.stream_id == stream.id {
+            partial.text.push_str(chunk);
+        } else {
+            partial.text = chunk.to_owned();
+            partial.stream_id = stream.id.clone();
+        }
+
+        Some(MessageUpdate {
+            id: segment_id,
+            timestamp: partial.timestamp,
+            origin: stream.origin(),
+            participant_identity: stream.participant_identity.clone(),
+            text: partial.text.clone(),
+            is_final: false,
+        })
+    }
+
+    /// Handles the end of a stream, returning the finalized message if the
+    /// stream completed its segment.
+    ///
+    /// A stream completes its segment unless it is explicitly marked not
+    /// final (an interim user transcript) or a newer stream has taken the
+    /// segment over.
+    pub(crate) fn on_stream_end(
+        &mut self,
+        stream: &TranscriptStream,
+        attributes: &HashMap<String, String>,
+    ) -> Option<MessageUpdate> {
+        if parse_final(attributes) == Some(false) {
+            return None;
+        }
+        let segment_id = stream.segment_id(attributes);
+        let key = (segment_id, stream.participant_identity.clone());
+        if self.partials.get(&key)?.stream_id != stream.id {
+            return None;
+        }
+        let ((id, participant_identity), partial) = self.partials.remove_entry(&key)?;
+
+        Some(MessageUpdate {
+            id,
+            timestamp: partial.timestamp,
+            origin: stream.origin(),
+            participant_identity,
+            text: partial.text,
+            is_final: true,
+        })
+    }
 }
 
 /// The message feed: messages deduplicated by id and participant, in receive
