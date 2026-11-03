@@ -172,7 +172,10 @@ pub fn install(
 pub fn uninstall() -> Option<Telemetry> {
     let _lifecycle = lifecycle();
     stop_installed_instruments();
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take().map(|i| i.telemetry)
+    // A statement of its own, so the write guard ends here: the instruments freed below may log
+    // or read the pipeline from their destructors.
+    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    installed.map(|i| i.telemetry)
 }
 
 /// Opt-out: stop collecting for the rest of the process. Before this returns, the pipeline is
@@ -211,6 +214,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         let mut stored: Vec<PathBuf> = list.iter().filter_map(|g| g.storage.clone()).collect();
         stored.sort_unstable();
         stored.dedup();
+        // Freed outside every lock but the lifecycle one: an instrument's destructor may log.
+        drop(list);
         drop(taken);
         (live, stored)
     };
@@ -232,7 +237,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
 pub(crate) fn reset_for_test() {
     let _lifecycle = lifecycle();
     DISABLED.store(false, Ordering::SeqCst);
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    drop(installed);
     GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
