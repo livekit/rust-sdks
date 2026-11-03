@@ -64,14 +64,18 @@ echo "PLATFORM: ${LK_PLATFORM}"
 # `set -e` matters: if the resolver fails, the assignment fails and the shell
 # stops. Without it the flags would be empty and cargo would quietly build the
 # default feature set, which is the wrong surface for most callers.
+#
+# `cargo rustc --crate-type cdylib`, not `cargo build`: livekit-ffi also lists
+# "lib" (for the Node bindings), and Cargo drops LTO for a build that emits an
+# rlib.
 if not ${TIER_3}
     # Ensure target is installed
     exec rustup target add ${TARGET}
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo rustc --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
     exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly rustc -Zbuild-std=std,panic_abort --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 end
 """
 
@@ -104,7 +108,8 @@ fi
 # Named here and not in env for the same reason as the profile switch above.
 FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" android)
 
-cargo ndk --target "${TARGET}" build ${FLAGS} ${release_flag}
+# `rustc --crate-type cdylib`, not `build`: see the comment on [tasks.build].
+cargo ndk --target "${TARGET}" rustc --lib --crate-type cdylib ${FLAGS} ${release_flag}
 """
 
 # MARK: - Build, specific platforms

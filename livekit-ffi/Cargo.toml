@@ -165,9 +165,4 @@ android = { no-default-features = true, features = ["core-modules"] }
 dart = { no-default-features = true, features = ["core-modules"] }
 
 [lib]
-# No "lib" (rlib): Cargo cannot LTO an rlib, so listing it makes Cargo drop
-# `-C lto` for this crate entirely and the shipped staticlib/cdylib are built
-# without LTO (~340 KB larger for core-modules). Nothing links livekit-ffi as a
-# Rust library; consumers load the cdylib/staticlib, and the bindgens read the
-# compiled cdylib.
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["lib", "staticlib", "cdylib"]
