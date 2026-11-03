@@ -409,11 +409,6 @@ impl Manager {
         }
 
         let closed = token.clone().cancelled_owned();
-        let closed_key = (participant_identity.clone(), id.clone());
-        self.closes.push(Box::pin(async move {
-            closed.await;
-            closed_key
-        }));
         let descriptor = Descriptor {
             close_guard: token.drop_guard(),
             progress: StreamProgress { bytes_total, ..Default::default() },
@@ -427,14 +422,22 @@ impl Manager {
             last_chunk_index: None,
             attributes_map,
         };
-        self.inner.open_streams.entry(participant_identity).or_default().insert(id, descriptor);
+        self.inner
+            .open_streams
+            .entry(participant_identity.clone())
+            .or_default()
+            .insert(id.clone(), descriptor);
+        self.closes.push(Box::pin(async move {
+            closed.await;
+            (participant_identity, id)
+        }));
     }
 
     /// Returns the topic of a stream `identity` has open, or `None` if it has none with this id.
     ///
     /// Reported on chunk/trailer events so the host can apply its own topic policy (e.g. hiding
     /// `lk.rpc_request`); this crate deliberately holds no notion of which topics are internal.
-    fn topic_associated_with_stream_id(
+    fn topic_associated_with_participant_and_stream_id(
         &self,
         identity: &ParticipantIdentity,
         id: &StreamId,
@@ -453,7 +456,7 @@ impl Manager {
         let _ = self.inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
             chunk: chunk.clone(),
             participant_identity: participant_identity.clone(),
-            topic: self.topic_associated_with_stream_id(&participant_identity, &id),
+            topic: self.topic_associated_with_participant_and_stream_id(&participant_identity, &id),
         }));
 
         let inner = &mut self.inner;
@@ -575,7 +578,8 @@ impl Manager {
             TrailerReceived {
                 trailer: trailer.clone(),
                 participant_identity: participant_identity.clone(),
-                topic: self.topic_associated_with_stream_id(&participant_identity, &id),
+                topic: self
+                    .topic_associated_with_participant_and_stream_id(&participant_identity, &id),
             }
             .into(),
         );
