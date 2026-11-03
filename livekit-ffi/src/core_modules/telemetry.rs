@@ -908,20 +908,6 @@ impl TelemetryExportQueue {
     fn try_poll(&self) -> Option<Polling<'_>> {
         Some(Polling { queue: self, rx: Some(self.rx.try_lock().ok()?) })
     }
-
-    /// After an enqueue: once `finish` has run, discard what is queued, as `finish` would have. A
-    /// sender that reserved room before the receiver was closed still enqueues. The flag is read
-    /// under the lock `finish` raises it under, so either this sees it, or whoever discards for
-    /// `finish` sees the request.
-    fn discard_if_finished(&self) {
-        let finished = {
-            let _inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-            self.finished.load(Ordering::SeqCst)
-        };
-        if finished {
-            drop(self.try_poll());
-        }
-    }
 }
 
 /// The receiver, held by one poller at a time (`next`, `try_next`, the stale sweep, `finish`).
@@ -991,15 +977,21 @@ impl TelemetryTransport for TelemetryExportQueue {
         };
         // Waits for room while the host is busy; cancelled with the exporter's timeout, and then
         // the request was never queued. The sender is not kept while the answer is awaited.
-        // `reserve` then `send` is what `Sender::send` does; split so a test can stand between.
         let permit = tx.reserve().await.map_err(|_| closed())?;
         #[cfg(test)]
         run_hook(&self.before_enqueue);
-        permit.send(queued);
+        {
+            // The enqueue commits under the lock `finish` raises its flag under: a permit from
+            // before `finish` never enqueues after it. `Permit::send` does not wait.
+            let _inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            if self.finished.load(Ordering::SeqCst) {
+                return Err(closed());
+            }
+            permit.send(queued);
+            #[cfg(test)]
+            self.queued.fetch_add(1, Ordering::SeqCst);
+        }
         drop(tx);
-        self.discard_if_finished();
-        #[cfg(test)]
-        self.queued.fetch_add(1, Ordering::SeqCst);
         wait.await.unwrap_or(Err(ExportError::Retryable {
             reason: "host dropped the export".into(),
             retry_after_ms: None,
