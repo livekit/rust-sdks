@@ -103,11 +103,9 @@ impl Log for Logger {
         true
     }
     fn log(&self, record: &Record) {
-        // Telemetry gets its copy first, built from the borrowed record; the console entry below
-        // is exactly what it always was.
-        if let Some(copy) = telemetry_copy(record) {
-            livekit_telemetry::global::log(copy);
-        }
+        // Telemetry gets its copy first, built from the borrowed record and only when a pipeline
+        // is installed at the call; the console entry below is exactly what it always was.
+        livekit_telemetry::global::log_with(|| telemetry_copy(record));
         // `Level` and `LevelFilter` share their numbering (`Error` = 1 … `Trace` = 5).
         if record.level() as usize > self.forward.load(Ordering::Relaxed) {
             return;
