@@ -236,6 +236,33 @@ async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn start_publishes_the_microphone_and_end_releases_the_audio_devices() -> Result<()> {
+    // Shares the platform audio handle with the session, to observe the
+    // session's reference to it.
+    let Ok(probe) = PlatformAudio::new() else {
+        log::info!("skipping: this machine has no audio devices");
+        return Ok(());
+    };
+    if probe.recording_devices().next().is_none() {
+        log::info!("skipping: this machine has no microphone");
+        return Ok(());
+    }
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), SessionOptions::default());
+
+    session.start().await?;
+    assert_eq!(probe.ref_count(), 2);
+    let room = session.room().ok_or_else(|| anyhow!("no room"))?;
+    let publications = room.local_participant().track_publications();
+    assert!(publications.values().any(|p| p.source() == TrackSource::Microphone));
+    drop(room);
+
+    session.end().await;
+    assert_eq!(probe.ref_count(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_leaving_is_reported_as_left() -> Result<()> {
     let env = TestEnv::new();
     let session = Session::new(env.user_source(false), text_options());
