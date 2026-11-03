@@ -103,3 +103,85 @@ pub enum AgentFailure {
     /// The agent left the room while the session stayed connected.
     Left,
 }
+
+/// A remote participant, as far as agent projection is concerned.
+pub(crate) trait AgentCandidate {
+    fn identity(&self) -> ParticipantIdentity;
+    fn kind(&self) -> ParticipantKind;
+    fn attributes(&self) -> HashMap<String, String>;
+}
+
+impl AgentCandidate for RemoteParticipant {
+    fn identity(&self) -> ParticipantIdentity {
+        RemoteParticipant::identity(self)
+    }
+
+    fn kind(&self) -> ParticipantKind {
+        RemoteParticipant::kind(self)
+    }
+
+    fn attributes(&self) -> HashMap<String, String> {
+        RemoteParticipant::attributes(self)
+    }
+}
+
+/// Finds the agent: a participant of kind agent that is not publishing on
+/// behalf of another participant (that would be an avatar worker).
+///
+/// With several agents, the lowest identity wins, so the choice does not
+/// change between calls.
+pub(crate) fn find_agent<'a, P: AgentCandidate>(
+    participants: impl IntoIterator<Item = &'a P>,
+) -> Option<&'a P> {
+    participants
+        .into_iter()
+        .filter(|p| {
+            p.kind() == ParticipantKind::Agent
+                && !p.attributes().contains_key(ATTRIBUTE_PUBLISH_ON_BEHALF)
+        })
+        .min_by_key(|p| p.identity())
+}
+
+/// Finds the avatar worker publishing on behalf of `agent`.
+pub(crate) fn find_avatar_worker<'a, P: AgentCandidate>(
+    participants: impl IntoIterator<Item = &'a P>,
+    agent: &ParticipantIdentity,
+) -> Option<&'a P> {
+    participants.into_iter().find(|p| {
+        p.attributes()
+            .get(ATTRIBUTE_PUBLISH_ON_BEHALF)
+            .is_some_and(|v| v.as_str() == agent.as_str())
+    })
+}
+
+/// The agent's microphone track, once subscribed.
+pub(crate) fn agent_audio_track<'a>(
+    participants: impl IntoIterator<Item = &'a RemoteParticipant>,
+) -> Option<RemoteAudioTrack> {
+    let agent = find_agent(participants)?;
+    agent.track_publications().into_values().find_map(|publication| {
+        match (publication.source(), publication.track()) {
+            (TrackSource::Microphone, Some(RemoteTrack::Audio(track))) => Some(track),
+            _ => None,
+        }
+    })
+}
+
+/// The camera track of the agent's avatar worker, once subscribed.
+pub(crate) fn agent_avatar_video_track<'a>(
+    participants: impl IntoIterator<Item = &'a RemoteParticipant> + Clone,
+) -> Option<RemoteVideoTrack> {
+    let agent = find_agent(participants.clone())?;
+    let worker = find_avatar_worker(participants, &agent.identity())?;
+    worker.track_publications().into_values().find_map(|publication| {
+        match (publication.source(), publication.track()) {
+            (TrackSource::Camera, Some(RemoteTrack::Video(track))) => Some(track),
+            _ => None,
+        }
+    })
+}
+
+/// The activity the agent reports through `lk.agent.state`.
+fn activity(agent: &impl AgentCandidate) -> AgentState {
+    AgentState::from_attribute(agent.attributes().get(ATTRIBUTE_AGENT_STATE).map(String::as_str))
+}
