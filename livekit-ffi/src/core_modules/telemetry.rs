@@ -1473,6 +1473,23 @@ mod tests {
         }
     }
 
+    /// The first request `transport` received, waited for at most 10 s. A routed, granted Room's
+    /// flush sends within milliseconds, so a timeout means the flush built no request (the Room
+    /// had no route or token), which a longer wait would not change.
+    async fn first_upload(transport: &Gated) -> Vec<u8> {
+        let first = async {
+            loop {
+                if let Some(body) = transport.bodies.lock().expect("lock").first().cloned() {
+                    return body;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), first)
+            .await
+            .expect("no request reached the transport in 10 s: the flush found nothing to send")
+    }
+
     /// The process pipeline's slot, for `configure` and `shut_down`.
     type Installed = Mutex<Option<livekit_telemetry::Telemetry>>;
 
@@ -1552,10 +1569,7 @@ mod tests {
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
             let flushing = tokio::spawn(async move { first.flush().await });
-            while sent().is_empty() {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-            let in_flight = sent()[0].clone();
+            let in_flight = first_upload(&transport).await;
             let (second, exporter) = livekit_telemetry::Telemetry::new(config(), transport.clone());
             second.begin_scope().set_server("wss://p.livekit.cloud", &granted_token());
             configure(&SLOT, &installed, second.clone(), exporter, || ());
@@ -1598,10 +1612,7 @@ mod tests {
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
             tokio::spawn(async move { first.flush().await });
-            while sent().is_empty() {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-            let in_flight = sent()[0].clone();
+            let in_flight = first_upload(&transport).await;
             for _ in 0..2 {
                 let (next, exporter) =
                     livekit_telemetry::Telemetry::new(config(1_000), transport.clone());
@@ -1644,9 +1655,7 @@ mod tests {
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
             tokio::spawn(async move { first.flush().await });
-            while gated.bodies.lock().expect("lock").is_empty() {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
+            first_upload(&gated).await;
             let (second, exporter) = livekit_telemetry::Telemetry::new(config(1_000), kept.clone());
             let room = second.begin_scope();
             room.set_server("wss://p.livekit.cloud", &granted_token());
