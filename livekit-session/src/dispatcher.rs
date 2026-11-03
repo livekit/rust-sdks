@@ -43,4 +43,28 @@ impl<T: Clone> Dispatcher<T> {
     pub(crate) fn dispatch(&self, value: &T) {
         lock(&self.senders).retain(|sender| sender.send(value.clone()).is_ok());
     }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        lock(&self.senders).len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_receiver_is_pruned_on_the_next_dispatch() {
+        let dispatcher = Dispatcher::default();
+        let mut kept = dispatcher.register();
+        let dropped = dispatcher.register();
+        assert_eq!(dispatcher.len(), 2);
+
+        drop(dropped);
+        assert_eq!(dispatcher.len(), 2, "pruning happens on dispatch, not on drop");
+        dispatcher.dispatch(&1);
+        assert_eq!(dispatcher.len(), 1);
+        assert_eq!(kept.try_recv(), Ok(1));
+    }
 }
