@@ -1211,6 +1211,13 @@ impl Exporter {
                 Some((batch.host.map(str::to_owned), batch.owner?.to_owned()))
             })
             .collect();
+        #[cfg(test)]
+        {
+            let hook = self.shared.retiring.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
         self.destinations().retain_owners(&live, &backlog);
     }
 
@@ -1464,6 +1471,72 @@ pub(crate) mod tests {
             self.permits.acquire().await.expect("open").forget();
             Ok(ExportResponse::accepted())
         }
+    }
+
+    /// A Room that registers and receives its token while credential retirement sits between
+    /// its snapshot of the live sessions and its prune keeps that token, so its flush uploads;
+    /// once the Room is gone with nothing cached, the token is freed.
+    #[tokio::test]
+    async fn a_room_registered_during_retirement_keeps_its_token() {
+        let collector = Arc::new(Collector::default());
+        let (telemetry, exporter) = Telemetry::new(TelemetryConfig::default(), collector.clone());
+        // Routing must come from the token, never from an endpoint override in the environment.
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(None);
+        let (snapshot_taken, snapshot) = std::sync::mpsc::channel();
+        let (resume, resumed) = std::sync::mpsc::channel();
+        let resumed = Mutex::new(resumed);
+        *telemetry.shared.retiring.lock().expect("lock") = Some(Arc::new(move || {
+            snapshot_taken.send(()).expect("registrar waits");
+            let resumed = resumed.lock().expect("lock");
+            resumed.recv_timeout(Duration::from_secs(10)).expect("registrar answers");
+        }));
+        let registrar = {
+            let telemetry = telemetry.clone();
+            std::thread::spawn(move || {
+                snapshot.recv_timeout(Duration::from_secs(10)).expect("retirement started");
+                // Registry held: the Room can register only after the prune. Free: it registers
+                // and receives its token inside retirement's window.
+                let held = telemetry.shared.scopes.try_lock().is_err();
+                if held {
+                    resume.send(()).expect("retirement waits");
+                }
+                let room = telemetry.begin_scope();
+                room.set_server("wss://p.livekit.cloud", &crate::destination::tests::granted(600));
+                if !held {
+                    resume.send(()).expect("retirement waits");
+                }
+                room
+            })
+        };
+        exporter.retire_credentials();
+        let room = registrar.join().expect("registrar");
+        *telemetry.shared.retiring.lock().expect("lock") = None;
+        let host = room.state.route();
+        let route = telemetry
+            .shared
+            .destinations
+            .lock()
+            .expect("lock")
+            .route(host.as_deref(), Some(room.state.hex()));
+        let running = tokio::spawn(exporter.run());
+        room.emit_custom("ping", Vec::new());
+        telemetry.flush().await;
+        let sent = collector.count();
+        assert!(
+            matches!(route, Route::Send(_)) && sent == 1,
+            "the live Room kept its token and its flush uploaded: route {route:?}, {sent} requests"
+        );
+
+        drop(room);
+        telemetry.flush().await;
+        let held = telemetry.shared.destinations.lock().expect("lock").credentials();
+        assert_eq!(held, 0, "a Room gone with nothing cached frees its token");
+        telemetry.shutdown().await;
+        running.await.expect("exporter");
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop(telemetry);
+        assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
     }
 
     /// A running pipeline whose uploads wait at a [`Gate`].
