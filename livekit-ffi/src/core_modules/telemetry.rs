@@ -1473,17 +1473,18 @@ mod tests {
         }
     }
 
-    /// How long a hand-over test waits for its first request: a routed, granted Room's flush sends
-    /// within milliseconds.
+    /// How long a hand-over test waits for its first request.
     const FIRST_UPLOAD: Duration = Duration::from_secs(10);
 
     /// The first request `transport` received, waited for at most `within`. When none arrived, the
-    /// pipeline in `slot` is shut down and joined before `None` is returned, so a failing test
-    /// leaves no lifecycle or exporter running behind it.
+    /// pipeline in `slot` is shut down and joined, then the test's `flushing` task is joined (or,
+    /// past [`END_BOUND`], cancelled and joined) before `None` is returned: a failing test leaves
+    /// no lifecycle, exporter or flush running behind it.
     async fn first_upload(
         slot: &LifecycleSlot,
         installed: &Arc<Installed>,
         transport: &Gated,
+        flushing: &mut tokio::task::JoinHandle<()>,
         within: Duration,
     ) -> Option<Vec<u8>> {
         let first = async {
@@ -1497,6 +1498,10 @@ mod tests {
         let first = tokio::time::timeout(within, first).await.ok();
         if first.is_none() {
             shut_down(slot, installed).await;
+            if tokio::time::timeout(END_BOUND, &mut *flushing).await.is_err() {
+                flushing.abort();
+                let _ = flushing.await;
+            }
         }
         first
     }
@@ -1579,10 +1584,11 @@ mod tests {
             let room = first.begin_scope();
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
-            let flushing = tokio::spawn(async move { first.flush().await });
-            let in_flight = first_upload(&SLOT, &installed, &transport, FIRST_UPLOAD)
-                .await
-                .expect("a request reached the transport within 10 s");
+            let mut flushing = tokio::spawn(async move { first.flush().await });
+            let in_flight =
+                first_upload(&SLOT, &installed, &transport, &mut flushing, FIRST_UPLOAD)
+                    .await
+                    .expect("no request reached the transport in 10 s");
             let (second, exporter) = livekit_telemetry::Telemetry::new(config(), transport.clone());
             second.begin_scope().set_server("wss://p.livekit.cloud", &granted_token());
             configure(&SLOT, &installed, second.clone(), exporter, || ());
@@ -1624,10 +1630,11 @@ mod tests {
             let room = first.begin_scope();
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
-            tokio::spawn(async move { first.flush().await });
-            let in_flight = first_upload(&SLOT, &installed, &transport, FIRST_UPLOAD)
-                .await
-                .expect("a request reached the transport within 10 s");
+            let mut flushing = tokio::spawn(async move { first.flush().await });
+            let in_flight =
+                first_upload(&SLOT, &installed, &transport, &mut flushing, FIRST_UPLOAD)
+                    .await
+                    .expect("no request reached the transport in 10 s");
             for _ in 0..2 {
                 let (next, exporter) =
                     livekit_telemetry::Telemetry::new(config(1_000), transport.clone());
@@ -1639,6 +1646,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(4_500)).await;
             transport.gate.add_permits(1_000);
             shut_down(&SLOT, &installed).await;
+            flushing.await.expect("flush");
             let copies = sent().iter().filter(|body| **body == in_flight).count();
             assert_eq!(copies, 1, "the batch in flight is sent once");
         });
@@ -1669,24 +1677,26 @@ mod tests {
             let room = first.begin_scope();
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("ping", Vec::new());
-            tokio::spawn(async move { first.flush().await });
-            first_upload(&SLOT, &installed, &gated, FIRST_UPLOAD)
+            let mut flushing = tokio::spawn(async move { first.flush().await });
+            first_upload(&SLOT, &installed, &gated, &mut flushing, FIRST_UPLOAD)
                 .await
-                .expect("a request reached the transport within 10 s");
+                .expect("no request reached the transport in 10 s");
             let (second, exporter) = livekit_telemetry::Telemetry::new(config(1_000), kept.clone());
             let room = second.begin_scope();
             room.set_server("wss://p.livekit.cloud", &granted_token());
             room.emit_custom("pong", Vec::new());
             configure(&SLOT, &installed, second, exporter, || ());
             shut_down(&SLOT, &installed).await;
+            flushing.await.expect("flush");
             let sent = kept.bodies.lock().expect("lock").len();
             assert!(sent > 0, "the late exporter drained before the shutdown returned");
         });
     }
 
     /// A first request that never comes (the Room has no server, so nothing can route) fails the
-    /// wait within its bound only once the pipeline is shut down: the lifecycle is ended and
-    /// joined, the exporter is gone with its transport, and the waiting flush is answered.
+    /// wait within its bound only once everything the test started is gone: the lifecycle is
+    /// ended and joined, the pipeline is uninstalled and freed, its exporter is gone with its
+    /// transport, and the flush task is finished.
     #[test]
     fn a_first_upload_that_never_comes_leaves_nothing_running() {
         let tasks = tokio::runtime::Builder::new_multi_thread()
@@ -1700,24 +1710,29 @@ mod tests {
             gate: tokio::sync::Semaphore::new(0),
             bodies: Mutex::new(Vec::new()),
         });
-        let freed = Arc::downgrade(&transport);
+        let cache = Arc::new(livekit_telemetry::MemoryCache::new(u64::MAX));
+        // Only the pipeline holds the cache, and only its exporter the transport.
+        let (pipeline_freed, exporter_freed) = (Arc::downgrade(&cache), Arc::downgrade(&transport));
         runtime().block_on(async {
-            let (first, exporter) =
-                livekit_telemetry::Telemetry::new(TelemetryConfig::default(), transport.clone());
+            let (first, exporter) = livekit_telemetry::Telemetry::with_cache(
+                TelemetryConfig::default(),
+                transport.clone(),
+                cache,
+            );
             configure(&slot, &installed, first.clone(), exporter, || ());
             let room = first.begin_scope();
             room.emit_custom("ping", Vec::new());
-            let flushing = tokio::spawn(async move { first.flush().await });
-            let sent =
-                first_upload(&slot, &installed, &transport, Duration::from_millis(100)).await;
+            let mut flushing = tokio::spawn(async move { first.flush().await });
+            let within = Duration::from_millis(100);
+            let sent = first_upload(&slot, &installed, &transport, &mut flushing, within).await;
             assert!(sent.is_none(), "no request reached the transport");
             assert!(slot.lock().is_none(), "the lifecycle was ended and joined");
             assert!(installed.lock().expect("lock").is_none(), "the pipeline was uninstalled");
-            let answered = tokio::time::timeout(Duration::from_secs(5), flushing).await;
-            answered.expect("the flush was answered").expect("flush");
+            assert!(flushing.is_finished(), "the flush task is finished");
         });
         drop(transport);
-        assert!(freed.upgrade().is_none(), "the exporter is gone with its transport");
+        assert!(exporter_freed.upgrade().is_none(), "the exporter is gone with its transport");
+        assert!(pipeline_freed.upgrade().is_none(), "the pipeline is gone with its cache");
     }
 
     /// Two configures racing, the first paused in the lifecycle right after its install: the
