@@ -6,7 +6,7 @@ signalling connection and exchanges media and data with other participants
 over WebRTC. `livekit-ffi` exposes the client to host languages in two ways: a
 C ABI that takes protobuf requests (`room-apis`, used by the Python, Node, and
 Unity SDKs) and UniFFI bindings (`core-modules`: data streams, data tracks,
-signalling, and tokens, used from Swift and Kotlin).
+signalling, and tokens, used from Swift, Kotlin, and Dart/Flutter).
 `livekit-api` and `livekit-token` are server-side helpers for minting tokens,
 verifying webhooks, and calling the server API.
 
@@ -26,6 +26,12 @@ Audit the hand-written Rust and C++ on `main`. Prioritise:
 - `webrtc-sys/src/*.cpp`: LiveKit's C++ bridge to libwebrtc, especially
   `packet_trailer*.cpp`, `av1_bitstream.cpp`, `frame_cryptor.cpp`, and the
   video and audio frame-buffer bridges.
+- The second FFI layer, Rust to C++ libwebrtc: the `cxx` bridges in
+  `webrtc-sys/src/*.rs` and the safe wrappers over them in `libwebrtc/src/native/`.
+  Check object lifetimes and ownership across the bridge, callbacks from
+  libwebrtc threads into Rust, and pointer and length pairs passed either way.
+- Every `unsafe` block and `unsafe impl Send`/`Sync` in the workspace, especially
+  those without a `// SAFETY:` comment justifying them.
 - Unsafe Rust over frame buffers: `libwebrtc/src/native/video_frame.rs`,
   `libwebrtc/src/native/yuv_helper.rs`, `imgproc/src/colorcvt/`,
   `livekit/src/plugin.rs`, `soxr-sys/src/soxr.rs`,
