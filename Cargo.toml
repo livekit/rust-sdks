@@ -13,6 +13,7 @@ members = [
     "livekit-telemetry",
     "livekit-token",
     "livekit-token-source",
+    "livekit-session",
     "livekit-ffi-node-bindings",
     "livekit-capture",
     "livekit-net",
@@ -64,6 +65,7 @@ livekit-telemetry = { version = "0.1.1", path = "livekit-telemetry" }
 livekit-signaling = { version = "0.1.8", path = "livekit-signaling" }
 livekit-token = { version = "0.4.0", path = "livekit-token" }
 livekit-token-source = { version = "0.1.4", path = "livekit-token-source" }
+livekit-session = { version = "0.1.0", path = "livekit-session" }
 livekit-common = { version = "0.1.6", path = "livekit-common" }
 livekit-data-stream = { version = "0.2.0", path = "livekit-data-stream" }
 livekit-net = { version = "0.1.4", path = "livekit-net" }
