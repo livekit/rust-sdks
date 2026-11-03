@@ -32,6 +32,25 @@ use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
 use crate::error::{MessageSendError, SessionStartError};
 use crate::messages::{Message, MessageOrigin, MessageUpdate};
 
+/// Where a [`Session`] gets its credentials, chosen by the constructor used.
+// Built once per session and kept behind an `Arc`, so its size does not matter.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum SessionTokenSource {
+    /// A source whose credentials take no options.
+    Fixed(Box<dyn TokenSourceFixed + Send + Sync>),
+    /// A source fetched with the given options, e.g. to dispatch an agent.
+    Configurable(Box<dyn TokenSourceConfigurable + Send + Sync>, TokenSourceFetchOptions),
+}
+
+impl SessionTokenSource {
+    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
+        match self {
+            Self::Fixed(source) => source.fetch().await,
+            Self::Configurable(source, options) => source.fetch(options).await,
+        }
+    }
+}
+
 /// Options for a [`Session`].
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -101,6 +120,142 @@ pub enum SessionEvent {
     MessageUpserted(Message),
     /// The feed was replaced by [`Session::restore_messages`].
     MessagesRestored,
+}
+
+/// A conversation with a LiveKit agent.
+///
+/// [`start`](Self::start) fetches credentials and connects a room; the agent is
+/// dispatched by the token, or automatically when it is registered without a
+/// name. From then on the session projects what the agent
+/// is doing ([`state`](Self::state)) and merges chat and transcripts into one
+/// feed ([`messages`](Self::messages), [`subscribe`](Self::subscribe)).
+///
+/// The session reads every text stream on the `lk.chat` and `lk.transcription`
+/// topics itself: an app subscribed to the [`room`](Self::room) sees those
+/// streams' [`RoomEvent::TextStreamOpened`] with the reader already taken.
+/// Streams on other topics are left to the app.
+///
+/// By default `start` also captures the platform microphone, publishes it as
+/// the local participant's microphone track, and plays the agent through the
+/// speakers, until the session ends. [`SessionOptions::platform_audio`] turns
+/// that off.
+///
+/// Handles are cheap to clone and share one session. Dropping the last handle
+/// closes the room.
+///
+/// ```no_run
+/// use livekit_session::{Session, SessionOptions};
+/// use livekit_token_source::development_token_server;
+///
+/// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// let token_source = development_token_server("my-token-server-id");
+/// let session = Session::with_agent(token_source, "my-agent", SessionOptions::default());
+///
+/// session.start().await?;
+/// session.state().wait_for(|state| state.agent.is_connected()).await?;
+/// session.send_text("Hello!").await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone)]
+pub struct Session {
+    pub(crate) inner: Arc<Inner>,
+}
+
+pub(crate) struct Inner {
+    token_source: SessionTokenSource,
+    options: SessionOptions,
+    pub(crate) shared: Arc<Shared>,
+    pub(crate) lifecycle: Mutex<Lifecycle>,
+}
+
+pub(crate) enum Lifecycle {
+    Idle,
+    Starting { generation: u64, cancel: oneshot::Sender<()> },
+    Running(Running),
+}
+
+pub(crate) struct Running {
+    room: Arc<Room>,
+    /// Dropped to stop the actor.
+    stop: mpsc::Sender<()>,
+    task: JoinHandle<()>,
+}
+
+impl Running {
+    /// Stops the actor, unless it already stopped on its own, and waits for
+    /// it.
+    async fn join(self) {
+        drop(self.stop);
+        if let Err(err) = self.task.await {
+            log::error!("session actor failed: {err}");
+        }
+    }
+}
+
+impl Lifecycle {
+    /// The running room, unless its actor has already stopped on its own.
+    fn room(&self) -> Option<&Arc<Room>> {
+        match self {
+            Self::Running(running) if !running.stop.is_closed() => Some(&running.room),
+            _ => None,
+        }
+    }
+}
+
+impl Session {
+    /// Creates a session that gets its credentials from a fixed
+    /// `token_source`, such as a [`literal`](livekit_token_source::literal)
+    /// one. Nothing happens until [`start`](Self::start).
+    pub fn new(
+        token_source: impl TokenSourceFixed + Send + Sync + 'static,
+        session_options: SessionOptions,
+    ) -> Self {
+        Self::from_source(SessionTokenSource::Fixed(Box::new(token_source)), session_options)
+    }
+
+    /// Creates a session that fetches its credentials from `token_source`
+    /// with `fetch_options`. Nothing happens until [`start`](Self::start).
+    ///
+    /// Every `start` fetches anew, so pass the source itself rather than one
+    /// wrapped in [`cached`](TokenSourceConfigurable::cached): agents do not
+    /// rejoin a room that already existed, and a cached token names the
+    /// previous room.
+    pub fn with_fetch_options(
+        token_source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        fetch_options: TokenSourceFetchOptions,
+        session_options: SessionOptions,
+    ) -> Self {
+        Self::from_source(
+            SessionTokenSource::Configurable(Box::new(token_source), fetch_options),
+            session_options,
+        )
+    }
+
+    /// Creates a session whose credentials dispatch the agent `agent_name`.
+    ///
+    /// Shorthand for [`with_fetch_options`](Self::with_fetch_options) with
+    /// [`TokenSourceFetchOptions::with_agent_name`]; use that to set further
+    /// options, such as agent metadata.
+    pub fn with_agent(
+        token_source: impl TokenSourceConfigurable + Send + Sync + 'static,
+        agent_name: &str,
+        session_options: SessionOptions,
+    ) -> Self {
+        let fetch_options = TokenSourceFetchOptions::new().with_agent_name(agent_name);
+        Self::with_fetch_options(token_source, fetch_options, session_options)
+    }
+
+    fn from_source(token_source: SessionTokenSource, session_options: SessionOptions) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                token_source,
+                options: session_options,
+                shared: Arc::new(Shared::new()),
+                lifecycle: Mutex::new(Lifecycle::Idle),
+            }),
+        }
+    }
 }
 
 /// The connection state of a [`Session`].
