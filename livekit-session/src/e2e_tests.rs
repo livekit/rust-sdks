@@ -278,3 +278,49 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
     session.end().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()> {
+    let env = TestEnv::new();
+    let options =
+        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    let session = Session::new(env.user_source(true), options);
+    session.start().await?;
+    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+
+    let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+    session.end().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn timeout_is_armed_without_dispatch() -> Result<()> {
+    let env = TestEnv::new();
+    let options =
+        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    // An agent registered without a name is dispatched automatically, so a
+    // token naming none still waits for one.
+    let session = Session::new(env.user_source(false), options);
+    session.start().await?;
+    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+    session.end().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
+    let env = TestEnv::new();
+    let options =
+        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    // Joined first, so the agent is present before the timeout can fire.
+    let (agent, _agent_events) = env.join_agent(AGENT, "initializing").await?;
+    let session = Session::new(env.user_source(true), options);
+    session.start().await?;
+    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+
+    set_agent_state(&agent, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+    session.end().await;
+    Ok(())
+}
