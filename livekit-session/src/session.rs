@@ -510,3 +510,37 @@ impl Default for SessionState {
         Self { connection: SessionConnectionState::Disconnected, agent: AgentState::Disconnected }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use async_trait::async_trait;
+    use livekit_token_source::TokenSourceError;
+
+    /// Records the options it is fetched with, then fails.
+    struct RecordingSource(Arc<Mutex<Option<TokenSourceFetchOptions>>>);
+
+    #[async_trait]
+    impl TokenSourceConfigurable for RecordingSource {
+        async fn fetch(
+            &self,
+            options: &TokenSourceFetchOptions,
+        ) -> TokenSourceResult<TokenSourceResponse> {
+            *lock(&self.0) = Some(options.clone());
+            Err(TokenSourceError::Server { status: 500, body: "test".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn with_agent_fetches_with_the_agent_name() {
+        let fetched = Arc::default();
+        let source = RecordingSource(Arc::clone(&fetched));
+        let options = SessionOptions::default().with_platform_audio(false);
+        let session = Session::with_agent(source, "my-agent", options);
+
+        assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
+        let options = lock(&fetched).take().expect("source was not fetched");
+        assert_eq!(options, TokenSourceFetchOptions::new().with_agent_name("my-agent"));
+    }
+}
