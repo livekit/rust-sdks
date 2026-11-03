@@ -61,6 +61,14 @@ pub enum TelemetryError {
 /// the HTTP client registered with `livekit-net`, if any. After [`telemetry_disable`] nothing
 /// starts, and a configure that gets as far as installing deletes whatever `config.storage_dir`
 /// still holds.
+///
+/// Blocks the calling thread until the pipeline is installed: it opens the disk cache in
+/// `config.storage_dir`, starts the core's runtime on the first call, waits for the lifecycle
+/// calls made before it (an opt-out's purge included), and runs the replaced instruments' `stop()`
+/// and the new instruments' `start()` on the core's runtime. Those callbacks must not block, must
+/// not wait on the calling thread (a synchronous hop to its queue deadlocks), and must not call
+/// configure, disable, flush or shutdown. The opt-out takes precedence: after it, this still
+/// returns `Ok`, and no scope exists.
 #[uniffi::export]
 pub fn telemetry_configure(
     config: TelemetryConfig,
@@ -79,7 +87,8 @@ pub fn telemetry_configure(
 /// For bindings whose callbacks cannot be invoked from Rust threads (uniffi-dart today): such a
 /// host passes no `instruments` — it starts and stops its own around configure and disable, so
 /// Rust never calls back into it — and polls the queue with
-/// [`try_next`](TelemetryExportQueue::try_next).
+/// [`try_next`](TelemetryExportQueue::try_next). Blocks the calling thread as
+/// [`telemetry_configure`] does.
 #[uniffi::export]
 pub fn telemetry_configure_pulled(
     config: TelemetryConfig,
@@ -379,6 +388,11 @@ impl Exporters {
 /// (its export timeout plus 1 s) or is cancelled there, so right after a replace this waits one
 /// bound for each pipeline still in line. A shutdown that is the last call ends the lifecycle
 /// and joins it; the next configure starts a fresh one.
+///
+/// The bounds are cooperative: a transport, instrument or disk call that blocks instead of
+/// yielding can make the wait longer. What did not go out stays in the cache. A disk cache
+/// (`storage_dir`) sends it on a later launch, once a room of the same project passes a fresh
+/// token, within the cache's 24 h age limit. A memory cache loses it when the process ends.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn telemetry_shutdown() {
     shutdown_in(&LIFECYCLE, || {
