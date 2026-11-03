@@ -330,12 +330,12 @@ impl Manager {
         let stream_encryption_type = info.encryption_type();
         let attributes_map = info.attributes_map();
 
-        let sender_streams = self.inner.open_streams.get(&participant_identity);
-        if sender_streams.is_some_and(|streams| streams.contains_key(&id)) {
+        let maybe_sender_streams = self.inner.open_streams.get(&participant_identity);
+        if maybe_sender_streams.is_some_and(|streams| streams.contains_key(&id)) {
             log::error!("Stream '{}' already open", id);
             return;
         }
-        if sender_streams.map_or(0, HashMap::len) >= self.max_open_streams_per_participant {
+        if maybe_sender_streams.map_or(0, HashMap::len) >= self.max_open_streams_per_participant {
             log::error!(
                 "Participant '{}' already has {} streams open, dropping stream '{}'",
                 participant_identity,
