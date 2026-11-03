@@ -172,7 +172,10 @@ pub fn install(
 pub fn uninstall() -> Option<Telemetry> {
     let _lifecycle = lifecycle();
     stop_installed_instruments();
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take().map(|i| i.telemetry)
+    // A statement of its own, so the write guard ends here: the instruments freed below may log
+    // or read the pipeline from their destructors.
+    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    installed.map(|i| i.telemetry)
 }
 
 /// Opt-out: stop collecting for the rest of the process. Before this returns, the pipeline is
@@ -211,6 +214,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         let mut stored: Vec<PathBuf> = list.iter().filter_map(|g| g.storage.clone()).collect();
         stored.sort_unstable();
         stored.dedup();
+        // Freed outside every lock but the lifecycle one: an instrument's destructor may log.
+        drop(list);
         drop(taken);
         (live, stored)
     };
@@ -232,7 +237,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
 pub(crate) fn reset_for_test() {
     let _lifecycle = lifecycle();
     DISABLED.store(false, Ordering::SeqCst);
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    drop(installed);
     GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
@@ -261,6 +267,20 @@ pub fn emit(event: TelemetryEvent) {
 pub fn log(record: LogRecord) {
     if let Some(t) = current() {
         t.log(record);
+    }
+}
+
+/// [`log`] with the record built only when a pipeline is installed at the call. The installed
+/// pipeline is read once, as a snapshot: when there is none, `record` never runs and the call
+/// costs one read-lock acquisition. When there is one, `record` runs after the read and its record
+/// goes to that pipeline: a call that overlaps an uninstall or a replace can still build its
+/// record after the uninstall returned. That record is exported only if the pipeline it read still
+/// exports, is refused once the opt-out revoked that pipeline, and never goes to a replacing one.
+pub fn log_with(record: impl FnOnce() -> Option<LogRecord>) {
+    if let Some(t) = current() {
+        if let Some(record) = record() {
+            t.log(record);
+        }
     }
 }
 

@@ -103,10 +103,11 @@ impl Log for Logger {
         true
     }
     fn log(&self, record: &Record) {
-        // Telemetry gets its copy first, built from the borrowed record; the console entry below
-        // is exactly what it always was.
-        if let Some(copy) = telemetry_copy(record) {
-            livekit_telemetry::global::log(copy);
+        // Telemetry gets its copy first, built from the borrowed record and only when a pipeline
+        // is installed at the call; the console entry below is exactly what it always was. A
+        // record telemetry never copies does not even look the pipeline up.
+        if copied(record) {
+            livekit_telemetry::global::log_with(|| telemetry_copy(record));
         }
         // `Level` and `LevelFilter` share their numbering (`Error` = 1 … `Trace` = 5).
         if record.level() as usize > self.forward.load(Ordering::Relaxed) {
@@ -134,13 +135,10 @@ impl Log for Logger {
 /// Never the telemetry crate's own records (`livekit_telemetry*`): a record about a failed
 /// upload must not produce another upload. The pipeline applies the same guard again.
 fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
-    if record.level() > Level::Warn {
+    if !copied(record) {
         return None;
     }
     let target = record.target();
-    if !target.starts_with("livekit") || target.starts_with("livekit_telemetry") {
-        return None;
-    }
     Some(livekit_telemetry::LogRecord {
         severity: record.level().into(),
         source: livekit_telemetry::LogSource::Ffi,
@@ -153,6 +151,14 @@ fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
         timestamp_ns: None,
         span_id: None,
     })
+}
+
+/// Whether telemetry copies `record`: a core warning or error, never the telemetry crate's own.
+fn copied(record: &Record) -> bool {
+    let target = record.target();
+    record.level() <= Level::Warn
+        && target.starts_with("livekit")
+        && !target.starts_with("livekit_telemetry")
 }
 
 /// `body` with credentials replaced: the value after `Bearer`, or after a `token` key (`token=`,
@@ -409,6 +415,136 @@ mod tests {
         drop(rx);
         log_forward_bootstrap(LevelFilter::Debug);
         assert_eq!(log::max_level(), LevelFilter::Debug, "a looser level is kept as is");
+    }
+
+    /// With telemetry off, a core warning costs the telemetry copy nothing: its message is not
+    /// even formatted.
+    #[test]
+    fn telemetry_off_builds_no_copy() {
+        let _off = crate::telemetry::PROCESS_PIPELINE.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(livekit_telemetry::global::stats().is_none(), "precondition: telemetry is off");
+        /// Counts how often it is formatted.
+        struct Counted<'a>(&'a AtomicUsize);
+        impl std::fmt::Display for Counted<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                f.write_str("careful")
+            }
+        }
+        let formatted = AtomicUsize::new(0);
+        let logger = Logger::new();
+        logger.forward.store(LevelFilter::Error as usize, Ordering::Relaxed);
+        logger.log(&record(Level::Warn, "livekit::room", format_args!("{}", Counted(&formatted))));
+        assert_eq!(formatted.load(Ordering::Relaxed), 0, "nothing was built for telemetry");
+    }
+
+    /// Run the ignored test `name` alone in a child process: `None` when it did not end within
+    /// 20 s (it is killed then), else whether it passed, with its output.
+    fn in_child(name: &str) -> Option<(bool, String)> {
+        use std::io::Read;
+        let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", name, "--ignored", "--nocapture", "--test-threads=1"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("child");
+        let mut stdout = child.stdout.take().expect("stdout");
+        let (read, output) = std::sync::mpsc::channel();
+        // Ends when the child's stdout closes: when it exits, or is killed.
+        let reader = std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stdout.read_to_string(&mut text);
+            let _ = read.send(text.clone());
+            text
+        });
+        let ended = output.recv_timeout(std::time::Duration::from_secs(20)).is_ok();
+        if !ended {
+            let _ = child.kill();
+        }
+        let status = child.wait().expect("child status");
+        let text = reader.join().expect("reader");
+        ended.then_some((status.success(), text))
+    }
+
+    /// An instrument whose destructor logs `target` warnings, then the uninstall that frees it,
+    /// with this forwarder as the process logger.
+    fn uninstall_an_instrument_that_logs_as_it_is_freed(target: &'static str) {
+        use livekit_telemetry::global::{self, TelemetryInstrument};
+        /// Logs a warning when it is freed.
+        struct Logs(&'static str);
+        impl Drop for Logs {
+            fn drop(&mut self) {
+                log::warn!(target: self.0, "instrument released, token=secret");
+            }
+        }
+        impl TelemetryInstrument for Logs {
+            fn start(&self) {}
+            fn stop(&self) {}
+        }
+        /// Never answers.
+        struct Never;
+        #[async_trait::async_trait]
+        impl livekit_telemetry::TelemetryTransport for Never {
+            async fn send(
+                &self,
+                _request: livekit_telemetry::ExportRequest,
+            ) -> Result<livekit_telemetry::ExportResponse, livekit_telemetry::ExportError>
+            {
+                std::future::pending().await
+            }
+        }
+        log_forward_bootstrap(LevelFilter::Trace);
+        let transport = std::sync::Arc::new(Never);
+        let freed = std::sync::Arc::downgrade(&transport);
+        let (telemetry, exporter) = livekit_telemetry::Telemetry::new(
+            livekit_telemetry::TelemetryConfig::default(),
+            transport,
+        );
+        // The installed list holds the instrument's last reference.
+        assert!(global::install(telemetry, vec![std::sync::Arc::new(Logs(target))]).is_none());
+        let uninstalled = global::uninstall();
+        println!("CHILD uninstall returned");
+        let entries: Vec<LogForwardEntry> = {
+            let mut rx = LOGGER.get().expect("bootstrapped").rx.try_lock().expect("rx");
+            std::iter::from_fn(|| rx.try_recv().ok()).collect()
+        };
+        let console = entries.iter().find(|e| e.target == target).expect("the console entry");
+        assert_eq!(
+            console.message, "instrument released, token=secret",
+            "unchanged on the console"
+        );
+        drop((uninstalled, exporter));
+        assert!(freed.upgrade().is_none(), "the uninstalled pipeline is gone");
+        println!("CHILD ok");
+    }
+
+    #[test]
+    #[ignore = "run alone in a child process by an_instrument_that_logs_as_it_is_freed_never_hangs_the_uninstall"]
+    fn child_app_warning_from_an_instrument_destructor() {
+        uninstall_an_instrument_that_logs_as_it_is_freed("host::instrument");
+    }
+
+    #[test]
+    #[ignore = "run alone in a child process by an_instrument_that_logs_as_it_is_freed_never_hangs_the_uninstall"]
+    fn child_core_warning_from_an_instrument_destructor() {
+        uninstall_an_instrument_that_logs_as_it_is_freed("livekit::instrument");
+    }
+
+    /// An instrument freed by the uninstall can log, an app warning or a core one: the uninstall
+    /// returns, the console gets the line, and nothing keeps the pipeline. Each case runs in its
+    /// own process, so a hang (the process-wide lock held for good) is killed, not inherited.
+    #[test]
+    fn an_instrument_that_logs_as_it_is_freed_never_hangs_the_uninstall() {
+        for case in ["app", "core"] {
+            let name = format!(
+                "core_modules::log_forward::tests::child_{case}_warning_from_an_instrument_destructor"
+            );
+            let outcome = in_child(&name);
+            let Some((passed, output)) = outcome else {
+                panic!("{case} warning: the uninstall hung (killed after 20 s)");
+            };
+            assert!(passed && output.contains("CHILD ok"), "{case} warning: {output}");
+        }
     }
 
     /// The console entry is unchanged by the copy.

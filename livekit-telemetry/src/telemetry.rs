@@ -1034,6 +1034,64 @@ pub(crate) mod tests {
         SpanName, SpanOutcome, SpanStep, StreamDirection, ThermalState, TrackKind,
     };
 
+    /// A record built by `log_with` goes to the pipeline it read, even when the builder replaces
+    /// the installed pipeline, and is refused when the builder opts out. The builder holds no
+    /// global lock, and the pipeline it read is freed once its last handle goes.
+    #[tokio::test(start_paused = true)]
+    async fn a_record_built_during_a_lifecycle_change_goes_to_its_snapshot_only() {
+        let _global = crate::global::TEST_LOCK.lock().await;
+        crate::global::reset_for_test();
+        fn line(body: &str) -> crate::LogRecord {
+            crate::LogRecord {
+                severity: Severity::Warn,
+                source: LogSource::Sdk,
+                body: body.into(),
+                logger: None,
+                function: None,
+                file: None,
+                line: None,
+                timestamp_ns: None,
+                span_id: None,
+            }
+        }
+        let sent = |transport: &FakeTransport, text: &str| {
+            transport.sent().iter().any(|request| {
+                let body = gunzip(&request.body);
+                body.windows(text.len()).any(|w| w == text.as_bytes())
+            })
+        };
+        let (first, second) = (FakeTransport::scripted([]), FakeTransport::scripted([]));
+        let read = pipeline(first.clone());
+        let freed = Arc::downgrade(&read.shared);
+        assert!(crate::global::install(read, Vec::new()).is_none());
+        let mut replaced = None;
+        crate::global::log_with(|| {
+            replaced = crate::global::uninstall();
+            assert!(crate::global::install(pipeline(second.clone()), Vec::new()).is_none());
+            Some(line("built during the replace"))
+        });
+        let replaced = replaced.expect("the pipeline the builder read");
+        replaced.flush().await;
+        crate::global::flush().await;
+        assert!(sent(&first, "built during the replace"), "it goes to the pipeline it read");
+        assert!(!sent(&second, "built during the replace"), "never to the replacing one");
+
+        let mut purge = None;
+        crate::global::log_with(|| {
+            purge = Some(crate::global::disable());
+            Some(line("built during the opt-out"))
+        });
+        purge.expect("the purge").await;
+        crate::global::flush().await;
+        assert!(!sent(&second, "built during the opt-out"), "refused once revoked");
+
+        replaced.shutdown().await;
+        drop(replaced);
+        tokio::task::yield_now().await;
+        assert!(freed.upgrade().is_none(), "the pipeline the builder read is freed");
+        crate::global::reset_for_test();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn the_process_pipeline_no_ops_until_installed() {
         let _global = crate::global::TEST_LOCK.lock().await;
@@ -1053,6 +1111,7 @@ pub(crate) mod tests {
             }
         }
         crate::global::log(line("hmm"));
+        crate::global::log_with(|| panic!("a record built while no pipeline is installed"));
         assert!(crate::global::scope().is_none());
         assert_eq!(crate::global::diagnostics(), "off");
         struct Counting(std::sync::atomic::AtomicU32, std::sync::atomic::AtomicU32);
@@ -1072,7 +1131,7 @@ pub(crate) mod tests {
         let freed = Arc::downgrade(&telemetry.shared);
         assert!(crate::global::install(telemetry, vec![instrument.clone()]).is_none());
         assert_eq!(instrument.0.load(std::sync::atomic::Ordering::SeqCst), 1, "started on install");
-        crate::global::log(line("hmm"));
+        crate::global::log_with(|| Some(line("hmm")));
         crate::global::flush().await;
         assert_eq!(records(&transport.sent()[0]).len(), 2, "the instrument's own line and ours");
         assert!(crate::global::diagnostics().starts_with("ok, sent 1"));

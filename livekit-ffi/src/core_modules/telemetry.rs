@@ -160,6 +160,10 @@ struct LifecycleSlot {
 /// The process pipeline's lifecycle.
 static LIFECYCLE: LifecycleSlot = LifecycleSlot::new();
 
+/// Held by the tests that install the process pipeline or need it off.
+#[cfg(test)]
+pub(crate) static PROCESS_PIPELINE: Mutex<()> = Mutex::new(());
+
 impl LifecycleSlot {
     const fn new() -> Self {
         Self {
@@ -1967,6 +1971,7 @@ mod tests {
     /// opt-out is one-way.)
     #[test]
     fn the_opt_out_withdraws_a_replaced_generations_pulled_request() {
+        let _installs = PROCESS_PIPELINE.lock().unwrap_or_else(|e| e.into_inner());
         let config = || TelemetryConfig { resource: Vec::new(), ..Default::default() };
         let first = telemetry_configure_pulled(config(), Vec::new());
         let room = telemetry_scope().expect("scope");
