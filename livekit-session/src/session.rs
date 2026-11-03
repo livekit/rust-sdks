@@ -375,6 +375,72 @@ impl Session {
         };
         running.join().await;
     }
+
+    /// A receiver of the session's state. [`borrow`](watch::Receiver::borrow)
+    /// reads the current value, and [`wait_for`](watch::Receiver::wait_for)
+    /// awaits a condition.
+    pub fn state(&self) -> watch::Receiver<SessionState> {
+        self.inner.shared.watch()
+    }
+
+    /// The session's room, while it is connected or reconnecting.
+    ///
+    /// The room is closed once the session ends, even if the caller still
+    /// holds it.
+    pub fn room(&self) -> Option<Arc<Room>> {
+        lock(&self.inner.lifecycle).room().cloned()
+    }
+
+    /// The agent's microphone track, once subscribed.
+    pub fn agent_audio_track(&self) -> Option<RemoteAudioTrack> {
+        let room = self.room()?;
+        agent::agent_audio_track(room.remote_participants().values())
+    }
+
+    /// The camera track of the agent's avatar, once subscribed. An avatar is a
+    /// separate participant publishing on the agent's behalf.
+    pub fn agent_avatar_video_track(&self) -> Option<RemoteVideoTrack> {
+        let room = self.room()?;
+        agent::agent_avatar_video_track(room.remote_participants().values())
+    }
+
+    /// Sends `text` to the agent as chat, and adds it to the feed as
+    /// [`MessageOrigin::UserInput`] once sent. A failed send adds nothing.
+    pub async fn send_text(&self, text: &str) -> Result<Message, MessageSendError> {
+        let room = self.room().ok_or(MessageSendError::NotConnected)?;
+        let local_participant = room.local_participant();
+        let info =
+            local_participant.send_text(text, SendTextOptions::new_with_topic(TOPIC_CHAT)).await?;
+        Ok(self.inner.shared.upsert(MessageUpdate {
+            id: info.id,
+            timestamp: info.timestamp,
+            origin: MessageOrigin::UserInput,
+            participant_identity: local_participant.identity(),
+            text: text.to_owned(),
+            is_final: true,
+        }))
+    }
+
+    /// The message feed, ordered by [`Message::seq`].
+    pub fn messages(&self) -> Vec<Message> {
+        self.inner.shared.messages()
+    }
+
+    /// Replaces the feed with `messages`, e.g. a conversation saved from an
+    /// earlier run. They keep the order given and are renumbered from zero;
+    /// later messages follow them.
+    pub fn restore_messages(&self, messages: &[Message]) {
+        self.inner.shared.restore(messages);
+    }
+
+    /// A receiver of changes to the message feed.
+    ///
+    /// Unbounded, like [`Room::subscribe`]: the session must never block on a
+    /// slow subscriber, and the feed's rate is bounded by the conversation.
+    /// Drop the receiver to unsubscribe; it is removed on the next event.
+    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<SessionEvent> {
+        self.inner.shared.subscribe()
+    }
 }
 
 /// Publishes the platform microphone as the local participant's microphone
