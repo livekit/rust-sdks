@@ -185,3 +185,80 @@ pub(crate) fn agent_avatar_video_track<'a>(
 fn activity(agent: &impl AgentCandidate) -> AgentState {
     AgentState::from_attribute(agent.attributes().get(ATTRIBUTE_AGENT_STATE).map(String::as_str))
 }
+
+/// Projects [`AgentState`] from the room, remembering what the projection
+/// needs across calls: whether an agent was ever seen, and whether the
+/// agent-connect timeout fired.
+#[derive(Debug, Default)]
+pub(crate) struct AgentTracker {
+    has_ever_connected: bool,
+    /// Set when the agent-connect timeout fired, to the agent present at the
+    /// time (`None` if there was none).
+    timed_out: Option<Option<ParticipantIdentity>>,
+}
+
+impl AgentTracker {
+    /// Projects the agent state for the given connection state and remote
+    /// participants.
+    pub(crate) fn project<'a, P: AgentCandidate + 'a>(
+        &mut self,
+        connection: SessionConnectionState,
+        participants: impl IntoIterator<Item = &'a P>,
+    ) -> AgentState {
+        match connection {
+            SessionConnectionState::Disconnected => {
+                *self = Self::default();
+                return AgentState::Disconnected;
+            }
+            SessionConnectionState::Connecting => return AgentState::Connecting,
+            SessionConnectionState::Connected | SessionConnectionState::Reconnecting => {}
+        }
+
+        let Some(agent) = find_agent(participants) else {
+            // A full reconnect removes every participant, so an agent missing
+            // while reconnecting has not necessarily left.
+            if self.has_ever_connected && connection == SessionConnectionState::Connected {
+                return AgentState::Failed(AgentFailure::Left);
+            }
+            if self.timed_out == Some(None) {
+                return AgentState::Failed(AgentFailure::Timeout);
+            }
+            return AgentState::Connecting;
+        };
+
+        self.has_ever_connected = true;
+        let identity = agent.identity();
+        let activity = activity(agent);
+        if activity.is_connected() {
+            self.timed_out = None;
+            return activity;
+        }
+        // The timeout holds only for the agent that was too slow: one that
+        // joins afterwards reports its own activity.
+        match &self.timed_out {
+            Some(Some(timed_out)) if *timed_out == identity => {
+                AgentState::Failed(AgentFailure::Timeout)
+            }
+            _ => activity,
+        }
+    }
+
+    /// Records the agent-connect timeout firing. Returns `false` when it does
+    /// not count, because the session is not connected or the agent is
+    /// already conversational.
+    pub(crate) fn time_out<'a, P: AgentCandidate + 'a>(
+        &mut self,
+        connection: SessionConnectionState,
+        participants: impl IntoIterator<Item = &'a P>,
+    ) -> bool {
+        if !connection.is_connected() {
+            return false;
+        }
+        let agent = find_agent(participants);
+        if agent.is_some_and(|agent| activity(agent).is_connected()) {
+            return false;
+        }
+        self.timed_out = Some(agent.map(|agent| agent.identity()));
+        true
+    }
+}
