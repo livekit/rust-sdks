@@ -104,8 +104,11 @@ impl Log for Logger {
     }
     fn log(&self, record: &Record) {
         // Telemetry gets its copy first, built from the borrowed record and only when a pipeline
-        // is installed at the call; the console entry below is exactly what it always was.
-        livekit_telemetry::global::log_with(|| telemetry_copy(record));
+        // is installed at the call; the console entry below is exactly what it always was. A
+        // record telemetry never copies does not even look the pipeline up.
+        if copied(record) {
+            livekit_telemetry::global::log_with(|| telemetry_copy(record));
+        }
         // `Level` and `LevelFilter` share their numbering (`Error` = 1 … `Trace` = 5).
         if record.level() as usize > self.forward.load(Ordering::Relaxed) {
             return;
@@ -132,13 +135,10 @@ impl Log for Logger {
 /// Never the telemetry crate's own records (`livekit_telemetry*`): a record about a failed
 /// upload must not produce another upload. The pipeline applies the same guard again.
 fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
-    if record.level() > Level::Warn {
+    if !copied(record) {
         return None;
     }
     let target = record.target();
-    if !target.starts_with("livekit") || target.starts_with("livekit_telemetry") {
-        return None;
-    }
     Some(livekit_telemetry::LogRecord {
         severity: record.level().into(),
         source: livekit_telemetry::LogSource::Ffi,
@@ -151,6 +151,14 @@ fn telemetry_copy(record: &Record) -> Option<livekit_telemetry::LogRecord> {
         timestamp_ns: None,
         span_id: None,
     })
+}
+
+/// Whether telemetry copies `record`: a core warning or error, never the telemetry crate's own.
+fn copied(record: &Record) -> bool {
+    let target = record.target();
+    record.level() <= Level::Warn
+        && target.starts_with("livekit")
+        && !target.starts_with("livekit_telemetry")
 }
 
 /// `body` with credentials replaced: the value after `Bearer`, or after a `token` key (`token=`,
