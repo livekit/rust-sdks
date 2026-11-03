@@ -720,14 +720,19 @@ pub struct TelemetryExportQueue {
     /// Bounded to one request: the exporter has one request out at a time, so nothing piles up
     /// behind a host that stopped serving. `None` once finished.
     tx: Mutex<Option<mpsc::Sender<QueuedExport>>>,
-    /// The requests waiting for the host.
+    /// The requests waiting for the host, taken through [`Polling`]: once the queue is finished,
+    /// whoever lets go of the receiver closes and drains it.
     rx: tokio::sync::Mutex<mpsc::Receiver<QueuedExport>>,
-    /// The requests handed out and not answered yet, by id. `serve` and `finish` read `finished`
-    /// under this lock, so nothing is handed out once `finish` returned.
+    /// The requests handed out and not answered yet, by id. This lock is a hand-out's commit
+    /// point: `serve` checks `finished` and inserts under it, and `finish` raises `finished` under
+    /// it, so a request is handed out only when its `serve` took the lock before `finish` did.
+    /// Such a request can still reach the host after `finish` returned, and `finish` keeps its
+    /// entry, so its answer still reaches the exporter. An entry goes once it is answered, or once
+    /// its exporter stops waiting ([`Forget`]).
     inflight: Mutex<HashMap<u64, oneshot::Sender<Result<ExportResponse, ExportError>>>>,
     /// The next request id.
     seq: AtomicU64,
-    /// `finish` was called: nothing is served from now on.
+    /// `finish` took the in-flight lock: nothing is served from then on.
     finished: AtomicBool,
     /// Serves the process pipeline (`telemetry_configure_pulled`): nothing is handed out once
     /// the app opted out, even before the purge has cancelled the request. `false` only for the
@@ -740,35 +745,63 @@ pub struct TelemetryExportQueue {
     /// while `finish` races it).
     #[cfg(test)]
     before_serve: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Runs inside `finish` right before it takes the in-flight lock (tests only: shows what a
+    /// `serve` holding that lock sees).
+    #[cfg(test)]
+    before_finish: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Runs inside `try_next` right after it took the receiver (tests only: holds a poller there
+    /// while `finish` runs).
+    #[cfg(test)]
+    holding_rx: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Runs inside the transport's `send` after it reserved room, right before the enqueue (tests
+    /// only: holds a reserved sender there while `finish` runs).
+    #[cfg(test)]
+    before_enqueue: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// Runs inside a poller's release after it read `finished`, before it lets the receiver go
+    /// (tests only: holds a poller there while `finish` runs, if `finish` can).
+    #[cfg(test)]
+    releasing_rx: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+}
+
+/// Run the test hook in `slot`, if one is set.
+#[cfg(test)]
+fn run_hook(slot: &Mutex<Option<Box<dyn Fn() + Send + Sync>>>) {
+    if let Some(hook) = slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        hook();
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl TelemetryExportQueue {
-    /// End the serving loop: `next` resolves `None` from now on, and whatever is still queued is
-    /// discarded, never served. Call after `telemetry_shutdown` or `telemetry_disable`, or when a
-    /// later `telemetry_configure_pulled` replaced this queue.
+    /// End the serving loop: nothing is handed out or queued from now on, and `next` resolves
+    /// `None`. Whatever is still queued is discarded, never served: at once, or, while a `next` or
+    /// `try_next` call holds the queue, when that call returns. A request handed out before this
+    /// call stays answerable with `complete` or `fail`, even when the host sees it only after this
+    /// returns. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
+    /// `telemetry_configure_pulled` replaced this queue.
     /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
     pub fn finish(&self) {
-        {
-            let mut inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-            self.finished.store(true, Ordering::SeqCst);
-            inflight.clear();
-        }
+        #[cfg(test)]
+        run_hook(&self.before_finish);
+        // Under the lock `serve` commits under. What it handed out stays, to be answered.
+        let inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        self.finished.store(true, Ordering::SeqCst);
+        drop(inflight);
         self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
-        // Dropping what is queued tells its exporter the host dropped it.
-        if let Ok(mut rx) = self.rx.try_lock() {
-            while rx.try_recv().is_ok() {}
-        }
+        // Discards what is queued, unless a poller holds the receiver: it does when it lets go.
+        drop(self.try_poll());
     }
 
     /// The next request to perform; `None` once finished. A request the exporter already gave up
-    /// on (timed out, cancelled by shutdown or the opt-out) is never handed out.
+    /// on (timed out, cancelled by shutdown or the opt-out) is never handed out. A request handed
+    /// out just before [`finish`](Self::finish) can reach the caller after it; it stays
+    /// answerable.
     pub async fn next(&self) -> Option<PendingExport> {
         loop {
             if self.finished.load(Ordering::SeqCst) {
                 return None;
             }
-            let queued = self.rx.lock().await.recv().await?;
+            let queued = Polling { queue: self, rx: Some(self.rx.lock().await) }.recv().await?;
             if let Some(export) = self.serve(queued) {
                 return Some(export);
             }
@@ -783,12 +816,14 @@ impl TelemetryExportQueue {
     /// request nobody polls for still times out and is withdrawn exactly as with
     /// [`next`](Self::next); `None` also once finished, or while a `next` is waiting.
     pub fn try_next(&self) -> Option<PendingExport> {
-        let mut rx = self.rx.try_lock().ok()?;
+        let mut rx = self.try_poll()?;
+        #[cfg(test)]
+        run_hook(&self.holding_rx);
         loop {
             if self.finished.load(Ordering::SeqCst) {
                 return None;
             }
-            if let Some(export) = self.serve(rx.try_recv().ok()?) {
+            if let Some(export) = self.serve(rx.try_recv()?) {
                 return Some(export);
             }
         }
@@ -822,6 +857,14 @@ impl TelemetryExportQueue {
             queued: AtomicU64::new(0),
             #[cfg(test)]
             before_serve: Mutex::new(None),
+            #[cfg(test)]
+            before_finish: Mutex::new(None),
+            #[cfg(test)]
+            holding_rx: Mutex::new(None),
+            #[cfg(test)]
+            before_enqueue: Mutex::new(None),
+            #[cfg(test)]
+            releasing_rx: Mutex::new(None),
         })
     }
 
@@ -833,9 +876,7 @@ impl TelemetryExportQueue {
             return None;
         }
         #[cfg(test)]
-        if let Some(hook) = self.before_serve.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            hook();
-        }
+        run_hook(&self.before_serve);
         inflight.retain(|_, done| !done.is_closed());
         inflight.insert(queued.export.id, queued.done);
         Some(queued.export)
@@ -848,36 +889,88 @@ impl TelemetryExportQueue {
         }
     }
 
-    /// Drop queued requests nobody waits for any more (their exporter timed out or stopped):
-    /// with one request out at a time, anything still queued when a new one comes is stale.
-    fn discard_stale(&self) {
-        let Ok(mut rx) = self.rx.try_lock() else { return };
+    /// The receiver, unless another poller holds it.
+    fn try_poll(&self) -> Option<Polling<'_>> {
+        Some(Polling { queue: self, rx: Some(self.rx.try_lock().ok()?) })
+    }
+}
+
+/// The receiver, held by one poller at a time (`next`, `try_next`, a send's stale sweep, an
+/// exporter that stopped waiting, `finish`). It is let go under the in-flight lock: closed and
+/// drained once the queue is finished, else rid of the requests nobody waits for. `finish` and a
+/// stopped exporter commit under that lock before they try the receiver, so whoever holds it
+/// then does their cleanup when it lets go. Senders enqueue under that lock too, so none
+/// enqueues after `finish`.
+struct Polling<'a> {
+    queue: &'a TelemetryExportQueue,
+    /// Taken only when it is let go.
+    rx: Option<tokio::sync::MutexGuard<'a, mpsc::Receiver<QueuedExport>>>,
+}
+
+impl Polling<'_> {
+    async fn recv(&mut self) -> Option<QueuedExport> {
+        self.rx.as_mut()?.recv().await
+    }
+
+    fn try_recv(&mut self) -> Option<QueuedExport> {
+        self.rx.as_mut()?.try_recv().ok()
+    }
+}
+
+impl Drop for Polling<'_> {
+    fn drop(&mut self) {
+        let _inflight = self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut rx) = self.rx.take() else { return };
+        let finished = self.queue.finished.load(Ordering::SeqCst);
+        #[cfg(test)]
+        run_hook(&self.queue.releasing_rx);
+        if finished {
+            // Closed first, so no sender can refill it. Dropping what is queued tells its exporter
+            // the host dropped it.
+            rx.close();
+            while rx.try_recv().is_ok() {}
+            return;
+        }
+        // Destroys what nobody waits for any more (its exporter timed out or stopped). A
+        // [`Forget`] that found the receiver taken relies on this: it closed its answer channel
+        // under the in-flight lock before it tried the receiver.
         let mut live = Vec::new();
         while let Ok(queued) = rx.try_recv() {
             if !queued.done.is_closed() {
                 live.push(queued);
             }
         }
-        drop(rx);
-        let tx = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // ponytail: drains and re-queues, as there is no peek; the slot holds one request.
+        let tx = self.queue.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for queued in live {
             if let Some(tx) = &tx {
                 let _ = tx.try_send(queued);
             }
         }
+        // `rx` is let go here, before `_inflight`: still under the lock.
     }
 }
 
-/// Forgets an in-flight entry when the exporter stops waiting for its answer (timeout,
-/// shutdown, opt-out), so nothing is kept for an answer nobody will read.
+/// The exporter's wait for an answer. When the exporter stops waiting (timeout, shutdown,
+/// opt-out), it forgets the in-flight entry and destroys the request if it is still queued, so
+/// nothing is kept for an answer nobody will read.
 struct Forget<'a> {
     queue: &'a TelemetryExportQueue,
     id: u64,
+    wait: oneshot::Receiver<Result<ExportResponse, ExportError>>,
 }
 
 impl Drop for Forget<'_> {
     fn drop(&mut self) {
-        self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+        // Closed first, under the in-flight lock: `serve` no longer hands the request out, and a
+        // poller that lets go of the receiver after this sees it is stale.
+        {
+            let mut inflight = self.queue.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            self.wait.close();
+            inflight.remove(&self.id);
+        }
+        // Destroys it now, unless a poller holds the receiver: that poller does when it lets go.
+        drop(self.queue.try_poll());
     }
 }
 
@@ -888,21 +981,33 @@ impl TelemetryTransport for TelemetryExportQueue {
             reason: "export queue closed".into(),
             retry_after_ms: None,
         };
-        self.discard_stale();
+        // With one request out at a time, anything still queued now is stale: destroyed here.
+        drop(self.try_poll());
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let (done, wait) = oneshot::channel();
         let queued = QueuedExport { export: PendingExport { id, request }, done };
-        let _forget = Forget { queue: self, id };
+        let mut forget = Forget { queue: self, id, wait };
         let Some(tx) = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return Err(closed());
         };
         // Waits for room while the host is busy; cancelled with the exporter's timeout, and then
         // the request was never queued. The sender is not kept while the answer is awaited.
-        tx.send(queued).await.map_err(|_| closed())?;
-        drop(tx);
+        let permit = tx.reserve().await.map_err(|_| closed())?;
         #[cfg(test)]
-        self.queued.fetch_add(1, Ordering::SeqCst);
-        wait.await.unwrap_or(Err(ExportError::Retryable {
+        run_hook(&self.before_enqueue);
+        {
+            // The enqueue commits under the lock `finish` raises its flag under: a permit from
+            // before `finish` never enqueues after it. `Permit::send` does not wait.
+            let _inflight = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
+            if self.finished.load(Ordering::SeqCst) {
+                return Err(closed());
+            }
+            permit.send(queued);
+            #[cfg(test)]
+            self.queued.fetch_add(1, Ordering::SeqCst);
+        }
+        drop(tx);
+        (&mut forget.wait).await.unwrap_or(Err(ExportError::Retryable {
             reason: "host dropped the export".into(),
             retry_after_ms: None,
         }))
@@ -1011,29 +1116,288 @@ mod tests {
         });
     }
 
-    /// `finish` and `serve` take the in-flight lock in turn: once `finish` returned, nothing is
-    /// handed out or kept, even by a `serve` that passed its checks before.
+    /// A request handed out before `finish` stays answerable after it: the host's answer reaches
+    /// the exporter, which would otherwise retry a batch the host had uploaded. Nothing outlives
+    /// the answer.
     #[test]
-    fn nothing_is_served_after_finish_returns() {
+    fn an_answer_to_a_request_handed_out_before_finish_reaches_the_exporter() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let watched = Arc::downgrade(&queue);
+            let sending = {
+                let queue = queue.clone();
+                tokio::spawn(async move { queue.send(request()).await })
+            };
+            let served = queue.next().await.expect("handed out");
+            queue.finish();
+            queue.complete(served.id, ExportResponse::accepted());
+            let answer = tokio::time::timeout(Duration::from_secs(5), sending).await;
+            assert!(
+                matches!(answer, Ok(Ok(Ok(ref response))) if *response == ExportResponse::accepted()),
+                "the host's answer reaches the exporter: {answer:?}"
+            );
+            assert!(queue.inflight.lock().expect("lock").is_empty(), "nothing kept once answered");
+            drop(queue);
+            assert!(watched.upgrade().is_none(), "the queue is freed with its last handle");
+        });
+    }
+
+    /// `serve` and `finish` commit in turn under the in-flight lock. A `serve` past its last check
+    /// when `finish` begins hands its request out before `finish` raises the flag, and that
+    /// request stays answerable. Nothing is handed out once `finish` returned.
+    #[test]
+    fn a_serve_racing_finish_commits_before_it_or_not_at_all() {
         let queue = TelemetryExportQueue::new();
+        let wait = Duration::from_secs(5);
+        let (at_lock, finishing) = std::sync::mpsc::channel();
+        *queue.before_finish.lock().expect("lock") = Some(Box::new(move || {
+            let _ = at_lock.send(());
+        }));
         let (entered, inside) = std::sync::mpsc::channel();
-        let (resume, resumed) = std::sync::mpsc::channel::<()>();
-        let resumed = Mutex::new(resumed);
+        let (seen, flag) = std::sync::mpsc::channel();
+        let finishing = Mutex::new(finishing);
+        // Weak: the queue stores this hook, so the hook must not keep the queue alive.
+        let watched = Arc::downgrade(&queue);
         *queue.before_serve.lock().expect("lock") = Some(Box::new(move || {
             let _ = entered.send(());
-            let _ = resumed.lock().expect("lock").recv_timeout(Duration::from_millis(200));
+            // Held past its last check until `finish` is about to take the lock.
+            let reached = finishing.lock().expect("lock").recv_timeout(wait).is_ok();
+            let raised = watched.upgrade().is_some_and(|q| q.finished.load(Ordering::SeqCst));
+            let _ = seen.send((reached, raised));
         }));
-        let (done, _answer) = oneshot::channel();
+        let (done, mut answer) = oneshot::channel();
         let queued = QueuedExport { export: PendingExport { id: 7, request: request() }, done };
         let serving = {
             let queue = queue.clone();
             std::thread::spawn(move || queue.serve(queued))
         };
-        inside.recv().expect("serve passed its checks");
+        inside.recv_timeout(wait).expect("serve is past its last check");
+        let finishing = {
+            let queue = queue.clone();
+            std::thread::spawn(move || queue.finish())
+        };
+        let (reached, raised) = flag.recv_timeout(wait).expect("serve resumed");
+        let served = serving.join().expect("serve");
+        finishing.join().expect("finish");
+        let answered = served.as_ref().map(|served| {
+            queue.complete(served.id, ExportResponse::accepted());
+            answer.try_recv()
+        });
+        let (done, _late) = oneshot::channel();
+        let late = QueuedExport { export: PendingExport { id: 8, request: request() }, done };
+        let after = queue.serve(late).is_some();
+        let observed = format!(
+            "finish at lock {reached}, flag seen raised {raised}, handed out {}, answer {answered:?}, \
+             served after finish {after}",
+            served.is_some()
+        );
+        assert!(reached, "finish reached its lock while serve held it: {observed}");
+        assert!(!raised, "the flag is raised under the lock, after this hand-out: {observed}");
+        assert!(
+            matches!(answered, Some(Ok(Ok(ref r))) if *r == ExportResponse::accepted()),
+            "handed out before finish took effect, and answerable: {observed}"
+        );
+        assert!(!after, "nothing is handed out once finish returned: {observed}");
+    }
+
+    /// A poller that holds the receiver while `finish` runs discards what is queued once it lets
+    /// go: the request is never served, its exporter hears it was dropped, and the receiver is
+    /// closed, so a sender kept from before `finish` cannot refill it.
+    #[test]
+    fn finish_discards_what_a_busy_poller_holds() {
+        let queue = TelemetryExportQueue::new();
+        let wait = Duration::from_secs(5);
+        let (done, mut answer) = oneshot::channel();
+        let queued = QueuedExport { export: PendingExport { id: 7, request: request() }, done };
+        let tx = queue.tx.lock().expect("lock").clone().expect("open");
+        assert!(tx.try_send(queued).is_ok(), "queued");
+        let (holding, held) = std::sync::mpsc::channel();
+        let (resume, resumed) = std::sync::mpsc::channel::<()>();
+        let resumed = Mutex::new(resumed);
+        *queue.holding_rx.lock().expect("lock") = Some(Box::new(move || {
+            let _ = holding.send(());
+            let _ = resumed.lock().expect("lock").recv_timeout(wait);
+        }));
+        let polling = {
+            let queue = queue.clone();
+            std::thread::spawn(move || queue.try_next().is_none())
+        };
+        held.recv_timeout(wait).expect("try_next holds the receiver");
         queue.finish();
-        let _ = resume.send(());
-        serving.join().expect("serve");
-        assert!(queue.inflight.lock().expect("lock").is_empty(), "nothing kept after finish");
+        // The documented limit: the poller that holds the receiver discards for `finish`, when it
+        // lets go. Until then the request stays queued, never served.
+        let waiting = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Empty));
+        assert!(waiting, "precondition: the paused poller still holds the request");
+        resume.send(()).expect("resume");
+        assert!(polling.join().expect("try_next"), "nothing is served once finished");
+        let dropped = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
+        assert!(dropped, "discarded once the poller let go: its exporter hears it was dropped");
+        let (done, _late) = oneshot::channel();
+        let late = QueuedExport { export: PendingExport { id: 8, request: request() }, done };
+        let refill = tx.try_send(late);
+        assert!(
+            matches!(refill, Err(mpsc::error::TrySendError::Closed(_))),
+            "closed: a sender kept from before cannot refill it"
+        );
+    }
+
+    /// A poller's release and `finish` are ordered by the in-flight lock. A poller that read
+    /// `finished == false` keeps the lock until it let the receiver go, so `finish` cannot raise
+    /// the flag and fail to take the receiver in between. The test runs the worst schedule the
+    /// code allows: `finish` runs inside the poller's release when it can take the lock there,
+    /// and right after the release when it cannot. Either way a request that a kept sender
+    /// queued meanwhile is discarded, and the receiver ends closed.
+    #[test]
+    fn a_poller_releasing_the_receiver_and_finish_never_both_skip_the_drain() {
+        let queue = TelemetryExportQueue::new();
+        let wait = Duration::from_secs(5);
+        let tx = queue.tx.lock().expect("lock").clone().expect("open");
+        let (read, flag_read) = std::sync::mpsc::channel();
+        let (go, resume) = std::sync::mpsc::channel::<()>();
+        let resume = Mutex::new(resume);
+        let fired = AtomicBool::new(false);
+        // Only the poller's release is held: `finish`'s own release passes.
+        *queue.releasing_rx.lock().expect("lock") = Some(Box::new(move || {
+            if !fired.swap(true, Ordering::SeqCst) {
+                let _ = read.send(());
+                let _ = resume.lock().expect("lock").recv_timeout(wait);
+            }
+        }));
+        let polling = {
+            let queue = queue.clone();
+            std::thread::spawn(move || queue.try_next().is_none())
+        };
+        flag_read
+            .recv_timeout(wait)
+            .expect("the poller read the flag and still holds the receiver");
+        // A kept sender queues while the poller holds the receiver.
+        let (done, mut answer) = oneshot::channel();
+        let queued = QueuedExport { export: PendingExport { id: 7, request: request() }, done };
+        assert!(tx.try_send(queued).is_ok(), "queued behind the poller");
+        // Chooses the schedule, asserts nothing: can `finish` raise the flag right now?
+        let finish_can_run_inside = queue.inflight.try_lock().is_ok();
+        if finish_can_run_inside {
+            queue.finish();
+            go.send(()).expect("resume");
+        } else {
+            go.send(()).expect("resume");
+        }
+        let served_nothing = polling.join().expect("try_next");
+        if !finish_can_run_inside {
+            queue.finish();
+        }
+        let schedule = if finish_can_run_inside { "inside the release" } else { "after it" };
+        assert!(served_nothing, "nothing served ({schedule})");
+        let dropped = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
+        assert!(dropped, "finish ran {schedule}: the queued request is discarded");
+        let (done, _late) = oneshot::channel();
+        let late = QueuedExport { export: PendingExport { id: 8, request: request() }, done };
+        let refill = tx.try_send(late);
+        assert!(
+            matches!(refill, Err(mpsc::error::TrySendError::Closed(_))),
+            "finish ran {schedule}: closed, a kept sender cannot refill it"
+        );
+    }
+
+    /// Poll `future` once.
+    fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
+        let waker = std::task::Waker::noop();
+        std::pin::Pin::new(future).poll(&mut std::task::Context::from_waker(waker))
+    }
+
+    /// A `send` waiting for room when `finish` runs cannot enqueue afterwards: it hears that its
+    /// request was not delivered instead of waiting for an answer that cannot come.
+    #[test]
+    fn a_send_waiting_for_room_across_finish_cannot_refill_the_queue() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let (done, mut answer) = oneshot::channel();
+            let live = QueuedExport { export: PendingExport { id: 7, request: request() }, done };
+            let tx = queue.tx.lock().expect("lock").clone().expect("open");
+            assert!(tx.try_send(live).is_ok(), "the queue's one slot is taken");
+            drop(tx);
+            let mut sending = queue.send(request());
+            // Polled by hand: this one poll runs the send up to its wait for room.
+            assert!(poll_once(&mut sending).is_pending(), "the send waits for room");
+            let waiting = queue.tx.lock().expect("lock").as_ref().map(mpsc::Sender::strong_count);
+            assert_eq!(waiting, Some(2), "precondition: the send holds a sender, waiting for room");
+            queue.finish();
+            let closed = matches!(answer.try_recv(), Err(oneshot::error::TryRecvError::Closed));
+            assert!(closed, "the queued request is discarded");
+            let sent = tokio::time::timeout(Duration::from_secs(5), sending).await;
+            assert!(matches!(sent, Ok(Err(_))), "the waiting send hears at once: {sent:?}");
+            let left = queue.rx.try_lock().expect("rx").try_recv();
+            assert!(left.is_err(), "nothing stays queued");
+        });
+    }
+
+    /// A `send` that reserved room before `finish` and enqueues after it leaves nothing queued:
+    /// its request is discarded at once, and the exporter hears it was not delivered instead of
+    /// waiting for an answer that cannot come.
+    #[test]
+    fn a_send_racing_finish_leaves_nothing_queued() {
+        let queue = TelemetryExportQueue::new();
+        let wait = Duration::from_secs(5);
+        let (reserved, room) = std::sync::mpsc::channel();
+        let (resume, resumed) = std::sync::mpsc::channel::<()>();
+        let resumed = Mutex::new(resumed);
+        *queue.before_enqueue.lock().expect("lock") = Some(Box::new(move || {
+            let _ = reserved.send(());
+            let _ = resumed.lock().expect("lock").recv_timeout(wait);
+        }));
+        let sending = {
+            let queue = queue.clone();
+            std::thread::spawn(move || {
+                runtime()
+                    .block_on(async { tokio::time::timeout(wait, queue.send(request())).await })
+            })
+        };
+        room.recv_timeout(wait).expect("send reserved room");
+        queue.finish();
+        resume.send(()).expect("resume");
+        let sent = sending.join().expect("send");
+        assert!(matches!(sent, Ok(Err(_))), "the exporter hears it was not delivered: {sent:?}");
+        let enqueued = queue.queued.load(Ordering::SeqCst);
+        assert_eq!(enqueued, 0, "a permit from before finish never enqueues after it");
+        assert!(queue.rx.try_lock().expect("rx").try_recv().is_err(), "nothing stays queued");
+    }
+
+    /// The room left in the queue: its one slot is free once nothing is queued or reserved.
+    fn room(queue: &TelemetryExportQueue) -> usize {
+        queue.tx.lock().expect("lock").as_ref().map_or(0, mpsc::Sender::capacity)
+    }
+
+    /// A request nobody served is destroyed, credentials and all, as soon as its exporter stops
+    /// waiting (timeout, shutdown), even with no host polling: no later send, poll or `finish`
+    /// is needed.
+    #[test]
+    fn an_unserved_request_is_destroyed_when_its_exporter_stops_waiting() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let mut sending = queue.send(request());
+            assert!(poll_once(&mut sending).is_pending(), "queued, waiting for the host");
+            assert_eq!(room(&queue), 0, "precondition: the request holds the queue's slot");
+            drop(sending); // The exporter's timeout or shutdown cancels the wait.
+            assert_eq!(room(&queue), 1, "the request is gone at once");
+            let left = queue.rx.try_lock().expect("rx").try_recv();
+            assert!(left.is_err(), "nothing stays queued");
+        });
+    }
+
+    /// A poller that holds the receiver when the exporter stops waiting destroys the request
+    /// when it lets go. Until then the request stays queued, never served: the documented limit.
+    #[test]
+    fn a_request_left_behind_a_busy_poller_is_destroyed_when_it_lets_go() {
+        runtime().block_on(async {
+            let queue = TelemetryExportQueue::new();
+            let held = queue.try_poll().expect("the receiver is free");
+            let mut sending = queue.send(request());
+            assert!(poll_once(&mut sending).is_pending(), "queued, waiting for the host");
+            drop(sending);
+            assert_eq!(room(&queue), 0, "precondition: the poller still holds the request");
+            drop(held);
+            assert_eq!(room(&queue), 1, "the request is gone once the poller let go");
+        });
     }
 
     /// A platform's log line loses its credentials before it is captured: the upload carries the
