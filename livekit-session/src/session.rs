@@ -256,6 +256,156 @@ impl Session {
             }),
         }
     }
+
+    /// Fetches credentials, connects the room, and publishes the microphone
+    /// (see [`SessionOptions::platform_audio`]).
+    ///
+    /// Resolves once the room is connected, not once the agent is: wait for
+    /// that on [`state`](Self::state). Fails with
+    /// [`AlreadyStarted`](SessionStartError::AlreadyStarted) while the session
+    /// is connecting or connected.
+    ///
+    /// Dropping the future before it resolves leaves the session
+    /// disconnected.
+    pub async fn start(&self) -> Result<(), SessionStartError> {
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let (generation, stale) = {
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            if matches!(*lifecycle, Lifecycle::Starting { .. }) || lifecycle.room().is_some() {
+                return Err(SessionStartError::AlreadyStarted);
+            }
+            let generation = self.inner.shared.begin(SessionState {
+                connection: SessionConnectionState::Connecting,
+                agent: AgentState::Connecting,
+            });
+            let starting = Lifecycle::Starting { generation, cancel: cancel_tx };
+            let stale = match mem::replace(&mut *lifecycle, starting) {
+                Lifecycle::Running(running) => Some(running),
+                _ => None,
+            };
+            (generation, stale)
+        };
+        let mut guard = StartGuard { inner: &self.inner, generation, armed: true };
+        // The actor of a room that disconnected on its own, which has stopped
+        // or is about to.
+        if let Some(stale) = stale {
+            stale.join().await;
+        }
+
+        let connection = tokio::select! {
+            connection = self.connect() => connection,
+            _ = cancel_rx => Err(SessionStartError::Cancelled),
+        };
+        let connection = connection?;
+        let room = connection.room.clone();
+        // Outside the cancellable select, so that an `end` during the publish
+        // cannot drop a connected room without closing it; it is honoured
+        // below instead.
+        if let Some(audio) = &connection.platform_audio {
+            if let Err(err) = publish_microphone(&room, audio).await {
+                if let Err(close_err) = room.close().await {
+                    log::warn!("failed to close the room of a failed start: {close_err}");
+                }
+                return Err(SessionStartError::Microphone(err));
+            }
+        }
+        let (stop_tx, stop_rx) = mpsc::channel(1);
+        let mut actor =
+            SessionActor::new(generation, connection, stop_rx, self.inner.shared.clone());
+
+        {
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            if matches!(*lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation) {
+                actor.refresh();
+                let task = tokio::spawn(actor.run());
+                *lifecycle = Lifecycle::Running(Running { room, stop: stop_tx, task });
+                guard.armed = false;
+                return Ok(());
+            }
+        }
+
+        // `end` was called just as the connection completed. The room is
+        // closed before the actor, and the platform audio it holds, is dropped.
+        if let Err(err) = room.close().await {
+            log::warn!("failed to close the room of a cancelled start: {err}");
+        }
+        drop(actor);
+        Err(SessionStartError::Cancelled)
+    }
+
+    async fn connect(&self) -> Result<Connection, SessionStartError> {
+        let options = &self.inner.options;
+        let credentials = self.inner.token_source.fetch().await?;
+        // Platform audio has to exist before the room connects.
+        let platform_audio = options.platform_audio.then(PlatformAudio::new).transpose()?;
+        let (room, events) = Room::connect(
+            &credentials.server_url,
+            &credentials.participant_token,
+            options.room_options.clone(),
+        )
+        .await?;
+        Ok(Connection {
+            room: Arc::new(room),
+            events,
+            platform_audio,
+            agent_timeout: options.agent_connect_timeout,
+        })
+    }
+
+    /// Closes the room, or cancels a [`start`](Self::start) still in progress.
+    ///
+    /// Does nothing when there is nothing to end, including after the room
+    /// disconnected on its own. A room that fails to close cleanly is logged,
+    /// and the session has ended regardless.
+    ///
+    /// The session can be started again as soon as `end` is called, before
+    /// the room has finished closing.
+    pub async fn end(&self) {
+        let running = {
+            let mut lifecycle = lock(&self.inner.lifecycle);
+            match mem::replace(&mut *lifecycle, Lifecycle::Idle) {
+                Lifecycle::Idle => return,
+                Lifecycle::Starting { generation, cancel } => {
+                    let _ = cancel.send(());
+                    self.inner.shared.publish(generation, SessionState::default());
+                    return;
+                }
+                Lifecycle::Running(running) => running,
+            }
+        };
+        running.join().await;
+    }
+}
+
+/// Publishes the platform microphone as the local participant's microphone
+/// track.
+async fn publish_microphone(room: &Room, audio: &PlatformAudio) -> RoomResult<()> {
+    let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+    let options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
+    room.local_participant().publish_track(LocalTrack::Audio(track), options).await?;
+    Ok(())
+}
+
+/// Resets the session when a [`Session::start`] fails or is dropped before
+/// the room is running.
+struct StartGuard<'a> {
+    inner: &'a Inner,
+    generation: u64,
+    armed: bool,
+}
+
+impl Drop for StartGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let mut lifecycle = lock(&self.inner.lifecycle);
+        if matches!(*lifecycle, Lifecycle::Starting { generation, .. } if generation == self.generation)
+        {
+            *lifecycle = Lifecycle::Idle;
+        }
+        self.inner.shared.publish(self.generation, SessionState::default());
+    }
 }
 
 /// The connection state of a [`Session`].
