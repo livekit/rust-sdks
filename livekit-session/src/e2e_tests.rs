@@ -473,3 +473,107 @@ async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
     session.end().await;
     Ok(())
 }
+
+// Agent media
+
+/// An avatar worker whose identity sorts before [`AGENT`], so that only its
+/// publish-on-behalf attribute tells it apart from the agent.
+const AVATAR: &str = "a-avatar";
+
+/// Publishes a silent audio track from `room` as `source`.
+async fn publish_audio(room: &Room, source: TrackSource) -> Result<LocalTrackPublication> {
+    let rtc_source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 100);
+    let track = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(rtc_source));
+    let options = TrackPublishOptions { source, ..Default::default() };
+    Ok(room.local_participant().publish_track(LocalTrack::Audio(track), options).await?)
+}
+
+/// Publishes a blank video track from `room` as `source`.
+async fn publish_video(room: &Room, source: TrackSource) -> Result<LocalTrackPublication> {
+    let rtc_source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+    let track = LocalVideoTrack::create_video_track("video", RtcVideoSource::Native(rtc_source));
+    let options = TrackPublishOptions { source, ..Default::default() };
+    Ok(room.local_participant().publish_track(LocalTrack::Video(track), options).await?)
+}
+
+/// Whether the session's room has subscribed to the remote track `sid`.
+fn is_subscribed(session: &Session, sid: &TrackSid) -> bool {
+    let Some(room) = session.room() else {
+        return false;
+    };
+    room.remote_participants()
+        .values()
+        .any(|p| p.track_publications().get(sid).is_some_and(|p| p.is_subscribed()))
+}
+
+async fn eventually_some<T>(what: &str, mut poll: impl FnMut() -> Option<T>) -> Result<T> {
+    timeout(WAIT, async {
+        loop {
+            if let Some(value) = poll() {
+                return value;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for {what}"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    assert!(session.agent_audio_track().is_none());
+    session.start().await?;
+    let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+    assert!(session.agent_audio_track().is_none());
+
+    // Only the microphone is the agent's voice.
+    let other = publish_audio(&agent, TrackSource::ScreenshareAudio).await?;
+    eventually("the screen share audio to be subscribed", || is_subscribed(&session, &other.sid()))
+        .await?;
+    assert!(session.agent_audio_track().is_none());
+
+    let microphone = publish_audio(&agent, TrackSource::Microphone).await?;
+    let track = eventually_some("the agent's microphone", || session.agent_audio_track()).await?;
+    assert_eq!(track.sid(), microphone.sid());
+
+    session.end().await;
+    assert!(session.agent_audio_track().is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed() -> Result<()> {
+    let env = TestEnv::new();
+    let session = Session::new(env.user_source(false), text_options());
+    session.start().await?;
+    let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
+    wait_for_agent(&session, AgentState::Listening).await?;
+    assert!(session.agent_avatar_video_track().is_none());
+
+    // The agent's own camera is not an avatar.
+    let agent_camera = publish_video(&agent, TrackSource::Camera).await?;
+    eventually("the agent's camera to be subscribed", || {
+        is_subscribed(&session, &agent_camera.sid())
+    })
+    .await?;
+    assert!(session.agent_avatar_video_track().is_none());
+
+    let (avatar, _avatar_events) = env.join_avatar_worker(AVATAR, AGENT).await?;
+    let camera = publish_video(&avatar, TrackSource::Camera).await?;
+    let track =
+        eventually_some("the avatar's camera", || session.agent_avatar_video_track()).await?;
+    assert_eq!(track.sid(), camera.sid());
+    assert!(session.agent_audio_track().is_none());
+
+    // The worker is of kind agent too, and reports no agent state. The state
+    // still follows the agent, so the worker was not taken for it.
+    set_agent_state(&agent, "speaking").await?;
+    wait_for_agent(&session, AgentState::Speaking).await?;
+
+    session.end().await;
+    assert!(session.agent_avatar_video_track().is_none());
+    Ok(())
+}
