@@ -130,3 +130,161 @@ impl Shared {
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+/// A connected room, handed to the actor that will run it.
+pub(crate) struct Connection {
+    pub room: Arc<Room>,
+    pub events: mpsc::UnboundedReceiver<RoomEvent>,
+    /// The audio devices behind the published microphone, if any.
+    pub platform_audio: Option<PlatformAudio>,
+    /// How long an agent gets to become conversational.
+    pub agent_timeout: Duration,
+}
+
+enum Event {
+    Stop,
+    Room(RoomEvent),
+    AgentDeadline,
+}
+
+/// How the actor stopped.
+enum Exit {
+    /// [`Session::end`](crate::Session::end) was called, or every
+    /// [`Session`](crate::Session) handle was dropped.
+    Stopped,
+    /// The room disconnected.
+    Disconnected(DisconnectReason),
+}
+
+/// Runs one connected room for one `start()`: projects the agent state,
+/// reads the session's text streams, and closes the room when the session
+/// ends or is dropped.
+///
+/// Holds no [`Session`](crate::Session) and no `stop` sender, so dropping the
+/// last session handle closes `stop` and stops the actor.
+pub(crate) struct SessionActor {
+    generation: u64,
+    room: Arc<Room>,
+    /// Keeps the microphone and speakers running for as long as the room:
+    /// dropped with the actor, once the room is closed.
+    _platform_audio: Option<PlatformAudio>,
+    room_events: mpsc::UnboundedReceiver<RoomEvent>,
+    /// Never carries a value: the session stops the actor by dropping the
+    /// sender.
+    stop: mpsc::Receiver<()>,
+    agent_deadline: Option<Pin<Box<Sleep>>>,
+    connection: SessionConnectionState,
+    tracker: AgentTracker,
+    shared: Arc<Shared>,
+}
+
+impl SessionActor {
+    pub(crate) fn new(
+        generation: u64,
+        connection: Connection,
+        stop: mpsc::Receiver<()>,
+        shared: Arc<Shared>,
+    ) -> Self {
+        let state = match connection.room.connection_state() {
+            ConnectionState::Reconnecting => SessionConnectionState::Reconnecting,
+            ConnectionState::Connected | ConnectionState::Disconnected => {
+                SessionConnectionState::Connected
+            }
+        };
+        Self {
+            generation,
+            room: connection.room,
+            _platform_audio: connection.platform_audio,
+            room_events: connection.events,
+            stop,
+            agent_deadline: Some(Box::pin(tokio::time::sleep(connection.agent_timeout))),
+            connection: state,
+            tracker: AgentTracker::default(),
+            shared,
+        }
+    }
+
+    /// Projects the agent state and publishes the session state.
+    pub(crate) fn refresh(&mut self) {
+        let participants = self.room.remote_participants();
+        let agent_state = self.tracker.project(self.connection, participants.values());
+        if agent_state.is_connected() {
+            self.agent_deadline = None;
+        }
+        self.shared.publish(
+            self.generation,
+            SessionState { connection: self.connection, agent: agent_state },
+        );
+    }
+
+    pub(crate) async fn run(mut self) {
+        let exit = loop {
+            let deadline = &mut self.agent_deadline;
+            let deadline = async move {
+                match deadline.as_mut() {
+                    Some(deadline) => deadline.await,
+                    None => future::pending().await,
+                }
+            };
+            let event = tokio::select! {
+                _ = self.stop.recv() => Event::Stop,
+                Some(event) = self.room_events.recv() => Event::Room(event),
+                () = deadline => Event::AgentDeadline,
+            };
+            match event {
+                Event::Stop => break Exit::Stopped,
+                Event::Room(RoomEvent::Disconnected { reason }) => {
+                    break Exit::Disconnected(reason)
+                }
+                Event::Room(event) => self.on_room_event(event),
+                Event::AgentDeadline => self.on_agent_deadline(),
+            }
+        };
+
+        // Closed before the final state, so that a `start()` prompted by it
+        // already finds this actor gone.
+        self.stop.close();
+        match exit {
+            Exit::Stopped => {
+                if let Err(err) = self.room.close().await {
+                    log::warn!("failed to close the session room: {err}");
+                }
+            }
+            Exit::Disconnected(reason) => {
+                log::info!("session room disconnected: {reason:?}");
+            }
+        }
+        self.shared.publish(self.generation, SessionState::default());
+    }
+
+    fn on_room_event(&mut self, event: RoomEvent) {
+        match event {
+            RoomEvent::Reconnecting
+            | RoomEvent::ConnectionStateChanged(ConnectionState::Reconnecting) => {
+                self.connection = SessionConnectionState::Reconnecting;
+            }
+            RoomEvent::Reconnected
+            | RoomEvent::ConnectionStateChanged(ConnectionState::Connected) => {
+                self.connection = SessionConnectionState::Connected;
+            }
+            RoomEvent::ParticipantConnected(_)
+            | RoomEvent::ParticipantDisconnected(_)
+            | RoomEvent::ParticipantAttributesChanged { .. }
+            | RoomEvent::TrackPublished { .. }
+            | RoomEvent::TrackUnpublished { .. }
+            | RoomEvent::TrackSubscribed { .. }
+            | RoomEvent::TrackUnsubscribed { .. } => {}
+            _ => return,
+        }
+        self.refresh();
+    }
+
+    fn on_agent_deadline(&mut self) {
+        self.agent_deadline = None;
+        let participants = self.room.remote_participants();
+        if self.tracker.time_out(self.connection, participants.values()) {
+            log::info!("agent did not become conversational in time");
+        }
+        self.refresh();
+    }
+}
