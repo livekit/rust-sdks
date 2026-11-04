@@ -30,7 +30,7 @@ mod session;
 #[cfg(all(test, feature = "__lk-e2e-test"))]
 mod e2e_tests;
 
-pub use agent::{AgentFailure, AgentState};
+pub use agent::{AgentActivity, AgentFailure, AgentState};
 pub use error::{MessageSendError, SessionStartError};
 pub use messages::{Message, MessageOrigin};
 pub use session::{Session, SessionConnectionState, SessionEvent, SessionOptions, SessionState};

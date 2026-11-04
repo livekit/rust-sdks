@@ -54,14 +54,15 @@ and the agent state (`agent`):
 | --- | --- |
 | `Disconnected` | The session is not connected |
 | `Connecting` | No agent is in the room yet |
-| `Initializing`, `Idle` | The agent joined but is not in a conversation |
-| `Listening`, `Thinking`, `Speaking` | The agent is in a conversation |
+| `Connected(Initializing)`, `Connected(Idle)` | The agent joined but is not in a conversation |
+| `Connected(Listening)`, `Connected(Thinking)`, `Connected(Speaking)` | The agent is in a conversation |
+| `Connected(Unknown)` | The agent reports an activity this SDK does not recognize |
 | `Failed(Timeout)` | No agent became conversational within `agent_connect_timeout` (20 s by default) of connecting |
 | `Failed(Left)` | The agent left while the room stayed connected |
-| `Unknown` | The agent reports an activity this SDK does not recognize |
 
-`Failed` is not final: an agent that joins, or becomes conversational, replaces it. Most code
-needs only the predicates on `AgentState`: `is_connected`, `is_pending` and `is_finished`.
+`Connected` carries an `AgentActivity`, what the agent reports through its `lk.agent.state`
+attribute. `Failed` is not final: an agent that joins, or becomes conversational, replaces it. Most
+code needs only the predicates on `AgentState`: `is_connected`, `is_pending` and `is_finished`.
 
 The agent's microphone and its avatar's camera are available from `agent_audio_track()` and
 `agent_avatar_video_track()`, for an app that wants their frames, e.g. for a visualizer.

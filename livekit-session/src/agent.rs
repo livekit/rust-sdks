@@ -20,7 +20,11 @@ use livekit::ParticipantKind;
 use crate::constants::{ATTRIBUTE_AGENT_STATE, ATTRIBUTE_PUBLISH_ON_BEHALF};
 use crate::session::SessionConnectionState;
 
-/// What the session's agent is doing, projected from the room.
+/// The session's agent, projected from the room: whether it is there, and
+/// what it is doing.
+///
+/// This enum answers the first question. The [`AgentActivity`] inside
+/// [`Connected`](Self::Connected) answers the second.
 ///
 /// Most code needs only the predicates: [`AgentState::is_connected`] to show
 /// that the agent is there, [`AgentState::is_pending`] to show that it is on
@@ -33,6 +37,49 @@ pub enum AgentState {
     Disconnected,
     /// The session is connecting, or is connected and no agent has joined yet.
     Connecting,
+    /// An agent is in the room, doing the given activity.
+    Connected(AgentActivity),
+    /// The agent did not become conversational in time, or left the room.
+    ///
+    /// Not final: an agent that joins or becomes conversational afterwards
+    /// replaces this state.
+    Failed(AgentFailure),
+}
+
+impl AgentState {
+    /// Whether the agent is in the room and in a conversation: listening,
+    /// thinking or speaking.
+    ///
+    /// Stricter than "an agent participant exists": an agent that is still
+    /// [`Initializing`](AgentActivity::Initializing) is not connected.
+    pub fn is_connected(self) -> bool {
+        matches!(self, Self::Connected(activity) if activity.is_conversational())
+    }
+
+    /// Whether an agent is expected but not yet conversational: connecting,
+    /// initializing, or idle.
+    pub fn is_pending(self) -> bool {
+        matches!(
+            self,
+            Self::Connecting | Self::Connected(AgentActivity::Initializing | AgentActivity::Idle)
+        )
+    }
+
+    /// Whether the agent is gone or never came: the session is disconnected,
+    /// or the agent [`Failed`](Self::Failed).
+    ///
+    /// A failure can still recover, so this becomes `false` again if an agent
+    /// joins later. Call [`Session::end`](crate::Session::end) to give up.
+    pub fn is_finished(self) -> bool {
+        matches!(self, Self::Disconnected | Self::Failed(_))
+    }
+}
+
+/// What an agent in the room is doing, as reported through its
+/// `lk.agent.state` attribute.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AgentActivity {
     /// The agent joined and is starting up.
     Initializing,
     /// The agent joined but is not in a conversation.
@@ -43,38 +90,15 @@ pub enum AgentState {
     Thinking,
     /// The agent is replying.
     Speaking,
-    /// The agent did not become conversational in time, or left the room.
-    ///
-    /// Not final: an agent that joins or becomes conversational afterwards
-    /// replaces this state.
-    Failed(AgentFailure),
     /// The agent reports an activity this SDK does not recognize.
     Unknown,
 }
 
-impl AgentState {
-    /// Whether the agent is in the room and in a conversation: listening,
-    /// thinking or speaking.
-    ///
-    /// Stricter than "an agent participant exists": an agent that is still
-    /// [`Initializing`](Self::Initializing) is not connected.
-    pub fn is_connected(self) -> bool {
+impl AgentActivity {
+    /// Whether the agent is in a conversation: listening, thinking or
+    /// speaking.
+    pub(crate) fn is_conversational(self) -> bool {
         matches!(self, Self::Listening | Self::Thinking | Self::Speaking)
-    }
-
-    /// Whether an agent is expected but not yet conversational: connecting,
-    /// initializing, or idle.
-    pub fn is_pending(self) -> bool {
-        matches!(self, Self::Connecting | Self::Initializing | Self::Idle)
-    }
-
-    /// Whether the agent is gone or never came: the session is disconnected,
-    /// or the agent [`Failed`](Self::Failed).
-    ///
-    /// A failure can still recover, so this becomes `false` again if an agent
-    /// joins later. Call [`Session::end`](crate::Session::end) to give up.
-    pub fn is_finished(self) -> bool {
-        matches!(self, Self::Disconnected | Self::Failed(_))
     }
 
     /// Parses the agent's `lk.agent.state` attribute. A missing attribute
@@ -182,8 +206,8 @@ pub(crate) fn agent_avatar_video_track<'a>(
 }
 
 /// The activity the agent reports through `lk.agent.state`.
-fn activity(agent: &impl AgentCandidate) -> AgentState {
-    AgentState::from_attribute(agent.attributes().get(ATTRIBUTE_AGENT_STATE).map(String::as_str))
+fn activity(agent: &impl AgentCandidate) -> AgentActivity {
+    AgentActivity::from_attribute(agent.attributes().get(ATTRIBUTE_AGENT_STATE).map(String::as_str))
 }
 
 /// Projects [`AgentState`] from the room, remembering what the projection
@@ -229,9 +253,9 @@ impl AgentTracker {
         self.has_ever_connected = true;
         let identity = agent.identity();
         let activity = activity(agent);
-        if activity.is_connected() {
+        if activity.is_conversational() {
             self.timed_out = None;
-            return activity;
+            return AgentState::Connected(activity);
         }
         // The timeout holds only for the agent that was too slow: one that
         // joins afterwards reports its own activity.
@@ -239,7 +263,7 @@ impl AgentTracker {
             Some(Some(timed_out)) if *timed_out == identity => {
                 AgentState::Failed(AgentFailure::Timeout)
             }
-            _ => activity,
+            _ => AgentState::Connected(activity),
         }
     }
 
@@ -255,7 +279,7 @@ impl AgentTracker {
             return false;
         }
         let agent = find_agent(participants);
-        if agent.is_some_and(|agent| activity(agent).is_connected()) {
+        if agent.is_some_and(|agent| activity(agent).is_conversational()) {
             return false;
         }
         self.timed_out = Some(agent.map(|agent| agent.identity()));
@@ -267,6 +291,7 @@ impl AgentTracker {
 mod tests {
     use super::*;
 
+    use AgentActivity::{Idle, Initializing, Listening, Speaking, Thinking, Unknown};
     use SessionConnectionState::{Connected, Connecting, Disconnected, Reconnecting};
 
     const NO_ONE: &[Fake] = &[];
@@ -315,15 +340,19 @@ mod tests {
         tracker.project(Connected, participants)
     }
 
+    fn connected(activity: AgentActivity) -> AgentState {
+        AgentState::Connected(activity)
+    }
+
     #[test]
     fn attribute_values_map_to_states() {
         let mut tracker = AgentTracker::default();
         for (value, state) in [
-            ("initializing", AgentState::Initializing),
-            ("idle", AgentState::Idle),
-            ("listening", AgentState::Listening),
-            ("thinking", AgentState::Thinking),
-            ("speaking", AgentState::Speaking),
+            ("initializing", connected(Initializing)),
+            ("idle", connected(Idle)),
+            ("listening", connected(Listening)),
+            ("thinking", connected(Thinking)),
+            ("speaking", connected(Speaking)),
         ] {
             assert_eq!(project(&mut tracker, &[Fake::agent("agent", Some(value))]), state);
         }
@@ -332,10 +361,10 @@ mod tests {
     #[test]
     fn missing_attribute_is_idle_and_unrecognized_is_unknown() {
         let mut tracker = AgentTracker::default();
-        assert_eq!(project(&mut tracker, &[Fake::agent("agent", None)]), AgentState::Idle);
+        assert_eq!(project(&mut tracker, &[Fake::agent("agent", None)]), connected(Idle));
         assert_eq!(
             project(&mut tracker, &[Fake::agent("agent", Some("dancing"))]),
-            AgentState::Unknown
+            connected(Unknown)
         );
     }
 
@@ -366,7 +395,7 @@ mod tests {
         let participants = [Fake::agent("agent", Some("speaking"))];
         assert_eq!(tracker.project(Disconnected, &participants), AgentState::Disconnected);
         assert_eq!(tracker.project(Connecting, &participants), AgentState::Connecting);
-        assert_eq!(tracker.project(Reconnecting, &participants), AgentState::Speaking);
+        assert_eq!(tracker.project(Reconnecting, &participants), connected(Speaking));
     }
 
     #[test]
@@ -384,7 +413,7 @@ mod tests {
         assert_eq!(tracker.project(Reconnecting, NO_ONE), AgentState::Connecting);
         assert_eq!(
             tracker.project(Reconnecting, &[Fake::agent("agent", Some("listening"))]),
-            AgentState::Listening
+            connected(Listening)
         );
     }
 
@@ -395,7 +424,7 @@ mod tests {
         assert_eq!(project(&mut tracker, NO_ONE), AgentState::Failed(AgentFailure::Left));
         assert_eq!(
             project(&mut tracker, &[Fake::agent("agent-2", Some("initializing"))]),
-            AgentState::Initializing
+            connected(Initializing)
         );
     }
 
@@ -415,7 +444,7 @@ mod tests {
         assert_eq!(project(&mut tracker, NO_ONE), AgentState::Failed(AgentFailure::Timeout));
         assert_eq!(
             project(&mut tracker, &[Fake::agent("agent", Some("initializing"))]),
-            AgentState::Initializing
+            connected(Initializing)
         );
     }
 
@@ -427,10 +456,10 @@ mod tests {
         assert_eq!(project(&mut tracker, &stuck), AgentState::Failed(AgentFailure::Timeout));
         assert_eq!(
             project(&mut tracker, &[Fake::agent("agent", Some("listening"))]),
-            AgentState::Listening
+            connected(Listening)
         );
         // Recovered for good: falling back to idle is not a timeout.
-        assert_eq!(project(&mut tracker, &[Fake::agent("agent", Some("idle"))]), AgentState::Idle);
+        assert_eq!(project(&mut tracker, &[Fake::agent("agent", Some("idle"))]), connected(Idle));
     }
 
     #[test]
@@ -444,32 +473,39 @@ mod tests {
 
     #[test]
     fn predicates_match_for_every_state() {
-        use AgentState::*;
         let states = [
-            Disconnected,
-            Connecting,
-            Initializing,
-            Idle,
-            Listening,
-            Thinking,
-            Speaking,
-            Failed(AgentFailure::Timeout),
-            Failed(AgentFailure::Left),
-            Unknown,
+            AgentState::Disconnected,
+            AgentState::Connecting,
+            connected(Initializing),
+            connected(Idle),
+            connected(Listening),
+            connected(Thinking),
+            connected(Speaking),
+            connected(Unknown),
+            AgentState::Failed(AgentFailure::Timeout),
+            AgentState::Failed(AgentFailure::Left),
         ];
         for state in states {
             assert_eq!(
                 state.is_connected(),
-                matches!(state, Listening | Thinking | Speaking),
+                matches!(state, AgentState::Connected(Listening | Thinking | Speaking)),
                 "{state:?}"
             );
             assert_eq!(
                 state.is_pending(),
-                matches!(state, Connecting | Initializing | Idle),
+                matches!(
+                    state,
+                    AgentState::Connecting | AgentState::Connected(Initializing | Idle)
+                ),
                 "{state:?}"
             );
-            assert_eq!(state.is_finished(), matches!(state, Disconnected | Failed(_)), "{state:?}");
+            assert_eq!(
+                state.is_finished(),
+                matches!(state, AgentState::Disconnected | AgentState::Failed(_)),
+                "{state:?}"
+            );
         }
-        assert!(!Initializing.is_connected());
+        assert!(!connected(Initializing).is_connected());
+        assert!(!connected(Unknown).is_pending());
     }
 }
