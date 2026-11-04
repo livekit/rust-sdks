@@ -138,7 +138,7 @@ impl PeerConnectionFactory {
         self.handle
             .video_encoder_codecs(backend)
             .into_iter()
-            .filter_map(|name| match VideoCodec::try_from(name.as_str()) {
+            .filter_map(|name| match name.parse::<VideoCodec>() {
                 Ok(codec) => Some(codec),
                 Err(_) => {
                     log::warn!("ignoring unrecognized video encoder codec {name}");

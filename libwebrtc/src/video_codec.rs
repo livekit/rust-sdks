@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::str::FromStr;
+
 /// A video codec recognized by [`PeerConnectionFactory::video_encoder_codecs`](crate::peer_connection_factory::PeerConnectionFactory::video_encoder_codecs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -42,22 +44,15 @@ impl VideoCodec {
 }
 
 /// An SDP codec name is not recognized as a [`VideoCodec`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("unsupported video codec name")]
 pub struct UnsupportedVideoCodec;
 
-impl std::fmt::Display for UnsupportedVideoCodec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("unsupported video codec name")
-    }
-}
-
-impl std::error::Error for UnsupportedVideoCodec {}
-
-impl TryFrom<&str> for VideoCodec {
-    type Error = UnsupportedVideoCodec;
+impl FromStr for VideoCodec {
+    type Err = UnsupportedVideoCodec;
 
     /// Parses a case-insensitive SDP codec name, accepting HEVC as an H265 alias.
-    fn try_from(name: &str) -> Result<Self, Self::Error> {
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
         match name {
             name if name.eq_ignore_ascii_case("vp8") => Ok(Self::VP8),
             name if name.eq_ignore_ascii_case("vp9") => Ok(Self::VP9),
@@ -68,6 +63,15 @@ impl TryFrom<&str> for VideoCodec {
             }
             _ => Err(UnsupportedVideoCodec),
         }
+    }
+}
+
+impl TryFrom<&str> for VideoCodec {
+    type Error = UnsupportedVideoCodec;
+
+    /// Parses an SDP codec name using [`FromStr`].
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        name.parse()
     }
 }
 
@@ -85,14 +89,16 @@ mod tests {
             ("h265", VideoCodec::H265),
             ("HeVc", VideoCodec::H265),
         ] {
+            assert_eq!(name.parse::<VideoCodec>(), Ok(expected));
             assert_eq!(VideoCodec::try_from(name), Ok(expected));
-            assert_eq!(VideoCodec::try_from(expected.as_str()), Ok(expected));
+            assert_eq!(expected.as_str().parse::<VideoCodec>(), Ok(expected));
         }
     }
 
     #[test]
     fn rejects_unknown_codec_names() {
-        for name in ["vp08", "", "video/vp8", " VP8", "rtx"] {
+        for name in ["vp11", "vp08", "", "video/vp8", " VP8", "rtx"] {
+            assert_eq!(name.parse::<VideoCodec>(), Err(UnsupportedVideoCodec));
             assert_eq!(VideoCodec::try_from(name), Err(UnsupportedVideoCodec));
         }
     }
