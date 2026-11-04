@@ -70,9 +70,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `ffi_platform` names the row in livekit-ffi/Cargo.toml's
-        # [package.metadata.platform-features] that sets the features and
-        # crate type; `platform` picks the build step below.
         include:
           - os: windows-latest
             platform: windows
@@ -193,10 +190,6 @@ jobs:
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
-      # The flags include `--lib --crate-type <type>`, so every build below uses
-      # `cargo rustc` rather than `cargo build`: livekit-ffi also lists "lib"
-      # (for the Node bindings), and Cargo drops LTO for a build that emits an
-      # rlib.
       - name: Resolve build flags
         shell: bash
         run: |

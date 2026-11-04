@@ -95,11 +95,6 @@ jobs:
           # dependency warnings don't fail the build (matches ffi-builds.yml).
           rustflags: ""
 
-      # The dart flags include `--lib --crate-type cdylib`, so every build below
-      # uses `cargo rustc` rather than `cargo build`: livekit-ffi also lists
-      # "lib" (for the Node bindings), and Cargo drops LTO for a build that
-      # emits an rlib.
-
       # Apple, Windows: build the cdylib directly for the target.
       - name: Build (Apple / Windows)
         if: ${{ matrix.platform == 'apple' || matrix.platform == 'windows' }}

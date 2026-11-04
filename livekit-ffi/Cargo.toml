@@ -148,10 +148,11 @@ serial_test = "3.0"
 # row. The per-commit gates in builds.yml and tests.yml build no artifact for
 # any platform and state their flags directly.
 #
-# `crate-type` (optional) is the library the row ships, and adds
-# `--lib --crate-type <type>` to the flags for `cargo rustc`. Shipping builds
-# must select it: [lib] below also lists "lib", and Cargo drops LTO for a
-# build that emits an rlib.
+# `crate-type` (optional) can be included to define the type of library that gets
+# built in a release workflow - this can be either `cdylib` or `staticlib`. For some
+# builds (ie, node) it is omitted and the default option is used instead.
+#
+# For more info on why this is important, see: https://github.com/livekit/rust-sdks/pull/1631
 #
 [package.metadata.platform-features]
 # room-apis -- SDKs with no WebRTC stack of their own. These consume the C ABI
@@ -164,7 +165,7 @@ unity = { no-default-features = true, features = ["room-apis", "rustls-tls-nativ
 ffi-desktop = { no-default-features = true, features = ["room-apis", "rustls-tls-native-roots"], crate-type = "cdylib" }
 ffi-ios = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"], crate-type = "staticlib" }
 ffi-android = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"], crate-type = "cdylib" }
-ffi-windows-arm64 = { no-default-features = true, features = ["room-apis", "native-tls"], crate-type = "cdylib" }
+ffi-windows-arm64 = { no-default-features = true, features = ["room-apis", "native-tls"], crate-type = "cdylib" } # ring 0.16 is incompatible with win aarch64
 
 # core-modules -- SDKs that already include their own WebRTC stack and consume
 # this crate purely over UniFFI.
