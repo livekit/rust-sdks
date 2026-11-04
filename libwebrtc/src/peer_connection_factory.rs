@@ -16,7 +16,8 @@ use std::fmt::Debug;
 
 use crate::{
     imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
-    rtp_parameters::RtpCapabilities, rtp_sender::VideoEncoderBackend, MediaType, RtcError,
+    rtp_parameters::RtpCapabilities, rtp_sender::VideoEncoderBackend, video_codec::VideoCodec,
+    MediaType, RtcError,
 };
 
 #[derive(Debug, Clone)]
@@ -115,8 +116,7 @@ impl PeerConnectionFactory {
         self.handle.get_rtp_receiver_capabilities(media_type)
     }
 
-    /// SDP codec names (`VP8`, `VP9`, `AV1`, `H264`, `H265`) that `backend` can
-    /// produce with this factory's video encoders.
+    /// Video codecs advertised by this factory's encoders for `backend`.
     ///
     /// For [`VideoEncoderBackend::Auto`] this is every codec advertised by this
     /// factory's software and hardware encoders, excluding the pre-encoded
@@ -124,27 +124,35 @@ impl PeerConnectionFactory {
     /// sender's requested backend is unavailable. For
     /// [`VideoEncoderBackend::PreEncoded`] it is every codec the pass-through can
     /// forward, whether or not a local encoder exists for it.
+    /// Native codec names not recognized by [`VideoCodec`] are omitted.
     ///
     /// ```
     /// use libwebrtc::{peer_connection_factory::PeerConnectionFactory, rtp_sender::VideoEncoderBackend};
+    /// use libwebrtc::video_codec::VideoCodec;
     ///
     /// let factory = PeerConnectionFactory::default();
     /// let codecs = factory.video_encoder_codecs(VideoEncoderBackend::Software);
-    /// assert!(codecs.iter().any(|codec| codec == "VP8"));
+    /// assert!(codecs.contains(&VideoCodec::VP8));
     /// ```
-    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<String> {
-        self.handle.video_encoder_codecs(backend)
+    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<VideoCodec> {
+        self.handle
+            .video_encoder_codecs(backend)
+            .into_iter()
+            .filter_map(|name| match VideoCodec::try_from(name.as_str()) {
+                Ok(codec) => Some(codec),
+                Err(_) => {
+                    log::warn!("ignoring unrecognized video encoder codec {name}");
+                    None
+                }
+            })
+            .collect()
     }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use super::PeerConnectionFactory;
+    use super::{PeerConnectionFactory, VideoCodec};
     use crate::rtp_sender::VideoEncoderBackend;
-
-    fn has_codec(codecs: &[String], name: &str) -> bool {
-        codecs.iter().any(|codec| codec.eq_ignore_ascii_case(name))
-    }
 
     #[test]
     fn pre_encoded_backend_forwards_every_codec_on_every_host() {
@@ -152,11 +160,11 @@ mod tests {
         // for the codec, so the pass-through set is the same on every host.
         let codecs =
             PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::PreEncoded);
-        for name in ["VP8", "VP9", "AV1", "H264", "H265"] {
-            assert!(has_codec(&codecs, name), "pass-through is missing {name}: {codecs:?}");
+        for codec in
+            [VideoCodec::VP8, VideoCodec::VP9, VideoCodec::AV1, VideoCodec::H264, VideoCodec::H265]
+        {
+            assert!(codecs.contains(&codec), "pass-through is missing {codec:?}: {codecs:?}");
         }
-        // HEVC is reported under its canonical H265 name only.
-        assert!(!has_codec(&codecs, "HEVC"), "{codecs:?}");
     }
 
     #[test]
@@ -165,8 +173,8 @@ mod tests {
         // what a normal session falls back to when no hardware encoder exists.
         let codecs =
             PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::Software);
-        assert!(has_codec(&codecs, "VP8"), "{codecs:?}");
-        assert!(!has_codec(&codecs, "H265"), "{codecs:?}");
+        assert!(codecs.contains(&VideoCodec::VP8), "{codecs:?}");
+        assert!(!codecs.contains(&VideoCodec::H265), "{codecs:?}");
     }
 
     #[test]
@@ -175,7 +183,7 @@ mod tests {
         let auto = factory.video_encoder_codecs(VideoEncoderBackend::Auto);
         let software = factory.video_encoder_codecs(VideoEncoderBackend::Software);
         for codec in &software {
-            assert!(has_codec(&auto, codec), "auto is missing {codec}: {auto:?}");
+            assert!(auto.contains(codec), "auto is missing {codec:?}: {auto:?}");
         }
     }
 
@@ -186,7 +194,9 @@ mod tests {
         // native factory down each time instead of retaining encoders.
         for _ in 0..3 {
             let factory = PeerConnectionFactory::default();
-            assert!(has_codec(&factory.video_encoder_codecs(VideoEncoderBackend::Auto), "VP8"));
+            assert!(factory
+                .video_encoder_codecs(VideoEncoderBackend::Auto)
+                .contains(&VideoCodec::VP8));
             let native = factory.handle.sys_handle.downgrade();
             drop(factory);
             assert!(native.upgrade().is_null(), "peer connection factory outlived its owner");

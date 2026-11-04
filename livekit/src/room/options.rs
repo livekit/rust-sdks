@@ -44,6 +44,19 @@ impl VideoCodec {
     }
 }
 
+impl From<VideoCodec> for libwebrtc::video_codec::VideoCodec {
+    /// Converts a publishing codec to its encoder capability counterpart.
+    fn from(codec: VideoCodec) -> Self {
+        match codec {
+            VideoCodec::VP8 => Self::VP8,
+            VideoCodec::H264 => Self::H264,
+            VideoCodec::VP9 => Self::VP9,
+            VideoCodec::AV1 => Self::AV1,
+            VideoCodec::H265 => Self::H265,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoResolution {
     pub width: u32,
@@ -416,7 +429,7 @@ pub(crate) fn codec_source_backend(backend: VideoEncoderBackend) -> VideoEncoder
 }
 
 /// Codec a video sender should negotiate for `requested`, given the SDP codec
-/// names its [`codec_source_backend`] can produce.
+/// capabilities its [`codec_source_backend`] advertises.
 ///
 /// A raw sender falls back to VP8, which every host encodes in software, rather
 /// than negotiate a codec it cannot encode. Returns `None` for a pre-encoded
@@ -424,9 +437,9 @@ pub(crate) fn codec_source_backend(backend: VideoEncoderBackend) -> VideoEncoder
 pub(crate) fn select_video_codec(
     requested: VideoCodec,
     backend: VideoEncoderBackend,
-    producible: &[String],
+    producible: &[libwebrtc::video_codec::VideoCodec],
 ) -> Option<VideoCodec> {
-    if producible.iter().any(|codec| codec.eq_ignore_ascii_case(requested.as_str())) {
+    if producible.contains(&requested.into()) {
         return Some(requested);
     }
     (backend != VideoEncoderBackend::PreEncoded).then_some(VideoCodec::VP8)
@@ -584,15 +597,13 @@ pub mod screenshare {
 
 #[cfg(test)]
 mod tests {
+    use libwebrtc::video_codec::VideoCodec as EncoderCodec;
+
     use super::{
         codec_source_backend, get_default_degradation_preference, select_video_codec,
         DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoderBackend,
     };
     use crate::prelude::TrackSource;
-
-    fn codecs(names: &[&str]) -> Vec<String> {
-        names.iter().map(|name| name.to_string()).collect()
-    }
 
     #[test]
     fn track_publish_options_default_encoder_is_auto() {
@@ -617,21 +628,20 @@ mod tests {
 
     #[test]
     fn producible_codec_is_kept() {
-        let host = codecs(&["VP8", "H264", "H265"]);
+        let host = [EncoderCodec::VP8, EncoderCodec::H264, EncoderCodec::H265];
         assert_eq!(
             select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
             Some(VideoCodec::H265)
         );
-        // SDP names are case-insensitive.
         assert_eq!(
-            select_video_codec(VideoCodec::H264, VideoEncoderBackend::Auto, &codecs(&["h264"])),
+            select_video_codec(VideoCodec::H264, VideoEncoderBackend::Auto, &[EncoderCodec::H264]),
             Some(VideoCodec::H264)
         );
     }
 
     #[test]
     fn raw_sender_falls_back_to_vp8_without_an_encoder() {
-        let host = codecs(&["VP8", "VP9", "AV1"]);
+        let host = [EncoderCodec::VP8, EncoderCodec::VP9, EncoderCodec::AV1];
         assert_eq!(
             select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
             Some(VideoCodec::VP8)
@@ -644,7 +654,13 @@ mod tests {
 
     #[test]
     fn pre_encoded_sender_never_switches_codec() {
-        let pass_through = codecs(&["VP8", "VP9", "AV1", "H264", "H265"]);
+        let pass_through = [
+            EncoderCodec::VP8,
+            EncoderCodec::VP9,
+            EncoderCodec::AV1,
+            EncoderCodec::H264,
+            EncoderCodec::H265,
+        ];
         assert_eq!(
             select_video_codec(VideoCodec::H265, VideoEncoderBackend::PreEncoded, &pass_through),
             Some(VideoCodec::H265)
@@ -653,7 +669,7 @@ mod tests {
             select_video_codec(
                 VideoCodec::H265,
                 VideoEncoderBackend::PreEncoded,
-                &codecs(&["VP8"])
+                &[EncoderCodec::VP8]
             ),
             None
         );

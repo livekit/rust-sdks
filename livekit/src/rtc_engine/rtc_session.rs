@@ -2076,9 +2076,7 @@ impl SessionInner {
             let producible = pc_factory
                 .video_encoder_codecs(crate::options::codec_source_backend(options.video_encoder));
             let is_producible = |mime_type: &str| {
-                producible
-                    .iter()
-                    .any(|codec| mime_type == format!("video/{}", codec.to_lowercase()))
+                producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
             };
             let requested_mime_type = format!("video/{}", options.video_codec.as_str());
 
