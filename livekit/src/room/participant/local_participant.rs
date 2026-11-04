@@ -376,9 +376,17 @@ impl LocalParticipant {
     async fn publish_track_with_video_send_encodings(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
         video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
+        if options.video_encoder == options::VideoEncoderBackend::PreEncoded && options.simulcast {
+            // The pass-through forwards one encoded stream; it has no lower
+            // layers to offer. Simulcast would announce layers it cannot fill
+            // and send copies of the full stream on their SSRCs.
+            log::debug!("simulcast is not supported for pre-encoded video; publishing one layer");
+            options.simulcast = false;
+        }
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
@@ -429,6 +437,15 @@ impl LocalParticipant {
                         codec: options.video_codec.as_str().to_string(),
                         cid: track.rtc_track().id(),
                         layers: req.layers.clone(),
+                        ..Default::default()
+                    }];
+                } else {
+                    // Single-layer tracks still announce their codec: the
+                    // server prefers it in the answer, and without it falls
+                    // back to its default (VP8) for this transceiver.
+                    req.simulcast_codecs = vec![proto::SimulcastCodec {
+                        codec: options.video_codec.as_str().to_string(),
+                        cid: track.rtc_track().id(),
                         ..Default::default()
                     }];
                 }

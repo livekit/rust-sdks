@@ -4097,6 +4097,7 @@ dependencies = [
  "image",
  "livekit",
  "livekit-api",
+ "livekit-capture",
  "log",
  "metal 0.32.0",
  "nokhwa",

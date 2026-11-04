@@ -18,6 +18,11 @@ path = "src/subscriber.rs"
 required-features = ["desktop"]
 
 [[bin]]
+name = "encoded_publisher"
+path = "src/encoded_publisher.rs"
+required-features = ["desktop"]
+
+[[bin]]
 name = "list_devices"
 path = "src/list_devices.rs"
 required-features = ["desktop"]
@@ -32,6 +37,7 @@ tokio = { workspace = true, features = ["full", "parking_lot"] }
 tokio-stream = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-capture = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"] }
 futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
