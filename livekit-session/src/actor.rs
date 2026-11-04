@@ -19,12 +19,13 @@ use std::time::Duration;
 
 use futures_util::stream::{self, BoxStream, SelectAll};
 use futures_util::StreamExt;
+use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::{
     ConnectionState, DisconnectReason, StreamReader, StreamResult, TakeCell, TextStreamInfo,
     TextStreamReader,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Sleep;
 
 use crate::agent::AgentTracker;
@@ -173,27 +174,37 @@ enum Exit {
     Stopped,
     /// The room disconnected.
     Disconnected(DisconnectReason),
+    /// The microphone failed to publish.
+    Microphone(RoomError),
 }
 
-/// Runs one connected room for one `start()`: projects the agent state,
-/// reads the session's text streams, and closes the room when the session
-/// ends or is dropped.
+/// Runs one connected room for one `start()`: publishes the microphone,
+/// projects the agent state, reads the session's text streams, and closes the
+/// room when the session ends or is dropped.
 ///
-/// Holds no [`Session`](crate::Session) and no `stop` sender, so dropping the
-/// last session handle closes `stop` and stops the actor.
+/// Owns the room from the moment it is connected, so that a `start()` dropped
+/// while the microphone publishes leaves nothing behind to close. Holds no
+/// [`Session`](crate::Session) and no `stop` sender, so dropping the last
+/// session handle closes `stop` and stops the actor.
 pub(crate) struct SessionActor {
     generation: u64,
     room: Arc<Room>,
-    /// Keeps the microphone and speakers running for as long as the room:
-    /// dropped with the actor, once the room is closed.
-    _platform_audio: Option<PlatformAudio>,
+    /// The microphone to publish, and the speakers. Kept running for as long
+    /// as the room: dropped with the actor, once the room is closed.
+    platform_audio: Option<PlatformAudio>,
     room_events: mpsc::UnboundedReceiver<RoomEvent>,
     /// Never carries a value: the session stops the actor by dropping the
     /// sender.
     stop: mpsc::Receiver<()>,
+    /// Answers the `start()` that spawned the actor once the microphone is
+    /// published, or failed to. Dropped unanswered if the actor stops first.
+    ready: Option<oneshot::Sender<Result<(), RoomError>>>,
     /// The session's text streams, read here rather than in tasks of their
     /// own, so that the transcript aggregator has a single writer.
     readers: SelectAll<BoxStream<'static, ReaderEvent>>,
+    /// How long an agent gets to become conversational, counted once the
+    /// microphone, if any, is published.
+    agent_timeout: Duration,
     agent_deadline: Option<Pin<Box<Sleep>>>,
     connection: SessionConnectionState,
     tracker: AgentTracker,
@@ -206,6 +217,7 @@ impl SessionActor {
         generation: u64,
         connection: Connection,
         stop: mpsc::Receiver<()>,
+        ready: oneshot::Sender<Result<(), RoomError>>,
         shared: Arc<Shared>,
     ) -> Self {
         let state = match connection.room.connection_state() {
@@ -217,11 +229,13 @@ impl SessionActor {
         Self {
             generation,
             room: connection.room,
-            _platform_audio: connection.platform_audio,
+            platform_audio: connection.platform_audio,
             room_events: connection.events,
             stop,
+            ready: Some(ready),
             readers: SelectAll::new(),
-            agent_deadline: Some(Box::pin(tokio::time::sleep(connection.agent_timeout))),
+            agent_timeout: connection.agent_timeout,
+            agent_deadline: None,
             connection: state,
             tracker: AgentTracker::default(),
             aggregator: TranscriptAggregator::default(),
@@ -243,7 +257,65 @@ impl SessionActor {
     }
 
     pub(crate) async fn run(mut self) {
-        let exit = loop {
+        let exit = match self.publish_microphone().await {
+            Ok(()) => self.serve().await,
+            Err(exit) => exit,
+        };
+
+        // Closed before the final state, so that a `start()` prompted by it
+        // already finds this actor gone.
+        self.stop.close();
+        let failure = match exit {
+            Exit::Stopped => {
+                self.close_room().await;
+                None
+            }
+            Exit::Disconnected(reason) => {
+                log::info!("session room disconnected: {reason:?}");
+                None
+            }
+            Exit::Microphone(err) => {
+                self.close_room().await;
+                Some(err)
+            }
+        };
+        self.shared.publish(self.generation, SessionState::default());
+        // Answered once the room is closed and the state final, so that a
+        // failed `start()` returns to an idle session. A `start()` stopped
+        // before the microphone was published learns so when `ready` is
+        // dropped with the actor.
+        if let Some(err) = failure {
+            self.report(Err(err));
+        }
+    }
+
+    /// Publishes the platform microphone, if any, then reports the room as
+    /// connected, to the state and to the `start()` waiting on it. Stops
+    /// instead if the session ends first.
+    async fn publish_microphone(&mut self) -> Result<(), Exit> {
+        if let Some(audio) = &self.platform_audio {
+            let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+            let options =
+                TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
+            let local_participant = self.room.local_participant();
+            let publish = local_participant.publish_track(LocalTrack::Audio(track), options);
+            tokio::select! {
+                biased;
+                _ = self.stop.recv() => return Err(Exit::Stopped),
+                result = publish => {
+                    result.map_err(Exit::Microphone)?;
+                }
+            }
+        }
+        self.agent_deadline = Some(Box::pin(tokio::time::sleep(self.agent_timeout)));
+        self.refresh();
+        self.report(Ok(()));
+        Ok(())
+    }
+
+    /// Runs the room until the session ends or the room disconnects.
+    async fn serve(&mut self) -> Exit {
+        loop {
             let deadline = &mut self.agent_deadline;
             let deadline = async move {
                 match deadline.as_mut() {
@@ -258,30 +330,29 @@ impl SessionActor {
                 () = deadline => Event::AgentDeadline,
             };
             match event {
-                Event::Stop => break Exit::Stopped,
+                Event::Stop => return Exit::Stopped,
                 Event::Room(RoomEvent::Disconnected { reason }) => {
-                    break Exit::Disconnected(reason)
+                    return Exit::Disconnected(reason)
                 }
                 Event::Room(event) => self.on_room_event(event),
                 Event::Reader(event) => self.on_reader_event(event),
                 Event::AgentDeadline => self.on_agent_deadline(),
             }
-        };
-
-        // Closed before the final state, so that a `start()` prompted by it
-        // already finds this actor gone.
-        self.stop.close();
-        match exit {
-            Exit::Stopped => {
-                if let Err(err) = self.room.close().await {
-                    log::warn!("failed to close the session room: {err}");
-                }
-            }
-            Exit::Disconnected(reason) => {
-                log::info!("session room disconnected: {reason:?}");
-            }
         }
-        self.shared.publish(self.generation, SessionState::default());
+    }
+
+    async fn close_room(&mut self) {
+        if let Err(err) = self.room.close().await {
+            log::warn!("failed to close the session room: {err}");
+        }
+    }
+
+    /// Answers the `start()` that spawned the actor, unless it was dropped or
+    /// already answered.
+    fn report(&mut self, result: Result<(), RoomError>) {
+        if let Some(ready) = self.ready.take() {
+            let _ = ready.send(result);
+        }
     }
 
     fn on_room_event(&mut self, event: RoomEvent) {
