@@ -16,7 +16,6 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::SendTextOptions;
 use livekit_token_source::{
@@ -176,6 +175,8 @@ pub(crate) enum Lifecycle {
 }
 
 pub(crate) struct Running {
+    /// The `start()` that spawned the actor.
+    generation: u64,
     room: Arc<Room>,
     /// Dropped to stop the actor.
     stop: mpsc::Sender<()>,
@@ -198,6 +199,19 @@ impl Lifecycle {
     fn room(&self) -> Option<&Arc<Room>> {
         match self {
             Self::Running(running) if !running.stop.is_closed() => Some(&running.room),
+            _ => None,
+        }
+    }
+
+    /// Takes the running state of `generation`, leaving the lifecycle idle.
+    /// `None` if an `end` or a later `start` already replaced it.
+    fn take_running(&mut self, generation: u64) -> Option<Running> {
+        match self {
+            Self::Running(running) if running.generation == generation => {}
+            _ => return None,
+        }
+        match mem::replace(self, Self::Idle) {
+            Self::Running(running) => Some(running),
             _ => None,
         }
     }
@@ -266,7 +280,7 @@ impl Session {
     /// is connecting or connected.
     ///
     /// Dropping the future before it resolves leaves the session
-    /// disconnected.
+    /// disconnected; a room connected by then is closed in the background.
     pub async fn start(&self) -> Result<(), SessionStartError> {
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let (generation, stale) = {
@@ -297,40 +311,44 @@ impl Session {
             _ = cancel_rx => Err(SessionStartError::Cancelled),
         };
         let connection = connection?;
-        let room = connection.room.clone();
-        // Outside the cancellable select, so that an `end` during the publish
-        // cannot drop a connected room without closing it; it is honoured
-        // below instead.
-        if let Some(audio) = &connection.platform_audio {
-            if let Err(err) = publish_microphone(&room, audio).await {
-                if let Err(close_err) = room.close().await {
-                    log::warn!("failed to close the room of a failed start: {close_err}");
-                }
-                return Err(SessionStartError::Microphone(err));
-            }
-        }
-        let (stop_tx, stop_rx) = mpsc::channel(1);
-        let mut actor =
-            SessionActor::new(generation, connection, stop_rx, self.inner.shared.clone());
 
+        // The connected room is handed to its actor before anything else is
+        // awaited: from here on, dropping this future stops the actor, which
+        // closes the room, rather than dropping a room nobody would close.
+        let room = connection.room.clone();
+        let (stop_tx, stop_rx) = mpsc::channel(1);
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let shared = self.inner.shared.clone();
+        let actor = SessionActor::new(generation, connection, stop_rx, ready_tx, shared);
         {
             let mut lifecycle = lock(&self.inner.lifecycle);
-            if matches!(*lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation) {
-                actor.refresh();
-                let task = tokio::spawn(actor.run());
-                *lifecycle = Lifecycle::Running(Running { room, stop: stop_tx, task });
-                guard.armed = false;
-                return Ok(());
+            let task = tokio::spawn(actor.run());
+            if !matches!(*lifecycle, Lifecycle::Starting { generation: g, .. } if g == generation) {
+                // `end` was called just as the connection completed. The
+                // actor, finding its `stop` sender gone, closes the room.
+                drop(stop_tx);
+                return Err(SessionStartError::Cancelled);
             }
+            *lifecycle = Lifecycle::Running(Running { generation, room, stop: stop_tx, task });
         }
 
-        // `end` was called just as the connection completed. The room is
-        // closed before the actor, and the platform audio it holds, is dropped.
-        if let Err(err) = room.close().await {
-            log::warn!("failed to close the room of a cancelled start: {err}");
+        // The actor publishes the microphone, then answers. Dropping the
+        // receiver does not stop it; the guard does.
+        let ready = ready_rx.await;
+        guard.armed = false;
+        match ready {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => {
+                // The actor closed the room and is stopping.
+                let failed = lock(&self.inner.lifecycle).take_running(generation);
+                if let Some(failed) = failed {
+                    failed.join().await;
+                }
+                Err(SessionStartError::Microphone(err))
+            }
+            // `end` stopped the actor before the microphone was published.
+            Err(_) => Err(SessionStartError::Cancelled),
         }
-        drop(actor);
-        Err(SessionStartError::Cancelled)
     }
 
     async fn connect(&self) -> Result<Connection, SessionStartError> {
@@ -443,17 +461,9 @@ impl Session {
     }
 }
 
-/// Publishes the platform microphone as the local participant's microphone
-/// track.
-async fn publish_microphone(room: &Room, audio: &PlatformAudio) -> RoomResult<()> {
-    let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
-    let options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
-    room.local_participant().publish_track(LocalTrack::Audio(track), options).await?;
-    Ok(())
-}
-
 /// Resets the session when a [`Session::start`] fails or is dropped before
-/// the room is running.
+/// it resolves. An actor already spawned is stopped instead, so that it
+/// closes its room and publishes the final state.
 struct StartGuard<'a> {
     inner: &'a Inner,
     generation: u64,
@@ -469,8 +479,12 @@ impl Drop for StartGuard<'_> {
         if matches!(*lifecycle, Lifecycle::Starting { generation, .. } if generation == self.generation)
         {
             *lifecycle = Lifecycle::Idle;
+            self.inner.shared.publish(self.generation, SessionState::default());
+            return;
         }
-        self.inner.shared.publish(self.generation, SessionState::default());
+        // Dropped while the actor was publishing the microphone. Dropping its
+        // `stop` sender stops it.
+        drop(lifecycle.take_running(self.generation));
     }
 }
 

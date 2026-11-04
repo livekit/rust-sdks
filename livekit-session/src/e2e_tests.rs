@@ -59,6 +59,9 @@ use crate::*;
 const USER: &str = "user";
 const AGENT: &str = "agent";
 const WAIT: Duration = Duration::from_secs(10);
+/// How long the client waits for the server to answer a publish before it
+/// gives up on it: `TRACK_PUBLISH_TIMEOUT` in `livekit`'s engine.
+const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct TestEnv {
     url: String,
@@ -81,15 +84,21 @@ impl TestEnv {
         }
     }
 
+    /// The grants of every token: joining the test's room, and setting
+    /// attributes.
+    fn grants(&self) -> VideoGrants {
+        VideoGrants {
+            room_join: true,
+            room: self.room.clone(),
+            can_update_own_metadata: Some(true),
+            ..Default::default()
+        }
+    }
+
     fn token(&self, identity: &str, customize: impl FnOnce(AccessToken) -> AccessToken) -> String {
         let token = AccessToken::with_api_key(&self.api_key, &self.api_secret)
             .with_ttl(Duration::from_secs(30 * 60))
-            .with_grants(VideoGrants {
-                room_join: true,
-                room: self.room.clone(),
-                can_update_own_metadata: Some(true),
-                ..Default::default()
-            })
+            .with_grants(self.grants())
             .with_identity(identity);
         customize(token).to_jwt().expect("Failed to sign token")
     }
@@ -107,6 +116,16 @@ impl TestEnv {
                 }],
                 ..Default::default()
             })
+        });
+        literal(self.url.clone(), token)
+    }
+
+    /// Credentials for a user who may join but not publish. The server
+    /// answers such a user's microphone publish with nothing, so the publish
+    /// stays pending until the client gives up on it.
+    fn unpublishable_user_source(&self) -> TokenSourceLiteral {
+        let token = self.token(USER, |token| {
+            token.with_grants(VideoGrants { can_publish: Some(false), ..self.grants() })
         });
         literal(self.url.clone(), token)
     }
@@ -198,6 +217,20 @@ fn text_options() -> SessionOptions {
     SessionOptions::default().with_platform_audio(false)
 }
 
+/// The machine's audio devices, or `None` when it has no microphone to
+/// publish, logging that the test is skipped.
+fn microphone_probe() -> Option<PlatformAudio> {
+    let Ok(probe) = PlatformAudio::new() else {
+        log::info!("skipping: this machine has no audio devices");
+        return None;
+    };
+    if probe.recording_devices().next().is_none() {
+        log::info!("skipping: this machine has no microphone");
+        return None;
+    }
+    Some(probe)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
     let env = TestEnv::new();
@@ -239,14 +272,9 @@ async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
 async fn start_publishes_the_microphone_and_end_releases_the_audio_devices() -> Result<()> {
     // Shares the platform audio handle with the session, to observe the
     // session's reference to it.
-    let Ok(probe) = PlatformAudio::new() else {
-        log::info!("skipping: this machine has no audio devices");
+    let Some(probe) = microphone_probe() else {
         return Ok(());
     };
-    if probe.recording_devices().next().is_none() {
-        log::info!("skipping: this machine has no microphone");
-        return Ok(());
-    }
     let env = TestEnv::new();
     let session = Session::new(env.user_source(false), SessionOptions::default());
 
@@ -750,6 +778,72 @@ async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
     assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
     Ok(())
+}
+
+/// Asserts that a start cut short during the microphone publish closed its
+/// room, so the observer sees the user leave, and left no actor or task
+/// behind.
+async fn assert_cut_short_publish_left_nothing(
+    session: &Session,
+    observer_events: &mut UnboundedReceiver<RoomEvent>,
+    baseline_tasks: usize,
+) -> Result<()> {
+    next_participant_event(observer_events, |event| {
+        matches!(event, RoomEvent::ParticipantDisconnected(p) if p.identity().as_str() == USER)
+    })
+    .await?;
+    eventually("the final state", || current(session) == SessionState::default()).await?;
+    assert!(is_idle(session));
+    eventually("the actor to stop", || weak_shared(session).strong_count() == 1).await?;
+    let metrics = tokio::runtime::Handle::current().metrics();
+    eventually("tasks to return to baseline", || metrics.num_alive_tasks() <= baseline_tasks).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_a_start_during_the_microphone_publish_closes_the_room() -> Result<()> {
+    let Some(_probe) = microphone_probe() else {
+        return Ok(());
+    };
+    let env = TestEnv::new();
+    let (_observer, mut observer_events) = env.join_observer().await?;
+    let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
+    let session = Session::new(env.unpublishable_user_source(), SessionOptions::default());
+    let mut start = Box::pin(session.start());
+    // The session has a room once its actor owns it, which is then publishing.
+    // The observer must have seen the user join by then, or the server may
+    // fold the join and the leave into nothing.
+    let publishing = async {
+        eventually("the actor to own the room", || session.room().is_some()).await?;
+        next_participant_event(&mut observer_events, |event| {
+            matches!(event, RoomEvent::ParticipantConnected(p) if p.identity().as_str() == USER)
+        })
+        .await
+    };
+    tokio::select! {
+        result = &mut start => bail!("start resolved during the publish: {result:?}"),
+        publishing = publishing => publishing?,
+    }
+
+    drop(start);
+    assert_cut_short_publish_left_nothing(&session, &mut observer_events, baseline_tasks).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_microphone_publish_closes_the_room() -> Result<()> {
+    let Some(_probe) = microphone_probe() else {
+        return Ok(());
+    };
+    let env = TestEnv::new();
+    let (_observer, mut observer_events) = env.join_observer().await?;
+    let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
+    let session = Session::new(env.unpublishable_user_source(), SessionOptions::default());
+
+    // The client gives up on the unanswered publish after its own timeout.
+    let result = timeout(PUBLISH_TIMEOUT + WAIT, session.start()).await?;
+    assert!(matches!(result, Err(SessionStartError::Microphone(_))), "{result:?}");
+    assert_eq!(current(&session), SessionState::default());
+    assert!(is_idle(&session));
+    assert_cut_short_publish_left_nothing(&session, &mut observer_events, baseline_tasks).await
 }
 
 // Lifecycle (AGENTS.md "Memory lifecycle")
