@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.9 (2026-11-04)
+
+### Fixes
+
+- Add `SignalOptions::cancellation_token`, which ends a signal session for good: a connect or resume in flight stops with `SignalError::Cancelled`, and the signal task closes the transport.
+- A requested `close` or `restart` no longer emits `SignalEvent::Close`. A join or reconnect response timeout now closes the WebSocket instead of leaving it open.
+
 ## 0.1.8 (2026-10-28)
 
 ### Features
