@@ -95,9 +95,10 @@ jobs:
           # dependency warnings don't fail the build (matches ffi-builds.yml).
           rustflags: ""
 
-      # Every build below selects the cdylib with `cargo rustc --crate-type`
-      # rather than `cargo build`: livekit-ffi also lists "lib" (for the Node
-      # bindings), and Cargo drops LTO for a build that emits an rlib.
+      # The dart flags include `--lib --crate-type cdylib`, so every build below
+      # uses `cargo rustc` rather than `cargo build`: livekit-ffi also lists
+      # "lib" (for the Node bindings), and Cargo drops LTO for a build that
+      # emits an rlib.
 
       # Apple, Windows: build the cdylib directly for the target.
       - name: Build (Apple / Windows)
@@ -106,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS=$(python3 .github/scripts/ffi_features.py dart)
-          cargo rustc --lib --crate-type cdylib --release --target ${{ matrix.target }} -p livekit-ffi $FLAGS
+          cargo rustc --release --target ${{ matrix.target }} -p livekit-ffi $FLAGS
 
       # Linux: build inside a manylinux_2_28 container so the shared library
       # links against glibc 2.28 and loads on the distributions the Dart package
@@ -135,7 +136,7 @@ jobs:
               # bfd linker the image provides.
               export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
             fi
-            cargo rustc --lib --crate-type cdylib --release --target "$TARGET" -p livekit-ffi $FLAGS
+            cargo rustc --release --target "$TARGET" -p livekit-ffi $FLAGS
           '
           # The container ran as root, so hand the outputs back to the runner user.
           sudo chown -R "$USER:$USER" target
@@ -152,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS=$(python3 .github/scripts/ffi_features.py dart)
-          cargo ndk --target ${{ matrix.target }} rustc --lib --crate-type cdylib --release -p livekit-ffi $FLAGS
+          cargo ndk --target ${{ matrix.target }} rustc --release -p livekit-ffi $FLAGS
 
       # macOS/Linux: zip + shasum are available.
       - name: Package artifact (Unix)
