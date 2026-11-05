@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.10.1 (2026-11-04)
+
+### Fixes
+
+- livekit-signaling: end a session for good through a cancellation token - #1589 (@lukasIO)
+- livekit-signaling: fix teardown gaps on requested close and response timeout - #1568 (@lukasIO)
+
 ## 0.10.0 (2026-10-28)
 
 ### Breaking Changes

@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.55"
+version = "0.4.0"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "chrono",
@@ -3898,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3992,7 +3992,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4011,6 +4011,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "url",
 ]
 
@@ -8686,7 +8687,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.52"
+version = "0.3.53"
 dependencies = [
  "cc",
  "cxx",
@@ -9607,9 +9608,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.4"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a954114b47a54df49f83d2722814e86b23d4bb1b54a1b90fb7d92b41619ddc22"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
  "flate2",

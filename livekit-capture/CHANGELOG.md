@@ -1,3 +1,15 @@
+## 0.1.9 (2026-11-04)
+
+### Fixes
+
+- Pre-encoded video publishing no longer requires a local encoder for its codec, so pre-encoded H265 works on hosts without an H265 encoder, a camera track requesting a codec no local encoder produces now publishes VP8 instead of a codec it cannot encode, and `PeerConnectionFactory::video_encoder_codecs` reports codec support using a non-exhaustive `libwebrtc::video_codec::VideoCodec` enum supporting `FromStr`, with `Auto` excluding the pre-encoded pass-through backend.
+- Drop a transcription with an invalid track sid instead of panicking - #1600 (@lukasIO)
+- Preserve distinct frame metadata when queued video frames are captured within the same millisecond, including pre-encoded frames that share an RTP timestamp.
+- livekit-signaling: end a session for good through a cancellation token - #1589 (@lukasIO)
+- livekit-signaling: fix teardown gaps on requested close and response timeout - #1568 (@lukasIO)
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+- Space reconnect attempts on the same schedule as livekit-client's `DefaultReconnectPolicy` (0.3 s, 1.2 s, 2.7 s, 4.8 s, then 7 s, plus up to 1 s of jitter) instead of full jitter, which could spend all ten attempts within a few seconds of outage. The jitter now comes from a randomly keyed hash rather than the clock's sub-second digits, which are all zero on macOS. No new reconnect attempt starts after `RECONNECT_MAX_DURATION` (60 s), so slow failing attempts cannot keep a room in `Reconnecting` for minutes. `RECONNECT_BACKOFF_MULTIPLIER` is deprecated: the schedule is quadratic in the attempt number.
+
 ## 0.1.8 (2026-10-28)
 
 ### Features

@@ -575,13 +575,14 @@ impl RtcSession {
             None
         };
 
-        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
-            url,
-            token,
-            options.signal_options.clone(),
-            publisher_offer.clone(),
-        )
-        .await?;
+        // A token of this session's own, cancelled by `close`: the engine reuses its options for
+        // the next session of a full reconnect. It replaces any configured token, because a
+        // cancel from outside would end signalling without the engine noticing. The engine
+        // ends with `close` instead.
+        let mut signal_options = options.signal_options.clone();
+        signal_options.cancellation_token = Default::default();
+        let (signal_client, mut join_response, signal_events) =
+            SignalClient::connect(url, token, signal_options, publisher_offer.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -2066,16 +2067,22 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
-            let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
-                match track.kind() {
-                    TrackKind::Video => MediaType::Video,
-                    TrackKind::Audio => MediaType::Audio,
-                },
-            );
-
+            // LocalParticipant already settled on a codec this sender can
+            // produce. Offer only that codec, and never fall back to an empty
+            // preference list: libwebrtc would then offer every codec the
+            // encoder factory lists, including pass-through-only codecs a raw
+            // sender cannot encode.
+            let lk_runtime = LkRuntime::instance();
+            let pc_factory = lk_runtime.pc_factory();
+            let producible = pc_factory
+                .video_encoder_codecs(crate::options::codec_source_backend(options.video_encoder));
+            let is_producible = |mime_type: &str| {
+                producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
+            };
             transceiver.set_codec_preferences(preferred_video_codecs(
-                capabilities.codecs,
+                pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs,
                 options.video_codec,
+                is_producible,
             ))?;
         }
 
@@ -2141,13 +2148,29 @@ impl SessionInner {
                 .await;
         }
 
+        // Final, unlike `close` alone: a resume racing this teardown is refused or stopped
+        // instead of reopening the session.
+        self.signal_client.options().cancellation_token.cancel();
         self.signal_client.close().await;
+    }
+
+    /// Close the signal link locally and report it as lost. A requested close emits no
+    /// `SignalEvent::Close`, so the resume has to be started here.
+    async fn simulate_signal_loss(&self) {
+        self.signal_client.close().await;
+        self.on_session_disconnected(
+            "simulated signal loss",
+            DisconnectReason::UnknownReason,
+            proto::ReconnectReason::RrSignalDisconnected,
+            proto::leave_request::Action::Resume,
+            false,
+        );
     }
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::DisconnectSignalOnResume => {
                 // Tell the server to drop the signalling link during the next
@@ -2162,7 +2185,7 @@ impl SessionInner {
                         ),
                     }))
                     .await;
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::Speaker => {
                 self.signal_client
@@ -2858,12 +2881,16 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 fn preferred_video_codecs(
     codecs: Vec<RtpCodecCapability>,
     video_codec: VideoCodec,
+    is_producible: impl Fn(&str) -> bool,
 ) -> Vec<RtpCodecCapability> {
     let mut matched = Vec::new();
     let mut partial_matched = Vec::new();
+    let mut producible_codecs = Vec::new();
+    let requested_mime_type = format!("video/{}", video_codec.as_str());
 
     for codec in codecs {
-        if codec.mime_type.to_lowercase() == format!("video/{}", video_codec.as_str()) {
+        let mime_type = codec.mime_type.to_lowercase();
+        if mime_type == requested_mime_type {
             if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
                 // Prefer Constrained Baseline Level 3.1 for cross-browser compatibility.
                 if sdp_fmtp_line.contains("profile-level-id=42e01f") {
@@ -2872,11 +2899,19 @@ fn preferred_video_codecs(
                 }
             }
             partial_matched.push(codec);
+        } else if is_producible(&mime_type) {
+            producible_codecs.push(codec);
         }
     }
 
     if matched.is_empty() {
         matched.append(&mut partial_matched);
+    }
+    if matched.is_empty() {
+        log::warn!(
+            "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
+        );
+        matched = producible_codecs;
     }
     matched
 }
@@ -2932,6 +2967,7 @@ mod tests {
                 codec("video/H264", None),
             ],
             VideoCodec::H264,
+            |_| false,
         );
         assert_eq!(
             selected.iter().map(|c| c.sdp_fmtp_line.as_deref()).collect::<Vec<_>>(),
@@ -2948,6 +2984,7 @@ mod tests {
                 codec("video/H264", None),
             ],
             VideoCodec::H264,
+            |_| false,
         );
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].sdp_fmtp_line.as_deref(), Some("profile-level-id=64001f"));
@@ -2962,12 +2999,15 @@ mod tests {
             codec("video/VP8", None),
             codec("video/vp9", Some("profile-id=2")),
         ];
-        let vp9 = preferred_video_codecs(codecs.clone(), VideoCodec::VP9);
+        let vp9 = preferred_video_codecs(codecs.clone(), VideoCodec::VP9, |_| false);
         assert_eq!(vp9.len(), 2);
         assert_eq!(vp9[0].sdp_fmtp_line.as_deref(), Some("profile-id=0"));
         assert_eq!(vp9[1].sdp_fmtp_line.as_deref(), Some("profile-id=2"));
-        assert_eq!(preferred_video_codecs(codecs.clone(), VideoCodec::VP8).len(), 1);
-        assert!(preferred_video_codecs(codecs, VideoCodec::H265).is_empty());
+        assert_eq!(preferred_video_codecs(codecs.clone(), VideoCodec::VP8, |_| false).len(), 1);
+        assert!(preferred_video_codecs(codecs.clone(), VideoCodec::H265, |_| false).is_empty());
+        let fallback = preferred_video_codecs(codecs, VideoCodec::H265, |mime| mime == "video/vp8");
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].mime_type, "video/VP8");
     }
 
     /// The server picks negotiated data channels from the protocol the client advertised, so a

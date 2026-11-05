@@ -228,16 +228,13 @@ impl From<signaling::SignalError> for SignalError {
             ref input @ (E::UrlParse(_) | E::TokenFormat) => {
                 Self::InvalidInput { reason: input.to_string() }
             }
+            // The session's token is only cancelled by `SignalSession::close` or its release.
+            E::Cancelled => Self::Other { reason: "the session is closed".to_string() },
             // Catches the variants not broken out above, and is required besides:
             // `signaling::SignalError` is `#[non_exhaustive]`.
             ref other => Self::Other { reason: other.to_string() },
         }
     }
-}
-
-/// The error a resume returns once the session has been closed.
-fn closed_resume() -> SignalError {
-    SignalError::Other { reason: "cannot resume a closed session".to_string() }
 }
 
 /// A request handed to [`SignalSession::send`] could not be sent.
@@ -328,29 +325,14 @@ impl SignalSession {
     /// media path is back, or queued requests stay buffered. Fails once the session has been
     /// closed.
     pub async fn restart(&self, reason: ReconnectReason) -> Result<Bytes, SignalError> {
-        if self.shutdown.is_cancelled() {
-            return Err(closed_resume());
-        }
         let client = self.client.clone();
-        let shutdown = self.shutdown.clone();
         // Spawned for two reasons. `restart` spawns the replacement signal task, which must land
         // on this crate's runtime: uniffi polls this future through `async_compat`, whose
         // ambient runtime is not ours. And a host that cancels the call drops this future, but
-        // not the spawned task, so a resume cut short still installs or closes its new stream
-        // instead of leaving it unowned.
+        // not the spawned task, so a resume cut short never drops its new stream unclosed. A
+        // close, however late, cancels the session's token, which the resume observes.
         let response = crate::runtime::runtime()
-            .spawn(async move {
-                let response = client.restart(reason.into()).await;
-                // A close that lands mid-resume cannot stop it: `SignalClient::close` returns
-                // early once the state is `Disconnecting`, but the state machine still accepts
-                // the resume afterwards. Closing here is what keeps the new signal task owned,
-                // and the resume is reported as refused however late the close arrived.
-                if shutdown.is_cancelled() {
-                    client.close().await;
-                    return Err(closed_resume());
-                }
-                response.map_err(SignalError::from)
-            })
+            .spawn(async move { client.restart(reason.into()).await })
             .await
             .map_err(|err| SignalError::Other {
                 reason: format!("restart task failed: {err}"),
@@ -394,13 +376,9 @@ impl SignalSession {
 
 impl Drop for SignalSession {
     fn drop(&mut self) {
-        // Cancel first, so a caller already parked in `next_event` is released.
+        // Releases a caller parked in `next_event`, and ends the session: the signal task
+        // closes the transport and drops the emitter, which ends the event stream.
         self.shutdown.cancel();
-        // `drop` cannot await, so the close runs as a task holding the last reference to the
-        // client. It is bounded: `close` only waits on the signal task, which ends with the
-        // transport. Releasing the client afterwards drops the emitter and ends the event stream.
-        let client = self.client.clone();
-        crate::runtime::runtime().spawn(async move { client.close().await });
     }
 }
 
@@ -411,36 +389,6 @@ pub struct SignalSessionConnected {
     /// Encoded `livekit.JoinResponse`.
     pub join_response: Bytes,
     pub events: Arc<SignalEventQueue>,
-}
-
-type Connected = (signaling::SignalClient, proto::JoinResponse, signaling::SignalEvents);
-
-/// Holds the in-flight connect task, and closes whatever it produces if the caller goes away.
-///
-/// Dropping a [`tokio::task::JoinHandle`] detaches the task rather than cancelling it, so a
-/// cancelled `connect` still opens a session that nobody holds. `SignalClient` has no `Drop`,
-/// so without this the signal task keeps the WebSocket alive and the server keeps a participant
-/// in the room.
-struct CloseOnCancel(Option<tokio::task::JoinHandle<signaling::SignalResult<Connected>>>);
-
-impl CloseOnCancel {
-    /// Awaits the connect task, disarming the guard once it resolves.
-    async fn join(&mut self) -> Result<signaling::SignalResult<Connected>, tokio::task::JoinError> {
-        let connected = self.0.as_mut().expect("armed until joined").await;
-        self.0 = None;
-        connected
-    }
-}
-
-impl Drop for CloseOnCancel {
-    fn drop(&mut self) {
-        let Some(handle) = self.0.take() else { return };
-        crate::runtime::runtime().spawn(async move {
-            if let Ok(Ok((client, ..))) = handle.await {
-                client.close().await;
-            }
-        });
-    }
 }
 
 /// Connects a signalling session to `url`.
@@ -458,20 +406,24 @@ pub async fn connect_signal_session(
         .map(|offer| proto::SessionDescription::decode(offer.as_slice()))
         .transpose()
         .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?;
-    let options = options.into();
+    let options: signaling::SignalOptions = options.into();
+    let shutdown = options.cancellation_token.clone();
 
+    // A caller that cancels this call drops the guard, which cancels the session: the connect
+    // stops, or the signal task closes what it produced. Dropping the task handle alone only
+    // detaches the task, leaving a session nobody holds.
+    let guard = shutdown.clone().drop_guard();
     // `SignalClient::connect` spawns the long-lived signal task, which must land on this crate's
     // runtime rather than whatever ambient one uniffi supplies. Spawning needs a `'static`
     // future, which is why `url` and `token` are owned rather than `&str`.
-    let mut connect = CloseOnCancel(Some(crate::runtime::runtime().spawn(async move {
-        signaling::SignalClient::connect(&url, &token, options, publisher_offer).await
-    })));
-    let (client, join_response, events) = connect
-        .join()
+    let (client, join_response, events) = crate::runtime::runtime()
+        .spawn(async move {
+            signaling::SignalClient::connect(&url, &token, options, publisher_offer).await
+        })
         .await
         .map_err(|err| SignalError::Other { reason: format!("connect task failed: {err}") })??;
+    guard.disarm();
 
-    let shutdown = CancellationToken::new();
     Ok(SignalSessionConnected {
         session: Arc::new(SignalSession { client: Arc::new(client), shutdown: shutdown.clone() }),
         join_response: Bytes::from(join_response.encode_to_vec()),
@@ -901,14 +853,15 @@ mod tests {
     ///
     /// `SignalClient::restart` tears the old transport down before it resumes, and the state is
     /// `Disconnecting` for the duration. A close arriving in that window is refused by the
-    /// transition table and returns having done nothing, while the resume carries on and
-    /// installs a replacement nobody holds. Stalling the transport's own close widens that
+    /// transition table, so only the session's cancellation token can stop the resume from
+    /// installing a replacement nobody holds. Stalling the transport's own close widens that
     /// window enough to land a drop inside it.
     #[test]
-    fn dropping_mid_restart_closes_the_resumed_session() {
+    fn dropping_mid_restart_stops_the_resume() {
         with_mock_transport(async {
             let connected = connect().await;
             let first = take_conn();
+            let client = Arc::downgrade(&connected.session.client);
 
             STALL_CLOSE.store(true, Ordering::SeqCst);
             let session = connected.session.clone();
@@ -925,13 +878,14 @@ mod tests {
             drop(connected);
             STALL_CLOSE.store(false, Ordering::SeqCst);
 
-            eventually(
-                || LATEST_CONN.lock().unwrap().is_some(),
-                "the resume never opened a transport",
-            )
-            .await;
-            assert_released(take_conn()).await;
-            drop(first);
+            assert_released(first).await;
+            // The resume's task holds the client until it returns.
+            eventually(|| client.upgrade().is_none(), "the resume outlived its session").await;
+            // The release cancelled the token before the resume dialled, so it never did.
+            assert!(
+                LATEST_CONN.lock().unwrap().is_none(),
+                "a resume cancelled by the release opened a transport"
+            );
         });
     }
 
