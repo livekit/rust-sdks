@@ -2093,7 +2093,7 @@ export declare class RoomOptions extends Message<RoomOptions> {
   encryption?: E2eeOptions;
 
   /**
-   * use single peer connection for both publish/subscribe (default: false)
+   * use single peer connection for both publish/subscribe (default: true)
    *
    * @generated from field: optional bool single_peer_connection = 8;
    */
