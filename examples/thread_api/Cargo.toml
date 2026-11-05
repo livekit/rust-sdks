@@ -9,3 +9,4 @@ chrono = { workspace = true }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-protocol = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+livekit-thread = { workspace = true, features = ["rustls-tls-native-roots"] }

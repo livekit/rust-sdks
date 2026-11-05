@@ -1,0 +1,66 @@
+[package]
+name = "livekit-thread"
+description = "Agent threads for the LiveKit Rust SDK"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+default = ["native"]
+
+# Backend and TLS pass-throughs, forwarded to the call (livekit-session), the
+# A2A stream (livekit-net) and the threads service (livekit-api).
+native = ["livekit-session/native", "livekit-net/native"]
+native-tls = ["livekit-session/native-tls", "livekit-net/native-tls", "livekit-api/native-tls"]
+native-tls-vendored = [
+    "livekit-session/native-tls-vendored",
+    "livekit-net/native-tls-vendored",
+    "livekit-api/native-tls-vendored",
+]
+rustls-tls-native-roots = [
+    "livekit-session/rustls-tls-native-roots",
+    "livekit-net/rustls-tls-native-roots",
+    "livekit-api/rustls-tls-native-roots",
+]
+rustls-tls-webpki-roots = [
+    "livekit-session/rustls-tls-webpki-roots",
+    "livekit-net/rustls-tls-webpki-roots",
+    "livekit-api/rustls-tls-webpki-roots",
+]
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+#
+# Curated rather than a powerset, for the same reason as livekit-session: every
+# TLS feature is forwarded to `livekit` through livekit-session, so most
+# powerset entries rebuild `livekit` underneath, and depth 2 would spend most
+# checks on two TLS backends at once, which nobody can select.
+[package.metadata.feature-combinations]
+mode = "curated"
+check = [
+    ["default"],                                        # a plain `cargo check`
+    [],                                                 # --no-default-features
+    ["native", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-native-roots"],             # defaults *plus* one
+]
+
+[dependencies]
+async-trait = "0.1"
+chrono = { workspace = true }
+livekit = { workspace = true }
+livekit-api = { workspace = true, features = ["services"] }
+livekit-net = { workspace = true }
+livekit-protocol = { workspace = true }
+livekit-session = { workspace = true }
+livekit-token = { workspace = true }
+livekit-token-source = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

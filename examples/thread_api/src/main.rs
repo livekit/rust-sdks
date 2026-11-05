@@ -1,12 +1,21 @@
-//! Lists the threads of one scope and prints the history of one thread,
-//! through the threads service of a LiveKit Cloud project.
+//! Agent 2.0 threads of a LiveKit Cloud project, in two modes:
 //!
-//! This is the read side of an Agent 2.0 thread: the listing and the
-//! history. A message to the agent goes to the agent endpoint instead, which
-//! this example does not do.
+//! - `cargo run -p thread_api -- list_threads` lists the threads of one scope
+//!   and prints the history of one thread, through the threads service.
+//! - `cargo run -p thread_api -- chat` chats with the agent in one thread,
+//!   through `livekit-thread`. `/call` starts or ends a voice call in the same
+//!   thread.
+//!
+//! Environment: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and
+//! optionally `THREAD_SCOPE` (default `demo-user`), `THREAD_ID` (default: the
+//! newest thread for `list_threads`, a new thread for `chat`), `AGENT_NAME`
+//! (default `dentist`), `AGENT_ENDPOINT` (default `frontend`) and
+//! `AGENT_DEPLOYMENT`.
 
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
+use std::io::Write;
 
 use chrono::DateTime;
 use livekit_api::access_token::get_env_keys;
@@ -17,9 +26,17 @@ use livekit_protocol::agent::agent_thread::{
 use livekit_protocol::agent::chat_context::chat_item;
 use livekit_protocol::agent::chat_message::chat_content::Payload;
 use livekit_protocol::agent::{ChatMessage, ChatRole};
+use livekit_thread::{
+    Message, MessageOrigin, SessionOptions, ThreadDirectory, ThreadDirectoryOptions, ThreadEvent,
+    TurnOutcome,
+};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::mpsc;
 
 const PAGE_SIZE: i32 = 50;
 const DEFAULT_SCOPE: &str = "demo-user";
+const DEFAULT_AGENT: &str = "dentist";
+const DEFAULT_ENDPOINT: &str = "frontend";
 
 /// A protobuf timestamp as `YYYY-MM-DD HH:MM:SS` in UTC.
 fn time(seconds: i64, nanos: i32) -> String {
@@ -107,16 +124,16 @@ async fn list_items(client: &ThreadClient, thread_id: &str) -> Result<Vec<Item>,
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let url = env::var("LIVEKIT_URL")
-        .map_err(|_| "set LIVEKIT_URL, e.g. wss://<project>.staging.livekit.cloud")?;
-    let (api_key, api_secret) =
-        get_env_keys().map_err(|_| "set LIVEKIT_API_KEY and LIVEKIT_API_SECRET")?;
-    let client = ThreadClient::with_api_key(&url, &api_key, &api_secret);
-
-    let scope = env::var("THREAD_SCOPE").unwrap_or_else(|_| DEFAULT_SCOPE.to_owned());
-    let threads = list_threads(&client, &scope).await?;
+/// Lists the threads of the scope and prints the history of one thread,
+/// directly through the threads service.
+async fn list_threads_command(
+    url: &str,
+    api_key: &str,
+    api_secret: &str,
+    scope: &str,
+) -> Result<(), Box<dyn Error>> {
+    let client = ThreadClient::with_api_key(url, api_key, api_secret);
+    let threads = list_threads(&client, scope).await?;
     println!("Threads of scope {scope:?}, newest first:");
     for thread in &threads {
         let last_active =
@@ -146,4 +163,159 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("  [{}] {} {}", item.agent, created_at(chat_item), describe(chat_item));
     }
     Ok(())
+}
+
+/// An interactive chat with the agent in one thread, through
+/// `livekit-thread`. Opens `THREAD_ID`, or creates a new thread.
+async fn chat(
+    url: &str,
+    api_key: &str,
+    api_secret: &str,
+    scope: &str,
+) -> Result<(), Box<dyn Error>> {
+    // For development only, the directory signs every token locally with the
+    // project key.
+    let directory = ThreadDirectory::with_api_key(
+        url,
+        api_key,
+        api_secret,
+        ThreadDirectoryOptions {
+            agent_name: env::var("AGENT_NAME").unwrap_or_else(|_| DEFAULT_AGENT.to_owned()),
+            endpoint: env::var("AGENT_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned()),
+            scope: scope.to_owned(),
+            deployment: env::var("AGENT_DEPLOYMENT").ok(),
+        },
+    );
+    let thread = match env::var("THREAD_ID") {
+        Ok(id) => directory.open(&id).await?,
+        Err(_) => directory.create().await?,
+    };
+
+    // Subscribe before reading the history, so that no update is lost.
+    let events = thread.subscribe();
+    println!(
+        "Thread {}. Type a message, /call to start or end a call, /quit to leave.",
+        thread.id()
+    );
+    for message in thread.messages() {
+        print_message(&message);
+    }
+    let feed = tokio::spawn(print_feed(events));
+    prompt();
+
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut in_call = false;
+    while let Some(line) = lines.next_line().await? {
+        match line.trim() {
+            "" => prompt(),
+            "/quit" => break,
+            "/call" => {
+                let call = match thread.call() {
+                    Some(call) => call,
+                    None => thread.create_call(SessionOptions::default())?,
+                };
+                if in_call {
+                    call.end().await;
+                    println!("(call ended)");
+                } else {
+                    call.start().await?;
+                    println!("(in a call: speak now, /call to end it)");
+                }
+                in_call = !in_call;
+                prompt();
+            }
+            text => {
+                // The feed prints the answer and the next prompt.
+                if let Err(error) = thread.send_text(text).await {
+                    println!("(not sent: {error})");
+                    prompt();
+                }
+            }
+        }
+    }
+
+    // Ending the thread also ends the call, and closes the feed.
+    thread.end().await;
+    feed.await?;
+    Ok(())
+}
+
+/// Prints the feed: the agent's text answer as it streams in, other messages
+/// when they are complete, and a prompt after each turn.
+async fn print_feed(mut events: mpsc::UnboundedReceiver<ThreadEvent>) {
+    // How much of each streaming answer is already printed, by message id.
+    let mut printed: HashMap<String, usize> = HashMap::new();
+    while let Some(event) = events.recv().await {
+        match event {
+            ThreadEvent::MessageUpserted(message) if message.origin == MessageOrigin::AgentText => {
+                let done = printed.get(&message.id).copied();
+                match done {
+                    None => print!("agent: {}", message.text),
+                    Some(len) if message.text.get(..len).is_some() => {
+                        print!("{}", &message.text[len..])
+                    }
+                    // The answer was replaced, not extended: print it again.
+                    Some(_) => print!("\nagent: {}", message.text),
+                }
+                if message.is_final {
+                    println!();
+                    printed.remove(&message.id);
+                } else {
+                    printed.insert(message.id.clone(), message.text.len());
+                }
+                flush();
+            }
+            // The user's own text is already on screen.
+            ThreadEvent::MessageUpserted(message)
+                if message.is_final && message.origin != MessageOrigin::UserInput =>
+            {
+                print_message(&message);
+            }
+            ThreadEvent::TurnEnded(TurnOutcome::Completed | TurnOutcome::InputRequired) => prompt(),
+            ThreadEvent::TurnEnded(outcome) => {
+                println!("(turn ended: {outcome:?})");
+                prompt();
+            }
+            _ => {}
+        }
+    }
+}
+
+fn print_message(message: &Message) {
+    let speaker = match message.origin {
+        MessageOrigin::UserInput => "you",
+        MessageOrigin::UserTranscript => "you (spoken)",
+        MessageOrigin::AgentText => "agent",
+        MessageOrigin::AgentTranscript => "agent (spoken)",
+        _ => message.participant_identity.as_str(),
+    };
+    println!("{speaker}: {}", message.text);
+}
+
+fn prompt() {
+    print!("> ");
+    flush();
+}
+
+fn flush() {
+    // A failed flush of the terminal is not worth stopping the chat for.
+    let _ = std::io::stdout().flush();
+}
+
+const USAGE: &str = "usage: cargo run -p thread_api -- <list_threads | chat>";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let command = env::args().nth(1).ok_or(USAGE)?;
+    let url = env::var("LIVEKIT_URL")
+        .map_err(|_| "set LIVEKIT_URL, e.g. wss://<project>.staging.livekit.cloud")?;
+    let (api_key, api_secret) =
+        get_env_keys().map_err(|_| "set LIVEKIT_API_KEY and LIVEKIT_API_SECRET")?;
+    let scope = env::var("THREAD_SCOPE").unwrap_or_else(|_| DEFAULT_SCOPE.to_owned());
+
+    match command.as_str() {
+        "list_threads" => list_threads_command(&url, &api_key, &api_secret, &scope).await,
+        "chat" => chat(&url, &api_key, &api_secret, &scope).await,
+        _ => Err(USAGE.into()),
+    }
 }
