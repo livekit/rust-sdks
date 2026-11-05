@@ -14,7 +14,7 @@
 
 //! UniFFI bindings for data streams v2 from [`livekit-data-stream`].
 //!
-//! Mirrors the [`crate::data_track`] pattern:
+//! Mirrors the [`crate::data_track_manager`] pattern:
 //! - [`incoming::IncomingDataStreamManager`] wraps the incoming actor. Packets are fed in via a
 //!   synchronous `handle_packet_received` (safe to call from a native data-channel callback), and
 //!   opened readers / v1 back-compat events are pushed out through a foreign delegate.

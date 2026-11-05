@@ -14,8 +14,6 @@
 
 use bytes::Bytes;
 use livekit_datatrack::api::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSid};
-use livekit_protocol as proto;
-use prost::Message;
 
 uniffi::custom_type!(DataTrackSid, String, {
     remote,
@@ -91,26 +89,4 @@ impl From<livekit_datatrack::api::DataTrackSchemaId> for DataTrackSchemaId {
     fn from(source: livekit_datatrack::api::DataTrackSchemaId) -> Self {
         Self { name: source.name().to_string(), encoding: source.encoding().clone() }
     }
-}
-
-/// Signal response crossing the FFI boundary could not be processed.
-#[derive(uniffi::Error, thiserror::Error, Debug)]
-#[uniffi(flat_error)]
-pub enum HandleSignalResponseError {
-    #[error("Response decoding failed: {0}")]
-    Decode(prost::DecodeError),
-    #[error("Response container has no message")]
-    EmptyMessage,
-    #[error("Unsupported response type in this context")]
-    UnsupportedType,
-    #[error(transparent)]
-    Internal(livekit_datatrack::api::InternalError),
-}
-
-/// Deserializes a signal response crossing the FFI boundary, returning the message variant.
-pub(crate) fn deserialize_signal_response(
-    res: &[u8],
-) -> Result<proto::signal_response::Message, HandleSignalResponseError> {
-    let res = proto::SignalResponse::decode(res).map_err(HandleSignalResponseError::Decode)?;
-    res.message.ok_or(HandleSignalResponseError::EmptyMessage)
 }
