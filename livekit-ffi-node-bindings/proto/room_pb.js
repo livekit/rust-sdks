@@ -787,6 +787,7 @@ const RoomDataStreamOptions = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "max_payload_byte_length", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 2, name: "use_legacy_client_implementation", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 3, name: "max_open_streams_per_participant", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 
