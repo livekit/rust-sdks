@@ -2065,7 +2065,11 @@ impl SessionInner {
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
-            transceiver.sender().set_video_encoder_backend(options.video_encoder);
+            let sender = transceiver.sender();
+            #[cfg(not(target_arch = "wasm32"))]
+            sender.set_video_sender_options(options.video_encoder, options.fec.fec_rate());
+            #[cfg(target_arch = "wasm32")]
+            sender.set_video_encoder_backend(options.video_encoder);
 
             // LocalParticipant already settled on a codec this sender can
             // produce. Offer only that codec, and never fall back to an empty
@@ -2108,6 +2112,17 @@ impl SessionInner {
                     "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
                 );
                 matched = producible_codecs;
+            }
+
+            // libwebrtc's codec preference matching drops any codec missing
+            // from the list and never re-adds flexfec. Retain rtx and
+            // flexfec-03 so retransmissions and FEC negotiate. Repair packets
+            // are generated only when this track's protection level is non-zero.
+            for codec in unmatched {
+                let mime_type = codec.mime_type.to_lowercase();
+                if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {
+                    matched.push(codec);
+                }
             }
 
             transceiver.set_codec_preferences(matched)?;

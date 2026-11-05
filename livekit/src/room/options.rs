@@ -126,6 +126,39 @@ impl AudioPreset {
     }
 }
 
+/// Proactive FlexFEC protection applied to a published video track.
+///
+/// FlexFEC is negotiated for every published video track. [`Self::Disabled`] sends no repair
+/// packets and does not reserve encoder bitrate. Any other level spends a fixed fraction of the
+/// track's bitrate on repair packets. FlexFEC protects only the first simulcast layer, so
+/// disabling simulcast is recommended for protected tracks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FecProtection {
+    /// Do not generate FEC for this track.
+    #[default]
+    Disabled,
+    /// Spend approximately 15% of the video bitrate on FEC.
+    Low,
+    /// Spend approximately 25% of the video bitrate on FEC.
+    Medium,
+    /// Spend approximately 35% of the video bitrate on FEC.
+    High,
+}
+
+impl FecProtection {
+    /// Returns libwebrtc's protection factor (0..=255) for this level.
+    pub(crate) const fn fec_rate(self) -> u8 {
+        let percent = match self {
+            Self::Disabled => 0,
+            Self::Low => 15,
+            Self::Medium => 25,
+            Self::High => 35,
+        };
+        (percent * 255 / 100) as u8
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     // If the encodings aren't set, LiveKit will compute the most appropriate ones
@@ -148,6 +181,8 @@ pub struct TrackPublishOptions {
     /// If the requested backend is unavailable, the SDK logs a warning and
     /// falls back to another compatible encoder.
     pub video_encoder: VideoEncoderBackend,
+    /// Proactive FlexFEC protection for this video track.
+    pub fec: FecProtection,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -181,9 +216,28 @@ impl Default for TrackPublishOptions {
             preconnect_buffer: false,
             frame_metadata_features: FrameMetadataFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
+            fec: FecProtection::Disabled,
             scalability_mode: None,
             degradation_preference: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod fec_tests {
+    use super::{FecProtection, TrackPublishOptions};
+
+    #[test]
+    fn fec_protection_maps_to_fixed_rates() {
+        assert_eq!(FecProtection::Disabled.fec_rate(), 0);
+        assert_eq!(FecProtection::Low.fec_rate(), 38);
+        assert_eq!(FecProtection::Medium.fec_rate(), 63);
+        assert_eq!(FecProtection::High.fec_rate(), 89);
+    }
+
+    #[test]
+    fn fec_is_disabled_by_default() {
+        assert_eq!(TrackPublishOptions::default().fec, FecProtection::Disabled);
     }
 }
 

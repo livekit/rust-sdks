@@ -98,6 +98,7 @@ fn main() {
         "src/audio_mixer.cpp",
         "src/av1_bitstream.cpp",
         "src/packet_trailer.cpp",
+        "src/fec_controller.cpp",
         "src/packet_trailer_av1.cpp",
     ]);
 
