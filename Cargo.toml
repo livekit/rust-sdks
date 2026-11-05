@@ -43,6 +43,7 @@ members = [
     "examples/save_to_disk",
     "examples/screensharing",
     "examples/session",
+    "examples/thread_api",
     "examples/token_source",
     "examples/webhooks",
 ]
