@@ -53,27 +53,56 @@ pub struct ThreadDirectoryOptions {
     pub call_options: SessionOptions,
 }
 
-/// One thread of a [`ThreadDirectory::list`].
+/// The platform's record of a thread, as [`ThreadDirectory::list`] and
+/// [`ThreadDirectory::get`] return it and [`Thread::info`] keeps it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ThreadSummary {
+pub struct ThreadInfo {
     /// The thread id (`AT_...`), for [`ThreadDirectory::open`].
     pub id: String,
-    /// The `title` attribute, if the thread has one.
+    /// The `title` attribute, if the thread has one. A title is a
+    /// convention on the attributes, not a field of the platform's record:
+    /// the application sets it, from its backend or its agent, under the
+    /// key `title`. The client does not set attributes.
     pub title: Option<String>,
     /// When the thread was last active.
     pub last_active: Option<DateTime<Utc>>,
-    /// The thread's attributes.
+    /// The thread's attributes, as the application set them.
     pub attributes: HashMap<String, String>,
 }
 
-impl From<agent_thread::Thread> for ThreadSummary {
+impl From<agent_thread::Thread> for ThreadInfo {
     fn from(thread: agent_thread::Thread) -> Self {
         Self {
             title: thread.attributes.get("title").cloned(),
             last_active: thread.last_active.and_then(|t| timestamp(t.seconds, t.nanos)),
             attributes: thread.attributes,
             id: thread.thread_id,
+        }
+    }
+}
+
+/// Where a page of [`ThreadDirectory::list`] starts: the
+/// [`next`](ThreadPage::next) of the page before it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageToken(String);
+
+/// One page of [`ThreadDirectory::list`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ThreadPage {
+    /// The threads of the page, newest first.
+    pub threads: Vec<ThreadInfo>,
+    /// Where the next page starts, or `None` on the last page.
+    pub next: Option<PageToken>,
+}
+
+impl From<agent_thread::ListResponse> for ThreadPage {
+    fn from(response: agent_thread::ListResponse) -> Self {
+        Self {
+            threads: response.threads.into_iter().map(ThreadInfo::from).collect(),
+            next: (!response.next_page_token.is_empty())
+                .then_some(PageToken(response.next_page_token)),
         }
     }
 }
@@ -126,23 +155,39 @@ impl ThreadDirectory {
         &self.inner.options
     }
 
-    /// The threads of the scope, newest first.
-    pub async fn list(&self) -> Result<Vec<ThreadSummary>, DirectoryError> {
-        let mut threads = Vec::new();
-        let mut page_token = String::new();
-        loop {
-            let request = ListRequest {
-                scope: self.inner.options.scope.clone(),
-                page_token,
-                limit: PAGE_SIZE,
-            };
-            let page = self.inner.threads.list(request).await?;
-            threads.extend(page.threads.into_iter().map(ThreadSummary::from));
-            if page.next_page_token.is_empty() {
-                return Ok(threads);
-            }
-            page_token = page.next_page_token;
-        }
+    /// One page of the threads of the scope, newest first: the first page
+    /// for `None`, or the page that starts at `after`.
+    ///
+    /// ```no_run
+    /// # use livekit_thread::ThreadDirectory;
+    /// # async fn run(directory: ThreadDirectory) -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut next = None;
+    /// loop {
+    ///     let page = directory.list(next.as_ref()).await?;
+    ///     for thread in &page.threads {
+    ///         println!("{} {}", thread.id, thread.title.as_deref().unwrap_or("(untitled)"));
+    ///     }
+    ///     next = page.next;
+    ///     if next.is_none() {
+    ///         break;
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list(&self, after: Option<&PageToken>) -> Result<ThreadPage, DirectoryError> {
+        let request = ListRequest {
+            scope: self.inner.options.scope.clone(),
+            page_token: after.map(|token| token.0.clone()).unwrap_or_default(),
+            limit: PAGE_SIZE,
+        };
+        Ok(self.inner.threads.list(request).await?.into())
+    }
+
+    /// The current record of the thread `thread_id`, e.g. to refresh one
+    /// entry of a list after a turn.
+    pub async fn get(&self, thread_id: &str) -> Result<ThreadInfo, DirectoryError> {
+        Ok(self.inner.threads.get(thread_id).await?.into())
     }
 
     /// Creates a new, empty thread in the scope.
@@ -150,7 +195,7 @@ impl ThreadDirectory {
         let request =
             CreateRequest { scope: self.inner.options.scope.clone(), ..Default::default() };
         let created = self.inner.threads.create(request).await?;
-        Ok(Thread::new(Arc::clone(&self.inner), created.thread_id, Vec::new()))
+        Ok(Thread::new(Arc::clone(&self.inner), created.into(), Vec::new()))
     }
 
     /// Opens the existing thread `thread_id`, with the text messages of its
@@ -159,6 +204,19 @@ impl ThreadDirectory {
     /// The history is the agent's own lane, which holds its text turns and
     /// its calls.
     pub async fn open(&self, thread_id: &str) -> Result<Thread, DirectoryError> {
+        let (info, history) = tokio::try_join!(self.get(thread_id), self.history(thread_id))?;
+        Ok(Thread::new(Arc::clone(&self.inner), info, history))
+    }
+
+    /// Deletes the thread `thread_id` with everything it holds. A
+    /// [`Thread`] open on it is not ended: its later sends fail at the
+    /// endpoint.
+    pub async fn delete(&self, thread_id: &str) -> Result<(), DirectoryError> {
+        Ok(self.inner.threads.delete(thread_id).await?)
+    }
+
+    /// Every text message of the agent's lane in `thread_id`, oldest first.
+    async fn history(&self, thread_id: &str) -> Result<Vec<Update>, DirectoryError> {
         let user = ParticipantIdentity(self.inner.options.scope.clone());
         let agent = ParticipantIdentity(self.inner.options.agent_name.clone());
         let mut history = Vec::new();
@@ -175,11 +233,10 @@ impl ThreadDirectory {
             history
                 .extend(page.items.iter().filter_map(|item| history_update(item, &user, &agent)));
             if page.next_page_token.is_empty() {
-                break;
+                return Ok(history);
             }
             page_token = page.next_page_token;
         }
-        Ok(Thread::new(Arc::clone(&self.inner), thread_id.to_owned(), history))
     }
 }
 
@@ -253,6 +310,26 @@ mod tests {
             deployment: deployment.map(str::to_owned),
             call_options: SessionOptions::default(),
         }
+    }
+
+    #[test]
+    fn thread_page_reads_the_title_and_ends_without_a_token() {
+        let thread = agent_thread::Thread {
+            thread_id: "AT_1".into(),
+            attributes: HashMap::from([("title".to_owned(), "Renewal".to_owned())]),
+            ..Default::default()
+        };
+        let page = ThreadPage::from(agent_thread::ListResponse {
+            threads: vec![thread],
+            next_page_token: "more".into(),
+        });
+        assert_eq!(page.threads[0].id, "AT_1");
+        assert_eq!(page.threads[0].title.as_deref(), Some("Renewal"));
+        assert_eq!(page.next, Some(PageToken("more".into())));
+
+        let last = ThreadPage::from(agent_thread::ListResponse::default());
+        assert!(last.threads.is_empty());
+        assert_eq!(last.next, None);
     }
 
     #[test]

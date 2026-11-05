@@ -61,7 +61,7 @@ mod thread;
 mod turn;
 
 pub use call::Call;
-pub use directory::{ThreadDirectory, ThreadDirectoryOptions, ThreadSummary};
+pub use directory::{PageToken, ThreadDirectory, ThreadDirectoryOptions, ThreadInfo, ThreadPage};
 pub use error::{CallError, DirectoryError, SendError};
 pub use thread::{Thread, ThreadEvent, ThreadState, TurnOutcome, TurnState};
 

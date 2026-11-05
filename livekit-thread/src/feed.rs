@@ -102,6 +102,16 @@ impl Feed {
     fn dispatch(&mut self, event: &ThreadEvent) {
         self.subscribers.retain(|subscriber| subscriber.send(event.clone()).is_ok());
     }
+
+    /// Adds a subscriber. After close, the sender drops here and the
+    /// receiver ends at once.
+    fn subscribe(&mut self) -> mpsc::UnboundedReceiver<ThreadEvent> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        if !self.closed {
+            self.subscribers.push(sender);
+        }
+        receiver
+    }
 }
 
 #[derive(Default)]
@@ -146,13 +156,18 @@ impl Shared {
     }
 
     pub(crate) fn subscribe(&self) -> mpsc::UnboundedReceiver<ThreadEvent> {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        lock(&self.feed).subscribe()
+    }
+
+    /// The messages and a new subscriber, under one lock: a change
+    /// dispatched after this is not in the messages, and none in the
+    /// messages reaches the subscriber.
+    pub(crate) fn subscribe_with_messages(
+        &self,
+    ) -> (Vec<Message>, mpsc::UnboundedReceiver<ThreadEvent>) {
         let mut feed = lock(&self.feed);
-        // After close, the sender drops here and the receiver ends at once.
-        if !feed.closed {
-            feed.subscribers.push(sender);
-        }
-        receiver
+        let messages = feed.store.messages.clone();
+        (messages, feed.subscribe())
     }
 
     pub(crate) fn watch(&self) -> watch::Receiver<ThreadState> {
@@ -257,6 +272,22 @@ mod tests {
         assert!(
             matches!(events.try_recv(), Ok(ThreadEvent::MessageUpserted(m)) if m.text == "Hel")
         );
+        assert!(
+            matches!(events.try_recv(), Ok(ThreadEvent::MessageUpserted(m)) if m.text == "Hello")
+        );
+    }
+
+    #[test]
+    fn subscribe_with_messages_does_not_replay_the_messages() {
+        let shared = Shared::new(vec![update("old", "earlier", true)]);
+        shared.upsert(update("a", "Hel", false));
+
+        let (messages, mut events) = shared.subscribe_with_messages();
+        let texts: Vec<_> = messages.into_iter().map(|m| m.text).collect();
+        assert_eq!(texts, ["earlier", "Hel"]);
+        assert!(events.try_recv().is_err());
+
+        shared.upsert(update("a", "Hello", true));
         assert!(
             matches!(events.try_recv(), Ok(ThreadEvent::MessageUpserted(m)) if m.text == "Hello")
         );
