@@ -79,6 +79,13 @@ impl RemoteAudioTrack {
         self.inner.rtc_track.set_enabled(false);
     }
 
+    /// Sets this track's playout volume on this device only: 0.0 is silent, 1.0 leaves it
+    /// unchanged, values above 1.0 amplify (up to 10.0). Other participants are unaffected.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_volume(&self, volume: f64) {
+        self.rtc_track().set_volume(volume);
+    }
+
     pub fn is_muted(&self) -> bool {
         self.inner.info.read().muted
     }

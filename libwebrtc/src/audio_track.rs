@@ -26,6 +26,13 @@ pub struct RtcAudioTrack {
 
 impl RtcAudioTrack {
     media_stream_track!();
+
+    /// Playout gain for a remote track: 0.0 silent, 1.0 unchanged, up to 10.0.
+    /// No effect on local tracks.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_volume(&self, volume: f64) {
+        self.handle.set_volume(volume)
+    }
 }
 
 impl Debug for RtcAudioTrack {
