@@ -362,6 +362,8 @@ pub mod dictionaries {
         pub pause_count: u32,
         pub total_pause_duration: f64,
         pub freeze_count: u32,
+        /// Spelled `totalFreezesDuration` in the stats libwebrtc emits (and in the W3C spec).
+        #[serde(rename = "totalFreezesDuration")]
         pub total_freeze_duration: f64,
         pub last_packet_received_timestamp: f64,
         pub header_bytes_received: u64,
@@ -441,6 +443,9 @@ pub mod dictionaries {
         pub encoder_implementation: String,
         pub power_efficient_encoder: bool,
         pub active: bool,
+        /// Spelled `scalabilityMode` in the stats libwebrtc emits (and in the W3C spec). The Rust
+        /// field name keeps its historical typo so the public API does not break.
+        #[serde(rename = "scalabilityMode")]
         pub scalibility_mode: String,
     }
 
