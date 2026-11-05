@@ -44,7 +44,9 @@ pub struct ThreadDirectoryOptions {
     /// listed and created in this scope, and it is the user's identity in a
     /// call.
     pub scope: String,
-    /// The agent deployment. `None` targets the default deployment.
+    /// The agent deployment: the worker's `LIVEKIT_AGENT_DEPLOYMENT`. `None`
+    /// sends text to the `default` deployment, but dispatches a call without
+    /// a deployment, which does not reach a worker that registered one.
     pub deployment: Option<String>,
 }
 

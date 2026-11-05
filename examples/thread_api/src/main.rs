@@ -10,7 +10,7 @@
 //! optionally `THREAD_SCOPE` (default `demo-user`), `THREAD_ID` (default: the
 //! newest thread for `list_threads`, a new thread for `chat`), `AGENT_NAME`
 //! (default `dentist`), `AGENT_ENDPOINT` (default `frontend`) and
-//! `AGENT_DEPLOYMENT`.
+//! `LIVEKIT_AGENT_DEPLOYMENT` (the agent worker's deployment).
 
 use std::collections::HashMap;
 use std::env;
@@ -27,11 +27,11 @@ use livekit_protocol::agent::chat_context::chat_item;
 use livekit_protocol::agent::chat_message::chat_content::Payload;
 use livekit_protocol::agent::{ChatMessage, ChatRole};
 use livekit_thread::{
-    Message, MessageOrigin, SessionOptions, ThreadDirectory, ThreadDirectoryOptions, ThreadEvent,
-    TurnOutcome,
+    Message, MessageOrigin, SessionOptions, SessionState, ThreadDirectory, ThreadDirectoryOptions,
+    ThreadEvent, TurnOutcome,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 const PAGE_SIZE: i32 = 50;
 const DEFAULT_SCOPE: &str = "demo-user";
@@ -183,7 +183,8 @@ async fn chat(
             agent_name: env::var("AGENT_NAME").unwrap_or_else(|_| DEFAULT_AGENT.to_owned()),
             endpoint: env::var("AGENT_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_owned()),
             scope: scope.to_owned(),
-            deployment: env::var("AGENT_DEPLOYMENT").ok(),
+            // The same variable the agent worker registers its deployment with.
+            deployment: env::var("LIVEKIT_AGENT_DEPLOYMENT").ok(),
         },
     );
     let thread = match env::var("THREAD_ID") {
@@ -205,6 +206,7 @@ async fn chat(
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut in_call = false;
+    let mut call_state = None;
     while let Some(line) = lines.next_line().await? {
         match line.trim() {
             "" => prompt(),
@@ -212,16 +214,24 @@ async fn chat(
             "/call" => {
                 let call = match thread.call() {
                     Some(call) => call,
-                    None => thread.create_call(SessionOptions::default())?,
+                    None => {
+                        let call = thread.create_call(SessionOptions::default())?;
+                        call_state = Some(tokio::spawn(print_call_state(call.state())));
+                        call
+                    }
                 };
                 if in_call {
                     call.end().await;
-                    println!("(call ended)");
+                    in_call = false;
                 } else {
-                    call.start().await?;
-                    println!("(in a call: speak now, /call to end it)");
+                    match call.start().await {
+                        Ok(()) => {
+                            in_call = true;
+                            println!("(in a call: speak now, /call to end it)");
+                        }
+                        Err(error) => println!("(call failed: {error})"),
+                    }
                 }
-                in_call = !in_call;
                 prompt();
             }
             text => {
@@ -237,7 +247,18 @@ async fn chat(
     // Ending the thread also ends the call, and closes the feed.
     thread.end().await;
     feed.await?;
+    if let Some(call_state) = call_state {
+        call_state.abort();
+    }
     Ok(())
+}
+
+/// Prints the call's connection and agent state when they change.
+async fn print_call_state(mut state: watch::Receiver<SessionState>) {
+    while state.changed().await.is_ok() {
+        let current = *state.borrow_and_update();
+        println!("(call: {:?}, agent: {:?})", current.connection, current.agent);
+    }
 }
 
 /// Prints the feed: the agent's text answer as it streams in, other messages
