@@ -17,15 +17,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use chrono::Utc;
 use livekit::prelude::ParticipantIdentity;
-use livekit_session::{Message, MessageOrigin, Session, SessionEvent, SessionOptions};
+use livekit_session::{Message, MessageOrigin, Session, SessionEvent, SessionState};
 use tokio::sync::{mpsc, watch};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::JoinSet;
 
 use crate::a2a;
 use crate::call::Call;
 use crate::credentials::CallTokenSource;
 use crate::directory::Directory;
-use crate::error::{CallError, SendError};
+use crate::error::SendError;
 use crate::feed::{lock, Shared, Update};
 use crate::turn::Turn;
 
@@ -79,15 +79,19 @@ impl TurnState {
 pub struct ThreadState {
     /// What the agent is doing with the thread's text.
     pub turn: TurnState,
+    /// The connection and agent state of the thread's [`Call`].
+    pub call: SessionState,
 }
 
 /// One conversation with an agent that lasts across text and calls, from a
 /// [`ThreadDirectory`](crate::ThreadDirectory).
 ///
-/// Text goes to the agent over A2A with [`send_text`](Self::send_text). A
-/// [`Call`] joins a room with the agent for the same thread. The feed
-/// ([`messages`](Self::messages), [`subscribe`](Self::subscribe)) merges the
-/// history, the text turns and the call's transcripts.
+/// Text goes to the agent over A2A with [`send_text`](Self::send_text). The
+/// thread's [`call`](Self::call) joins a room with the agent for the same
+/// thread. The feed ([`messages`](Self::messages),
+/// [`subscribe`](Self::subscribe)) merges the history, the text turns and the
+/// call's transcripts, and [`state`](Self::state) covers the turns and the
+/// call.
 ///
 /// [`end`](Self::end) or dropping the thread stops its turns and ends its
 /// call. The thread itself stays on the server and can be opened again.
@@ -97,31 +101,35 @@ pub struct Thread {
     shared: Arc<Shared>,
     user: ParticipantIdentity,
     agent: ParticipantIdentity,
+    call: Call,
     owned: Mutex<Owned>,
 }
 
-/// The tasks and the call that the thread owns.
+/// The tasks that the thread owns: its turns, and the task that copies the
+/// call into the thread.
 #[derive(Default)]
 struct Owned {
     ended: bool,
     /// Aborted when the set drops with the thread.
-    turns: JoinSet<()>,
-    call: Option<CallSlot>,
-}
-
-struct CallSlot {
-    call: Call,
-    /// Copies the call's transcripts into the feed.
-    forward: JoinHandle<()>,
+    tasks: JoinSet<()>,
 }
 
 impl Thread {
+    /// Must be called within a Tokio runtime.
     pub(crate) fn new(directory: Arc<Directory>, id: String, history: Vec<Update>) -> Self {
+        let shared = Arc::new(Shared::new(history));
+        let session = Session::new(
+            CallTokenSource::new(Arc::clone(&directory), &id),
+            directory.options.call_options.clone(),
+        );
+        let mut owned = Owned::default();
+        owned.tasks.spawn(forward_call(session.subscribe(), session.state(), Arc::clone(&shared)));
         Self {
             user: ParticipantIdentity(directory.options.scope.clone()),
             agent: ParticipantIdentity(directory.options.agent_name.clone()),
-            shared: Arc::new(Shared::new(history)),
-            owned: Mutex::default(),
+            call: Call::new(session, Arc::downgrade(&shared)),
+            shared,
+            owned: Mutex::new(owned),
             directory,
             id,
         }
@@ -197,59 +205,33 @@ impl Thread {
             turn.end(outcome);
         } else {
             // Turns that ended are removed, so the set does not grow.
-            while owned.turns.try_join_next().is_some() {}
-            owned.turns.spawn(turn.run(frames));
+            while owned.tasks.try_join_next().is_some() {}
+            owned.tasks.spawn(turn.run(frames));
         }
         Ok(message)
     }
 
-    /// Creates the thread's call, which joins a room with the agent on
-    /// [`Call::start`]. The thread has one call; a second one is
-    /// [`CallError::AlreadyActive`].
-    ///
-    /// Must be called within a Tokio runtime.
-    pub fn create_call(&self, options: SessionOptions) -> Result<Call, CallError> {
-        let mut owned = lock(&self.owned);
-        if owned.ended {
-            return Err(CallError::ThreadEnded);
-        }
-        if owned.call.is_some() {
-            return Err(CallError::AlreadyActive);
-        }
-
-        let source = CallTokenSource::new(Arc::clone(&self.directory), &self.id);
-        let session = Session::new(source, options);
-        let forward =
-            tokio::spawn(forward_transcripts(session.subscribe(), Arc::clone(&self.shared)));
-        let call = Call::new(session);
-        owned.call = Some(CallSlot { call: call.clone(), forward });
-        Ok(call)
-    }
-
-    /// The thread's call, if [`create_call`](Self::create_call) made one.
-    pub fn call(&self) -> Option<Call> {
-        lock(&self.owned).call.as_ref().map(|slot| slot.call.clone())
+    /// The thread's call. [`Call::start`] joins a room with the agent, and
+    /// its state is [`ThreadState::call`].
+    pub fn call(&self) -> &Call {
+        &self.call
     }
 
     /// Ends the thread: stops its turns, ends its call and ends the feed.
-    /// Later sends fail with [`SendError::Ended`].
+    /// Later sends fail with [`SendError::Ended`], and the call does not
+    /// start again.
     pub async fn end(&self) {
-        let (mut turns, call) = {
+        let mut tasks = {
             let mut owned = lock(&self.owned);
             if owned.ended {
                 return;
             }
             owned.ended = true;
-            (mem::take(&mut owned.turns), owned.call.take())
+            mem::take(&mut owned.tasks)
         };
-        turns.shutdown().await;
-        if let Some(slot) = call {
-            slot.call.close();
-            slot.call.end().await;
-            slot.forward.abort();
-            // An aborted task ends with a cancelled error; nothing to report.
-            let _ = slot.forward.await;
-        }
+        tasks.shutdown().await;
+        self.call.close();
+        self.call.end().await;
         self.shared.close();
     }
 }
@@ -261,30 +243,42 @@ impl Drop for Thread {
             return;
         }
         owned.ended = true;
-        // The turns stop when their `JoinSet` drops with the thread.
-        if let Some(slot) = owned.call.take() {
-            slot.forward.abort();
-            slot.call.close();
-            // The app may still hold the call, which keeps its session alive,
-            // so end it. Ending is async and finishes on its own; without a
-            // runtime, the session ends when the app drops its call.
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn(async move { slot.call.end().await });
-            }
+        // The tasks stop when their `JoinSet` drops with the thread.
+        self.call.close();
+        // The app may still hold the call, which keeps its session alive, so
+        // end it. Ending is async and finishes on its own; without a runtime,
+        // the session ends when the app drops its call.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let call = self.call.clone();
+            runtime.spawn(async move { call.end().await });
         }
         self.shared.close();
     }
 }
 
-/// Copies the call's messages into the thread's feed until the thread aborts
-/// this task.
-async fn forward_transcripts(
+/// Copies the call's messages into the thread's feed and the call's state
+/// into the thread's state, until the thread aborts this task.
+async fn forward_call(
     mut events: mpsc::UnboundedReceiver<SessionEvent>,
+    mut state: watch::Receiver<SessionState>,
     shared: Arc<Shared>,
 ) {
-    while let Some(event) = events.recv().await {
-        if let SessionEvent::MessageUpserted(message) = event {
-            shared.upsert(Update::from(message));
+    loop {
+        tokio::select! {
+            event = events.recv() => match event {
+                Some(SessionEvent::MessageUpserted(message)) => {
+                    shared.upsert(Update::from(message));
+                }
+                Some(_) => {}
+                // The session is gone, which only happens with the thread.
+                None => return,
+            },
+            changed = state.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                shared.sync_call(&state);
+            }
         }
     }
 }
@@ -297,7 +291,7 @@ fn new_id(prefix: &str) -> String {
 mod tests {
     use super::*;
 
-    use crate::{ThreadDirectory, ThreadDirectoryOptions};
+    use crate::{CallError, SessionOptions, ThreadDirectory, ThreadDirectoryOptions};
 
     fn thread() -> Thread {
         let directory = ThreadDirectory::with_api_key(
@@ -309,6 +303,7 @@ mod tests {
                 endpoint: "chat".into(),
                 scope: "user".into(),
                 deployment: None,
+                call_options: SessionOptions::default(),
             },
         );
         Thread::new(Arc::clone(&directory.inner), "AT_test".into(), Vec::new())
@@ -324,39 +319,35 @@ mod tests {
     #[tokio::test]
     async fn dropping_the_thread_frees_its_feed_and_closes_its_call() {
         let thread = thread();
-        let call = thread.create_call(SessionOptions::default()).unwrap();
-        assert!(matches!(
-            thread.create_call(SessionOptions::default()),
-            Err(CallError::AlreadyActive)
-        ));
+        let call = thread.call().clone();
         let shared = Arc::downgrade(&thread.shared);
         let mut events = thread.subscribe();
+        let mut state = thread.state();
 
         drop(thread);
         settle().await;
 
         assert!(events.recv().await.is_none());
-        // The forwarding task held the last other reference to the feed.
+        // The forwarding task held the last other strong reference to the
+        // feed: the call the app still holds only has a weak one.
         assert!(shared.upgrade().is_none());
+        assert!(state.changed().await.is_err());
         assert!(matches!(call.start().await, Err(CallError::ThreadEnded)));
     }
 
     #[tokio::test]
     async fn ending_the_thread_stops_sends_and_calls() {
         let thread = thread();
-        let call = thread.create_call(SessionOptions::default()).unwrap();
+        let call = thread.call().clone();
         let mut events = thread.subscribe();
 
         thread.end().await;
 
         assert!(events.recv().await.is_none());
-        assert!(thread.call().is_none());
         assert!(matches!(thread.send_text("Hi").await, Err(SendError::Ended)));
-        assert!(matches!(
-            thread.create_call(SessionOptions::default()),
-            Err(CallError::ThreadEnded)
-        ));
         assert!(matches!(call.start().await, Err(CallError::ThreadEnded)));
+        assert!(matches!(thread.call().start().await, Err(CallError::ThreadEnded)));
+        assert_eq!(*thread.state().borrow(), ThreadState::default());
         assert_eq!(Arc::strong_count(&thread.shared), 1);
     }
 }

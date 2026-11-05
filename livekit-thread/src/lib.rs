@@ -15,12 +15,14 @@
 //! Agent threads for the LiveKit Rust SDK.
 //!
 //! A [`Thread`] is one conversation with an Agent 2.0 agent that lasts across
-//! text and calls. Text goes to the agent's text endpoint over A2A. A
-//! [`Call`] joins a room with the agent for the same thread. Both write into
-//! one feed of [`Message`]s.
+//! text and calls. Text goes to the agent's text endpoint over A2A. The
+//! thread's [`Call`] joins a room with the agent for the same thread. Both
+//! write into one feed of [`Message`]s, and one [`ThreadState`] covers the
+//! text turns and the call.
 //!
 //! A [`ThreadDirectory`] lists the threads of one scope (usually one user),
-//! creates new threads and opens existing ones.
+//! creates new threads and opens existing ones. Threads run their tasks on
+//! Tokio.
 //!
 //! ```no_run
 //! use livekit_thread::{SessionOptions, ThreadDirectory, ThreadDirectoryOptions};
@@ -35,6 +37,7 @@
 //!         endpoint: "chat".into(),
 //!         scope: "user-123".into(),
 //!         deployment: None,
+//!         call_options: SessionOptions::default(),
 //!     },
 //! );
 //!
@@ -42,8 +45,8 @@
 //! thread.send_text("Hello!").await?;
 //! thread.state().wait_for(|state| state.turn.is_idle()).await?;
 //!
-//! let call = thread.create_call(SessionOptions::default())?;
-//! call.start().await?;
+//! thread.call().start().await?;
+//! thread.state().wait_for(|state| state.call.agent.is_connected()).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -62,4 +65,7 @@ pub use directory::{ThreadDirectory, ThreadDirectoryOptions, ThreadSummary};
 pub use error::{CallError, DirectoryError, SendError};
 pub use thread::{Thread, ThreadEvent, ThreadState, TurnOutcome, TurnState};
 
-pub use livekit_session::{Message, MessageOrigin, SessionOptions, SessionState};
+pub use livekit_session::{
+    AgentActivity, AgentFailure, AgentState, Message, MessageOrigin, SessionConnectionState,
+    SessionOptions, SessionState,
+};

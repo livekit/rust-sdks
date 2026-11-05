@@ -20,7 +20,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use chrono::{DateTime, Utc};
 use livekit::prelude::ParticipantIdentity;
-use livekit_session::{Message, MessageOrigin};
+use livekit_session::{Message, MessageOrigin, SessionState};
 use tokio::sync::{mpsc, watch};
 
 use crate::thread::{ThreadEvent, ThreadState, TurnOutcome, TurnState};
@@ -188,7 +188,20 @@ impl Shared {
         lock(&self.feed).dispatch(&ThreadEvent::TurnEnded(outcome));
     }
 
-    /// Ends the feed: subscribers' receivers end, and the state is idle.
+    /// Copies the call's current state into the thread's state. The call's
+    /// state is read under the thread's state lock, so that of two writers
+    /// the older state can never land last.
+    pub(crate) fn sync_call(&self, call: &watch::Receiver<SessionState>) {
+        self.state.send_if_modified(|state| {
+            let current = *call.borrow();
+            let changed = state.call != current;
+            state.call = current;
+            changed
+        });
+    }
+
+    /// Ends the feed: subscribers' receivers end, and the state is idle and
+    /// disconnected.
     pub(crate) fn close(&self) {
         {
             let mut feed = lock(&self.feed);
@@ -196,7 +209,11 @@ impl Shared {
             feed.subscribers.clear();
         }
         *lock(&self.turns) = Turns::default();
-        self.set_turn(TurnState::Idle);
+        self.state.send_if_modified(|state| {
+            let changed = *state != ThreadState::default();
+            *state = ThreadState::default();
+            changed
+        });
     }
 
     fn set_turn(&self, turn: TurnState) {
@@ -259,6 +276,22 @@ mod tests {
 
         shared.begin_turn();
         assert_eq!(shared.input_task(), None);
+    }
+
+    #[test]
+    fn sync_call_mirrors_the_call_state_until_close() {
+        use livekit_session::SessionConnectionState;
+
+        let shared = Shared::new(Vec::new());
+        let state = shared.watch();
+        let (sender, call) = watch::channel(SessionState::default());
+        sender.send_modify(|state| state.connection = SessionConnectionState::Connecting);
+
+        shared.sync_call(&call);
+        assert_eq!(state.borrow().call.connection, SessionConnectionState::Connecting);
+
+        shared.close();
+        assert_eq!(*state.borrow(), ThreadState::default());
     }
 
     #[test]

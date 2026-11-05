@@ -22,7 +22,7 @@ use livekit_protocol::agent::agent_thread::{self, CreateRequest, GetItemsRequest
 use livekit_protocol::agent::chat_context::chat_item;
 use livekit_protocol::agent::chat_message::chat_content::Payload;
 use livekit_protocol::agent::ChatRole;
-use livekit_session::MessageOrigin;
+use livekit_session::{MessageOrigin, SessionOptions};
 
 use crate::credentials::ApiKey;
 use crate::error::DirectoryError;
@@ -48,6 +48,9 @@ pub struct ThreadDirectoryOptions {
     /// sends text to the `default` deployment, but dispatches a call without
     /// a deployment, which does not reach a worker that registered one.
     pub deployment: Option<String>,
+    /// Options for the call of every thread, such as whether it uses the
+    /// platform's audio devices.
+    pub call_options: SessionOptions,
 }
 
 /// One thread of a [`ThreadDirectory::list`].
@@ -248,6 +251,7 @@ mod tests {
             endpoint: "frontend".into(),
             scope: "demo-user".into(),
             deployment: deployment.map(str::to_owned),
+            call_options: SessionOptions::default(),
         }
     }
 
