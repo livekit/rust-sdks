@@ -15,7 +15,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use livekit::prelude::{RemoteAudioTrack, RemoteVideoTrack};
+use livekit::prelude::{RemoteAudioTrack, RemoteVideoTrack, Room};
 use livekit_session::{Session, SessionState};
 use tokio::sync::watch;
 
@@ -59,6 +59,25 @@ impl Call {
     /// Leaves the room. Does nothing if the call is not started.
     pub async fn end(&self) {
         self.inner.session.end().await;
+    }
+
+    /// The call's room, while it is connected or reconnecting: an escape
+    /// hatch for what the call does not cover, such as registering RPC
+    /// methods or muting the microphone.
+    ///
+    /// - Every [`start`](Self::start) joins a new room. Register RPC methods
+    ///   and other room state again after each start. The room is `None`
+    ///   before the call starts and after it ends, and a room that the caller
+    ///   still holds is closed when the call ends.
+    /// - Send text with [`Thread::send_text`](crate::Thread::send_text), not
+    ///   through the room. Text sent in the room does not go over A2A and is
+    ///   not part of the thread's text turns.
+    /// - The call reads every text stream on the `lk.chat` and
+    ///   `lk.transcription` topics itself, as [`Session`] does. An app that
+    ///   subscribes to the room's events sees those streams with the reader
+    ///   already taken.
+    pub fn room(&self) -> Option<Arc<Room>> {
+        self.inner.session.room()
     }
 
     /// A receiver of the call's connection and agent state, as in
