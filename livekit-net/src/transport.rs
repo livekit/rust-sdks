@@ -104,3 +104,45 @@ pub trait HttpClientExt: HttpClient {
 
 #[async_trait::async_trait]
 impl<T: HttpClient + ?Sized> HttpClientExt for T {}
+
+/// The body of a streamed HTTP response, read chunk by chunk as it arrives.
+///
+/// Dropping the body before its end cancels the request: the implementation must
+/// release the connection rather than read the rest of the body.
+#[async_trait::async_trait]
+pub trait HttpBodyStream: Send + Sync + 'static {
+    /// Receive the next chunk of the body. `Ok(None)` means the body is complete.
+    ///
+    /// Chunk boundaries are the transport's, not the server's: callers must not
+    /// assume that one chunk holds one message of a protocol on top, such as one
+    /// server-sent event.
+    async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError>;
+}
+
+/// The response opened by [`HttpStreamClient::request_stream`]: the status and
+/// headers, with the body still to read.
+pub struct HttpStreamResponse {
+    pub status: u16,
+    /// Response headers, in receipt order.
+    pub headers: Vec<Header>,
+    pub body: Arc<dyn HttpBodyStream>,
+}
+
+/// A host- or Rust-provided HTTP transport that streams the response body, for a
+/// response that arrives over time, such as server-sent events.
+///
+/// Separate from [`HttpClient`], so that a host that implements only
+/// [`HttpClient`] keeps working: [`http_stream_client`](crate::http_stream_client)
+/// then reads the whole body through it and gives it as one chunk.
+#[async_trait::async_trait]
+pub trait HttpStreamClient: Send + Sync {
+    /// Perform one HTTP request, sending `body` if present, and return when the
+    /// status and headers have arrived.
+    async fn request_stream(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpStreamResponse, TransportError>;
+}
