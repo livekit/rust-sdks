@@ -16,7 +16,8 @@ mod connection;
 mod proxy;
 
 use crate::{
-    Header, HttpClient, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
+    Header, HttpBodyStream, HttpClient, HttpMethod, HttpResponse, HttpStreamClient,
+    HttpStreamResponse, TransportError, WsClient, WsConnectResult,
 };
 use std::sync::Arc;
 
@@ -63,6 +64,10 @@ pub(crate) fn native_http_client() -> Arc<dyn HttpClient> {
     default_transport()
 }
 
+pub(crate) fn native_http_stream_client() -> Arc<dyn HttpStreamClient> {
+    default_transport()
+}
+
 #[async_trait::async_trait]
 impl WsClient for NativeTransport {
     async fn connect(
@@ -101,6 +106,38 @@ impl WsClient for NativeTransport {
     }
 }
 
+impl NativeTransport {
+    /// Sends the request and returns once the status and headers have arrived.
+    async fn send(
+        &self,
+        method: HttpMethod,
+        url: &str,
+        headers: &[Header],
+        body: Option<Vec<u8>>,
+    ) -> Result<reqwest::Response, TransportError> {
+        let mut req = match method {
+            HttpMethod::Get => self.http.get(url),
+            HttpMethod::Post => self.http.post(url),
+        };
+        for h in headers {
+            req = req.header(&h.name, &h.value);
+        }
+        if let Some(body) = body {
+            req = req.body(body);
+        }
+        req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))
+    }
+}
+
+fn headers_of(res: &reqwest::Response) -> Vec<Header> {
+    res.headers()
+        .iter()
+        .filter_map(|(n, v)| {
+            v.to_str().ok().map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
+        })
+        .collect()
+}
+
 #[async_trait::async_trait]
 impl HttpClient for NativeTransport {
     async fn request(
@@ -110,32 +147,40 @@ impl HttpClient for NativeTransport {
         headers: Vec<Header>,
         body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
-        {
-            let client = &self.http;
-            let mut req = match method {
-                HttpMethod::Get => client.get(&url),
-                HttpMethod::Post => client.post(&url),
-            };
-            for h in &headers {
-                req = req.header(&h.name, &h.value);
-            }
-            if let Some(body) = body {
-                req = req.body(body);
-            }
-            let res = req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))?;
-            let status = res.status().as_u16();
-            let resp_headers = res
-                .headers()
-                .iter()
-                .filter_map(|(n, v)| {
-                    v.to_str()
-                        .ok()
-                        .map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
-                })
-                .collect();
-            let body =
-                res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
-            Ok(HttpResponse { status, headers: resp_headers, body })
-        }
+        let res = self.send(method, &url, &headers, body).await?;
+        let status = res.status().as_u16();
+        let resp_headers = headers_of(&res);
+        let body = res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
+        Ok(HttpResponse { status, headers: resp_headers, body })
+    }
+}
+
+#[async_trait::async_trait]
+impl HttpStreamClient for NativeTransport {
+    async fn request_stream(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpStreamResponse, TransportError> {
+        let res = self.send(method, &url, &headers, body).await?;
+        Ok(HttpStreamResponse {
+            status: res.status().as_u16(),
+            headers: headers_of(&res),
+            body: Arc::new(NativeBody(tokio::sync::Mutex::new(res))),
+        })
+    }
+}
+
+/// A reqwest response body. Dropping it drops the response, which closes the
+/// connection instead of returning it to the pool with unread data.
+struct NativeBody(tokio::sync::Mutex<reqwest::Response>);
+
+#[async_trait::async_trait]
+impl HttpBodyStream for NativeBody {
+    async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        let chunk = self.0.lock().await.chunk().await;
+        chunk.map(|c| c.map(|c| c.to_vec())).map_err(|e| TransportError::Other(error_chain(&e)))
     }
 }

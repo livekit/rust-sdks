@@ -456,8 +456,20 @@ impl Session {
     /// Unbounded, like [`Room::subscribe`]: the session must never block on a
     /// slow subscriber, and the feed's rate is bounded by the conversation.
     /// Drop the receiver to unsubscribe; it is removed on the next event.
+    ///
+    /// To show the feed and then follow it, use
+    /// [`subscribe_with_messages`](Self::subscribe_with_messages), which
+    /// takes both at once.
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<SessionEvent> {
         self.inner.shared.subscribe()
+    }
+
+    /// The feed and a receiver of its later changes, taken together: no
+    /// change falls between the two, so the receiver does not replay what
+    /// the messages already hold. Like [`messages`](Self::messages) and
+    /// [`subscribe`](Self::subscribe) otherwise.
+    pub fn subscribe_with_messages(&self) -> (Vec<Message>, mpsc::UnboundedReceiver<SessionEvent>) {
+        self.inner.shared.subscribe_with_messages()
     }
 }
 
