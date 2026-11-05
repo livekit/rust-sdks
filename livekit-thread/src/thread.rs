@@ -24,7 +24,7 @@ use tokio::task::JoinSet;
 use crate::a2a;
 use crate::call::Call;
 use crate::credentials::CallTokenSource;
-use crate::directory::Directory;
+use crate::directory::{Directory, ThreadInfo};
 use crate::error::SendError;
 use crate::feed::{lock, Shared, Update};
 use crate::turn::Turn;
@@ -96,7 +96,7 @@ pub struct ThreadState {
 /// [`end`](Self::end) or dropping the thread stops its turns and ends its
 /// call. The thread itself stays on the server and can be opened again.
 pub struct Thread {
-    id: String,
+    info: ThreadInfo,
     directory: Arc<Directory>,
     shared: Arc<Shared>,
     user: ParticipantIdentity,
@@ -116,10 +116,10 @@ struct Owned {
 
 impl Thread {
     /// Must be called within a Tokio runtime.
-    pub(crate) fn new(directory: Arc<Directory>, id: String, history: Vec<Update>) -> Self {
+    pub(crate) fn new(directory: Arc<Directory>, info: ThreadInfo, history: Vec<Update>) -> Self {
         let shared = Arc::new(Shared::new(history));
         let session = Session::new(
-            CallTokenSource::new(Arc::clone(&directory), &id),
+            CallTokenSource::new(Arc::clone(&directory), &info.id),
             directory.options.call_options.clone(),
         );
         let mut owned = Owned::default();
@@ -131,16 +131,30 @@ impl Thread {
             shared,
             owned: Mutex::new(owned),
             directory,
-            id,
+            info,
         }
     }
 
     /// The thread id (`AT_...`).
     pub fn id(&self) -> &str {
-        &self.id
+        &self.info.id
+    }
+
+    /// The thread's record as of when it was created or opened: its title
+    /// and other attributes, and when it was last active. It is what a
+    /// list shows for the thread; [`ThreadDirectory::get`] fetches the
+    /// current record.
+    ///
+    /// [`ThreadDirectory::get`]: crate::ThreadDirectory::get
+    pub fn info(&self) -> &ThreadInfo {
+        &self.info
     }
 
     /// The message feed, ordered by [`Message::seq`].
+    ///
+    /// `seq` identifies a message in the feed: it is unique, and an update
+    /// in place keeps it. `id` is unique only together with
+    /// `participant_identity`.
     pub fn messages(&self) -> Vec<Message> {
         self.shared.messages()
     }
@@ -149,8 +163,20 @@ impl Thread {
     ///
     /// Unbounded, like [`Session::subscribe`]. Drop the receiver to
     /// unsubscribe. The receiver ends when the thread ends.
+    ///
+    /// To show the feed and then follow it, use
+    /// [`subscribe_with_messages`](Self::subscribe_with_messages), which
+    /// takes both at once.
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<ThreadEvent> {
         self.shared.subscribe()
+    }
+
+    /// The feed and a receiver of its later changes, taken together: no
+    /// change falls between the two, so the receiver does not replay what
+    /// the messages already hold. Like [`messages`](Self::messages) and
+    /// [`subscribe`](Self::subscribe) otherwise.
+    pub fn subscribe_with_messages(&self) -> (Vec<Message>, mpsc::UnboundedReceiver<ThreadEvent>) {
+        self.shared.subscribe_with_messages()
     }
 
     /// A receiver of the thread's state. [`borrow`](watch::Receiver::borrow)
@@ -168,16 +194,28 @@ impl Thread {
     /// [`ThreadEvent::TurnEnded`]. A new message interrupts a turn that still
     /// runs. After [`TurnOutcome::InputRequired`], the message answers the
     /// agent's question.
+    ///
+    /// Awaiting the acceptance is usually one round trip to the endpoint.
+    /// Only the caller waits: the turn then runs in its own task, and the
+    /// feed and the call stay live. Spawn the send if the caller must not
+    /// block, e.g. the one loop of an actor.
     pub async fn send_text(&self, text: &str) -> Result<Message, SendError> {
         if lock(&self.owned).ended {
             return Err(SendError::Ended);
         }
 
+        let thread_id = &self.info.id;
         let message_id = new_id("msg");
         let input_task = self.shared.input_task();
-        let body =
-            a2a::stream_request(&new_id("rpc"), &message_id, &self.id, input_task.as_deref(), text);
-        let token = self.directory.api_key.thread_token(&self.directory.options.scope, &self.id)?;
+        let body = a2a::stream_request(
+            &new_id("rpc"),
+            &message_id,
+            thread_id,
+            input_task.as_deref(),
+            text,
+        );
+        let token =
+            self.directory.api_key.thread_token(&self.directory.options.scope, thread_id)?;
         let mut frames = a2a::open(&self.directory.endpoint_url, &token, body).await?;
 
         // The first frame says whether the agent accepted the message.
@@ -291,6 +329,8 @@ fn new_id(prefix: &str) -> String {
 mod tests {
     use super::*;
 
+    use livekit_protocol::agent::agent_thread;
+
     use crate::{CallError, SessionOptions, ThreadDirectory, ThreadDirectoryOptions};
 
     fn thread() -> Thread {
@@ -306,7 +346,16 @@ mod tests {
                 call_options: SessionOptions::default(),
             },
         );
-        Thread::new(Arc::clone(&directory.inner), "AT_test".into(), Vec::new())
+        let info = agent_thread::Thread { thread_id: "AT_test".into(), ..Default::default() };
+        Thread::new(Arc::clone(&directory.inner), info.into(), Vec::new())
+    }
+
+    #[tokio::test]
+    async fn the_thread_keeps_its_record() {
+        let thread = thread();
+        assert_eq!(thread.id(), "AT_test");
+        assert_eq!(thread.info().id, "AT_test");
+        assert_eq!(thread.info().title, None);
     }
 
     /// Lets aborted tasks drop their futures.

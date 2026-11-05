@@ -193,15 +193,16 @@ async fn chat(
         Err(_) => directory.create().await?,
     };
 
-    // Subscribe before reading the history, so that no update is lost.
-    let events = thread.subscribe();
+    // The feed and its later changes, taken together so that no update is
+    // lost or shown twice.
+    let (messages, events) = thread.subscribe_with_messages();
     let state = thread.state();
     println!(
         "Thread {}. Type a message, /call to start or end a call, /quit to leave.",
         thread.id()
     );
-    for message in thread.messages() {
-        print_message(&message);
+    for message in &messages {
+        print_message(message);
     }
     let feed = tokio::spawn(print_feed(events));
     let call_state = tokio::spawn(print_call_state(state.clone()));
@@ -256,12 +257,13 @@ async fn print_call_state(mut state: watch::Receiver<ThreadState>) {
 /// Prints the feed: the agent's text answer as it streams in, other messages
 /// when they are complete, and a prompt after each turn.
 async fn print_feed(mut events: mpsc::UnboundedReceiver<ThreadEvent>) {
-    // How much of each streaming answer is already printed, by message id.
-    let mut printed: HashMap<String, usize> = HashMap::new();
+    // How much of each streaming answer is already printed, by `seq`, which
+    // identifies a message in the feed and survives its updates.
+    let mut printed: HashMap<u64, usize> = HashMap::new();
     while let Some(event) = events.recv().await {
         match event {
             ThreadEvent::MessageUpserted(message) if message.origin == MessageOrigin::AgentText => {
-                let done = printed.get(&message.id).copied();
+                let done = printed.get(&message.seq).copied();
                 match done {
                     None => print!("agent: {}", message.text),
                     Some(len) if message.text.get(..len).is_some() => {
@@ -272,9 +274,9 @@ async fn print_feed(mut events: mpsc::UnboundedReceiver<ThreadEvent>) {
                 }
                 if message.is_final {
                     println!();
-                    printed.remove(&message.id);
+                    printed.remove(&message.seq);
                 } else {
-                    printed.insert(message.id.clone(), message.text.len());
+                    printed.insert(message.seq, message.text.len());
                 }
                 flush();
             }
