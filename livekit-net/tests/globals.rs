@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use livekit_net::{
-    http_client, set_http_client, set_ws_client, ws_client, Header, HttpClientExt, HttpMethod,
-    HttpResponse, TransportError, WsClient, WsConnectResult, WsConnection,
+    http_client, http_stream_client, set_http_client, set_ws_client, ws_client, Header,
+    HttpClientExt, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
+    WsConnection,
 };
 use std::sync::Arc;
 
@@ -69,6 +70,15 @@ async fn registered_clients_are_returned() {
     let res = http.get("http://x".into(), vec![]).await.unwrap();
     assert_eq!(res.body, b"ok");
     assert_eq!(res.status, 200);
+
+    // With no streaming client registered, streaming goes through the host's
+    // HTTP client, as one chunk.
+    let stream = http_stream_client().expect("http client should stream");
+    let res =
+        stream.request_stream(HttpMethod::Get, "http://x".into(), vec![], None).await.unwrap();
+    assert_eq!(res.status, 200);
+    assert_eq!(res.body.recv().await.unwrap(), Some(b"ok".to_vec()));
+    assert_eq!(res.body.recv().await.unwrap(), None);
 
     let ws = ws_client().expect("ws client should be registered");
     let conn = ws.connect("ws://x".into(), vec![], 1000).await.unwrap().connection;
