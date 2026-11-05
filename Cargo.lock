@@ -4045,6 +4045,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-thread"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "livekit",
+ "livekit-api",
+ "livekit-net",
+ "livekit-protocol",
+ "livekit-session",
+ "livekit-token",
+ "livekit-token-source",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "livekit-token"
 version = "0.4.0"
 dependencies = [
@@ -7420,6 +7440,7 @@ dependencies = [
  "chrono",
  "livekit-api",
  "livekit-protocol",
+ "livekit-thread",
  "tokio",
 ]
 

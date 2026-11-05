@@ -219,6 +219,14 @@ versioned_files = [
 ]
 changelog = "livekit-session/CHANGELOG.md"
 
+[packages.livekit-thread]
+versioned_files = [
+  "livekit-thread/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-thread" },
+]
+changelog = "livekit-thread/CHANGELOG.md"
+
 [packages.livekit-capture]
 versioned_files = [
   "livekit-capture/Cargo.toml",
