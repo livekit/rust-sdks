@@ -13,23 +13,26 @@
 // limitations under the License.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use livekit::prelude::{RemoteAudioTrack, RemoteVideoTrack, Room};
-use livekit_session::{Session, SessionState};
-use tokio::sync::watch;
+use livekit_session::Session;
 
 use crate::error::CallError;
+use crate::feed::Shared;
 
-/// A voice call with the agent in a [`Thread`](crate::Thread), made by
-/// [`Thread::create_call`](crate::Thread::create_call).
+/// A voice call with the agent in a [`Thread`](crate::Thread), from
+/// [`Thread::call`](crate::Thread::call).
 ///
-/// The call wraps a [`Session`]. Text goes through
-/// [`Thread::send_text`](crate::Thread::send_text) instead, and the call's
-/// transcripts appear in the thread's feed.
+/// The call wraps a [`Session`] with the directory's
+/// [`call_options`](crate::ThreadDirectoryOptions::call_options). Text goes
+/// through [`Thread::send_text`](crate::Thread::send_text) instead. The call's
+/// transcripts appear in the thread's feed, and its connection and agent
+/// state in [`ThreadState::call`](crate::ThreadState::call).
 ///
 /// Handles are cheap to clone and share one call. Ending or dropping the
-/// thread ends the call.
+/// thread ends the call, and a handle kept beyond that does not start it
+/// again.
 #[derive(Clone)]
 pub struct Call {
     inner: Arc<CallInner>,
@@ -39,26 +42,36 @@ struct CallInner {
     session: Session,
     /// Set when the thread ends. A closed call does not start again.
     closed: AtomicBool,
+    /// The thread's state, which mirrors the session's. Weak, so that a call
+    /// handle the app keeps does not keep the thread's feed alive.
+    shared: Weak<Shared>,
 }
 
 impl Call {
-    pub(crate) fn new(session: Session) -> Self {
-        Self { inner: Arc::new(CallInner { session, closed: AtomicBool::new(false) }) }
+    pub(crate) fn new(session: Session, shared: Weak<Shared>) -> Self {
+        Self { inner: Arc::new(CallInner { session, closed: AtomicBool::new(false), shared }) }
     }
 
     /// Joins a new room with the agent. The agent continues the thread.
     ///
-    /// A call can start again after [`end`](Self::end), in a new room.
+    /// Resolves once the room is connected, not once the agent is: wait for
+    /// that on the thread's state. A call can start again after
+    /// [`end`](Self::end), in a new room.
     pub async fn start(&self) -> Result<(), CallError> {
         if self.inner.closed.load(Ordering::Acquire) {
             return Err(CallError::ThreadEnded);
         }
-        Ok(self.inner.session.start().await?)
+        let started = self.inner.session.start().await;
+        // The thread's state shows the outcome once `start` returns, rather
+        // than once the thread's forwarding task catches up.
+        self.sync_state();
+        Ok(started?)
     }
 
     /// Leaves the room. Does nothing if the call is not started.
     pub async fn end(&self) {
         self.inner.session.end().await;
+        self.sync_state();
     }
 
     /// The call's room, while it is connected or reconnecting: an escape
@@ -80,12 +93,6 @@ impl Call {
         self.inner.session.room()
     }
 
-    /// A receiver of the call's connection and agent state, as in
-    /// [`Session::state`].
-    pub fn state(&self) -> watch::Receiver<SessionState> {
-        self.inner.session.state()
-    }
-
     /// The agent's microphone track, once subscribed.
     pub fn agent_audio_track(&self) -> Option<RemoteAudioTrack> {
         self.inner.session.agent_audio_track()
@@ -99,5 +106,12 @@ impl Call {
     /// Stops the call from starting again, because its thread ended.
     pub(crate) fn close(&self) {
         self.inner.closed.store(true, Ordering::Release);
+    }
+
+    /// Copies the session's state into the thread's, while the thread exists.
+    fn sync_state(&self) {
+        if let Some(shared) = self.inner.shared.upgrade() {
+            shared.sync_call(&self.inner.session.state());
+        }
     }
 }

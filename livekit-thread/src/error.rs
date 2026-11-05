@@ -59,13 +59,10 @@ pub enum SendError {
     EmptyResponse,
 }
 
-/// Why a [`Call`](crate::Call) could not be created or started.
+/// Why a [`Call`](crate::Call) could not start.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum CallError {
-    /// The thread already has a call. Use [`Thread::call`](crate::Thread::call).
-    #[error("the thread already has a call")]
-    AlreadyActive,
     /// The thread has ended, which also ends its call.
     #[error("the thread has ended")]
     ThreadEnded,

@@ -27,8 +27,8 @@ use livekit_protocol::agent::chat_context::chat_item;
 use livekit_protocol::agent::chat_message::chat_content::Payload;
 use livekit_protocol::agent::{ChatMessage, ChatRole};
 use livekit_thread::{
-    Message, MessageOrigin, SessionOptions, SessionState, ThreadDirectory, ThreadDirectoryOptions,
-    ThreadEvent, TurnOutcome,
+    Message, MessageOrigin, SessionOptions, ThreadDirectory, ThreadDirectoryOptions, ThreadEvent,
+    ThreadState, TurnOutcome,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, watch};
@@ -185,6 +185,7 @@ async fn chat(
             scope: scope.to_owned(),
             // The same variable the agent worker registers its deployment with.
             deployment: env::var("LIVEKIT_AGENT_DEPLOYMENT").ok(),
+            call_options: SessionOptions::default(),
         },
     );
     let thread = match env::var("THREAD_ID") {
@@ -194,6 +195,7 @@ async fn chat(
 
     // Subscribe before reading the history, so that no update is lost.
     let events = thread.subscribe();
+    let state = thread.state();
     println!(
         "Thread {}. Type a message, /call to start or end a call, /quit to leave.",
         thread.id()
@@ -202,33 +204,21 @@ async fn chat(
         print_message(&message);
     }
     let feed = tokio::spawn(print_feed(events));
+    let call_state = tokio::spawn(print_call_state(state.clone()));
     prompt();
 
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    let mut in_call = false;
-    let mut call_state = None;
     while let Some(line) = lines.next_line().await? {
         match line.trim() {
             "" => prompt(),
             "/quit" => break,
             "/call" => {
-                let call = match thread.call() {
-                    Some(call) => call,
-                    None => {
-                        let call = thread.create_call(SessionOptions::default())?;
-                        call_state = Some(tokio::spawn(print_call_state(call.state())));
-                        call
-                    }
-                };
+                let in_call = state.borrow().call.connection.is_connected();
                 if in_call {
-                    call.end().await;
-                    in_call = false;
+                    thread.call().end().await;
                 } else {
-                    match call.start().await {
-                        Ok(()) => {
-                            in_call = true;
-                            println!("(in a call: speak now, /call to end it)");
-                        }
+                    match thread.call().start().await {
+                        Ok(()) => println!("(in a call: speak now, /call to end it)"),
                         Err(error) => println!("(call failed: {error})"),
                     }
                 }
@@ -247,17 +237,19 @@ async fn chat(
     // Ending the thread also ends the call, and closes the feed.
     thread.end().await;
     feed.await?;
-    if let Some(call_state) = call_state {
-        call_state.abort();
-    }
+    call_state.abort();
     Ok(())
 }
 
 /// Prints the call's connection and agent state when they change.
-async fn print_call_state(mut state: watch::Receiver<SessionState>) {
+async fn print_call_state(mut state: watch::Receiver<ThreadState>) {
+    let mut call = state.borrow_and_update().call;
     while state.changed().await.is_ok() {
-        let current = *state.borrow_and_update();
-        println!("(call: {:?}, agent: {:?})", current.connection, current.agent);
+        let current = state.borrow_and_update().call;
+        if current != call {
+            call = current;
+            println!("(call: {:?}, agent: {:?})", call.connection, call.agent);
+        }
     }
 }
 
