@@ -161,6 +161,7 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     fill_in_global(&mut record.attributes, global);
     // The outcome is the core's, as `session.id` is: a span's own copies never ship.
     record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
+    last_value_wins(&mut record.attributes);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
@@ -278,7 +279,7 @@ mod tests {
     }
 
     /// OTLP keys are unique: of a caller's repeated keys the last value ships, and a session key
-    /// the caller repeats still ships the session's value.
+    /// the caller repeats still ships the session's value — on log records and spans alike.
     #[test]
     fn repeated_caller_keys_ship_once_with_the_last_value() {
         let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
@@ -305,12 +306,31 @@ mod tests {
         let session_id = any_value::Value::StringValue("07".repeat(16));
         assert_eq!(values(&records[1], "session.id"), [session_id]);
         for record in records {
-            let mut keys: Vec<_> = record.attributes.iter().map(|kv| &kv.key).collect();
-            let count = keys.len();
-            keys.sort_unstable();
-            keys.dedup();
-            assert_eq!(keys.len(), count, "unique keys: {:?}", record.attributes);
+            assert_unique_keys(&record.attributes);
         }
+
+        let mut spans = crate::span::Spans::new(1);
+        let span = spans.begin("checkout", SpanKind::Internal, None);
+        let own = vec![Attribute::new("app.step", "first"), Attribute::new("app.step", "second")];
+        spans.end(span, SpanOutcome::Ok, None, own);
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let [span] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
+            panic!("one span")
+        };
+        assert_eq!(
+            self::values(&span.attributes, "app.step"),
+            [any_value::Value::StringValue("second".into())]
+        );
+        assert_unique_keys(&span.attributes);
+    }
+
+    fn assert_unique_keys(attributes: &[KeyValue]) {
+        let mut keys: Vec<_> = attributes.iter().map(|kv| &kv.key).collect();
+        let count = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "unique keys: {attributes:?}");
     }
 
     #[test]
