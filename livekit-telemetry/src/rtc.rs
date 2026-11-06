@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
@@ -138,8 +138,7 @@ pub struct RtcStatsSample {
     /// `audioLevel`, inbound audio: 0.0 to 1.0, linear (not dB).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub audio_level: Option<f64>,
-    /// When the reading was taken; `None` = now. All streams in one poll must share a
-    /// timestamp; submit unstamped typed samples together in one batch.
+    /// When the reading was taken; `None` = now. All streams in one poll must share a timestamp.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
     /// The RTP stream this sample describes when a track has several (simulcast layers): any
@@ -272,7 +271,8 @@ impl<'a> ReportIndex<'a> {
             rtp: Vec::new(),
         };
         // A report-wide fallback is safe only if the selected pair is unambiguous.
-        let mut selected = HashSet::new();
+        let mut selected = None;
+        let mut ambiguous = false;
         let mut fallback = Vec::new();
         let flag =
             |stat: &RtcStat, key| matches!(stat.members.get(key), Some(AttributeValue::Bool(true)));
@@ -288,7 +288,8 @@ impl<'a> ReportIndex<'a> {
                 }
                 "transport" => {
                     if let Some(id) = text(stat, "selectedCandidatePairId") {
-                        selected.insert(id);
+                        ambiguous |= selected.as_ref().is_some_and(|selected| selected != &id);
+                        selected = Some(id);
                     }
                 }
                 "candidate-pair" => {
@@ -300,13 +301,11 @@ impl<'a> ReportIndex<'a> {
                 _ => {}
             }
         }
-        let pair = if selected.len() == 1 {
-            selected
-                .iter()
-                .next()
-                .and_then(|id| index.by_id.get(id.as_str()).copied())
-                .filter(|pair| pair.kind == "candidate-pair")
-        } else if selected.is_empty() && fallback.len() == 1 {
+        let pair = if ambiguous {
+            None
+        } else if let Some(id) = selected {
+            index.by_id.get(id.as_str()).copied().filter(|pair| pair.kind == "candidate-pair")
+        } else if fallback.len() == 1 {
             fallback.first().copied()
         } else {
             None
@@ -819,10 +818,11 @@ impl StatsWindows {
             timestamp_ns,
             readings: HashMap::new(),
         });
-        if let Some(reading) = poll.readings.get_mut(&sample.layer) {
-            reading.merge(sample);
-        } else {
-            poll.readings.insert(sample.layer.clone(), sample);
+        match poll.readings.entry(sample.layer.clone()) {
+            Entry::Occupied(mut entry) => entry.get_mut().merge(sample),
+            Entry::Vacant(entry) => {
+                entry.insert(sample);
+            }
         }
     }
 
@@ -1307,7 +1307,27 @@ mod tests {
         let transport =
             stat("transport", "T", &[("selectedCandidatePairId", AttributeValue::Str("B".into()))]);
         let named = vec![inbound, pair("A", 0.3, true), pair("B", 0.04, false), transport];
-        assert_eq!(rtt(named), Some(40.0));
+        assert_eq!(rtt(named.clone()), Some(40.0));
+        let mut shared = named;
+        for id in ["T2", "T3"] {
+            shared.push(stat(
+                "transport",
+                id,
+                &[("selectedCandidatePairId", AttributeValue::Str("B".into()))],
+            ));
+        }
+        assert_eq!(rtt(shared.clone()), Some(40.0), "several transports can select the same pair");
+        shared.push(stat(
+            "transport",
+            "T4",
+            &[("selectedCandidatePairId", AttributeValue::Str("A".into()))],
+        ));
+        shared.push(stat(
+            "transport",
+            "T5",
+            &[("selectedCandidatePairId", AttributeValue::Str("B".into()))],
+        ));
+        assert_eq!(rtt(shared), None, "repeating a pair cannot clear ambiguity");
     }
 
     #[test]
