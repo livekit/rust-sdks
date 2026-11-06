@@ -478,7 +478,12 @@ struct Server {
 impl Server {
     fn parse(url: &str) -> Option<Self> {
         let url = url::Url::parse(url).ok()?;
-        let host = url.host_str().filter(|h| !h.is_empty())?.to_ascii_lowercase();
+        // An absolute DNS name ends in one dot and names the same host.
+        let host = url.host_str()?;
+        let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+        if host.is_empty() {
+            return None;
+        }
         let key = match url.port() {
             Some(port) => format!("{host}:{port}"),
             None => host.clone(),
@@ -640,6 +645,25 @@ pub(crate) mod tests {
         let host = d.set("WSS://P.LiveKit.Cloud:443/rtc?x=1#y", &token, "s");
         let target = send(d.route(host.as_deref(), Some("s")));
         assert_eq!(target.logs, "https://p.livekit.cloud/observability/client/logs/otlp/v0");
+    }
+
+    /// An absolute DNS name (`p.livekit.cloud.`) is the same project: its key and ingest URL
+    /// drop the trailing dot.
+    #[test]
+    fn a_trailing_dot_names_the_same_cloud_project() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud./rtc", &token, "s");
+        assert_eq!(host.as_deref(), Some("p.livekit.cloud"));
+        let target = send(d.route(host.as_deref(), Some("s")));
+        assert_eq!(target.logs, "https://p.livekit.cloud/observability/client/logs/otlp/v0");
+        assert_eq!(d.set("wss://p.livekit.cloud/rtc", &token, "s"), host, "one key");
+        for url in ["wss://livekit.cloud.", "wss://.livekit.cloud.", "wss://p.livekit.cloud.."] {
+            let mut d = Destinations::default();
+            let host = d.set(url, &token, "s");
+            assert_ne!(host.as_deref(), Some("p.livekit.cloud"), "{url}");
+            assert!(!matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "{url}");
+        }
     }
 
     #[test]
