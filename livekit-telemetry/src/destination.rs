@@ -229,9 +229,11 @@ impl Refusals {
     }
 
     /// Forget a refusal once nothing can send its token: no slot holds it (`held`) and its
-    /// monotonic deadline passed. The deadline here was read from the raw token when the
-    /// refusal came in, against whatever the wall clock said then, so it decides nothing while
-    /// a slot — whose own deadline was read at the handover — still holds the token.
+    /// monotonic deadline passed. Run when the next refusal comes in, as the published head
+    /// does, and not at routine cleanup: pruning there is the open decision of review
+    /// 4486909931 (it would let a later handover of a forgotten refused token go out once).
+    /// The monotonic clock alone decides, because a wall-clock correction must not forget a
+    /// refusal that a later correction would make sendable again.
     fn prune(&mut self, held: &HashSet<u64>) {
         let now = Instant::now();
         self.0
@@ -493,9 +495,6 @@ impl Destinations {
             }
             needed || project.dead.is_some()
         });
-        // After the slots: a refusal lives as long as any slot still holds its token.
-        let held = self.held_token_ids();
-        self.refused.prune(&held);
     }
 
     /// The longest validity any slot established for `token` at a handover: `Some(None)` when a
@@ -798,19 +797,6 @@ pub(crate) mod tests {
         assert!(matches!(d.route(Some(&host), Some("s")), Route::Send(_)));
     }
 
-    /// Expired refusals go at routine cleanup, not only when the next token is refused.
-    #[tokio::test(start_paused = true)]
-    async fn expired_refusals_are_pruned_at_cleanup() {
-        let mut d = Destinations::default();
-        for n in 0..1000 {
-            d.refuse(&granted(60 + n));
-        }
-        assert_eq!(d.refused.0.len(), 1000);
-        tokio::time::advance(Duration::from_secs(1100)).await;
-        d.retain_owners(&Default::default(), &Default::default());
-        assert!(d.refused.0.is_empty(), "{} expired refusals kept", d.refused.0.len());
-    }
-
     // Tests only: seconds added to the wall clock this thread reads, to model a clock
     // correction without touching the system clock.
     thread_local! {
@@ -859,7 +845,8 @@ pub(crate) mod tests {
         d.set("wss://p.livekit.cloud", &token, "t");
         assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
         assert!(d.refused.contains(&Token::from(token.as_str())));
-        // Past the token's established validity with nothing holding it, the refusal is pruned.
+        // Past the token's established validity with nothing holding it, the next refusal of
+        // another token forgets it (the published head's rule); routine cleanup never does.
         let mut d = Destinations::default();
         d.set("wss://p.livekit.cloud", &token, "s");
         WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
@@ -869,7 +856,9 @@ pub(crate) mod tests {
         assert!(d.refused.contains(&Token::from(token.as_str())), "kept until the deadline");
         tokio::time::advance(Duration::from_secs(700)).await;
         d.retain_owners(&Default::default(), &Default::default());
-        assert!(d.refused.0.is_empty(), "nothing holds it and its validity passed");
+        assert!(d.refused.contains(&Token::from(token.as_str())), "cleanup forgets nothing");
+        d.refuse(&granted(60));
+        assert!(!d.refused.contains(&Token::from(token.as_str())), "the next refusal does");
     }
 
     /// The monotonic clock runs past the token's validity while the wall clock stands still (a
