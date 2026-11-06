@@ -241,18 +241,27 @@ fn json_object(segment: &str) -> bool {
 /// The value after a credential marker (matched case-insensitively) as `<redacted>`: after
 /// `bearer` and whitespace, or after `bearer`/`token`, an optional closing quote, `=` or `:`, with any
 /// whitespace and an optional opening quote in between. A quoted value ends at its closing quote,
-/// any other at a delimiter.
+/// any other at a delimiter. One pass over `body`: a marker is looked for at each byte, never by
+/// searching the rest of the text for every marker again, so a body full of one marker and
+/// none of the other (`token expired`, over and over) costs the same as any other.
 fn mask_credential_values(body: &str) -> String {
     // Same byte offsets as `body`: ASCII lowercasing never changes a length.
     let lower = body.to_ascii_lowercase();
+    let lower = lower.as_bytes();
     let mut out = String::with_capacity(body.len());
     let (mut at, mut from) = (0, 0);
-    while let Some((key, len)) = ["bearer", "token"]
-        .iter()
-        .filter_map(|k| Some((lower[from..].find(k)? + from, k.len())))
-        .min()
-    {
-        from = key + len;
+    while from < lower.len() {
+        let rest = &lower[from..];
+        let len = if rest.starts_with(b"bearer") {
+            "bearer".len()
+        } else if rest.starts_with(b"token") {
+            "token".len()
+        } else {
+            from += 1;
+            continue;
+        };
+        // Right after an ASCII marker: a char boundary of `body` as well.
+        from += len;
         let Some(value) = credential_value(&body[from..], len == "bearer".len()) else { continue };
         let (start, end) = (from + value.start, from + value.end);
         out.push_str(&body[at..start]);
@@ -395,6 +404,19 @@ mod tests {
         ] {
             assert_eq!(mask_credentials(kept), kept);
         }
+    }
+
+    /// Masking is one pass over the body: 1.2 MB of one marker and none of the other, which once
+    /// searched the rest of the text again at every occurrence (seconds), costs milliseconds.
+    #[test]
+    fn masking_a_body_full_of_one_marker_is_linear() {
+        let body = "token expired ".repeat(90_000);
+        let started = std::time::Instant::now();
+        assert_eq!(mask_credentials(&body), body, "prose is kept");
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(5), "{took:?} for {} bytes", body.len());
+        let body = "Bearer x ".repeat(100_000);
+        assert_eq!(mask_credentials(&body), "Bearer <redacted> ".repeat(100_000));
     }
 
     /// A platform forwarding only errors (`OSLogger(minLevel: .error)`) still gets the core's

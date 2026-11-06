@@ -475,10 +475,10 @@ pub fn telemetry_emit(event: TelemetryEvent) {
 /// platform's own and WebRTC's lines only — never a Rust entry received through the log
 /// forwarder, which the core has already copied (`log_forward_bootstrap`). Credentials in the
 /// line (a compact JWT, the value after `Bearer` or a `token` key) are masked, as in the core's
-/// own copied lines.
+/// own copied lines. While telemetry is off the line is dropped unread: no masking, no copy.
 #[uniffi::export]
 pub fn telemetry_log(record: LogRecord) {
-    global::log(masked(record));
+    global::log_with(|| Some(masked(record)));
 }
 
 /// `record` with its credentials masked: a token quoted in a platform error never leaves the
