@@ -137,16 +137,17 @@ impl Verdict {
             };
         }
         // OTLP/HTTP errors are a protobuf `google.rpc.Status`; Cloud's auth answers are text.
+        // The whole answer is searched for the phrase, in place; only the logged reason is
+        // decoded, from a head long enough to hold it (a large error page is never copied).
         let rpc = RpcStatus::decode(response.body.as_slice()).ok();
-        let text = match rpc.as_ref().map(|s| s.message.trim()).filter(|m| !m.is_empty()) {
-            Some(message) => message.to_owned(),
-            None => String::from_utf8_lossy(&response.body).trim().to_owned(),
-        };
-        // The whole answer is searched for the phrase; only the logged reason is cut.
-        if matches!(status, 401 | 403) && text.to_ascii_lowercase().contains(DISABLED_ANSWER) {
+        let message = rpc.as_ref().map(|s| s.message.trim()).filter(|m| !m.is_empty());
+        let answer = message.map_or(response.body.as_slice(), str::as_bytes);
+        if matches!(status, 401 | 403) && contains_ignore_ascii_case(answer, DISABLED_ANSWER) {
             return Self::Disabled;
         }
-        let text: String = text.chars().take(MAX_REASON_CHARS).collect();
+        let head = &answer[..answer.len().min(MAX_REASON_CHARS * 4)];
+        let text: String =
+            String::from_utf8_lossy(head).trim().chars().take(MAX_REASON_CHARS).collect();
         // `reason`, not `message`: a UniFFI field named `message` collides with
         // `Throwable.message` in Kotlin.
         let reason = if text.is_empty() {
@@ -184,6 +185,12 @@ impl Verdict {
             _ => Self::Rejected(reason),
         }
     }
+}
+
+/// Whether `haystack` contains `needle` ignoring ASCII case, without copying either.
+fn contains_ignore_ascii_case(haystack: &[u8], needle: &str) -> bool {
+    needle.is_empty()
+        || haystack.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 /// `ExportLogsServiceResponse` and `ExportTraceServiceResponse` share one shape: field 1 is the
@@ -448,6 +455,18 @@ mod tests {
             panic!("a credential answer")
         };
         assert_eq!(reason.len(), "HTTP 401: ".len() + MAX_REASON_CHARS);
+        let mixed_case = b"Project Data Recording Is DISABLED By Owner".to_vec();
+        assert_eq!(verdict(403, &[], mixed_case), Verdict::Disabled);
+        assert!(contains_ignore_ascii_case(b"ab", ""));
+        assert!(!contains_ignore_ascii_case(b"a", "ab"));
+        // Not UTF-8, and the phrase past the logged head: still found, the reason still cut.
+        let mut page = vec![0xFF; 5_000];
+        page.extend_from_slice(b"data recording is disabled by owner");
+        assert_eq!(verdict(401, &[], page), Verdict::Disabled);
+        let Verdict::Unauthorized(reason) = verdict(401, &[], vec![0xFF; 5_000]) else {
+            panic!("a credential answer")
+        };
+        assert_eq!(reason.chars().count(), "HTTP 401: ".len() + MAX_REASON_CHARS);
         // Only the documented phrase: another answer that merely mentions "disabled" is a
         // credential problem, not a project switch.
         for body in ["account disabled", "token disabled for this room"] {
