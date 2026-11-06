@@ -358,6 +358,12 @@ async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Res
         PlayoutDeviceId::from_unchecked_guid("__livekit_missing_playout_device__");
     assert_eq!(audio.set_playout_device(&invalid_playout_id), Err(AudioError::DeviceNotFound));
 
+    assert_eq!(
+        audio.switch_recording_device(&invalid_recording_id),
+        Err(AudioError::DeviceNotFound)
+    );
+    assert_eq!(audio.switch_playout_device(&invalid_playout_id), Err(AudioError::DeviceNotFound));
+
     drop(audio);
     Ok(())
 }
