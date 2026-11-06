@@ -1320,7 +1320,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
                             if turn_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("turnId"));
                             }
-                            turn_id__ = 
+                            turn_id__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1562,7 +1562,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::EotPrediction {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1570,7 +1570,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::EotPrediction {
                             if threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("threshold"));
                             }
-                            threshold__ = 
+                            threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -2033,7 +2033,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::OverlappingSpeech {
                             if detection_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("detectionDelay"));
                             }
-                            detection_delay__ = 
+                            detection_delay__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3548,7 +3548,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if data__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("data"));
                             }
-                            data__ = 
+                            data__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -3556,7 +3556,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3564,7 +3564,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if num_channels__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("numChannels"));
                             }
-                            num_channels__ = 
+                            num_channels__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3572,7 +3572,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if samples_per_channel__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("samplesPerChannel"));
                             }
-                            samples_per_channel__ = 
+                            samples_per_channel__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3914,7 +3914,7 @@ impl<'de> serde::Deserialize<'de> for AgentSessionState {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
-                            version__ = 
+                            version__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -4324,7 +4324,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5220,7 +5220,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5575,7 +5575,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Item {
                             if seq__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("seq"));
                             }
-                            seq__ = 
+                            seq__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5720,7 +5720,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7014,7 +7014,7 @@ impl<'de> serde::Deserialize<'de> for ChatMessage {
                             if transcript_confidence__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transcriptConfidence"));
                             }
-                            transcript_confidence__ = 
+                            transcript_confidence__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -7759,7 +7759,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceRequest {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -7779,7 +7779,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceRequest {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7889,7 +7889,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceResponse {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -8121,7 +8121,7 @@ impl<'de> serde::Deserialize<'de> for EotModelUsage {
                             if total_requests__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("totalRequests"));
                             }
-                            total_requests__ = 
+                            total_requests__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -8254,7 +8254,7 @@ impl<'de> serde::Deserialize<'de> for EotPrediction {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -8274,7 +8274,7 @@ impl<'de> serde::Deserialize<'de> for EotPrediction {
                             if backchannel_probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("backchannelProbability"));
                             }
-                            backchannel_probability__ = 
+                            backchannel_probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -9094,7 +9094,7 @@ impl<'de> serde::Deserialize<'de> for InferenceError {
                             if code__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("code"));
                             }
-                            code__ = 
+                            code__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -9440,7 +9440,7 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
                             if turn_samples__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("turnSamples"));
                             }
-                            turn_samples__ = 
+                            turn_samples__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -9988,7 +9988,7 @@ impl<'de> serde::Deserialize<'de> for InputAudio {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -10002,7 +10002,7 @@ impl<'de> serde::Deserialize<'de> for InputAudio {
                             if num_samples__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("numSamples"));
                             }
-                            num_samples__ = 
+                            num_samples__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10126,7 +10126,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceRequest {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -10140,7 +10140,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceRequest {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10266,7 +10266,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceResponse {
                             if probabilities__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probabilities"));
                             }
-                            probabilities__ = 
+                            probabilities__ =
                                 Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
@@ -10405,7 +10405,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionModelUsage {
                             if total_requests__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("totalRequests"));
                             }
-                            total_requests__ = 
+                            total_requests__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10532,7 +10532,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionPrediction {
                             if probabilities__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probabilities"));
                             }
-                            probabilities__ = 
+                            probabilities__ =
                                 Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
@@ -10682,7 +10682,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionSettings {
                             if threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("threshold"));
                             }
-                            threshold__ = 
+                            threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10690,7 +10690,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionSettings {
                             if min_frames__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("minFrames"));
                             }
-                            min_frames__ = 
+                            min_frames__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10963,7 +10963,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10971,7 +10971,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedTokens"));
                             }
-                            input_cached_tokens__ = 
+                            input_cached_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10979,7 +10979,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputAudioTokens"));
                             }
-                            input_audio_tokens__ = 
+                            input_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10987,7 +10987,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedAudioTokens"));
                             }
-                            input_cached_audio_tokens__ = 
+                            input_cached_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10995,7 +10995,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTextTokens"));
                             }
-                            input_text_tokens__ = 
+                            input_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11003,7 +11003,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedTextTokens"));
                             }
-                            input_cached_text_tokens__ = 
+                            input_cached_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11011,7 +11011,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_image_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputImageTokens"));
                             }
-                            input_image_tokens__ = 
+                            input_image_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11019,7 +11019,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_image_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedImageTokens"));
                             }
-                            input_cached_image_tokens__ = 
+                            input_cached_image_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11027,7 +11027,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11035,7 +11035,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputAudioTokens"));
                             }
-                            output_audio_tokens__ = 
+                            output_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11043,7 +11043,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTextTokens"));
                             }
-                            output_text_tokens__ = 
+                            output_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11051,7 +11051,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if session_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sessionDuration"));
                             }
-                            session_duration__ = 
+                            session_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11273,7 +11273,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if transcription_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transcriptionDelay"));
                             }
-                            transcription_delay__ = 
+                            transcription_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11281,7 +11281,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if end_of_turn_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("endOfTurnDelay"));
                             }
-                            end_of_turn_delay__ = 
+                            end_of_turn_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11289,7 +11289,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if on_user_turn_completed_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("onUserTurnCompletedDelay"));
                             }
-                            on_user_turn_completed_delay__ = 
+                            on_user_turn_completed_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11297,7 +11297,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_ttft__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTtft"));
                             }
-                            llm_node_ttft__ = 
+                            llm_node_ttft__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11305,7 +11305,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if tts_node_ttfb__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("ttsNodeTtfb"));
                             }
-                            tts_node_ttfb__ = 
+                            tts_node_ttfb__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11313,7 +11313,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if e2e_latency__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("e2eLatency"));
                             }
-                            e2e_latency__ = 
+                            e2e_latency__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11321,7 +11321,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_tps__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTps"));
                             }
-                            llm_node_tps__ = 
+                            llm_node_tps__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11329,7 +11329,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_ttfs__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTtfs"));
                             }
-                            llm_node_ttfs__ = 
+                            llm_node_ttfs__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11664,7 +11664,7 @@ impl<'de> serde::Deserialize<'de> for RunningAgentJobInfo {
                             if job__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("job"));
                             }
-                            job__ = 
+                            job__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -11865,7 +11865,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11873,7 +11873,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11881,7 +11881,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if audio_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audioDuration"));
                             }
-                            audio_duration__ = 
+                            audio_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -12615,7 +12615,7 @@ impl<'de> serde::Deserialize<'de> for SessionCreated {
                             if default_threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("defaultThreshold"));
                             }
-                            default_threshold__ = 
+                            default_threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -12632,7 +12632,7 @@ impl<'de> serde::Deserialize<'de> for SessionCreated {
                             if default_backchannel_threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("defaultBackchannelThreshold"));
                             }
-                            default_backchannel_threshold__ = 
+                            default_backchannel_threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15617,7 +15617,7 @@ impl<'de> serde::Deserialize<'de> for SessionSettings {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15802,7 +15802,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15810,7 +15810,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15818,7 +15818,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if characters_count__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("charactersCount"));
                             }
-                            characters_count__ = 
+                            characters_count__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15826,7 +15826,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if audio_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audioDuration"));
                             }
-                            audio_duration__ = 
+                            audio_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -16668,7 +16668,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if start_time__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startTime"));
                             }
-                            start_time__ = 
+                            start_time__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16676,7 +16676,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if end_time__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("endTime"));
                             }
-                            end_time__ = 
+                            end_time__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16684,7 +16684,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if confidence__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("confidence"));
                             }
-                            confidence__ = 
+                            confidence__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16692,7 +16692,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if start_time_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startTimeOffset"));
                             }
-                            start_time_offset__ = 
+                            start_time_offset__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }

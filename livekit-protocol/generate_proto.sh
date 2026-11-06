@@ -61,3 +61,8 @@ protoc \
     $PROTOCOL/livekit_token_source.proto \
     $PROTOCOL/logger/options.proto \
     $PROTOCOL/roomrpc/siprpc/roomrpc_sip_v1.proto
+
+# protoc-gen-prost-serde leaves a trailing space after some `=` continuations. Strip it from every
+# generated file so the output passes `git diff --check` and a regeneration is byte-identical.
+perl -pi -e 's/[ \t]+$//' $OUT_RUST/livekit.rs $OUT_RUST/livekit.serde.rs $OUT_RUST/livekit.agent.rs \
+    $OUT_RUST/livekit.agent.serde.rs $OUT_RUST/logger.rs $OUT_RUST/logger.serde.rs

@@ -5959,7 +5959,7 @@ pub struct CreateIngressRequest {
     #[deprecated]
     #[prost(bool, tag = "8")]
     pub bypass_transcoding: bool,
-    /// Whether to transcode the ingested media. Only WHIP supports disabling transcoding currently. WHIP will default to transcoding disabled. Replaces `bypass_transcoding. 
+    /// Whether to transcode the ingested media. Only WHIP supports disabling transcoding currently. WHIP will default to transcoding disabled. Replaces `bypass_transcoding.
     #[prost(bool, optional, tag = "11")]
     pub enable_transcoding: ::core::option::Option<bool>,
     #[prost(message, optional, tag = "6")]
