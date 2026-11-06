@@ -62,9 +62,13 @@ impl LocalAudioTrack {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Device => {
                 // Create an audio track that uses the Platform ADM for capture.
-                // Use PlatformAudio::new() to enable platform audio before creating this track.
+                // Use PlatformAudio::new() to acquire platform audio before creating this track.
+                // Enable ADM recording here (not in PlatformAudio::new) so NativeAudioSource
+                // publishes do not open the microphone (see livekit/rust-sdks#1560).
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance()
+                let runtime = LkRuntime::instance();
+                runtime.set_adm_recording_enabled(true);
+                runtime
                     .pc_factory()
                     .create_device_audio_track(&libwebrtc::native::create_random_uuid())
             }
