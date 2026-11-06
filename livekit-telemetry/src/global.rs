@@ -170,7 +170,8 @@ pub fn install(
 fn uninstall() -> Option<Telemetry> {
     let _lifecycle = lifecycle();
     stop_installed_instruments();
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take().map(|i| i.telemetry)
+    let taken = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    taken.map(|i| i.telemetry)
 }
 
 /// Opt-out: stop collecting for the rest of the process. Before this returns, the pipeline is
@@ -209,6 +210,7 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         let mut stored: Vec<PathBuf> = list.iter().filter_map(|g| g.storage.clone()).collect();
         stored.sort_unstable();
         stored.dedup();
+        drop(list);
         drop(taken);
         (live, stored)
     };
@@ -230,7 +232,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
 pub(crate) fn reset_for_test() {
     let _lifecycle = lifecycle();
     DISABLED.store(false, Ordering::SeqCst);
-    INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    let taken = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    drop(taken);
     GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
@@ -304,5 +307,42 @@ pub async fn flush() {
 pub async fn shutdown() {
     if let Some(t) = uninstall() {
         t.shutdown().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::tests::{test_config, FakeTransport};
+
+    struct CaptureOnDrop;
+
+    impl TelemetryInstrument for CaptureOnDrop {
+        fn start(&self) {}
+        fn stop(&self) {}
+    }
+
+    impl Drop for CaptureOnDrop {
+        fn drop(&mut self) {
+            assert!(GENERATIONS.try_lock().is_ok(), "generation registry held during Drop");
+            emit(TelemetryEvent::new("custom.instrument_dropped"));
+        }
+    }
+
+    #[tokio::test]
+    async fn instrument_destruction_can_capture() {
+        let _global = TEST_LOCK.lock().await;
+        for path in ["uninstall", "disable", "reset"] {
+            reset_for_test();
+            let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
+            drop(exporter);
+            install(telemetry, vec![Arc::new(CaptureOnDrop)]);
+            match path {
+                "uninstall" => drop(uninstall()),
+                "disable" => assert!(disable().await),
+                _ => reset_for_test(),
+            }
+        }
+        reset_for_test();
     }
 }
