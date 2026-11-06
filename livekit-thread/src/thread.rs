@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::mem;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use livekit::prelude::ParticipantIdentity;
@@ -127,7 +127,7 @@ impl Thread {
         Self {
             user: ParticipantIdentity(directory.options.scope.clone()),
             agent: ParticipantIdentity(directory.options.agent_name.clone()),
-            call: Call::new(session, Arc::downgrade(&shared)),
+            call: Call::new(session, Arc::clone(&shared)),
             shared,
             owned: Mutex::new(owned),
             directory,
@@ -276,20 +276,8 @@ impl Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        let owned = self.owned.get_mut().unwrap_or_else(PoisonError::into_inner);
-        if owned.ended {
-            return;
-        }
-        owned.ended = true;
-        // The tasks stop when their `JoinSet` drops with the thread.
-        self.call.close();
-        // The app may still hold the call, which keeps its session alive, so
-        // end it. Ending is async and finishes on its own; without a runtime,
-        // the session ends when the app drops its call.
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            let call = self.call.clone();
-            runtime.spawn(async move { call.end().await });
-        }
+        // The tasks stop when their `JoinSet` drops with the thread, and the
+        // call's session closes its room when the call drops with it.
         self.shared.close();
     }
 }
@@ -366,9 +354,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dropping_the_thread_frees_its_feed_and_closes_its_call() {
+    async fn dropping_the_thread_frees_its_feed_and_its_call() {
         let thread = thread();
-        let call = thread.call().clone();
         let shared = Arc::downgrade(&thread.shared);
         let mut events = thread.subscribe();
         let mut state = thread.state();
@@ -377,26 +364,26 @@ mod tests {
         settle().await;
 
         assert!(events.recv().await.is_none());
-        // The forwarding task held the last other strong reference to the
-        // feed: the call the app still holds only has a weak one.
+        // The call and the forwarding task held the other strong references
+        // to the feed: both are gone with the thread, and the call's session
+        // with the call.
         assert!(shared.upgrade().is_none());
         assert!(state.changed().await.is_err());
-        assert!(matches!(call.start().await, Err(CallError::ThreadEnded)));
     }
 
     #[tokio::test]
     async fn ending_the_thread_stops_sends_and_calls() {
         let thread = thread();
-        let call = thread.call().clone();
         let mut events = thread.subscribe();
 
         thread.end().await;
 
         assert!(events.recv().await.is_none());
         assert!(matches!(thread.send_text("Hi").await, Err(SendError::Ended)));
-        assert!(matches!(call.start().await, Err(CallError::ThreadEnded)));
         assert!(matches!(thread.call().start().await, Err(CallError::ThreadEnded)));
         assert_eq!(*thread.state().borrow(), ThreadState::default());
-        assert_eq!(Arc::strong_count(&thread.shared), 1);
+        // The forwarding task released the feed: only the thread and its
+        // call hold it.
+        assert_eq!(Arc::strong_count(&thread.shared), 2);
     }
 }
