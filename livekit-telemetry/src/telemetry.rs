@@ -463,6 +463,9 @@ impl Telemetry {
     /// Build the pipeline with the cache the config asks for: a [`FileCache`] in `storage_dir`,
     /// or a [`MemoryCache`] when unset — or when the directory is unusable (logged, never an
     /// error). Spawn the returned [`Exporter`] with `exporter.run()` on your runtime.
+    ///
+    /// With a `storage_dir` this opens the directory, recovers an interrupted split and prunes
+    /// it, synchronously on the calling thread (disk I/O): call it off the UI thread.
     pub fn new(
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
@@ -912,7 +915,8 @@ impl Telemetry {
     }
 
     /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
-    /// backend as `lk.telemetry.report` events whenever something went wrong.
+    /// backend as `lk.telemetry.report` events whenever something went wrong. Counts the cached
+    /// batches by listing the cache synchronously (a directory listing with a [`FileCache`]).
     pub fn stats(&self) -> TelemetryStats {
         TelemetryStats::new(
             self.shared.counters.snapshot(),
@@ -925,6 +929,9 @@ impl Telemetry {
     /// queue, open and finished spans, RTC windows and every cached batch, on disk included.
     /// Events emitted afterwards go nowhere. Returns `false` when the storage refused to delete
     /// something (it is logged; the files stay until a later purge or configure succeeds).
+    /// Waits for the exporter to stop: if the returned [`Exporter`] is still held but was never
+    /// spawned, that wait lasts `export_timeout_ms` (1 s at least) plus 1 s; once it is dropped
+    /// the wait ends at once, as for [`shutdown`](Self::shutdown).
     pub async fn purge(&self) -> bool {
         self.shared.purge().await
     }
