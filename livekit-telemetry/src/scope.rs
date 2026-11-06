@@ -534,7 +534,10 @@ impl Scope {
     }
 
     /// Push one `getStats()` reading; its window ships under this session. The first inbound
-    /// reading with bytes is a subscribed track's first media.
+    /// reading with bytes is a subscribed track's first media. An unstamped sample is stamped
+    /// when it is pushed, so a host that pushes one report's layers one call at a time gives
+    /// them one `timestamp_ns`, or pushes the whole report through
+    /// [`record_stats_report`](Self::record_stats_report).
     pub fn record_stats(&self, sample: RtcStatsSample) {
         self.record_samples(vec![sample]);
     }
@@ -1052,17 +1055,28 @@ mod tests {
         for bytes in [[1_000, 4_000], [5_000, 12_000]] {
             room.record_samples(vec![layer("h", bytes[0]), layer("f", bytes[1])]);
         }
-        let windows = telemetry.shared.windows.lock().expect("lock").close();
-        let bytes = windows
-            .iter()
-            .find_map(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
-            .map(|a| a.value.clone());
-        assert_eq!(
-            bytes,
-            Some(crate::AttributeValue::Int(12_000)),
-            "{} window events",
-            windows.len()
-        );
+        let exported = |telemetry: &Telemetry| {
+            let windows = telemetry.shared.windows.lock().expect("lock").close();
+            let bytes = windows
+                .iter()
+                .find_map(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+                .map(|a| a.value.clone());
+            (bytes, windows.len())
+        };
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
+
+        // The public single-sample path, one layer per call: a host that stamps the layers of
+        // one poll with one time keeps the growth too.
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        for (poll, bytes) in [[1_000, 4_000], [5_000, 12_000]].into_iter().enumerate() {
+            let stamp = Some(1_000_000_000 * (poll as u64 + 1));
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("h", bytes[0]) });
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("f", bytes[1]) });
+        }
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
     }
 
     /// A report's layers are admitted as one: an exporter close landing between them (the hook
