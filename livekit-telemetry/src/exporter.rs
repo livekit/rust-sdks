@@ -1616,11 +1616,12 @@ pub(crate) mod tests {
         pipeline_freed: bool,
     }
 
-    /// Run the retirement race once. `resume_within` bounds the hook's wait for the registrar
-    /// (zero forces the timeout path). Nothing asserts here: the hook is cleared, the registrar
-    /// joined, the exporter shut down and awaited, and the pipeline's destruction observed, on
-    /// every path, before the verdict goes back to the test.
-    async fn retirement_race(resume_within: Duration) -> RetirementVerdict {
+    /// Run the retirement race once. With `withhold_resume` the hook observes its timeout
+    /// before it signals the registrar, so the registrar cannot have resumed it yet: the
+    /// timeout path is forced, not raced. Nothing asserts here: the hook is cleared, the
+    /// registrar joined, the exporter shut down and awaited, and the pipeline's destruction
+    /// observed, on every path, before the verdict goes back to the test.
+    async fn retirement_race(withhold_resume: bool) -> RetirementVerdict {
         use std::sync::atomic::{AtomicBool, Ordering};
         let collector = Arc::new(Collector::default());
         let (telemetry, exporter) = Telemetry::new(TelemetryConfig::default(), collector.clone());
@@ -1634,9 +1635,18 @@ pub(crate) mod tests {
         *telemetry.shared.retiring.lock().expect("lock") = Some(Arc::new({
             let hook_timed_out = hook_timed_out.clone();
             move || {
-                let _ = snapshot_taken.send(());
                 let resumed = resumed.lock().unwrap_or_else(|e| e.into_inner());
-                if resumed.recv_timeout(resume_within).is_err() {
+                if withhold_resume {
+                    // The registrar sends its resume only after the signal below, so this
+                    // wait can only time out.
+                    if resumed.recv_timeout(Duration::ZERO).is_err() {
+                        hook_timed_out.store(true, Ordering::SeqCst);
+                    }
+                    let _ = snapshot_taken.send(());
+                    return;
+                }
+                let _ = snapshot_taken.send(());
+                if resumed.recv_timeout(Duration::from_secs(10)).is_err() {
                     hook_timed_out.store(true, Ordering::SeqCst);
                 }
             }
@@ -1700,7 +1710,7 @@ pub(crate) mod tests {
     /// once the Room is gone with nothing cached, the token is freed.
     #[tokio::test]
     async fn a_room_registered_during_retirement_keeps_its_token() {
-        let verdict = retirement_race(Duration::from_secs(10)).await;
+        let verdict = retirement_race(false).await;
         assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
         assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
         assert!(!verdict.hook_timed_out, "{verdict:?}");
@@ -1711,12 +1721,12 @@ pub(crate) mod tests {
         assert_eq!(verdict.held_after, 0, "a Room gone with nothing cached frees its token");
     }
 
-    /// The harness's forced failure: the hook's wait times out at once. The teardown still
-    /// runs (the exporter task completes, the pipeline is destroyed) and the timeout is reported
-    /// as a verdict, not as a panic that detaches the task.
+    /// The forced failure: the hook's wait times out before the registrar can resume it. The
+    /// teardown still runs (the exporter task completes, the pipeline is destroyed) and the
+    /// timeout is reported as a verdict, not as a panic that detaches the task.
     #[tokio::test]
     async fn the_retirement_race_harness_tears_down_on_a_forced_timeout() {
-        let verdict = retirement_race(Duration::ZERO).await;
+        let verdict = retirement_race(true).await;
         assert!(verdict.hook_timed_out, "the control forces the timeout: {verdict:?}");
         assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
         assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
