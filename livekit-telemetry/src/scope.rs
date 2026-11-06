@@ -1080,33 +1080,47 @@ mod tests {
     }
 
     /// A disconnect that lands while a server change is between its no-op check and remembering
-    /// the pair is not undone by the change: the session is out of the call afterwards.
+    /// the pair is not undone by the change: the session is out of the call afterwards. The
+    /// stored hook captures only channel ends (never the Room, whose owner stores the hook);
+    /// the disconnect runs on a thread released by the hook, and the hook waits for it with a
+    /// bound, so with the change serialized the wait ends by the bound, not by the disconnect.
     #[tokio::test]
     async fn a_disconnect_during_a_server_change_is_not_undone() {
-        let (telemetry, _exporter) = pipeline();
+        use std::sync::mpsc;
+        let (telemetry, exporter) = pipeline();
         let token = crate::destination::tests::granted(600);
         let room = telemetry.begin_scope();
-        let disconnect = Arc::new(std::sync::Mutex::new(None));
-        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
-            let (room, disconnect) = (room.clone(), disconnect.clone());
-            move || {
-                let mut slot = disconnect.lock().expect("lock");
-                if slot.is_some() {
-                    return;
-                }
-                let room = room.clone();
-                *slot = Some(std::thread::spawn(move || {
-                    room.disconnected(DisconnectReason::ClientInitiated)
-                }));
-                // Long enough for the disconnect to finish, unless it waits for the change.
-                std::thread::sleep(Duration::from_millis(200));
+        let (paused_tx, paused_rx) = mpsc::channel::<()>();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let done_rx = std::sync::Mutex::new(done_rx);
+        let disconnect = {
+            let room = room.clone();
+            std::thread::spawn(move || {
+                paused_rx.recv().expect("the change paused");
+                room.disconnected(DisconnectReason::ClientInitiated);
+                let _ = done_tx.send(());
+            })
+        };
+        let fired = std::sync::atomic::AtomicBool::new(false);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new(move || {
+            // Only the server change's pause releases the disconnect; the disconnect's own
+            // captures pause too and must not wait on themselves.
+            if fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
             }
+            let _ = paused_tx.send(());
+            let done = done_rx.lock().expect("lock");
+            let _ = done.recv_timeout(Duration::from_secs(2));
         }));
         room.set_server("wss://a.livekit.cloud", &token);
+        // Cleanup before any verdict: the hook goes, the thread is joined.
         *telemetry.shared.pause.lock().expect("lock") = None;
-        let disconnect = disconnect.lock().expect("lock").take().expect("the disconnect ran");
         disconnect.join().expect("disconnect");
-        assert!(!room.state.in_call(), "disconnected: not in a call");
+        let in_call = room.state.in_call();
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop((room, telemetry, exporter));
+        assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
+        assert!(!in_call, "disconnected: not in a call");
     }
 
     /// A server handed over after the disconnect (a late token refresh) does not put the session
