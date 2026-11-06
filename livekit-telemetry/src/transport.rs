@@ -364,10 +364,20 @@ mod net {
     #[async_trait::async_trait]
     impl TelemetryTransport for NetTransport {
         async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
-            // A request that cannot be made is final: the client would report a malformed URL
-            // as a connection error, and the batch would retry until its cache expired.
-            if let Err(error) = url::Url::parse(&request.url) {
-                return Err(ExportError::Rejected { reason: format!("{}: {error}", request.url) });
+            // A request that cannot be made is final: the client would report a malformed or
+            // non-HTTP URL as a connection error, and the batch would retry until its cache
+            // expired.
+            match url::Url::parse(&request.url) {
+                Err(error) => {
+                    return Err(ExportError::Rejected {
+                        reason: format!("{}: {error}", request.url),
+                    })
+                }
+                Ok(url) if !matches!(url.scheme(), "http" | "https") => {
+                    let reason = format!("{}: not an HTTP URL", request.url);
+                    return Err(ExportError::Rejected { reason });
+                }
+                Ok(_) => {}
             }
             let headers =
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
@@ -416,15 +426,21 @@ mod net_tests {
     }
 
     /// A URL the client cannot even build a request for is a final failure, not a retry: the
-    /// native client would report it as a connection error.
+    /// native client would report it as a connection error. So is a URL it parses but cannot
+    /// make an HTTP request to.
     #[tokio::test]
     async fn a_malformed_url_is_rejected_before_the_client_sees_it() {
         let transport = NetTransport::new(Arc::new(Unreachable));
-        let request = ExportRequest { url: "not a url".into(), ..Default::default() };
-        assert!(matches!(
-            transport.send(request).await,
-            Err(ExportError::Rejected { reason }) if reason.contains("not a url")
-        ));
+        for url in ["not a url", "ftp://collector/v1/logs", "file:///tmp/collector", "mailto:x@y"] {
+            let request = ExportRequest { url: url.into(), ..Default::default() };
+            assert!(
+                matches!(
+                    transport.send(request).await,
+                    Err(ExportError::Rejected { ref reason }) if reason.contains(url)
+                ),
+                "{url}"
+            );
+        }
     }
 }
 
