@@ -270,9 +270,9 @@ impl<'a> ReportIndex<'a> {
             pair_rtt_ms: None,
             rtp: Vec::new(),
         };
-        // The transport's selected pair, else the first pair that is selected, or nominated and
-        // succeeded (not every platform names the selected pair).
-        let (mut selected, mut fallback) = (None, None);
+        // A report-wide fallback is safe only if the selected pair is unambiguous.
+        let mut selected = HashSet::new();
+        let mut fallback = Vec::new();
         let flag =
             |stat: &RtcStat, key| matches!(stat.members.get(key), Some(AttributeValue::Bool(true)));
         for stat in report {
@@ -286,21 +286,30 @@ impl<'a> ReportIndex<'a> {
                     }
                 }
                 "transport" => {
-                    selected = selected.or_else(|| text(stat, "selectedCandidatePairId"))
+                    if let Some(id) = text(stat, "selectedCandidatePairId") {
+                        selected.insert(id);
+                    }
                 }
-                "candidate-pair" if fallback.is_none() => {
+                "candidate-pair" => {
                     let succeeded = text(stat, "state").as_deref() == Some("succeeded");
                     if flag(stat, "selected") || (flag(stat, "nominated") && succeeded) {
-                        fallback = Some(stat);
+                        fallback.push(stat);
                     }
                 }
                 _ => {}
             }
         }
-        let pair = selected
-            .and_then(|id| index.by_id.get(id.as_str()).copied())
-            .filter(|pair| pair.kind == "candidate-pair")
-            .or(fallback);
+        let pair = if selected.len() == 1 {
+            selected
+                .iter()
+                .next()
+                .and_then(|id| index.by_id.get(id.as_str()).copied())
+                .filter(|pair| pair.kind == "candidate-pair")
+        } else if selected.is_empty() && fallback.len() == 1 {
+            fallback.first().copied()
+        } else {
+            None
+        };
         index.pair_rtt_ms = pair.and_then(|pair| ms_f64(pair, "currentRoundTripTime"));
         index
     }
@@ -353,7 +362,17 @@ impl<'a> ReportIndex<'a> {
                 sample.jitter_ms = ms_f64(stat, "jitter");
                 sample.frames_per_second = num(stat, "framesPerSecond");
                 sample.audio_level = num(stat, "audioLevel");
-                sample.rtt_ms = self.pair_rtt_ms;
+                sample.rtt_ms = match text(stat, "transportId") {
+                    Some(id) => self
+                        .by_id
+                        .get(id.as_str())
+                        .filter(|transport| transport.kind == "transport")
+                        .and_then(|transport| text(transport, "selectedCandidatePairId"))
+                        .and_then(|id| self.by_id.get(id.as_str()))
+                        .filter(|pair| pair.kind == "candidate-pair")
+                        .and_then(|pair| ms_f64(pair, "currentRoundTripTime")),
+                    None => self.pair_rtt_ms,
+                };
             }
         }
         sample
@@ -1041,6 +1060,54 @@ mod tests {
             id: id.into(),
             members: members.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
         }
+    }
+
+    #[test]
+    fn inbound_rtt_follows_each_streams_transport() {
+        let transport = |id: &str, pair: &str| {
+            stat("transport", id, &[("selectedCandidatePairId", AttributeValue::Str(pair.into()))])
+        };
+        let pair = |id: &str, rtt| {
+            stat(
+                "candidate-pair",
+                id,
+                &[
+                    ("currentRoundTripTime", AttributeValue::Double(rtt)),
+                    ("selected", AttributeValue::Bool(true)),
+                ],
+            )
+        };
+        let mut report = vec![
+            stat("inbound-rtp", "IN_A", &[("transportId", AttributeValue::Str("T_A".into()))]),
+            stat("inbound-rtp", "IN_B", &[("transportId", AttributeValue::Str("T_B".into()))]),
+            stat("inbound-rtp", "UNKNOWN", &[]),
+            transport("T_A", "A"),
+            transport("T_B", "B"),
+            pair("A", 0.01),
+            pair("B", 0.2),
+        ];
+        for reverse in [false, true] {
+            if reverse {
+                report.reverse();
+            }
+            let index = ReportIndex::new(&report);
+            for (id, expected) in [("IN_A", Some(10.0)), ("IN_B", Some(200.0)), ("UNKNOWN", None)] {
+                let sample = index.sample(
+                    index.by_id[id],
+                    "TR_1",
+                    TrackKind::Audio,
+                    StreamDirection::Inbound,
+                    None,
+                );
+                assert_eq!(sample.rtt_ms, expected, "{id}");
+            }
+        }
+        report.retain(|s| s.kind != "transport");
+        let index = ReportIndex::new(&report);
+        assert_eq!(
+            index.pair_rtt_ms, None,
+            "two selected pairs are ambiguous without transports too"
+        );
     }
 
     #[test]
