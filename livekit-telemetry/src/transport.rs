@@ -365,7 +365,10 @@ mod net {
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
             match self.0.post(request.url, headers, request.body).await {
                 Ok(response) => Ok(response.into()),
-                // The client swallowed the body with the status; the core still classifies it.
+                // Against the `HttpClient` contract, a host client reported a status as an
+                // error and discarded the headers and body with it; the native client never
+                // does. The status still classifies, but a refusal's text and `Retry-After`
+                // are gone: a "disabled by owner" 401 reads as a bad credential.
                 Err(TransportError::Http { status }) => {
                     Ok(ExportResponse { status, ..Default::default() })
                 }
