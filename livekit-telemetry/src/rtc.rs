@@ -185,7 +185,7 @@ fn ms(stat: &RtcStat, key: &str) -> Option<u64> {
 
 /// A duration member (seconds) as fractional milliseconds, for gauges.
 fn ms_f64(stat: &RtcStat, key: &str) -> Option<f64> {
-    num(stat, key).map(|s| s * 1000.0)
+    num(stat, key).map(|s| s * 1000.0).filter(|ms| ms.is_finite())
 }
 
 /// A string member.
@@ -370,6 +370,18 @@ fn larger<T: PartialOrd>(mine: &mut Option<T>, theirs: Option<T>) {
 }
 
 impl RtcStatsSample {
+    /// Non-finite typed gauges are absent readings, just like non-finite report members.
+    fn sanitize_gauges(&mut self) {
+        for value in [
+            &mut self.jitter_ms,
+            &mut self.rtt_ms,
+            &mut self.frames_per_second,
+            &mut self.audio_level,
+        ] {
+            *value = value.filter(|v| v.is_finite());
+        }
+    }
+
     /// Merge another stream of the same poll into this reading: each field keeps the larger of
     /// the values known, so a stream without a field never erases it and the report's order
     /// changes nothing.
@@ -751,6 +763,7 @@ impl StatsWindows {
         if self.revoked.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        sample.sanitize_gauges();
         let key = track_key(session, &sample);
         self.seen.insert(key.clone());
         let timestamp_ns = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
@@ -1057,6 +1070,69 @@ mod tests {
             stat("transport", "T", &[("selectedCandidatePairId", AttributeValue::Str("B".into()))]);
         let named = vec![inbound, pair("A", 0.3, true), pair("B", 0.04, false), transport];
         assert_eq!(rtt(named), Some(40.0));
+    }
+
+    #[test]
+    fn typed_non_finite_gauges_do_not_hide_valid_layers() {
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for reverse in [false, true] {
+                let mut windows = StatsWindows::default();
+                let gauge = |value| RtcStatsSample {
+                    jitter_ms: Some(value),
+                    rtt_ms: Some(value),
+                    frames_per_second: Some(value),
+                    audio_level: Some(value),
+                    ..stream("h", None, 1)
+                };
+                let mut samples = [gauge(invalid), gauge(30.0)];
+                samples[1].layer = Some("f".into());
+                if reverse {
+                    samples.reverse();
+                }
+                for sample in samples {
+                    windows.record(sample);
+                }
+                let event = windows.close_events().pop().unwrap();
+                for key in ["lk.rtc.jitter_ms", "lk.rtc.rtt_ms", "lk.rtc.fps", "lk.rtc.audio_level"]
+                {
+                    for suffix in ["min", "max", "avg"] {
+                        assert_eq!(
+                            attr(&event, &format!("{key}.{suffix}")),
+                            Some(AttributeValue::Double(30.0))
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn milliseconds_conversion_rejects_overflow() {
+        let report = [
+            stat("inbound-rtp", "IN", &[("jitter", AttributeValue::Double(f64::MAX))]),
+            stat("outbound-rtp", "OUT", &[]),
+            stat(
+                "remote-inbound-rtp",
+                "REMOTE",
+                &[
+                    ("localId", AttributeValue::Str("OUT".into())),
+                    ("roundTripTime", AttributeValue::Double(f64::MAX)),
+                ],
+            ),
+            stat(
+                "candidate-pair",
+                "PAIR",
+                &[
+                    ("selected", AttributeValue::Bool(true)),
+                    ("currentRoundTripTime", AttributeValue::Double(f64::MAX)),
+                ],
+            ),
+        ];
+        for direction in [StreamDirection::Inbound, StreamDirection::Outbound] {
+            let samples = samples_from_report("TR_1", TrackKind::Audio, direction, &report, None);
+            assert_eq!(samples[0].rtt_ms, None);
+            assert_eq!(samples[0].jitter_ms, None);
+        }
     }
 
     #[test]
