@@ -93,9 +93,11 @@ impl ScopeState {
         })
     }
 
-    /// In a call: it has a server and has not disconnected since.
+    /// In a call: it has a server and has not disconnected since. A server handed over after
+    /// the disconnect (a late token refresh) is not a call until the next `lk.connect`.
     pub fn in_call(&self) -> bool {
         self.server.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            && !self.disconnected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Whether `(url, token)` is what this session already has.
@@ -1105,5 +1107,22 @@ mod tests {
         let disconnect = disconnect.lock().expect("lock").take().expect("the disconnect ran");
         disconnect.join().expect("disconnect");
         assert!(!room.state.in_call(), "disconnected: not in a call");
+    }
+
+    /// A server handed over after the disconnect (a late token refresh) does not put the session
+    /// back in a call: only the next `lk.connect` does.
+    #[tokio::test]
+    async fn a_late_server_update_after_the_disconnect_is_not_a_call() {
+        let (telemetry, _exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(room.state.in_call());
+        room.disconnected(DisconnectReason::ClientInitiated);
+        assert!(!room.state.in_call());
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(!room.state.in_call(), "a late update, no new connect");
+        let _connect = room.start(SpanName::Connect, None);
+        assert!(room.state.in_call(), "the new call");
     }
 }
