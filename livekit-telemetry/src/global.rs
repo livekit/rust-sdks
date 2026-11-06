@@ -21,10 +21,15 @@ use crate::{
 /// Started right after the pipeline is installed and stopped when it goes; calls may come from
 /// any thread and must not block.
 ///
-/// `start` and `stop` run synchronously on the thread that installs or opts out, under the
-/// lifecycle lock (the opt-out's `stop` inside [`disable`], before it returns): they must not
-/// block on that caller's queue and must not install, disable or wait on telemetry from inside
-/// (capture calls are fine).
+/// `start` and `stop` run synchronously under the lifecycle lock on the thread performing the
+/// lifecycle operation (the opt-out's `stop` inside [`disable`], before it returns). They must
+/// not call [`install`] or [`disable`], poll [`shutdown`], or synchronously wait for telemetry
+/// lifecycle work, including work on another thread or queue: that would re-enter the same
+/// non-reentrant lock. Constructing the `shutdown()` future is safe, as is scheduling it without
+/// waiting for it.
+///
+/// The same restrictions apply to instrument destructors, which may also run under the lifecycle
+/// lock. Capture calls, including logging, are supported from hooks and destructors.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 pub trait TelemetryInstrument: Send + Sync {
     /// Runs once, at install.
@@ -45,9 +50,9 @@ static INSTALLED: RwLock<Option<Installed>> = RwLock::new(None);
 /// Serializes the lifecycle — install (with its instruments' `start`), uninstall and disable
 /// (with their `stop`) — so an instrument can never start after the opt-out stopped it. Held
 /// while instruments run: they may call back into the capture functions (which only read
-/// `INSTALLED`), but must not install or disable from `start`/`stop` — nor block waiting on a thread
-/// or queue that may itself be inside `install`/`disable` (e.g. a synchronous hop to a platform
-/// queue that is configuring telemetry): that would deadlock. Hop asynchronously instead.
+/// `INSTALLED`), but hooks and destructors must not re-enter lifecycle operations or poll
+/// `shutdown`, nor wait on a thread or queue performing lifecycle work. Schedule it without
+/// waiting instead; see [`TelemetryInstrument`].
 static LIFECYCLE: Mutex<()> = Mutex::new(());
 
 /// The app opted out ([`disable`]): nothing installs for the rest of the process. Written and
