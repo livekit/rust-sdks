@@ -858,6 +858,44 @@ pub(crate) mod tests {
         assert!(d.refused.0.is_empty(), "nothing holds it and its validity passed");
     }
 
+    /// The monotonic clock runs past the token's validity while the wall clock stands still (a
+    /// backward correction, or a wall clock that was ahead): with the old Room still alive and
+    /// holding the refused token, routine cleanup must not forget the refusal, or a new Room
+    /// handing over the identical token re-reads a future deadline and sends it.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_token_held_by_a_live_room_stays_refused_past_its_monotonic_deadline() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        let live: HashMap<String, Option<String>> = [("s".to_owned(), Some(host.clone()))].into();
+        tokio::time::advance(Duration::from_secs(601)).await;
+        d.retain_owners(&live, &Default::default());
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+    }
+
+    /// The same with the old Room retired before the monotonic deadline passed: the published
+    /// head keeps the refusal (it forgets one only when another token is refused), and so does
+    /// this head. Forgetting it at routine cleanup is the deferred decision of thread
+    /// 4486909931: it would let a new Room send the refused token once more.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_token_stays_refused_after_its_holder_retired_and_its_deadline_passed() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        d.retain_owners(&Default::default(), &Default::default());
+        tokio::time::advance(Duration::from_secs(601)).await;
+        d.retain_owners(&Default::default(), &Default::default());
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+        // The negative control, the published head's rule: the next refusal of another token
+        // forgets a refusal whose established deadline passed while nothing held it.
+        d.refuse(&granted(60));
+        assert!(!d.refused.contains(&Token::from(token.as_str())), "forgotten at the next refusal");
+    }
+
     #[test]
     fn rooms_never_borrow_each_others_tokens() {
         let mut d = Destinations::default();
