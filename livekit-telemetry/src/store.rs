@@ -146,12 +146,13 @@ impl Store {
         let mut bytes = 0;
         while out.len() < max {
             let Some(next) = queue.events.front() else { break };
-            let size = next.event.size_hint() + extra;
+            let own = next.event.size_hint();
+            let size = own + extra;
             if !out.is_empty() && bytes + size > max_bytes {
                 break;
             }
             bytes += size;
-            queue.bytes = queue.bytes.saturating_sub(size);
+            queue.bytes = queue.bytes.saturating_sub(own);
             out.extend(queue.events.pop_front());
         }
         out
@@ -258,5 +259,19 @@ mod tests {
         assert_eq!(store.drain(10, 330, 0).len(), 2, "two fit in 330 bytes");
         assert_eq!(store.drain(10, 1, 0).len(), 1, "an oversized event still ships alone");
         assert!(store.drain(10, usize::MAX, 0).is_empty());
+    }
+
+    /// A drain takes only the record's own size off the queue's accounting: the pipeline
+    /// attributes it counts toward the batch budget were never added to it.
+    #[test]
+    fn drain_subtracts_only_the_queued_records_size() {
+        let store = Store::new(10, usize::MAX, Arc::default());
+        let event = || queued(TelemetryEvent::new("e").with_body("x".repeat(30)));
+        let second = event();
+        let size = second.event.size_hint();
+        store.push(event());
+        store.push(second);
+        assert_eq!(store.drain(1, usize::MAX, 1_000).len(), 1);
+        assert_eq!(store.queue.lock().unwrap().bytes, size, "the queued record's size, no less");
     }
 }
