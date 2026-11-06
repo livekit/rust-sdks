@@ -1114,6 +1114,44 @@ mod tests {
         );
     }
 
+    /// CPU starvation on one layer is not hidden by a larger counter on another: each stream is
+    /// compared against its own previous poll, never against the track's maximum. Covered in
+    /// both arrival orders, with a poll that omits the counter (it says nothing), and with no
+    /// growth at all (the negative control).
+    #[test]
+    fn cpu_starvation_on_a_small_layer_is_not_hidden_by_a_larger_sibling() {
+        let layer = |id: &str, cpu_ms: Option<u64>, second: u64| RtcStatsSample {
+            quality_limitation_cpu_ms: cpu_ms,
+            layer: Some(id.into()),
+            timestamp_ns: Some(second * 1_000_000_000),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        for reversed in [false, true] {
+            let poll = |windows: &mut StatsWindows, h: Option<u64>, f: Option<u64>, s: u64| {
+                let mut samples = vec![layer("h", h, s), layer("f", f, s)];
+                if reversed {
+                    samples.reverse();
+                }
+                for sample in samples {
+                    windows.record(sample);
+                }
+            };
+            let mut windows = StatsWindows::default();
+            poll(&mut windows, Some(1_000), Some(100), 1);
+            poll(&mut windows, Some(1_000), Some(100), 2);
+            assert!(!windows.cpu_limited(), "reversed {reversed}: nothing grew");
+            // The small layer's counter grows while the large one stands still.
+            poll(&mut windows, Some(1_000), Some(200), 3);
+            assert!(windows.cpu_limited(), "reversed {reversed}: the small layer was starved");
+            // A poll without the counter keeps the baselines; the next growth still shows.
+            let mut windows = StatsWindows::default();
+            poll(&mut windows, Some(1_000), Some(100), 1);
+            poll(&mut windows, None, None, 2);
+            poll(&mut windows, Some(1_000), Some(150), 3);
+            assert!(windows.cpu_limited(), "reversed {reversed}: baseline survived a silent poll");
+        }
+    }
+
     #[test]
     fn simulcast_layers_fold_into_one_track_series() {
         let mut windows = StatsWindows::default();
