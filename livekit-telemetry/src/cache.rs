@@ -227,17 +227,22 @@ impl FileCache {
     /// a split interrupted by a crash — before anything is evicted — and discard stray or
     /// half-written files (only here: a replaced pipeline may still be writing its own).
     pub fn open(dir: impl Into<PathBuf>, max_bytes: u64) -> io::Result<Self> {
+        Self::open_bounded(dir, max_bytes, MAX_BATCHES)
+    }
+
+    /// [`open`](Self::open) with the file-count bound in force from the start, so opening-time
+    /// pruning applies it.
+    fn open_bounded(
+        dir: impl Into<PathBuf>,
+        max_bytes: u64,
+        max_batches: usize,
+    ) -> io::Result<Self> {
         let dir = dir.into();
-        // ponytail: `create_dir`, not `create_dir_all` — the recursive variant drags in
-        // `Path::components` machinery (~3 KiB) for a parent the host always provides.
-        match fs::create_dir(&dir) {
-            Err(err) if err.kind() != io::ErrorKind::AlreadyExists => return Err(err),
-            _ => {}
-        }
+        create_dir_synced(&dir)?;
         let cache = Self {
             dir,
             max_bytes,
-            max_batches: MAX_BATCHES,
+            max_batches,
             evicted: Mutex::new(Vec::new()),
             recovery_failed: Default::default(),
             #[cfg(test)]
@@ -269,9 +274,7 @@ impl FileCache {
         max_bytes: u64,
         max_batches: usize,
     ) -> io::Result<Self> {
-        let mut cache = Self::open(dir, max_bytes)?;
-        cache.max_batches = max_batches;
-        Ok(cache)
+        Self::open_bounded(dir, max_bytes, max_batches)
     }
 
     /// Fail or crash at storage steps from now on (tests only).
@@ -322,9 +325,10 @@ impl FileCache {
             file.sync_all()
         };
         match write(tmp) {
-            // iOS may purge the whole Caches subdirectory while the app runs: recreate it once.
+            // iOS may purge the whole Caches subdirectory while the app runs: recreate it once
+            // (another cache's `open` may have recreated it first).
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                fs::create_dir(&self.dir)?;
+                create_dir_synced(&self.dir)?;
                 write(tmp)
             }
             other => other,
@@ -792,6 +796,25 @@ fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
     }
     let _release = Release(HELD_BACK.with(|held| held.borrow_mut().replace(Vec::new())));
     gated()
+}
+
+/// Create `dir` (one that exists already is fine) and, when this call created it, make its
+/// entry durable by syncing its parent: a directory's own `fsync` covers the entries inside it,
+/// not the entry that names it.
+// ponytail: `create_dir`, not `create_dir_all` — the recursive variant drags in
+// `Path::components` machinery (~3 KiB) for a parent the host always provides.
+fn create_dir_synced(dir: &Path) -> io::Result<()> {
+    match fs::create_dir(dir) {
+        Ok(()) => {
+            #[cfg(unix)]
+            if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
+                fs::File::open(parent)?.sync_all()?;
+            }
+            Ok(())
+        }
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 /// A batch file: our extension and a creation stamp in its name. Anything else in the directory
