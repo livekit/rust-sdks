@@ -248,7 +248,9 @@ impl Destinations {
     /// there instead.
     pub fn new(endpoint_override: Option<&str>) -> Self {
         Self {
-            endpoint_override: endpoint_override.filter(|e| !e.is_empty()).map(override_target),
+            endpoint_override: endpoint_override
+                .filter(|e| !e.is_empty())
+                .and_then(override_target),
             ..Self::default()
         }
     }
@@ -523,22 +525,30 @@ fn ingest_url(host: &str, signal: Signal) -> String {
     format!("https://{host}/observability/client/{signal}/otlp/v0")
 }
 
-/// The targets of [`ENDPOINT_OVERRIDE_ENV`].
-fn override_target(endpoint: &str) -> Target {
+/// The targets of [`ENDPOINT_OVERRIDE_ENV`]; `None` (logged) when it is not an HTTP URL, so no
+/// batch is ever built for a request the transport cannot make.
+fn override_target(endpoint: &str) -> Option<Target> {
     let endpoint = endpoint.trim_end_matches('/');
+    let url = url::Url::parse(endpoint).ok().filter(|u| matches!(u.scheme(), "http" | "https"));
+    let Some(mut url) = url else {
+        log::warn!("{ENDPOINT_OVERRIDE_ENV} is not an HTTP URL: ignoring it");
+        return None;
+    };
     // A logs URL has a whole `logs` path segment; its traces URL swaps that segment.
-    let traces = url::Url::parse(endpoint).ok().and_then(|mut url| {
-        let mut segments: Vec<String> = url.path_segments()?.map(str::to_owned).collect();
+    let traces = url.path_segments().and_then(|segments| {
+        let mut segments: Vec<String> = segments.map(str::to_owned).collect();
         let logs = segments.iter().rposition(|s| s == "logs")?;
         segments[logs] = "traces".to_owned();
-        url.set_path(&segments.join("/"));
-        Some(url.to_string())
+        Some(segments.join("/"))
     });
     let (logs, traces) = match traces {
-        Some(traces) => (endpoint.to_owned(), traces),
+        Some(path) => {
+            url.set_path(&path);
+            (endpoint.to_owned(), url.to_string())
+        }
         None => (format!("{endpoint}/v1/logs"), format!("{endpoint}/v1/traces")),
     };
-    Target { project: None, logs, traces, token: None }
+    Some(Target { project: None, logs, traces, token: None })
 }
 
 #[cfg(test)]
@@ -780,6 +790,21 @@ pub(crate) mod tests {
         let mut local = Destinations::new(Some("http://localhost:4318"));
         let host = local.set("ws://localhost:7880", "not-a-jwt", "s");
         assert!(matches!(local.route(host.as_deref(), Some("s")), Route::Send(_)));
+    }
+
+    #[test]
+    fn an_override_that_is_not_an_http_url_is_ignored() {
+        crate::test_log::capture();
+        for endpoint in ["not a url", "localhost:4318", "ftp://collector/v1/logs", "/v1/logs"] {
+            let d = Destinations::new(Some(endpoint));
+            assert!(!d.has_override(), "{endpoint}");
+            assert_eq!(d.route(None, None), Route::Wait, "{endpoint}: no collector, no override");
+            let lines = crate::test_log::take();
+            assert!(
+                lines.iter().any(|l| l.contains(ENDPOINT_OVERRIDE_ENV)),
+                "{endpoint}: {lines:?}"
+            );
+        }
     }
 
     #[test]

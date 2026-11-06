@@ -22,7 +22,7 @@ use prost::Message;
 /// a transport only moves the bytes. The body is an `ExportLogsServiceRequest` or an
 /// `ExportTraceServiceRequest`, as `url` says.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExportRequest {
     /// Where to POST: the OTLP logs or traces endpoint of the batch's project.
     pub url: String,
@@ -356,6 +356,11 @@ mod net {
     #[async_trait::async_trait]
     impl TelemetryTransport for NetTransport {
         async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
+            // A request that cannot be made is final: the client would report a malformed URL
+            // as a connection error, and the batch would retry until its cache expired.
+            if let Err(error) = url::Url::parse(&request.url) {
+                return Err(ExportError::Rejected { reason: format!("{}: {error}", request.url) });
+            }
             let headers =
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
             match self.0.post(request.url, headers, request.body).await {
@@ -374,6 +379,43 @@ mod net {
 
 #[cfg(feature = "net")]
 pub use net::NetTransport;
+
+#[cfg(all(test, feature = "net"))]
+mod net_tests {
+    use std::sync::Arc;
+
+    use livekit_net::{Header, HttpClient, HttpMethod, HttpResponse, TransportError};
+
+    use super::*;
+
+    /// A client that must never be asked anything.
+    struct Unreachable;
+
+    #[async_trait::async_trait]
+    impl HttpClient for Unreachable {
+        async fn request(
+            &self,
+            _: HttpMethod,
+            url: String,
+            _: Vec<Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<HttpResponse, TransportError> {
+            panic!("{url} reached the client")
+        }
+    }
+
+    /// A URL the client cannot even build a request for is a final failure, not a retry: the
+    /// native client would report it as a connection error.
+    #[tokio::test]
+    async fn a_malformed_url_is_rejected_before_the_client_sees_it() {
+        let transport = NetTransport::new(Arc::new(Unreachable));
+        let request = ExportRequest { url: "not a url".into(), ..Default::default() };
+        assert!(matches!(
+            transport.send(request).await,
+            Err(ExportError::Rejected { reason }) if reason.contains("not a url")
+        ));
+    }
+}
 
 #[cfg(test)]
 mod tests {
