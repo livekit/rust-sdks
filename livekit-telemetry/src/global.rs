@@ -4,6 +4,7 @@
 //! shuts down the one `install` hands back.
 
 use std::{
+    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -53,22 +54,17 @@ static LIFECYCLE: Mutex<()> = Mutex::new(());
 /// read under `LIFECYCLE`.
 static DISABLED: AtomicBool = AtomicBool::new(false);
 
-/// Every pipeline generation ever installed that may still hold data — the current one,
-/// replaced ones still draining, and the disk cache of any that are gone — reachable without
-/// being kept alive, so the opt-out can revoke, cancel and await each, and delete what each left
-/// on disk.
-struct Generation {
-    shared: Weak<Shared>,
-    /// The `storage_dir` it was built with (none for a caller-provided cache), kept until it is
-    /// known to hold nothing.
-    storage: Option<PathBuf>,
+/// Live pipelines and deduplicated disk paths, retained independently so retired weak
+/// allocations can be freed even when a newer pipeline still uses the same directory.
+#[derive(Default)]
+struct Generations {
+    live: Vec<Weak<Shared>>,
+    stored: BTreeSet<PathBuf>,
 }
 
-impl Generation {
-    /// Keep disk paths until the asynchronous opt-out verifies their erasure. Never inspect
-    /// storage while holding the lifecycle and generation registries.
-    fn holds_data(&self) -> bool {
-        self.shared.strong_count() > 0 || self.storage.is_some()
+impl Generations {
+    fn compact(&mut self) {
+        self.live.retain(|shared| shared.strong_count() > 0);
     }
 }
 
@@ -87,7 +83,8 @@ fn erase(dir: &Path) -> bool {
     erased.is_ok()
 }
 
-static GENERATIONS: Mutex<Vec<Generation>> = Mutex::new(Vec::new());
+static GENERATIONS: Mutex<Generations> =
+    Mutex::new(Generations { live: Vec::new(), stored: BTreeSet::new() });
 
 fn lifecycle() -> MutexGuard<'static, ()> {
     LIFECYCLE.lock().unwrap_or_else(|e| e.into_inner())
@@ -133,18 +130,19 @@ pub fn install(
                 GENERATIONS
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .push(Generation { shared: Weak::new(), storage: Some(PathBuf::from(dir)) });
+                    .stored
+                    .insert(PathBuf::from(dir));
             }
         }
         return Some(telemetry);
     }
     {
         let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        generations.retain(Generation::holds_data);
-        generations.push(Generation {
-            shared: Arc::downgrade(&telemetry.shared),
-            storage: telemetry.shared.config.storage_dir.as_ref().map(PathBuf::from),
-        });
+        generations.compact();
+        generations.live.push(Arc::downgrade(&telemetry.shared));
+        if let Some(dir) = &telemetry.shared.config.storage_dir {
+            generations.stored.insert(PathBuf::from(dir));
+        }
     }
     stop_installed_instruments();
     // `INSTALLED` is released before any instrument runs: `start` may call straight back in.
@@ -190,22 +188,17 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         }
         // A snapshot, not a drain: a second call must find (and purge) them too.
         let mut list = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        list.retain(Generation::holds_data);
+        list.compact();
         // Every pipeline still alive is held before the installed handle goes, so the opt-out
         // reaches its exporter even when that handle was the last one. Revoked here: every
         // capture, cache write and request checks it under the lock it commits under, so
         // nothing lands or starts after this returns.
-        let live: Vec<Arc<Shared>> = list
-            .iter()
-            .filter_map(|g| g.shared.upgrade())
-            .inspect(|shared| shared.revoke())
-            .collect();
+        let live: Vec<Arc<Shared>> =
+            list.live.iter().filter_map(Weak::upgrade).inspect(|shared| shared.revoke()).collect();
         // Every generation's disk, deleted after the live purges, which count what they delete.
         // A live pipeline that fell back to memory at start leaves an earlier launch's batches
         // there, and a gone one leaves what it cached.
-        let mut stored: Vec<PathBuf> = list.iter().filter_map(|g| g.storage.clone()).collect();
-        stored.sort_unstable();
-        stored.dedup();
+        let stored: Vec<PathBuf> = list.stored.iter().cloned().collect();
         // Freed outside every lock but the lifecycle one: an instrument's destructor may log.
         drop(list);
         drop(taken);
@@ -222,12 +215,8 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
             complete &= erased;
             if erased {
                 let mut list = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-                for generation in list.iter_mut() {
-                    if generation.storage.as_ref() == Some(&dir) {
-                        generation.storage = None;
-                    }
-                }
-                list.retain(Generation::holds_data);
+                list.stored.remove(&dir);
+                list.compact();
             }
         }
         complete
@@ -239,9 +228,9 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
 pub(crate) fn reset_for_test() {
     let _lifecycle = lifecycle();
     DISABLED.store(false, Ordering::SeqCst);
-    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
-    drop(installed);
-    GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    let taken = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    drop(taken);
+    *GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()) = Generations::default();
 }
 
 /// Serializes tests that use the process-wide pipeline.
@@ -338,18 +327,44 @@ mod tests {
     use std::fs;
 
     #[tokio::test]
+    async fn retired_generations_do_not_accumulate_for_one_directory() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let dir = crate::cache::temp_dir("compact-generations");
+        let cache = FileCache::open(&dir, u64::MAX).unwrap();
+        cache.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        drop(cache);
+        for _ in 0..64 {
+            let config = crate::TelemetryConfig {
+                storage_dir: Some(dir.to_string_lossy().into_owned()),
+                ..test_config()
+            };
+            let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+            drop(exporter);
+            drop(install(telemetry, Vec::new()));
+            drop(uninstall());
+        }
+        let (count, directories) = {
+            let list = GENERATIONS.lock().unwrap();
+            (list.live.len(), list.stored.len())
+        };
+        assert!(disable().await);
+        reset_for_test();
+        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(directories, 1);
+        assert!(count <= 1, "retained {count} dead weak allocations for one directory");
+    }
+
+    #[tokio::test]
     async fn synchronous_registry_keeps_uninspected_directories() {
         let _global = TEST_LOCK.lock().await;
         reset_for_test();
         let dir = crate::cache::temp_dir("uninspected-registry");
         fs::create_dir(&dir).unwrap();
-        GENERATIONS
-            .lock()
-            .unwrap()
-            .push(Generation { shared: Weak::new(), storage: Some(dir.clone()) });
+        GENERATIONS.lock().unwrap().stored.insert(dir.clone());
         let purge = disable();
         // Even an empty directory stays pending until the asynchronous cleanup phase.
-        let retained = GENERATIONS.lock().unwrap().iter().any(|g| g.storage.as_ref() == Some(&dir));
+        let retained = GENERATIONS.lock().unwrap().stored.contains(&dir);
         assert!(purge.await);
         reset_for_test();
         fs::remove_dir_all(dir).unwrap();
