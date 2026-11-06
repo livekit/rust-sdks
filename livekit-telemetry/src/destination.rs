@@ -153,7 +153,10 @@ impl Expiry {
 }
 
 fn unix_now_secs() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64();
+    #[cfg(test)]
+    let now = now + tests::WALL_OFFSET_SECS.with(|offset| offset.get());
+    now
 }
 
 impl Token {
@@ -764,22 +767,35 @@ pub(crate) mod tests {
         assert!(d.refused.0.is_empty(), "{} expired refusals kept", d.refused.0.len());
     }
 
-    /// A refusal outlives a wall-clock correction: a forward jump that prunes it, followed by a
-    /// backward jump that makes the token's own expiry pass again, must not let the refused
-    /// credential go out once more. Pruning therefore follows the monotonic deadline only.
+    /// Tests only: seconds added to the wall clock this thread reads, to model a clock
+    /// correction without touching the system clock.
+    thread_local! {
+        pub(super) static WALL_OFFSET_SECS: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+    }
+
+    /// A refused token stays refused while a slot still holds it, whatever the wall clock did
+    /// in between: a forward jump past `exp` before the 401 lands, then a correction back,
+    /// must not let the same token go out again from the Room's slot.
     #[test]
-    fn a_refusal_survives_a_wall_clock_jump() {
+    fn a_refused_token_stays_refused_across_a_wall_clock_jump() {
         let mut d = Destinations::default();
         let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        assert!(matches!(d.route(Some(&host), Some("s")), Route::Send(_)));
+        let live: HashMap<String, Option<String>> = [("s".to_owned(), Some(host.clone()))].into();
+        // The wall clock jumps 1,200 s ahead, past `exp`, before the collector's 401 lands.
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
         d.refuse(&token);
-        for expiry in d.refused.0.values_mut().flatten() {
-            expiry.wall_secs = unix_now_secs() - 1.0;
-        }
-        d.retain_owners(&Default::default(), &Default::default());
-        assert!(
-            d.refused.contains(&Token::from(token.as_str())),
-            "refused until the monotonic deadline passes"
-        );
+        d.retain_owners(&live, &Default::default());
+        // The clock is corrected back; the Room's slot still holds the token.
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        assert_eq!(d.route(Some(&host), Some("s")), Route::Wait, "refused, whatever the clock did");
+        // Control: with no jump the same sequence waits as well.
+        let mut d = Destinations::default();
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        d.retain_owners(&live, &Default::default());
+        assert_eq!(d.route(Some(&host), Some("s")), Route::Wait);
     }
 
     #[test]
