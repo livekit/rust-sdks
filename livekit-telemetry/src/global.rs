@@ -69,8 +69,10 @@ static INSTALLED: RwLock<Option<Installed>> = RwLock::new(None);
 /// waiting instead; see [`TelemetryInstrument`].
 static LIFECYCLE: Mutex<()> = Mutex::new(());
 
-/// The app opted out ([`disable`]): nothing installs for the rest of the process. Written and
-/// read under `LIFECYCLE`.
+/// The app opted out ([`disable`]): nothing installs for the rest of the process. Written
+/// under `LIFECYCLE`, so an install cannot race the opt-out; read anywhere without it
+/// ([`is_disabled`] is a plain atomic load, and so is the check at the top of `install`, which
+/// then holds the lock).
 static DISABLED: AtomicBool = AtomicBool::new(false);
 
 /// Live pipelines and deduplicated disk paths, retained independently so retired weak
@@ -132,7 +134,10 @@ fn stop_installed_instruments() {
 
 /// Make `telemetry` the process pipeline and start `instruments` on it. Returns the pipeline it
 /// replaces (its instruments already stopped), still holding data: the caller shuts it down.
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead.
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
+/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
+/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
+/// by the caller (nothing here owns it).
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
