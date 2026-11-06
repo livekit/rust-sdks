@@ -61,6 +61,7 @@ static DISABLED: AtomicBool = AtomicBool::new(false);
 
 /// Live pipelines and deduplicated disk paths, retained independently so retired weak
 /// allocations can be freed even when a newer pipeline still uses the same directory.
+/// Pending paths leave `stored` only after a successful opt-out erase.
 #[derive(Default)]
 struct Generations {
     live: Vec<Weak<Shared>>,
@@ -217,10 +218,10 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         for shared in &live {
             shared.cancel.notify_one();
         }
-        let deadline = tokio::time::Instant::now() + wait;
         for shared in &live {
             shared.clear();
         }
+        let deadline = tokio::time::Instant::now() + wait;
         for shared in live {
             let mut alive = shared.exporter_alive.clone();
             let _ = tokio::time::timeout_at(deadline, alive.changed()).await;
@@ -350,6 +351,7 @@ mod tests {
             std::task::Poll::Ready(())
         })
         .await;
+        // Consuming the cancellation permits is intentional: these exporters never run.
         let all_cancelled = shared.iter().all(|s| {
             let notified = s.cancel.notified();
             tokio::pin!(notified);
