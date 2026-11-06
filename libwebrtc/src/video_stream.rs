@@ -32,6 +32,10 @@ pub mod native {
     };
     use tokio_stream::Stream;
 
+    pub use crate::imp::encoded_video_stream::{
+        NativeEncodedVideoStream, NativeEncodedVideoStreamOptions, ReceivedEncodedFrame,
+    };
+
     const DEFAULT_QUEUE_SIZE_FRAMES: usize = 1;
 
     #[derive(Clone, Debug, Default)]

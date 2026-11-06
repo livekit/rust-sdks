@@ -56,6 +56,7 @@ fn main() {
         "src/apm.rs",
         "src/audio_mixer.rs",
         "src/packet_trailer.rs",
+        "src/passthrough_video_decoder.rs",
     ];
 
     if is_desktop {
@@ -87,6 +88,7 @@ fn main() {
         "src/encoded_video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
         "src/passthrough_video_encoder.cpp",
+        "src/passthrough_video_decoder.cpp",
         "src/video_decoder_factory.cpp",
         "src/synthetic_audio_device.cpp",
         "src/adm_proxy.cpp",

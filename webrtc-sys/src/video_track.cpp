@@ -101,6 +101,15 @@ bool VideoTrack::should_receive() const {
   return track()->should_receive();
 }
 
+void VideoTrack::request_keyframe() const {
+  // For a remote track the source proxy runs GenerateKeyFrame on the worker
+  // thread, where VideoRtpReceiver asks the sender for a keyframe and keeps
+  // asking until one arrives. Local sources ignore it.
+  if (webrtc::VideoTrackSourceInterface* source = track()->GetSource()) {
+    source->GenerateKeyFrame();
+  }
+}
+
 ContentHint VideoTrack::content_hint() const {
   return static_cast<ContentHint>(track()->content_hint());
 }

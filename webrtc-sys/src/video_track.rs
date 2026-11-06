@@ -106,6 +106,8 @@ pub mod ffi {
         fn remove_sink(self: &VideoTrack, sink: &SharedPtr<NativeVideoSink>);
         fn set_should_receive(self: &VideoTrack, should_receive: bool);
         fn should_receive(self: &VideoTrack) -> bool;
+        /// Asks the sender of a remote track for a keyframe; no-op for local tracks.
+        fn request_keyframe(self: &VideoTrack);
         fn content_hint(self: &VideoTrack) -> ContentHint;
         fn set_content_hint(self: &VideoTrack, hint: ContentHint);
         fn new_native_video_sink(observer: Box<VideoSinkWrapper>) -> SharedPtr<NativeVideoSink>;

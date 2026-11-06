@@ -40,6 +40,10 @@ impl RtcVideoTrack {
         video_to_media(self.sys_handle.clone())
     }
 
+    pub fn request_keyframe(&self) {
+        self.sys_handle.request_keyframe();
+    }
+
     /// Set the packet trailer handler for this track.
     ///
     /// When set, any `NativeVideoStream` created from this track will

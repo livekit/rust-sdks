@@ -138,6 +138,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
   IceConnectionState ice_connection_state() const;
 
   void close() const;
+  bool prerenderer_smoothing() const;
 
   void OnSignalingChange(
       webrtc::PeerConnectionInterface::SignalingState new_state) override;

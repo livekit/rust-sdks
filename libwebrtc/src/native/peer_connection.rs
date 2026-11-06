@@ -190,6 +190,11 @@ impl From<RtcConfiguration> for sys_pc::ffi::RtcConfiguration {
             continual_gathering_policy: value.continual_gathering_policy.into(),
             ice_transport_type: value.ice_transport_type.into(),
             enable_sctp_snap: value.enable_sctp_snap,
+            prerenderer_smoothing: match value.prerenderer_smoothing {
+                None => sys_pc::ffi::PrerendererSmoothing::Default,
+                Some(true) => sys_pc::ffi::PrerendererSmoothing::Enabled,
+                Some(false) => sys_pc::ffi::PrerendererSmoothing::Disabled,
+            },
         }
     }
 }

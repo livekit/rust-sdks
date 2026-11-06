@@ -36,6 +36,14 @@ struct ObuSpan {
 /// Returns an empty vector when the bitstream is malformed.
 std::vector<ObuSpan> ParseObus(const uint8_t* data, size_t len);
 
+/// Reads the maximum frame size from the first `OBU_SEQUENCE_HEADER` in a
+/// low-overhead bitstream (AV1 spec 5.5.1). The AV1 RTP depacketizer reports no
+/// frame size, so a receiver that does not decode reads it here.
+bool ParseSequenceHeaderFrameSize(const uint8_t* data,
+                                  size_t len,
+                                  int* width,
+                                  int* height);
+
 /// Returns true when the bitstream contains an `OBU_SEQUENCE_HEADER`.
 bool HasSequenceHeaderObu(const uint8_t* data, size_t len);
 

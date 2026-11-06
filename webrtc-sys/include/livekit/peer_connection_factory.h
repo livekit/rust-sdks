@@ -39,6 +39,7 @@ namespace livekit_ffi {
 
 class PeerConnection;
 struct RtcConfiguration;
+enum class VideoDecoderBackend : std::int32_t;
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);
@@ -51,6 +52,10 @@ class PeerConnectionFactory {
   PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
                         bool zero_playout_delay,
                         bool enable_warp);
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        bool zero_playout_delay,
+                        bool enable_warp,
+                        VideoDecoderBackend video_decoder_backend);
   ~PeerConnectionFactory();
 
   std::shared_ptr<PeerConnection> create_peer_connection(
@@ -96,6 +101,7 @@ class PeerConnectionFactory {
   // long as peer_factory_ does.
   const VideoEncoderFactory* video_encoder_factory_ = nullptr;
   webrtc::Environment env_;
+  const VideoDecoderBackend video_decoder_backend_;
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
@@ -104,4 +110,7 @@ create_peer_connection_factory_with_zero_playout_delay();
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_options(bool zero_playout_delay,
                                             bool enable_warp);
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_video_decoder_backend(
+    VideoDecoderBackend backend);
 }  // namespace livekit_ffi

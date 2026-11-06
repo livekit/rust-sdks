@@ -114,6 +114,40 @@ pub struct EncodedVideoFrame<'a> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+impl TryFrom<i32> for EncodedVideoCodec {
+    type Error = i32;
+
+    /// Converts a raw `webrtc_sys::video_track::ffi::EncodedVideoCodec` value.
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        use webrtc_sys::video_track::ffi::EncodedVideoCodec as Sys;
+        let codec = Sys { repr: value };
+        match codec {
+            Sys::H264 => Ok(Self::H264),
+            Sys::H265 => Ok(Self::H265),
+            Sys::VP8 => Ok(Self::VP8),
+            Sys::VP9 => Ok(Self::VP9),
+            Sys::AV1 => Ok(Self::AV1),
+            _ => Err(value),
+        }
+    }
+}
+
+impl EncodedFrameType {
+    pub(crate) fn from_keyframe(keyframe: bool) -> Self {
+        if keyframe {
+            Self::Key
+        } else {
+            Self::Delta
+        }
+    }
+}
+
+/// libwebrtc reports an unknown NTP capture time as -1.
+pub(crate) fn ntp_time_from_raw(ntp_time_ms: i64) -> Option<i64> {
+    (ntp_time_ms >= 0).then_some(ntp_time_ms)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl From<EncodedVideoCodec> for webrtc_sys::video_track::ffi::EncodedVideoCodec {
     fn from(value: EncodedVideoCodec) -> Self {
         match value {
@@ -152,6 +186,24 @@ impl<T: AsRef<dyn VideoBuffer>> VideoFrame<T> {
     pub fn new(rotation: VideoRotation, buffer: T) -> Self {
         Self { rotation, timestamp_us: 0, frame_metadata: None, buffer }
     }
+}
+
+/// An encoded access unit carried by a [`native::NativeBuffer`].
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct EncodedBufferView<'a> {
+    /// Codec of the access unit.
+    pub codec: EncodedVideoCodec,
+    /// Whether the access unit is a keyframe.
+    pub frame_type: EncodedFrameType,
+    /// The access unit, as received.
+    pub payload: &'a [u8],
+    /// Identity of the decoder that produced it; changes when the decoder is
+    /// recreated (e.g. on a codec switch).
+    pub(crate) stream_id: usize,
+    /// Delivery order within `stream_id`, starting at 0.
+    pub(crate) sequence: u64,
 }
 
 pub type BoxVideoBuffer = Box<dyn VideoBuffer>;
@@ -634,6 +686,21 @@ pub mod native {
         pub fn get_dmabuf_fd(&self) -> Option<DmaBufFileDescriptor> {
             self.handle.get_dmabuf_fd()
         }
+
+        /// Returns the encoded access unit this buffer carries, or `None` if it
+        /// is not an encoded buffer. Received video carries encoded buffers when
+        /// the factory was created with
+        /// [`VideoDecoderBackend::PassThrough`](crate::peer_connection_factory::VideoDecoderBackend::PassThrough).
+        pub fn encoded(&self) -> Option<super::EncodedBufferView<'_>> {
+            self.handle.encoded()
+        }
+
+        /// Asks the sender for a keyframe through the pass-through decoder that
+        /// produced this buffer. Takes effect when the next frame is decoded;
+        /// a no-op for buffers that are not encoded.
+        pub fn request_keyframe(&self) {
+            self.handle.request_keyframe()
+        }
     }
 
     pub trait VideoFrameBufferExt: VideoBuffer {
@@ -687,5 +754,33 @@ mod tests {
         assert!(data_y.iter().all(|&px| px == 0));
         assert!(data_u.iter().all(|&px| px == 128));
         assert!(data_v.iter().all(|&px| px == 128));
+    }
+
+    #[test]
+    fn encoded_frame_ref_converts_native_enums() {
+        use super::{EncodedFrameType, EncodedVideoCodec};
+        use webrtc_sys::video_track::ffi as sys_vt;
+        for codec in [
+            EncodedVideoCodec::H264,
+            EncodedVideoCodec::H265,
+            EncodedVideoCodec::VP8,
+            EncodedVideoCodec::VP9,
+            EncodedVideoCodec::AV1,
+        ] {
+            let raw = sys_vt::EncodedVideoCodec::from(codec).repr;
+            assert_eq!(EncodedVideoCodec::try_from(raw), Ok(codec));
+        }
+        assert!(EncodedVideoCodec::try_from(99).is_err());
+        for frame_type in [EncodedFrameType::Key, EncodedFrameType::Delta] {
+            let key = sys_vt::EncodedFrameType::from(frame_type) == sys_vt::EncodedFrameType::Key;
+            assert_eq!(EncodedFrameType::from_keyframe(key), frame_type);
+        }
+    }
+
+    #[test]
+    fn ntp_time_minus_one_maps_to_none() {
+        assert_eq!(super::ntp_time_from_raw(-1), None);
+        assert_eq!(super::ntp_time_from_raw(0), Some(0));
+        assert_eq!(super::ntp_time_from_raw(1_700_000_000_000), Some(1_700_000_000_000));
     }
 }

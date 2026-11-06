@@ -55,6 +55,7 @@ class VideoTrack : public MediaStreamTrack {
 
   void set_should_receive(bool should_receive) const;
   bool should_receive() const;
+  void request_keyframe() const;
   ContentHint content_hint() const;
   void set_content_hint(ContentHint hint) const;
 

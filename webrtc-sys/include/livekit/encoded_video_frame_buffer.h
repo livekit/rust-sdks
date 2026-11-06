@@ -69,7 +69,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
       int height,
       EncodedVideoCodec codec,
       EncodedFrameType frame_type,
-      webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
+      webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> payload,
       std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr,
       std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr);
   ~EncodedVideoFrameBuffer() override = default;
@@ -91,7 +91,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
 
   // The encoded access unit. Shared with the pass-through encoder so the
   // payload is not copied again on the send path.
-  webrtc::scoped_refptr<webrtc::EncodedImageBuffer> encoded_data() const {
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> encoded_data() const {
     return payload_;
   }
   const uint8_t* payload_data() const { return payload_->data(); }
@@ -122,7 +122,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   int height_;
   EncodedVideoCodec codec_;
   EncodedFrameType frame_type_;
-  webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload_;
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> payload_;
   std::shared_ptr<std::atomic<bool>> keyframe_request_flag_;
   std::shared_ptr<EncodedRateControlState> rate_control_state_;
   const void* stream_id_ = nullptr;

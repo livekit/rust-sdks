@@ -95,6 +95,26 @@ pub struct NativeBuffer {
     sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 }
 
+impl NativeBuffer {
+    pub fn encoded(&self) -> Option<vf::EncodedBufferView<'_>> {
+        let info = self.sys_handle.encoded_info();
+        if !info.is_encoded {
+            return None;
+        }
+        Some(vf::EncodedBufferView {
+            codec: vf::EncodedVideoCodec::try_from(info.codec).ok()?,
+            frame_type: vf::EncodedFrameType::from_keyframe(info.keyframe),
+            payload: self.sys_handle.encoded_payload(),
+            stream_id: info.stream_id,
+            sequence: info.sequence_number,
+        })
+    }
+
+    pub fn request_keyframe(&self) {
+        self.sys_handle.request_encoded_keyframe();
+    }
+}
+
 pub struct I420Buffer {
     sys_handle: UniquePtr<vfb_sys::ffi::I420Buffer>,
 }
