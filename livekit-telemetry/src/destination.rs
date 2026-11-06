@@ -32,6 +32,8 @@ use base64::{
 };
 use tokio::time::Instant;
 
+use crate::cache::diagnostic;
+
 /// The environment variable that points every upload at a collector of your own — a local
 /// OpenTelemetry collector for end-to-end tests. Not part of any platform API: set it in the
 /// test process's environment before the pipeline starts. Either a URL with a `logs` path
@@ -277,14 +279,17 @@ impl Destinations {
         let project = self.projects.entry(host.clone()).or_default();
         if project.dead.is_none() && !cloud {
             project.dead = Some(Dead::NotCloud);
-            log::warn!("{host} is not LiveKit Cloud: client telemetry stays on this device");
+            diagnostic(
+                log::Level::Warn,
+                format!("{host} is not LiveKit Cloud: client telemetry stays on this device"),
+            );
         }
         if matches!(project.dead, Some(Dead::NotCloud | Dead::Disabled)) {
             return Some(host);
         }
         let token = Token::from(token);
         if project.dead == Some(Dead::NotFound) {
-            log::debug!("new token for {host}: trying its ingest again");
+            diagnostic(log::Level::Debug, format!("new token for {host}: trying its ingest again"));
             project.dead = None;
         }
         if token.grant {
@@ -294,7 +299,10 @@ impl Destinations {
             }
         } else if !project.consented && project.dead.is_none() {
             project.dead = Some(Dead::NoGrant);
-            log::info!("the token for {host} has no observability grant: telemetry stays local");
+            diagnostic(
+                log::Level::Info,
+                format!("the token for {host} has no observability grant: telemetry stays local"),
+            );
         }
         offer(&mut project.latest, &token, &self.refused);
         let key = (host.clone(), owner.to_owned());
@@ -375,7 +383,10 @@ impl Destinations {
     /// would use it wait for the next one.
     pub fn refuse(&mut self, token: &str) {
         if self.refused.add(&Token::from(token)) {
-            log::warn!("the collector refused a token; waiting for a new one");
+            diagnostic(
+                log::Level::Warn,
+                "the collector refused a token; waiting for a new one".into(),
+            );
         }
     }
 
@@ -461,8 +472,14 @@ impl Destinations {
         let project = self.projects.entry(host.to_owned()).or_default();
         if project.dead.is_none() {
             match why {
-                Dead::NotFound => log::warn!("{host} has no client telemetry ingest; going silent"),
-                Dead::Disabled => log::warn!("{host} disabled data recording; going silent"),
+                Dead::NotFound => diagnostic(
+                    log::Level::Warn,
+                    format!("{host} has no client telemetry ingest; going silent"),
+                ),
+                Dead::Disabled => diagnostic(
+                    log::Level::Warn,
+                    format!("{host} disabled data recording; going silent"),
+                ),
                 Dead::NotCloud | Dead::NoGrant => {}
             }
             project.dead = Some(why);

@@ -1104,7 +1104,7 @@ impl Exporter {
                 log::debug!("upload unauthorized: {reason}");
                 Counters::add(&counters.auth_denied, 1);
                 if let Some(token) = &target.token {
-                    self.destinations().refuse(token);
+                    crate::cache::logged_after(|| self.destinations().refuse(token));
                 }
                 if let Some(pass) = self.pass.as_mut() {
                     pass.waiting = true;
@@ -1245,7 +1245,7 @@ impl Exporter {
     /// The project on `host` receives nothing more: its cached batches go now.
     fn kill(&mut self, host: Option<&str>, why: Dead) {
         if let Some(host) = host {
-            self.destinations().kill(host, why);
+            crate::cache::logged_after(|| self.destinations().kill(host, why));
         }
         self.purge_dead();
     }
