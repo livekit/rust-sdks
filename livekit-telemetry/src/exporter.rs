@@ -1263,6 +1263,13 @@ impl Exporter {
     /// delete that fails leaves the batch pending deletion: never uploaded again, deleted as soon
     /// as the storage lets us (a restart before then may send it once more).
     fn forget(&mut self, id: &str, lost: Option<&AtomicU64>) {
+        // Already done with and counted: this is another try at the delete, nothing more.
+        if self.undeletable.contains(id) {
+            if self.shared.cache.remove(id).is_ok() {
+                self.undeletable.remove(id);
+            }
+            return;
+        }
         if let Err(err) = self.shared.cache.remove(id) {
             log::warn!("cannot delete cached batch {id} ({err}); it will not be sent again");
             self.undeletable.insert(id.to_owned());
@@ -1989,6 +1996,47 @@ pub(crate) mod tests {
         let pending = telemetry.shared.cache.pending();
         assert_eq!(pending, [halves[1].clone()], "the older half went to keep the bound");
         assert_eq!(exporter.born.keys().collect::<Vec<_>>(), [&halves[1]]);
+    }
+
+    /// A cache whose deletes are refused (file protection, a permission).
+    struct Undeletable(crate::MemoryCache);
+
+    impl crate::BatchCache for Undeletable {
+        fn push(&self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
+            crate::BatchCache::push(&self.0, id, body)
+        }
+        fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> std::io::Result<Vec<String>> {
+            crate::BatchCache::replace(&self.0, old, new)
+        }
+        fn pending(&self) -> Vec<String> {
+            crate::BatchCache::pending(&self.0)
+        }
+        fn read(&self, id: &str) -> std::io::Result<Vec<u8>> {
+            crate::BatchCache::read(&self.0, id)
+        }
+        fn remove(&self, _: &str) -> std::io::Result<()> {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        }
+        fn clear(&self) -> std::io::Result<()> {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        }
+    }
+
+    /// An expired batch the storage will not delete is counted lost once: the passes that keep
+    /// finding it in the cache retry the delete without counting it again.
+    #[tokio::test(start_paused = true)]
+    async fn a_batch_whose_delete_fails_is_counted_lost_once() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(Undeletable(crate::MemoryCache::new(1 << 20))),
+        );
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        for _ in 0..4 {
+            exporter.begin_pass();
+        }
+        assert_eq!(telemetry.shared.counters.snapshot().expired, 2, "two records, lost once");
     }
 
     #[test]
