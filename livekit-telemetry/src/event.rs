@@ -306,13 +306,15 @@ pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 64;
 
 /// Keys the SDK owns: an app can neither set nor override them — `lk.*` (room, participant,
 /// track, outcome), `otel.*` (OTel's own, `otel.event.name` among them), `code.*` (where a log
-/// line was written), `session.id` and `error.type`.
+/// line was written), `session.id`, `error.type` and `network.connection.type` (the device's
+/// network path; other `network.*` keys stay the app's).
 pub(crate) fn is_reserved(key: &str) -> bool {
     key.starts_with("lk.")
         || key.starts_with("otel.")
         || key.starts_with("code.")
         || key == "session.id"
         || key == "error.type"
+        || key == "network.connection.type"
 }
 
 /// Whether an app-provided attribute is within the limits and outside the SDK's namespace.
