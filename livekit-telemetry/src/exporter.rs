@@ -1152,14 +1152,15 @@ impl Exporter {
             (BatchId::half(id, 'b', second_count), gzip(&second)),
         ];
         let evicted = self.shared.cache.replace(id, &new)?;
-        self.count_evicted(&evicted);
         // The halves are as old as the batch was: a split changes its size, not its age. A batch
         // from an earlier launch has no birth on this launch's clock, and neither do its halves.
+        // Their births are in place before the evictions are counted, which may take one back.
         if let Some(born) = self.born.remove(id) {
             for (half, _) in &new {
                 self.born.insert(half.clone(), born);
             }
         }
+        self.count_evicted(&evicted);
         log::debug!(
             "413: split a batch of {} into {first_count} + {second_count}",
             first_count + second_count
@@ -1884,6 +1885,24 @@ pub(crate) mod tests {
         assert_eq!(halves.len(), 2);
         tokio::time::advance(Duration::from_secs(2 * 60 * 60)).await;
         assert!(halves.iter().all(|half| exporter.expired(half)), "as old as the parent");
+    }
+
+    /// A half the cache evicts at once to keep its bound (the newest stays) leaves no birth entry
+    /// behind: the metadata follows the batches that exist.
+    #[tokio::test(start_paused = true)]
+    async fn an_evicted_half_keeps_no_birth_entry() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(crate::MemoryCache::new(1)),
+        );
+        let (id, body) = aged_batch(Duration::from_secs(60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.born.insert(id.clone(), Instant::now());
+        let halves = exporter.split(&id, &body, Signal::Logs).expect("split");
+        let pending = telemetry.shared.cache.pending();
+        assert_eq!(pending, [halves[1].clone()], "the older half went to keep the bound");
+        assert_eq!(exporter.born.keys().collect::<Vec<_>>(), [&halves[1]]);
     }
 
     #[test]
