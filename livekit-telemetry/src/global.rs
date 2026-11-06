@@ -4,7 +4,6 @@
 //! shuts down the one `install` hands back.
 
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -66,19 +65,10 @@ struct Generation {
 }
 
 impl Generation {
-    /// Whether the opt-out may still have something to do here: a pipeline alive, or files on
-    /// disk.
+    /// Keep disk paths until the asynchronous opt-out verifies their erasure. Never inspect
+    /// storage while holding the lifecycle and generation registries.
     fn holds_data(&self) -> bool {
-        self.shared.strong_count() > 0 || self.storage.as_deref().is_some_and(may_hold_files)
-    }
-}
-
-/// Whether `dir` may hold files: only a missing directory or an empty listing says it does not.
-/// One that cannot be read now may hold batches, so its generation is kept for a later opt-out.
-fn may_hold_files(dir: &Path) -> bool {
-    match fs::read_dir(dir) {
-        Ok(mut entries) => entries.next().is_some(),
-        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+        self.shared.strong_count() > 0 || self.storage.is_some()
     }
 }
 
@@ -223,7 +213,17 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
             complete &= shared.purge().await;
         }
         for dir in stored {
-            complete &= erase(&dir);
+            let erased = erase(&dir);
+            complete &= erased;
+            if erased {
+                let mut list = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+                for generation in list.iter_mut() {
+                    if generation.storage.as_ref() == Some(&dir) {
+                        generation.storage = None;
+                    }
+                }
+                list.retain(Generation::holds_data);
+            }
         }
         complete
     }
@@ -316,6 +316,26 @@ pub async fn shutdown() {
 mod tests {
     use super::*;
     use crate::telemetry::tests::{test_config, FakeTransport};
+    use std::fs;
+
+    #[tokio::test]
+    async fn synchronous_registry_keeps_uninspected_directories() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let dir = crate::cache::temp_dir("uninspected-registry");
+        fs::create_dir(&dir).unwrap();
+        GENERATIONS
+            .lock()
+            .unwrap()
+            .push(Generation { shared: Weak::new(), storage: Some(dir.clone()) });
+        let purge = disable();
+        // Even an empty directory stays pending until the asynchronous cleanup phase.
+        let retained = GENERATIONS.lock().unwrap().iter().any(|g| g.storage.as_ref() == Some(&dir));
+        assert!(purge.await);
+        reset_for_test();
+        fs::remove_dir_all(dir).unwrap();
+        assert!(retained, "the synchronous phase inspected and discarded the directory");
+    }
 
     #[tokio::test]
     async fn refused_erase_is_retried_by_later_opt_out() {
