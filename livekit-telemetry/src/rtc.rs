@@ -691,11 +691,11 @@ struct Track {
     total: StreamCounts,
 }
 
-/// One poll's readings, as the streams of one report came in.
+/// One poll's readings, folded on arrival: one retained sample per stream.
 struct Poll {
     session: Arc<ScopeState>,
     timestamp_ns: u64,
-    readings: Vec<RtcStatsSample>,
+    readings: HashMap<Option<String>, RtcStatsSample>,
 }
 
 /// A stream's, or a track's, bytes and packets.
@@ -712,13 +712,17 @@ impl Track {
     /// the previous poll. Any other track passes its counters through as reported. A stream that was not in the previous poll only sets its starting point,
     /// so a new or returning stream's first poll is not counted (an undercount, never a double
     /// count), and an absent counter keeps the starting point it had.
-    fn reading(&mut self, readings: Vec<RtcStatsSample>) -> Option<RtcStatsSample> {
+    fn reading(
+        &mut self,
+        readings: HashMap<Option<String>, RtcStatsSample>,
+    ) -> Option<RtcStatsSample> {
         // A track's readings all share its direction (it is part of the track's key).
-        let named =
-            readings.iter().any(|r| r.direction == StreamDirection::Outbound && r.layer.is_some());
+        let named = readings
+            .values()
+            .any(|r| r.direction == StreamDirection::Outbound && r.layer.is_some());
         let mut streams: HashMap<String, StreamCounts> = HashMap::new();
         let mut reading: Option<RtcStatsSample> = None;
-        for sample in readings {
+        for sample in readings.into_values() {
             if named {
                 let stream = streams.entry(sample.layer.clone().unwrap_or_default()).or_default();
                 larger(&mut stream.bytes, sample.bytes);
@@ -812,9 +816,13 @@ impl StatsWindows {
         let poll = track.poll.get_or_insert_with(|| Poll {
             session: session.clone(),
             timestamp_ns,
-            readings: Vec::new(),
+            readings: HashMap::new(),
         });
-        poll.readings.push(sample);
+        if let Some(reading) = poll.readings.get_mut(&sample.layer) {
+            reading.merge(sample);
+        } else {
+            poll.readings.insert(sample.layer.clone(), sample);
+        }
     }
 
     /// Read the track's poll in progress as one reading into its window, opening the window if
@@ -1079,6 +1087,30 @@ mod tests {
             windows.record_batch_in(samples, &session);
         }
         assert_eq!(totals(&mut windows), both(12_000));
+    }
+
+    #[test]
+    fn duplicate_poll_submissions_keep_one_reading_per_stream() {
+        let mut windows = StatsWindows::default();
+        for id in ["h", "f"] {
+            windows.record(stream(id, Some(0), 1));
+        }
+        for bytes in 0..10_000 {
+            windows.record(stream("h", Some(bytes), 2));
+        }
+        windows.record(stream("h", None, 2));
+        windows.record(stream("f", Some(20_000), 2));
+        let track = windows.tracks.values().next().unwrap();
+        assert_eq!(
+            track.poll.as_ref().unwrap().readings.len(),
+            2,
+            "storage follows unique streams"
+        );
+        assert_eq!(
+            totals(&mut windows),
+            both(29_999),
+            "duplicates keep the largest known counters"
+        );
     }
 
     #[test]
