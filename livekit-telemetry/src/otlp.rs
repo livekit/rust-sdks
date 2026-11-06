@@ -313,7 +313,7 @@ mod tests {
         let span = spans.begin("checkout", SpanKind::Internal, None);
         let own = vec![Attribute::new("app.step", "first"), Attribute::new("app.step", "second")];
         spans.end(span, SpanOutcome::Ok, None, own);
-        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX, 0));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let [span] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
             panic!("one span")

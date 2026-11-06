@@ -1531,7 +1531,7 @@ pub(crate) mod tests {
 
         /// Window a reading under the process session.
         pub(crate) fn record_stats(&self, sample: RtcStatsSample) {
-            self.record_stats_in(sample, &self.shared.process);
+            self.record_stats_in(vec![sample], &self.shared.process);
         }
 
         /// An app event under the process session.
