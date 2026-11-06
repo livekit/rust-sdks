@@ -535,9 +535,11 @@ impl Scope {
 
     /// Push one `getStats()` reading; its window ships under this session. The first inbound
     /// reading with bytes is a subscribed track's first media. An unstamped sample is stamped
-    /// when it is pushed, so a host that pushes one report's layers one call at a time gives
-    /// them one `timestamp_ns`, or pushes the whole report through
-    /// [`record_stats_report`](Self::record_stats_report).
+    /// when it is pushed, so a host that pushes one report's layers one call at a time must
+    /// give them one `timestamp_ns` to group them into one poll. Separate calls are still
+    /// admitted one at a time: an exporter close or a correlation change landing between two
+    /// of them ends the poll there. Only [`record_stats_report`](Self::record_stats_report) and
+    /// [`record_peer_stats`](Self::record_peer_stats) admit a whole report as one.
     pub fn record_stats(&self, sample: RtcStatsSample) {
         self.record_samples(vec![sample]);
     }
