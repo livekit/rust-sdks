@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.13.5 (2026-11-06)
+
+### Fixes
+
+- Compile the LiveKitFFI CocoaPod in Swift 5 mode, matching SPM and allowing Swift 6 hosts without inheriting their language mode.
+
 ## 0.13.4 (2026-11-04)
 
 ### Fixes
