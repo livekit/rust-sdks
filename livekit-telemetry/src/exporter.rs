@@ -1153,10 +1153,12 @@ impl Exporter {
         ];
         let evicted = self.shared.cache.replace(id, &new)?;
         self.count_evicted(&evicted);
-        self.born.remove(id);
-        let now = Instant::now();
-        for (half, _) in &new {
-            self.born.insert(half.clone(), now);
+        // The halves are as old as the batch was: a split changes its size, not its age. A batch
+        // from an earlier launch has no birth on this launch's clock, and neither do its halves.
+        if let Some(born) = self.born.remove(id) {
+            for (half, _) in &new {
+                self.born.insert(half.clone(), born);
+            }
         }
         log::debug!(
             "413: split a batch of {} into {first_count} + {second_count}",
@@ -1853,6 +1855,35 @@ pub(crate) mod tests {
         run.await.expect("the exporter returns");
         assert!(shared.upgrade().is_none());
         held.end(SpanOutcome::Ok, None);
+    }
+
+    /// Two records, gzipped as a cached logs batch whose id stamps it `age` ago on the wall clock.
+    fn aged_batch(age: Duration, owner: &str) -> (String, Vec<u8>) {
+        let stamp = now_unix_nanos().saturating_sub(age.as_nanos() as u64);
+        let id = format!("{stamp:020}-000001-2-l-{owner}-proj");
+        let session = ScopeState::new();
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|name| QueuedEvent::new(TelemetryEvent::new(name), session.clone()))
+            .collect();
+        (id, gzip(&otlp::encode_logs(&[], &[], records)))
+    }
+
+    /// A 413 split changes a batch's size, not its age: the halves of a batch this launch wrote
+    /// 23 h ago expire 1 h later, as the batch would have.
+    #[tokio::test(start_paused = true)]
+    async fn split_halves_inherit_the_parents_birth() {
+        let (telemetry, mut exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.born.insert(id.clone(), Instant::now());
+        assert!(!exporter.expired(&id), "fresh on the monotonic clock");
+        tokio::time::advance(Duration::from_secs(23 * 60 * 60)).await;
+        let halves = exporter.split(&id, &body, Signal::Logs).expect("split");
+        assert_eq!(halves.len(), 2);
+        tokio::time::advance(Duration::from_secs(2 * 60 * 60)).await;
+        assert!(halves.iter().all(|half| exporter.expired(half)), "as old as the parent");
     }
 
     #[test]
