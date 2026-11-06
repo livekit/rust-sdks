@@ -423,7 +423,8 @@ to JSON objects, wherever it sits) becomes `<jwt>`, and the value after `Bearer`
 forwarded unchanged. Platform lines handed to `telemetry_log` or `TelemetryScope.log` are masked
 the same way. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
 default `OSLogger` with `ffi: true` does), whatever level it passes: that level filters only what
-is forwarded to the platform's console (the global `log` level is kept at `warn` or looser) —
+is forwarded to the platform's console (the global `log` level is kept at `warn` or looser), so
+`log_forward_bootstrap(Off)` forwards nothing to the console while the telemetry copy stays on —
 Rust allows one logger per process, and without the forwarder the core's records go nowhere. Platforms must not feed forwarded Rust log entries
 (what `log_forward_receive` returns) to `telemetry_log` / `log(record)`: the core already copied
 them, so they would be counted twice. `telemetry_log` is for the platform's own and WebRTC's

@@ -27,8 +27,9 @@ static LOGGER: OnceCell<Logger> = OnceCell::new();
 /// subsequent invocations are allowed to change the log level.
 ///
 /// Also turns on the telemetry copy of the core's own warnings and errors (see
-/// `telemetry_copy`), whatever `level` is: `level` filters only what is forwarded here. Don't
-/// pass the forwarded entries on to `telemetry_log`.
+/// `telemetry_copy`), whatever `level` is: `level` filters only what is forwarded here. `Off`
+/// forwards nothing to the platform's console; the telemetry copy stays on. Don't pass the
+/// forwarded entries on to `telemetry_log`.
 ///
 #[uniffi::export]
 fn log_forward_bootstrap(level: LevelFilter) {
