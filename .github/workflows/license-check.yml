@@ -1,15 +1,7 @@
 name: License Check
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
 jobs:
   license-check:
     name: License Check
