@@ -1117,10 +1117,12 @@ mod tests {
         *telemetry.shared.pause.lock().expect("lock") = None;
         disconnect.join().expect("disconnect");
         let in_call = room.state.in_call();
+        let server = room.state.server.lock().expect("lock").clone();
         let shared = Arc::downgrade(&telemetry.shared);
         drop((room, telemetry, exporter));
         assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
         assert!(!in_call, "disconnected: not in a call");
+        assert!(server.is_none(), "the change did not remember its pair after the disconnect");
     }
 
     /// A server handed over after the disconnect (a late token refresh) does not put the session
