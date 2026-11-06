@@ -812,6 +812,36 @@ pub(crate) mod tests {
         assert_eq!(d.route(Some(&host), Some("s")), Route::Wait);
     }
 
+    /// A refusal outlives the Room that held the token: with the wall clock jumped past `exp`
+    /// when the 401 lands, the Room retired, and the clock corrected back, a new Room handing
+    /// over the identical token is still refused. Once the token's established validity has
+    /// passed on the monotonic clock and nothing holds it, the refusal goes (bounded retention).
+    #[tokio::test(start_paused = true)]
+    async fn a_refusal_outlives_the_room_that_held_the_token_across_a_wall_clock_jump() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
+        d.refuse(&token);
+        // The Room is gone with nothing cached: its slot retires, the refusal must not.
+        d.retain_owners(&Default::default(), &Default::default());
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+        assert!(d.refused.contains(&Token::from(token.as_str())));
+        // Past the token's established validity with nothing holding it, the refusal is pruned.
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &token, "s");
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
+        d.refuse(&token);
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(d.refused.contains(&Token::from(token.as_str())), "kept until the deadline");
+        tokio::time::advance(Duration::from_secs(700)).await;
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(d.refused.0.is_empty(), "nothing holds it and its validity passed");
+    }
+
     #[test]
     fn rooms_never_borrow_each_others_tokens() {
         let mut d = Destinations::default();
