@@ -1057,6 +1057,26 @@ mod tests {
         assert_eq!(bytes, Some(crate::AttributeValue::Int(400)));
     }
 
+    /// A destination warning (a server that is not LiveKit Cloud) reaches the host logger once
+    /// the destinations and session transition locks are released: a logger that calls back
+    /// into the pipeline cannot deadlock on them.
+    #[tokio::test]
+    async fn destination_diagnostics_are_logged_outside_the_locks() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let shared = Arc::downgrade(&telemetry.shared);
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            shared.upgrade().is_some_and(|s| s.destinations.try_lock().is_err())
+                || state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("ws://localhost:7880", "token");
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("not LiveKit Cloud")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
     /// A disconnect that lands while a server change is between its no-op check and remembering
     /// the pair is not undone by the change: the session is out of the call afterwards.
     #[tokio::test]

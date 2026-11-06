@@ -579,7 +579,9 @@ impl Telemetry {
     /// authorizes the upload. Called at connect and again with every refreshed token; cheap and
     /// idempotent. Everything cached for the project starts uploading once the token allows.
     pub(crate) fn set_server(&self, session: &ScopeState, url: &str, token: &str) {
-        let routed = {
+        // The registry's diagnostics wait until both locks are released: a host logger may call
+        // back into the pipeline.
+        let routed = logged_after(|| {
             // One change at a time per session: the pair is remembered only once its destination
             // and route are in place, so a racing change cannot leave the pair of one change
             // and the route of the other (and the next hand-over taken for a no-op).
@@ -594,7 +596,7 @@ impl Telemetry {
                 if revived {
                     self.shared.release();
                 }
-                return;
+                return None;
             }
             self.shared.before_commit();
             let host = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).set(
@@ -613,8 +615,9 @@ impl Telemetry {
                 );
             }
             session.remember_server(url, token);
-            host.is_some()
-        };
+            Some(host.is_some())
+        });
+        let Some(routed) = routed else { return };
         if !routed {
             log::warn!("server url has no host; this session's telemetry stays cached");
             return;
