@@ -338,6 +338,14 @@ mod net {
         }
 
         /// Resolve the process-wide `livekit-net` client; `None` when none is available.
+        ///
+        /// A registered client is returned as is. Without one, on a `livekit-net/native`
+        /// build, the first lookup in the process builds the native client — a `reqwest`
+        /// client, whose TLS backend may load the system root store synchronously — and
+        /// concurrent first lookups wait for it; later lookups return the memoized client.
+        /// Call it where blocking is acceptable (the exporter's own task), not on a Room's
+        /// connect path. That build panics if the TLS backend fails to initialize, as
+        /// `reqwest::Client::new` does.
         pub fn from_registry() -> Option<Self> {
             livekit_net::http_client().map(Self::new)
         }
