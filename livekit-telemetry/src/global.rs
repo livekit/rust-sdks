@@ -138,11 +138,13 @@ pub fn install(
         drop(lifecycle);
         telemetry.shared.clear();
         // A storage dir it could not open still holds what an earlier launch cached.
-        // ponytail: a dir that is still unreadable is retried by the next configure, not by a
-        // later opt-out in this process, because no generation records it. Record it if that
-        // matters.
         if let Some(dir) = telemetry.shared.config.storage_dir.as_deref() {
-            erase(Path::new(dir));
+            if !erase(Path::new(dir)) {
+                GENERATIONS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(Generation { shared: Weak::new(), storage: Some(PathBuf::from(dir)) });
+            }
         }
         return Some(telemetry);
     }
@@ -314,6 +316,36 @@ pub async fn shutdown() {
 mod tests {
     use super::*;
     use crate::telemetry::tests::{test_config, FakeTransport};
+
+    #[tokio::test]
+    async fn refused_erase_is_retried_by_later_opt_out() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        assert!(disable().await);
+        let root = crate::cache::temp_dir("refused-retry");
+        let backup = root.with_extension("backup");
+        fs::create_dir(&root).unwrap();
+        let dir = root.join("cache");
+        let cache = FileCache::open(&dir, u64::MAX).unwrap();
+        cache.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        drop(cache);
+        fs::rename(&root, &backup).unwrap();
+        fs::write(&root, b"temporarily inaccessible parent").unwrap();
+        let config = crate::TelemetryConfig {
+            storage_dir: Some(dir.to_string_lossy().into_owned()),
+            ..test_config()
+        };
+        let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+        drop(exporter);
+        drop(install(telemetry, Vec::new()));
+        fs::remove_file(&root).unwrap();
+        fs::rename(&backup, &root).unwrap();
+        assert!(disable().await);
+        let left = fs::read_dir(&dir).unwrap().count();
+        reset_for_test();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(left, 0, "a later opt-out must retry the refused configuration");
+    }
 
     struct CaptureOnDrop;
 
