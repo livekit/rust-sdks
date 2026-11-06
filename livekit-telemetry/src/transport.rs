@@ -302,7 +302,8 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 /// - Never forward the `Authorization` header across origins: do not follow a redirect to
 ///   another scheme, host or port with it (returning the 3xx is fine — the core drops the batch).
 ///   `NetTransport` over the native `livekit-net` client follows at most 10 redirects, never one
-///   that changes the scheme, and drops `Authorization` when a redirect changes the host or port.
+///   from `https` to a plaintext scheme, and drops `Authorization` when a redirect changes the
+///   host or port.
 /// - Keep the request off the call's critical path: lowest priority where the platform allows it.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]

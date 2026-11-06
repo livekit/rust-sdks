@@ -51,18 +51,26 @@ impl NativeTransport {
     }
 }
 
-/// reqwest's default policy (at most 10 redirects), except that a redirect to another scheme is
-/// returned instead of followed: reqwest drops `Authorization` only when the host or port
-/// changes, so an `https` to `http` redirect on port 443 would send a credential in plaintext.
+/// reqwest's default policy (at most 10 redirects), except that a redirect from `https` to a
+/// plaintext scheme is returned instead of followed: reqwest drops `Authorization` only when the
+/// host or port changes, so an `https` to `http` redirect on port 443 would send a credential in
+/// plaintext. An `http` to `https` upgrade is still followed (a token endpoint configured as
+/// `http://` that redirects to `https://` keeps working).
 fn redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(|attempt| {
-        let from = attempt.previous().last().map(url::Url::scheme);
-        if from.is_some_and(|scheme| scheme != attempt.url().scheme()) {
+        let downgrade =
+            attempt.previous().last().is_some_and(|from| downgrades(from, attempt.url()));
+        if downgrade {
             attempt.stop()
         } else {
             reqwest::redirect::Policy::default().redirect(attempt)
         }
     })
+}
+
+/// Whether following a redirect from `from` to `to` would leave TLS.
+fn downgrades(from: &url::Url, to: &url::Url) -> bool {
+    from.scheme() == "https" && to.scheme() != "https"
 }
 
 /// The shared default transport behind the registry fallback. Memoized because
@@ -163,38 +171,90 @@ impl HttpClient for NativeTransport {
 mod tests {
     use std::{
         io::{Read, Write},
-        net::TcpListener,
-        time::Duration,
+        net::{TcpListener, TcpStream},
+        time::{Duration, Instant},
     };
 
     use super::*;
 
-    /// A redirect that changes only the scheme, on the same port, comes back as the 3xx: the
-    /// request with its `Authorization` header is not sent again under the new scheme.
+    #[test]
+    fn only_a_redirect_out_of_tls_is_a_downgrade() {
+        let url = |s: &str| url::Url::parse(s).expect(s);
+        assert!(downgrades(&url("https://h:443/a"), &url("http://h:443/b")));
+        assert!(downgrades(&url("https://h/a"), &url("http://h/b")));
+        assert!(!downgrades(&url("http://h/a"), &url("https://h/b")), "an upgrade is followed");
+        assert!(!downgrades(&url("http://h/a"), &url("http://h/b")));
+        assert!(!downgrades(&url("https://h/a"), &url("https://other/b")));
+    }
+
+    /// Read one HTTP/1.1 request whole — the headers, then `Content-Length` bytes of body — so
+    /// the answer never races a client that writes the body in a second packet.
+    fn read_request(stream: &mut TcpStream) -> Vec<u8> {
+        let mut request = Vec::new();
+        let mut buf = [0; 4096];
+        let header_end = loop {
+            let n = stream.read(&mut buf).expect("read");
+            if n == 0 {
+                return request;
+            }
+            request.extend_from_slice(&buf[..n]);
+            if let Some(at) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                break at + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        let length: usize = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(0);
+        while request.len() < header_end + length {
+            let n = stream.read(&mut buf).expect("read");
+            if n == 0 {
+                break;
+            }
+            request.extend_from_slice(&buf[..n]);
+        }
+        request
+    }
+
+    /// Whether `listener` gets a connection within `patience`.
+    fn connected_within(listener: &TcpListener, patience: Duration) -> bool {
+        listener.set_nonblocking(true).expect("non-blocking");
+        let deadline = Instant::now() + patience;
+        while Instant::now() < deadline {
+            if listener.accept().is_ok() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// A redirect that upgrades `http` to `https` on the same host and port is followed: the
+    /// listener sees the client come back (and fail its TLS handshake against a plain socket).
     #[tokio::test]
-    async fn a_redirect_to_another_scheme_is_not_followed() {
+    async fn a_redirect_to_https_is_followed() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("address").port();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("the first request");
-            let _ = stream.read(&mut [0; 4096]);
+            let request = read_request(&mut stream);
+            assert!(request.ends_with(b"batch"), "{}", String::from_utf8_lossy(&request));
             let answer = format!(
                 "HTTP/1.1 307 Temporary Redirect\r\nLocation: https://127.0.0.1:{port}/v1/logs\r\n\
                  Content-Length: 0\r\nConnection: close\r\n\r\n"
             );
             stream.write_all(answer.as_bytes()).expect("answer");
             drop(stream);
-            listener.set_nonblocking(true).expect("non-blocking");
-            std::thread::sleep(Duration::from_millis(300));
-            listener.accept().is_ok()
+            connected_within(&listener, Duration::from_secs(5))
         });
         let headers = vec![Header { name: "Authorization".into(), value: "Bearer token".into() }];
         let url = format!("http://127.0.0.1:{port}/v1/logs");
-        let response = NativeTransport::new()
+        let result = NativeTransport::new()
             .request(HttpMethod::Post, url, headers, Some(b"batch".to_vec()))
-            .await
-            .expect("the redirect itself comes back");
-        assert_eq!(response.status, 307);
-        assert!(!server.join().expect("server"), "nothing was sent to the new scheme");
+            .await;
+        assert!(server.join().expect("server"), "the upgraded request was never attempted");
+        assert!(result.is_err(), "a plain socket cannot complete the TLS handshake: {result:?}");
     }
 }
