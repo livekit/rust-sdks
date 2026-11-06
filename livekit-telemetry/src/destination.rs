@@ -21,7 +21,7 @@
 //! to, so two rooms talking to two projects never share a token or a destination.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -222,22 +222,20 @@ impl Refusals {
         self.0.contains_key(&token.id)
     }
 
-    /// Returns whether the refusal is new. `held` names the tokens some slot still holds.
-    fn add(&mut self, token: &Token, held: &HashSet<u64>) -> bool {
-        self.prune(held);
+    /// Returns whether the refusal is new.
+    fn add(&mut self, token: &Token) -> bool {
+        self.prune();
         self.0.insert(token.id, token.expires).is_none()
     }
 
-    /// Forget a refusal once nothing can send its token: no slot holds it (`held`) and its
-    /// monotonic deadline passed. Run when the next refusal comes in, as the published head
-    /// does, and not at routine cleanup: pruning there is the open decision of review
-    /// 4486909931 (it would let a later handover of a forgotten refused token go out once).
-    /// The monotonic clock alone decides, because a wall-clock correction must not forget a
-    /// refusal that a later correction would make sendable again.
-    fn prune(&mut self, held: &HashSet<u64>) {
+    /// Forget refusals whose token expired, when the next refusal comes in (not at routine
+    /// cleanup: pruning there is the open decision of review 4486909931, since it would let a
+    /// later handover of a forgotten refused token go out once). The monotonic clock alone
+    /// decides, as it did before the wall-clock expiry was added: a wall-clock correction must
+    /// not forget a refusal that a later correction would make sendable again.
+    fn prune(&mut self) {
         let now = Instant::now();
-        self.0
-            .retain(|id, expires| held.contains(id) || expires.is_none_or(|at| now < at.monotonic));
+        self.0.retain(|_, expires| expires.is_none_or(|at| now < at.monotonic));
     }
 }
 
@@ -430,16 +428,7 @@ impl Destinations {
     /// The collector refused `token` (401/403): it is not sent again, from any slot; batches that
     /// would use it wait for the next one.
     pub fn refuse(&mut self, token: &str) {
-        let mut token = Token::from(token);
-        // The refusal lasts as long as the token's established validity: the deadline a slot
-        // read at the handover, not one re-read now against a wall clock that may have moved
-        // since (that reading alone could forget the refusal at the next cleanup, and a later
-        // handover of the same token would then go out again).
-        if let Some(established) = self.established_expiry(&token) {
-            token.expires = established;
-        }
-        let held = self.held_token_ids();
-        if self.refused.add(&token, &held) {
+        if self.refused.add(&Token::from(token)) {
             log::warn!("the collector refused a token; waiting for a new one");
         }
     }
@@ -495,37 +484,6 @@ impl Destinations {
             }
             needed || project.dead.is_some()
         });
-    }
-
-    /// The longest validity any slot established for `token` at a handover: `Some(None)` when a
-    /// holder has no expiry at all, `Some(Some(_))` the latest monotonic deadline among the
-    /// holders, `None` when nothing holds it.
-    fn established_expiry(&self, token: &Token) -> Option<Option<Expiry>> {
-        let holders = self
-            .sessions
-            .values()
-            .chain(self.projects.values().filter_map(|p| p.latest.as_ref()))
-            .filter(|held| held.id == token.id);
-        let mut best: Option<Option<Expiry>> = None;
-        for holder in holders {
-            best = Some(match (best, holder.expires) {
-                (Some(None), _) | (_, None) => None,
-                (None, Some(theirs)) => Some(theirs),
-                (Some(Some(mine)), Some(theirs)) => {
-                    Some(if theirs.monotonic > mine.monotonic { theirs } else { mine })
-                }
-            });
-        }
-        best
-    }
-
-    /// The identities of the tokens some session or project slot still holds.
-    fn held_token_ids(&self) -> HashSet<u64> {
-        self.sessions
-            .values()
-            .map(|t| t.id)
-            .chain(self.projects.values().filter_map(|p| p.latest.as_ref().map(|t| t.id)))
-            .collect()
     }
 
     /// How many credentials are held, Room and project copies together.
