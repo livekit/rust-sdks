@@ -781,14 +781,17 @@ impl Telemetry {
         })
     }
 
-    /// Window one `getStats()` reading under `session`. Readings never count against the flood
-    /// guard.
-    pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<ScopeState>) {
-        if self.shared.revoked() || !self.collects(session) {
+    /// Window one report's `getStats()` readings under `session`, under one windows lock, so
+    /// nothing ends a poll between its layers. Readings never count against the flood guard.
+    pub(crate) fn record_stats_in(&self, samples: Vec<RtcStatsSample>, session: &Arc<ScopeState>) {
+        if samples.is_empty() || self.shared.revoked() || !self.collects(session) {
             return;
         }
         self.shared.before_commit();
-        self.shared.windows.lock().unwrap_or_else(|e| e.into_inner()).record_in(sample, session);
+        let mut windows = self.shared.windows.lock().unwrap_or_else(|e| e.into_inner());
+        for sample in samples {
+            windows.record_in(sample, session);
+        }
     }
 
     /// Whether `session` still collects: not once its project is known to receive nothing

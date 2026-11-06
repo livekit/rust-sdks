@@ -503,6 +503,22 @@ impl Scope {
     /// Push one `getStats()` reading; its window ships under this session. The first inbound
     /// reading with bytes is a subscribed track's first media.
     pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.record_samples(vec![sample]);
+    }
+
+    /// One report's samples, admitted to the windows as one: a close or a split landing between
+    /// two of its layers would end a partial poll and lose a layer's growth. What a sample means
+    /// for the session's tracks is noted first, outside the windows lock.
+    fn record_samples(&self, samples: Vec<RtcStatsSample>) {
+        for sample in &samples {
+            self.note_track(sample);
+        }
+        self.telemetry.record_stats_in(samples, &self.state);
+    }
+
+    /// The first inbound reading with bytes is a subscribed track's first media; an outbound
+    /// reading is a published track's first.
+    fn note_track(&self, sample: &RtcStatsSample) {
         if sample.direction == StreamDirection::Inbound && sample.bytes.unwrap_or(0) > 0 {
             self.first_media(&sample.track_sid);
         }
@@ -513,7 +529,6 @@ impl Scope {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&sample.track_sid);
         }
-        self.telemetry.record_stats_in(sample, &self.state);
     }
 
     /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
@@ -527,11 +542,13 @@ impl Scope {
         report: Vec<RtcStat>,
         timestamp_ns: Option<u64>,
     ) {
-        for sample in
-            crate::rtc::samples_from_report(track_sid, kind, direction, &report, timestamp_ns)
-        {
-            self.record_stats(sample);
-        }
+        self.record_samples(crate::rtc::samples_from_report(
+            track_sid,
+            kind,
+            direction,
+            &report,
+            timestamp_ns,
+        ));
     }
 
     /// A whole peer connection's `getStats()` report, as the platform got it, and the tracks it
@@ -544,9 +561,7 @@ impl Scope {
         tracks: HashMap<String, String>,
         timestamp_ns: Option<u64>,
     ) {
-        for sample in crate::rtc::samples_from_peer_report(&report, &tracks, timestamp_ns) {
-            self.record_stats(sample);
-        }
+        self.record_samples(crate::rtc::samples_from_peer_report(&report, &tracks, timestamp_ns));
     }
 
     /// How long the platform should wait before its next `getStats()` poll of this room: 1 s
@@ -985,5 +1000,56 @@ mod tests {
             assert_eq!(accepted, 1, "one slot left, one writer wins");
             assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
         }
+    }
+
+    /// A report's layers are admitted as one: an exporter close landing between them (the hook
+    /// stands in for its tick) ends no partial poll, so no layer's growth is lost. Two layers
+    /// growing 100 → 200 → 300 bytes are 400 bytes of growth.
+    #[tokio::test]
+    async fn a_close_between_a_reports_layers_loses_no_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let report = |bytes: i64| {
+            ["f", "h"]
+                .into_iter()
+                .map(|rid| crate::rtc::RtcStat {
+                    kind: "outbound-rtp".into(),
+                    id: format!("OUT_{rid}"),
+                    members: HashMap::from([
+                        ("rid".to_owned(), crate::AttributeValue::Str(rid.into())),
+                        ("bytesSent".to_owned(), crate::AttributeValue::Int(bytes)),
+                    ]),
+                })
+                .collect::<Vec<_>>()
+        };
+        let admissions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let shared = Arc::downgrade(&telemetry.shared);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
+            let admissions = admissions.clone();
+            move || {
+                // The fourth admission would be the second layer of the second report.
+                if admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 3 {
+                    if let Some(shared) = shared.upgrade() {
+                        let _ = shared.windows.lock().expect("lock").close();
+                    }
+                }
+            }
+        }));
+        for (second, bytes) in [(1, 100), (2, 200), (3, 300)] {
+            room.record_stats_report(
+                "TR_1",
+                TrackKind::Video,
+                StreamDirection::Outbound,
+                report(bytes),
+                Some(second * 1_000_000_000),
+            );
+        }
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        let windows = telemetry.shared.windows.lock().expect("lock").close();
+        let bytes = windows
+            .last()
+            .and_then(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+            .map(|a| a.value.clone());
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(400)));
     }
 }
