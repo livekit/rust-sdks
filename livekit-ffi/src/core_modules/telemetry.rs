@@ -2154,8 +2154,12 @@ mod tests {
             barrier(&slot).await;
         });
         drop(transport);
-        assert!(eventually(|| exporter_freed.upgrade().is_none()), "the exporter is gone");
-        assert!(eventually(|| pipeline_freed.upgrade().is_none()), "the pipeline is gone");
+        // Observed, then torn down, then asserted: a failed observation must not leave the
+        // lifecycle slot and its runner behind on the process-wide runtime.
+        let exporter_gone = eventually(|| exporter_freed.upgrade().is_none());
+        let pipeline_gone = eventually(|| pipeline_freed.upgrade().is_none());
         runtime().block_on(shut_down(&slot, &installed));
+        assert!(exporter_gone, "the exporter is gone");
+        assert!(pipeline_gone, "the pipeline is gone");
     }
 }
