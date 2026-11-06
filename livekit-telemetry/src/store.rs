@@ -123,12 +123,17 @@ impl Store {
         queue.bytes += queued.event.size_hint();
         queue.events.push_back(queued);
         let crossed = before < self.flush_threshold && queue.bytes >= self.flush_threshold;
-        // Logged after the lock: a log line may call into the host.
+        // Logged after the lock, and after any outer lock the caller holds (a project change
+        // pushes the windows it closed under the session's transition): a log line may call
+        // into the host.
         drop(queue);
         if warn {
-            log::warn!(
-                "queue full ({} records): dropping oldest until the exporter drains",
-                self.capacity
+            crate::cache::diagnostic(
+                log::Level::Warn,
+                format!(
+                    "queue full ({} records): dropping oldest until the exporter drains",
+                    self.capacity
+                ),
             );
         }
         crossed

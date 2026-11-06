@@ -1125,4 +1125,31 @@ mod tests {
         let _connect = room.start(SpanName::Connect, None);
         assert!(room.state.in_call(), "the new call");
     }
+
+    /// A project change closes the session's windows into a full queue: the queue-full warning
+    /// reaches the host logger once the session transition lock is released, like the
+    /// destination lines.
+    #[tokio::test]
+    async fn a_project_change_logs_the_queue_full_warning_outside_the_transition() {
+        crate::test_log::capture();
+        let config = crate::TelemetryConfig { max_queue_size: 1, ..Default::default() };
+        let (telemetry, _exporter) =
+            Telemetry::new(config, Arc::new(crate::exporter::tests::Collector::default()));
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        room.record_stats(RtcStatsSample {
+            bytes: Some(1),
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Inbound)
+        });
+        room.emit_custom("fill", Vec::new());
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("wss://b.livekit.cloud", &token);
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("queue full")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
 }
