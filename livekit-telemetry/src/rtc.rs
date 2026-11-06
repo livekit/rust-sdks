@@ -138,7 +138,8 @@ pub struct RtcStatsSample {
     /// `audioLevel`, inbound audio: 0.0 to 1.0, linear (not dB).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub audio_level: Option<f64>,
-    /// When the reading was taken; `None` = now.
+    /// When the reading was taken; `None` = now. All streams in one poll must share a
+    /// timestamp; submit unstamped typed samples together in one batch.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
     /// The RTP stream this sample describes when a track has several (simulcast layers): any
@@ -777,8 +778,23 @@ impl StatsWindows {
         Self { revoked, ..Self::default() }
     }
 
+    /// Admit one poll's typed samples under the caller's windows lock. Unstamped samples share
+    /// one capture time; explicit timestamps are preserved and must match within each poll.
+    pub fn record_batch_in(
+        &mut self,
+        samples: impl IntoIterator<Item = RtcStatsSample>,
+        session: &Arc<ScopeState>,
+    ) {
+        let timestamp_ns = now_unix_nanos();
+        for mut sample in samples {
+            sample.timestamp_ns.get_or_insert(timestamp_ns);
+            self.record_in(sample, session);
+        }
+    }
+
     /// Add one reading to its track's poll in progress. A reading with another timestamp starts
-    /// the next poll, and the finished one goes into the track's window as one reading.
+    /// the next poll, and the finished one goes into the track's window as one reading. Streams
+    /// from the same poll must carry the same timestamp; use `record_batch_in` for unstamped samples.
     pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<ScopeState>) {
         if self.revoked.load(std::sync::atomic::Ordering::SeqCst) {
             return;
@@ -1030,6 +1046,39 @@ mod tests {
             }
             assert_eq!(totals(&mut windows), both(i64::MAX));
         }
+    }
+
+    #[test]
+    fn typed_batches_preserve_explicit_timestamps() {
+        let mut windows = StatsWindows::default();
+        let session = test_session();
+        for second in [1, 2] {
+            windows.record_batch_in(
+                [
+                    stream("h", Some(second * 1_000), second),
+                    stream("f", Some(second * 4_000), second),
+                ],
+                &session,
+            );
+            let poll = windows.tracks.values().next().unwrap().poll.as_ref().unwrap();
+            assert_eq!(poll.timestamp_ns, second * 1_000_000_000);
+        }
+        assert_eq!(totals(&mut windows), both(5_000));
+    }
+
+    #[test]
+    fn unstamped_layer_batches_preserve_all_byte_growth() {
+        let mut windows = StatsWindows::default();
+        let session = test_session();
+        for bytes in [[1_000, 4_000], [5_000, 12_000]] {
+            let samples = ["h", "f"].into_iter().zip(bytes).map(|(id, bytes)| {
+                // Make separate capture times observable even on clocks with coarse resolution.
+                std::thread::sleep(Duration::from_millis(1));
+                RtcStatsSample { timestamp_ns: None, ..stream(id, Some(bytes), 1) }
+            });
+            windows.record_batch_in(samples, &session);
+        }
+        assert_eq!(totals(&mut windows), both(12_000));
     }
 
     #[test]
