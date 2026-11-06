@@ -62,6 +62,7 @@ pub struct TelemetryConfig {
     pub sdk: Option<TelemetryResource>,
     /// Directory for the on-disk batch cache (created if missing; its parent must exist).
     /// `None` keeps batches in memory only: they survive failed uploads, not the process.
+    /// The cache owns the directory: the start and the opt-out delete other files in it.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub storage_dir: Option<String>,
     /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
@@ -215,9 +216,9 @@ pub struct Telemetry {
     commands: mpsc::UnboundedSender<Command>,
 }
 
-/// How much longer than `export_timeout_ms` [`Telemetry::shutdown`] waits for the exporter to
-/// confirm it stopped.
-const SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
+/// How much longer than `export_timeout_ms` [`Telemetry::shutdown`] and the opt-out
+/// (`global::disable`) wait for an exporter to confirm it stopped.
+pub(crate) const SHUTDOWN_GRACE: Duration = Duration::from_secs(1);
 
 /// Everything the synchronous side ([`Telemetry`]) and the exporter actor share.
 pub(crate) struct Shared {
@@ -474,7 +475,7 @@ impl Telemetry {
             },
             None => Arc::new(MemoryCache::new(config.max_cache_bytes)),
         };
-        let (telemetry, exporter) = Self::with_cache(config, transport, cache);
+        let (telemetry, exporter) = Self::build(config, transport, cache);
         if fell_back {
             // Reported like any other refused write: batches survive failures, not the process.
             Counters::add(&telemetry.shared.counters.cache_write_errors, 1);
@@ -482,8 +483,23 @@ impl Telemetry {
         (telemetry, exporter)
     }
 
-    /// Build the pipeline around a caller-provided [`BatchCache`] (`storage_dir` is ignored).
+    /// Build the pipeline around a caller-provided [`BatchCache`] (`storage_dir` is ignored). The
+    /// opt-out deletes what `cache` holds while this pipeline lives. The caller owns what it holds
+    /// afterwards.
     pub fn with_cache(
+        mut config: TelemetryConfig,
+        transport: Arc<dyn TelemetryTransport>,
+        cache: Arc<dyn BatchCache>,
+    ) -> (Self, Exporter) {
+        // The ignored configuration path is not registered for later erasure.
+        config.storage_dir = None;
+        Self::build(config, transport, cache)
+    }
+
+    /// The pipeline around `cache`. `config.storage_dir` is the directory that the opt-out erases,
+    /// whether the pipeline is alive or gone: the one `new` was asked to cache in, never a caller
+    /// cache's.
+    fn build(
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
         cache: Arc<dyn BatchCache>,
@@ -901,13 +917,6 @@ impl Telemetry {
         self.shared.purge().await
     }
 
-    /// A handle that can reach the exporter without keeping it alive (the opt-out uses it to
-    /// cancel and await every generation).
-    #[expect(dead_code, reason = "serves the process-wide pipeline, not in place yet")]
-    pub(crate) fn weak_commands(&self) -> mpsc::WeakUnboundedSender<Command> {
-        self.commands.downgrade()
-    }
-
     async fn command(&self, make: impl FnOnce(oneshot::Sender<()>) -> Command) {
         let (done, wait) = oneshot::channel();
         if self.commands.send(make(done)).is_ok() {
@@ -1024,6 +1033,101 @@ pub(crate) mod tests {
         AppState, ExportError, ExportRequest, ExportResponse, ReconnectReason, RoomIdentity,
         SpanName, SpanOutcome, SpanStep, StreamDirection, ThermalState, TrackKind,
     };
+
+    #[tokio::test(start_paused = true)]
+    async fn the_process_pipeline_no_ops_until_installed() {
+        let _global = crate::global::TEST_LOCK.lock().await;
+        crate::global::reset_for_test();
+        /// A warning from the SDK with this body.
+        fn line(body: &str) -> crate::LogRecord {
+            crate::LogRecord {
+                severity: Severity::Warn,
+                source: LogSource::Sdk,
+                body: body.into(),
+                logger: None,
+                function: None,
+                file: None,
+                line: None,
+                timestamp_ns: None,
+                span_id: None,
+            }
+        }
+        crate::global::log(line("hmm"));
+        assert!(crate::global::scope().is_none());
+        assert_eq!(crate::global::diagnostics(), "off");
+        struct Counting(std::sync::atomic::AtomicU32, std::sync::atomic::AtomicU32);
+        impl crate::global::TelemetryInstrument for Counting {
+            fn start(&self) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                crate::global::log(line("from start"));
+            }
+            fn stop(&self) {
+                self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let instrument = Arc::new(Counting(Default::default(), Default::default()));
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        // Observable destruction: nothing global keeps the pipeline once it is shut down.
+        let freed = Arc::downgrade(&telemetry.shared);
+        assert!(crate::global::install(telemetry, vec![instrument.clone()]).is_none());
+        assert_eq!(instrument.0.load(std::sync::atomic::Ordering::SeqCst), 1, "started on install");
+        crate::global::log(line("hmm"));
+        crate::global::flush().await;
+        assert_eq!(records(&transport.sent()[0]).len(), 2, "the instrument's own line and ours");
+        assert!(crate::global::diagnostics().starts_with("ok, sent 1"));
+        crate::global::shutdown().await;
+        tokio::task::yield_now().await;
+        assert!(freed.upgrade().is_none(), "the pipeline is freed");
+        assert_eq!(
+            instrument.1.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "stopped on shutdown"
+        );
+        assert!(crate::global::current().is_none());
+        crate::global::log(line("hmm"));
+
+        // The opt-out is one-way for the process, so it closes this — the only test that touches
+        // the global switch: the installed pipeline is purged and later installs are refused.
+        // A pipeline replaced but still draining is revoked too, and installs racing the opt-out
+        // are either purged by it or refused.
+        let transport = FakeTransport::scripted([]);
+        crate::global::install(pipeline(transport.clone()), Vec::new());
+        let draining = crate::global::install(pipeline(transport.clone()), Vec::new())
+            .expect("the replaced pipeline, handed back to drain");
+        let racers: Vec<_> = (0..8)
+            .map(|_| {
+                let transport = transport.clone();
+                std::thread::spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_time()
+                        .build()
+                        .expect("runtime");
+                    runtime.block_on(async {
+                        let _ = crate::global::install(pipeline(transport), Vec::new());
+                    })
+                })
+            })
+            .collect();
+        crate::global::disable().await;
+        for racer in racers {
+            racer.join().expect("racer");
+        }
+        // A generation replaced by a racer before the opt-out may have sent its summary; from
+        // here on nothing may be sent.
+        let before = transport.sent().len();
+        assert!(crate::global::is_disabled() && crate::global::current().is_none());
+        assert!(draining.shared.revoked(), "the draining generation is revoked");
+        draining.emit(TelemetryEvent::new("lk.ping"));
+        draining.shutdown().await;
+        let refused = crate::global::install(pipeline(transport.clone()), Vec::new());
+        assert!(refused.is_some(), "handed back instead of installed");
+        crate::global::log(line("hmm"));
+        crate::global::flush().await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert_eq!(transport.sent().len(), before, "nothing collected or uploaded after it");
+        crate::global::reset_for_test();
+    }
 
     #[tokio::test(start_paused = true)]
     async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
