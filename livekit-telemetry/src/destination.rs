@@ -21,7 +21,7 @@
 //! to, so two rooms talking to two projects never share a token or a destination.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -222,18 +222,20 @@ impl Refusals {
         self.0.contains_key(&token.id)
     }
 
-    /// Returns whether the refusal is new.
-    fn add(&mut self, token: &Token) -> bool {
-        self.prune();
+    /// Returns whether the refusal is new. `held` names the tokens some slot still holds.
+    fn add(&mut self, token: &Token, held: &HashSet<u64>) -> bool {
+        self.prune(held);
         self.0.insert(token.id, token.expires).is_none()
     }
 
-    /// Forget refusals whose token has expired: it cannot be sent anyway. On the monotonic
-    /// deadline only: a wall-clock correction must not forget a refusal that a later
-    /// correction would make sendable again.
-    fn prune(&mut self) {
+    /// Forget a refusal once nothing can send its token: no slot holds it (`held`) and its
+    /// monotonic deadline passed. The deadline here was read from the raw token when the
+    /// refusal came in, against whatever the wall clock said then, so it decides nothing while
+    /// a slot — whose own deadline was read at the handover — still holds the token.
+    fn prune(&mut self, held: &HashSet<u64>) {
         let now = Instant::now();
-        self.0.retain(|_, expires| expires.is_none_or(|at| now < at.monotonic));
+        self.0
+            .retain(|id, expires| held.contains(id) || expires.is_none_or(|at| now < at.monotonic));
     }
 }
 
@@ -426,7 +428,8 @@ impl Destinations {
     /// The collector refused `token` (401/403): it is not sent again, from any slot; batches that
     /// would use it wait for the next one.
     pub fn refuse(&mut self, token: &str) {
-        if self.refused.add(&Token::from(token)) {
+        let held = self.held_token_ids();
+        if self.refused.add(&Token::from(token), &held) {
             log::warn!("the collector refused a token; waiting for a new one");
         }
     }
@@ -443,7 +446,6 @@ impl Destinations {
         live: &HashMap<String, Option<String>>,
         backlog: &std::collections::HashSet<(Option<String>, String)>,
     ) {
-        self.refused.prune();
         // A Room's batch captured before it had a server is cached without a project: it goes
         // to that Room's first project, so it backs that project's credential.
         let backlog: std::collections::HashSet<(Option<String>, String)> = backlog
@@ -483,6 +485,18 @@ impl Destinations {
             }
             needed || project.dead.is_some()
         });
+        // After the slots: a refusal lives as long as any slot still holds its token.
+        let held = self.held_token_ids();
+        self.refused.prune(&held);
+    }
+
+    /// The identities of the tokens some session or project slot still holds.
+    fn held_token_ids(&self) -> HashSet<u64> {
+        self.sessions
+            .values()
+            .map(|t| t.id)
+            .chain(self.projects.values().filter_map(|p| p.latest.as_ref().map(|t| t.id)))
+            .collect()
     }
 
     /// How many credentials are held, Room and project copies together.
@@ -767,8 +781,8 @@ pub(crate) mod tests {
         assert!(d.refused.0.is_empty(), "{} expired refusals kept", d.refused.0.len());
     }
 
-    /// Tests only: seconds added to the wall clock this thread reads, to model a clock
-    /// correction without touching the system clock.
+    // Tests only: seconds added to the wall clock this thread reads, to model a clock
+    // correction without touching the system clock.
     thread_local! {
         pub(super) static WALL_OFFSET_SECS: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
     }
