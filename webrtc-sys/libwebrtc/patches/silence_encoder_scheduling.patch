@@ -1,0 +1,481 @@
+diff --git a/api/audio_codecs/audio_encoder.h b/api/audio_codecs/audio_encoder.h
+index d82a074..c86eb06 100644
+--- a/api/audio_codecs/audio_encoder.h
++++ b/api/audio_codecs/audio_encoder.h
+@@ -256,6 +256,13 @@ class AudioEncoder {
+   // The maximum number of audio channels supported by WebRTC encoders.
+   static constexpr int kMaxNumberOfChannels = kMaxNumberOfAudioChannels;
+ 
++  // Number of upcoming zero-input 10-ms frames until required encoder work,
++  // including the triggering frame. A positive N permits holding at most N-1
++  // frames; zero means unsupported. Controls must flush earlier input before
++  // changing encoder state. This does not authorize skipping input or advancing
++  // RTP time without encoding it.
++  virtual size_t Num10MsFramesUntilSilenceWork() const { return 0; }
++
+  protected:
+   // Subclasses implement this to perform the actual encoding. Called by
+   // Encode().
+diff --git a/audio/BUILD.gn b/audio/BUILD.gn
+index 62b4151..32d4d0e 100644
+--- a/audio/BUILD.gn
++++ b/audio/BUILD.gn
+@@ -30,6 +30,7 @@ rtc_library("audio") {
+     "channel_receive_frame_transformer_delegate.h",
+     "channel_send.cc",
+     "channel_send.h",
++    "silence_encoder_task_queue.h",
+     "channel_send_frame_transformer_delegate.cc",
+     "channel_send_frame_transformer_delegate.h",
+     "conversion.h",
+diff --git a/audio/channel_send.cc b/audio/channel_send.cc
+index 591b769..ab9c1c6 100644
+--- a/audio/channel_send.cc
++++ b/audio/channel_send.cc
+@@ -47,6 +47,7 @@
+ #include "api/units/time_delta.h"
+ #include "api/units/timestamp.h"
+ #include "audio/channel_send_frame_transformer_delegate.h"
++#include "audio/silence_encoder_task_queue.h"
+ #include "audio/utility/audio_frame_operations.h"
+ #include "call/rtp_transport_controller_send_interface.h"
+ #include "modules/audio_coding/include/audio_coding_module.h"
+@@ -259,6 +260,11 @@ class ChannelSend : public ChannelSendInterface,
+   // Calls the encoder on the encoder queue (instead of blocking).
+   void CallEncoderAsync(absl::AnyInvocable<void(AudioEncoder*)> modifier);
+ 
++  void EncodeAudioFrame(std::unique_ptr<AudioFrame> audio_frame,
++                        Timestamp queued_at);
++  size_t SilenceWorkBudget();
++  void RunEncoderTaskBlocking(FunctionView<void()> task);
++
+   const Environment env_;
+ 
+   // Thread checkers document and lock usage of some methods on voe::Channel to
+@@ -320,6 +326,7 @@ class ChannelSend : public ChannelSendInterface,
+ 
+   std::unique_ptr<TaskQueueBase, TaskQueueDeleter> encoder_queue_;
+   RTC_NO_UNIQUE_ADDRESS SequenceChecker encoder_queue_checker_;
++  std::unique_ptr<SilenceEncoderTaskQueue> encoder_tasks_;
+ 
+   SdpAudioFormat encoder_format_;
+ 
+@@ -525,6 +532,12 @@ ChannelSend::ChannelSend(
+       encoder_queue_checker_(encoder_queue_.get()),
+       encoder_format_("x-unknown", 0, 0) {
+   audio_coding_ = AudioCodingModule::Create();
++  encoder_tasks_ = std::make_unique<SilenceEncoderTaskQueue>(
++      encoder_queue_.get(), &env_.clock(),
++      [this](std::unique_ptr<AudioFrame> frame, Timestamp queued_at) {
++        EncodeAudioFrame(std::move(frame), queued_at);
++      },
++      [this] { return SilenceWorkBudget(); });
+ 
+   RtpRtcpInterface::Configuration configuration;
+   configuration.report_block_data_observer = this;
+@@ -563,7 +576,7 @@ ChannelSend::~ChannelSend() {
+   // Reset and clear the frame_transformer_delegate_ on the encoder queue
+   // to avoid race conditions.
+   Event delegate_reset_event;
+-  encoder_queue_->PostTask([this, &delegate_reset_event] {
++  encoder_tasks_->PostTask([this, &delegate_reset_event] {
+     RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
+     if (frame_transformer_delegate_) {
+       frame_transformer_delegate_->Reset();
+@@ -609,7 +622,7 @@ void ChannelSend::StopSend() {
+   // Wait until all pending encode tasks are executed and clear any remaining
+   // buffers in the encoder.
+   Event flush;
+-  encoder_queue_->PostTask([this, &flush]() {
++  encoder_tasks_->PostTask([this, &flush]() {
+     RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
+     audio_coding_->Reset();
+     flush.Set();
+@@ -644,7 +657,8 @@ void ChannelSend::SetEncoder(int payload_type,
+                                           encoder->NumChannels(), 0);
+ 
+   encoder_format_ = encoder_format;
+-  audio_coding_->SetEncoder(std::move(encoder));
++  RunEncoderTaskBlocking(
++      [&] { audio_coding_->SetEncoder(std::move(encoder)); });
+ }
+ 
+ void ChannelSend::ModifyEncoder(
+@@ -652,7 +666,7 @@ void ChannelSend::ModifyEncoder(
+   // This method can be called on the worker thread, module process thread
+   // or network thread. Audio coding is thread safe, so we do not need to
+   // enforce the calling thread.
+-  audio_coding_->ModifyEncoder(modifier);
++  RunEncoderTaskBlocking([&] { audio_coding_->ModifyEncoder(modifier); });
+ }
+ 
+ void ChannelSend::CallEncoder(FunctionView<void(AudioEncoder*)> modifier) {
+@@ -667,7 +681,7 @@ void ChannelSend::CallEncoder(FunctionView<void(AudioEncoder*)> modifier) {
+ 
+ void ChannelSend::CallEncoderAsync(
+     absl::AnyInvocable<void(AudioEncoder*)> modifier) {
+-  encoder_queue_->PostTask([this, modifier = std::move(modifier)]() mutable {
++  encoder_tasks_->PostTask([this, modifier = std::move(modifier)]() mutable {
+     CallEncoder(modifier);
+   });
+ }
+@@ -711,8 +725,10 @@ void ChannelSend::ReceivedRTCPPacket(const uint8_t* data, size_t length) {
+ 
+ void ChannelSend::SetInputMute(bool enable) {
+   RTC_DCHECK_RUN_ON(worker_thread_);
+-  MutexLock lock(&volume_settings_mutex_);
+-  input_mute_ = enable;
++  RunEncoderTaskBlocking([&] {
++    MutexLock lock(&volume_settings_mutex_);
++    input_mute_ = enable;
++  });
+ }
+ 
+ bool ChannelSend::InputMute() const {
+@@ -725,7 +741,7 @@ void ChannelSend::SetCsrcs(std::span<const uint32_t> csrcs) {
+   std::vector<uint32_t> csrcs_copy(
+       csrcs.begin(),
+       csrcs.begin() + std::min<size_t>(csrcs.size(), kRtpCsrcSize));
+-  encoder_queue_->PostTask([this, csrcs = std::move(csrcs_copy)]() mutable {
++  encoder_tasks_->PostTask([this, csrcs = std::move(csrcs_copy)]() mutable {
+     RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
+     csrcs_ = csrcs;
+   });
+@@ -767,6 +783,7 @@ void ChannelSend::SetSendTelephoneEventPayloadType(int payload_type,
+ 
+ void ChannelSend::SetSendAudioLevelIndicationStatus(RtpHeaderExtensionId id) {
+   RTC_DCHECK_RUN_ON(worker_thread_);
++  RunEncoderTaskBlocking([] {});
+   include_audio_level_indication_.store(id.IsSet());
+   if (id.IsSet()) {
+     rtp_rtcp_->RegisterRtpHeaderExtension(AudioLevelExtension::Uri(), id);
+@@ -890,53 +907,78 @@ void ChannelSend::ProcessAndEncodeAudio(
+   timestamp_ += audio_frame->samples_per_channel_;
+   last_capture_timestamp_ms_ = audio_frame->absolute_capture_timestamp_ms();
+ 
+-  // Profile time between when the audio frame is added to the task queue and
+-  // when the task is actually executed.
+-  Timestamp post_task_time = env_.clock().CurrentTime();
+-  encoder_queue_->PostTask(
+-      [this, post_task_time, audio_frame = std::move(audio_frame)]() mutable {
+-        RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
+-        if (!encoder_queue_is_active_.load()) {
+-          return;
+-        }
+-        // Measure time between when the audio frame is added to the task queue
+-        // and when the task is actually executed. Goal is to keep track of
+-        // unwanted extra latency added by the task queue.
+-        TimeDelta latency = post_task_time - env_.clock().CurrentTime();
+-        RTC_HISTOGRAM_COUNTS_10000("WebRTC.Audio.EncodingTaskQueueLatencyMs",
+-                                   latency.ms());
+-
+-        bool is_muted = InputMute();
+-        AudioFrameOperations::Mute(audio_frame.get(), previous_frame_muted_,
+-                                   is_muted);
+-
+-        if (include_audio_level_indication_.load()) {
+-          size_t length =
+-              audio_frame->samples_per_channel_ * audio_frame->num_channels_;
+-          RTC_CHECK_LE(length, AudioFrame::kMaxDataSizeBytes);
+-          if (is_muted && previous_frame_muted_) {
+-            rms_level_.AnalyzeMuted(length);
+-          } else {
+-            rms_level_.Analyze(
+-                std::span<const int16_t>(audio_frame->data(), length));
+-          }
+-        }
+-        previous_frame_muted_ = is_muted;
+-
+-        // This call will trigger AudioPacketizationCallback::SendData if
+-        // encoding is done and payload is ready for packetization and
+-        // transmission. Otherwise, it will return without invoking the
+-        // callback.
+-        int32_t encoded_bytes = audio_coding_->Add10MsData(*audio_frame);
+-        MutexLock lock(&bitrate_accountant_mutex_);
+-        if (encoded_bytes < 0) {
+-          RTC_DLOG(LS_ERROR) << "ACM::Add10MsData() failed.";
+-          bitrate_accountant_.Reset();
+-          return;
+-        }
+-        bitrate_accountant_.UpdateBpsEstimate(DataSize::Bytes(encoded_bytes),
+-                                              TimeDelta::Millis(10));
+-      });
++  const auto data = std::span<const int16_t>(
++      audio_frame->data(),
++      audio_frame->samples_per_channel() * audio_frame->num_channels());
++  const bool known_zero =
++      audio_frame->muted() ||
++      std::all_of(data.begin(), data.end(),
++                  [](int16_t sample) { return sample == 0; });
++  encoder_tasks_->PostFrame(std::move(audio_frame), known_zero);
++}
++
++void ChannelSend::EncodeAudioFrame(std::unique_ptr<AudioFrame> audio_frame,
++                                   Timestamp queued_at) {
++  RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
++  if (!encoder_queue_is_active_.load()) {
++    return;
++  }
++  // Intentional holding before a packet boundary is not native queue latency.
++  RTC_HISTOGRAM_COUNTS_10000("WebRTC.Audio.EncodingTaskQueueLatencyMs",
++                             (env_.clock().CurrentTime() - queued_at).ms());
++  bool is_muted = InputMute();
++  AudioFrameOperations::Mute(audio_frame.get(), previous_frame_muted_,
++                             is_muted);
++
++  if (include_audio_level_indication_.load()) {
++    size_t length =
++        audio_frame->samples_per_channel_ * audio_frame->num_channels_;
++    RTC_CHECK_LE(length, AudioFrame::kMaxDataSizeBytes);
++    if (is_muted && previous_frame_muted_) {
++      rms_level_.AnalyzeMuted(length);
++    } else {
++      rms_level_.Analyze(std::span<const int16_t>(audio_frame->data(), length));
++    }
++  }
++  previous_frame_muted_ = is_muted;
++
++  // This call will trigger AudioPacketizationCallback::SendData if
++  // encoding is done and payload is ready for packetization and
++  // transmission. Otherwise, it will return without invoking the
++  // callback.
++  int32_t encoded_bytes = audio_coding_->Add10MsData(*audio_frame);
++  MutexLock lock(&bitrate_accountant_mutex_);
++  if (encoded_bytes < 0) {
++    RTC_DLOG(LS_ERROR) << "ACM::Add10MsData() failed.";
++    bitrate_accountant_.Reset();
++    return;
++  }
++  bitrate_accountant_.UpdateBpsEstimate(DataSize::Bytes(encoded_bytes),
++                                        TimeDelta::Millis(10));
++}
++
++size_t ChannelSend::SilenceWorkBudget() {
++  RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
++  size_t frames = 0;
++  audio_coding_->ModifyEncoder([&](std::unique_ptr<AudioEncoder>* encoder) {
++    if (*encoder) {
++      frames = (*encoder)->Num10MsFramesUntilSilenceWork();
++    }
++  });
++  return frames;
++}
++
++void ChannelSend::RunEncoderTaskBlocking(FunctionView<void()> task) {
++  if (encoder_queue_->IsCurrent()) {
++    task();
++    return;
++  }
++  Event done;
++  encoder_tasks_->PostTask([&] {
++    task();
++    done.Set();
++  });
++  done.Wait(Event::kForever);
+ }
+ 
+ ANAStats ChannelSend::GetANAStatistics() const {
+@@ -951,7 +993,8 @@ RtpRtcpInterface* ChannelSend::GetRtpRtcp() const {
+ void ChannelSend::SetFrameEncryptor(
+     scoped_refptr<FrameEncryptorInterface> frame_encryptor) {
+   RTC_DCHECK_RUN_ON(worker_thread_);
+-  frame_encryptor_ = std::move(frame_encryptor);
++  RunEncoderTaskBlocking(
++      [&] { frame_encryptor_ = std::move(frame_encryptor); });
+ }
+ 
+ void ChannelSend::SetEncoderToPacketizerFrameTransformer(
+@@ -960,7 +1003,7 @@ void ChannelSend::SetEncoderToPacketizerFrameTransformer(
+   if (!frame_transformer)
+     return;
+ 
+-  encoder_queue_->PostTask(
++  encoder_tasks_->PostTask(
+       [this, frame_transformer = std::move(frame_transformer)]() mutable {
+         RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
+         InitFrameTransformerDelegate(std::move(frame_transformer));
+diff --git a/audio/silence_encoder_task_queue.h b/audio/silence_encoder_task_queue.h
+new file mode 100644
+index 0000000..dfcfa30
+--- /dev/null
++++ b/audio/silence_encoder_task_queue.h
+@@ -0,0 +1,112 @@
++/*
++ * Copyright (c) 2026 The WebRTC project authors. All Rights Reserved.
++ * Use of this source code is governed by a BSD-style license that can be
++ * found in the LICENSE file in the root of the source tree.
++ */
++
++#ifndef AUDIO_SILENCE_ENCODER_TASK_QUEUE_H_
++#define AUDIO_SILENCE_ENCODER_TASK_QUEUE_H_
++
++#include <algorithm>
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <utility>
++
++#include "absl/functional/any_invocable.h"
++#include "api/audio/audio_frame.h"
++#include "api/task_queue/task_queue_base.h"
++#include "rtc_base/synchronization/mutex.h"
++#include "system_wrappers/include/clock.h"
++
++namespace webrtc {
++namespace voe {
++
++// Coalesces only known-zero input within a codec-owned packet boundary. The
++// owner must delete/join the borrowed task queue before destroying this object.
++// Handlers borrow their owner; neither the tasks nor callbacks retain it.
++class SilenceEncoderTaskQueue {
++ public:
++  using FrameHandler =
++      absl::AnyInvocable<void(std::unique_ptr<AudioFrame>, Timestamp)>;
++  using WorkBudget = absl::AnyInvocable<size_t()>;
++
++  SilenceEncoderTaskQueue(TaskQueueBase* queue,
++                          Clock* clock,
++                          FrameHandler handler,
++                          WorkBudget budget)
++      : queue_(queue),
++        clock_(clock),
++        handler_(std::move(handler)),
++        budget_(std::move(budget)) {}
++
++  // Frames retain their existing media timestamps and must be submitted in
++  // capture order. At most one frame is retained outside the native task queue.
++  void PostFrame(std::unique_ptr<AudioFrame> frame, bool known_zero) {
++    MutexLock lock(&mutex_);
++    if (known_zero && !pending_ && defer_frames_ > 1) {
++      pending_ = std::move(frame);
++      return;
++    }
++    Frames frames{std::move(pending_), std::move(frame)};
++    PostLocked(std::move(frames), nullptr, known_zero && query_silence_budget_);
++  }
++
++  // A control is submitted atomically after all earlier deferred input. This
++  // also serves as a flush barrier for synchronous configuration and teardown.
++  void PostTask(absl::AnyInvocable<void() &&> task) {
++    MutexLock lock(&mutex_);
++    query_silence_budget_ = true;
++    PostLocked(Frames{std::move(pending_), nullptr}, std::move(task), true);
++  }
++
++ private:
++  using Frames = std::array<std::unique_ptr<AudioFrame>, 2>;
++
++  void PostLocked(Frames frames,
++                  absl::AnyInvocable<void() &&> task,
++                  bool query_budget) RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_) {
++    const uint64_t generation = ++generation_;
++    // A newer task may change the encoder before another capture arrives.
++    // Do not publish a stale budget from an older in-flight task.
++    defer_frames_ = 1;
++    const Timestamp queued_at = clock_->CurrentTime();
++    queue_->PostTask([this, queued_at, frames = std::move(frames),
++                      task = std::move(task), generation,
++                      query_budget]() mutable {
++      for (auto& frame : frames) {
++        if (frame) {
++          handler_(std::move(frame), queued_at);
++        }
++      }
++      if (task) {
++        std::move(task)();
++      }
++      if (!query_budget) {
++        return;
++      }
++      const size_t next_budget = budget_();
++      MutexLock lock(&mutex_);
++      if (generation == generation_ && !pending_) {
++        query_silence_budget_ = next_budget != 0;
++        defer_frames_ = std::clamp<size_t>(next_budget, 1, 2);
++      }
++    });
++  }
++
++  TaskQueueBase* const queue_;
++  Clock* const clock_;
++  FrameHandler handler_;
++  WorkBudget budget_;
++  Mutex mutex_;
++  std::unique_ptr<AudioFrame> pending_ RTC_GUARDED_BY(mutex_);
++  uint64_t generation_ RTC_GUARDED_BY(mutex_) = 0;
++  size_t defer_frames_ RTC_GUARDED_BY(mutex_) = 1;
++  bool query_silence_budget_ RTC_GUARDED_BY(mutex_) = true;
++};
++
++}  // namespace voe
++}  // namespace webrtc
++
++#endif  // AUDIO_SILENCE_ENCODER_TASK_QUEUE_H_
+diff --git a/modules/audio_coding/codecs/opus/audio_encoder_opus.cc b/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
+index 451fe8b..9afe3ee 100644
+--- a/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
++++ b/modules/audio_coding/codecs/opus/audio_encoder_opus.cc
+@@ -424,6 +424,17 @@ size_t AudioEncoderOpusImpl::Num10MsFramesInNextPacket() const {
+   return Num10msFramesPerPacket();
+ }
+ 
++size_t AudioEncoderOpusImpl::Num10MsFramesUntilSilenceWork() const {
++  // ANA samples wall time in EncodeImpl, so preserve its existing cadence.
++  if (audio_network_adaptor_ || Num10msFramesPerPacket() < 2) {
++    return 0;
++  }
++  // Stay within the next packet boundary, including DTX-empty packets. This
++  // deliberately makes no prediction about Opus DTX refresh suppression.
++  return Num10msFramesPerPacket() -
++         input_buffer_.size() / SamplesPer10msFrame();
++}
++
+ size_t AudioEncoderOpusImpl::Max10MsFramesInAPacket() const {
+   return Num10msFramesPerPacket();
+ }
+@@ -807,7 +818,7 @@ ANAStats AudioEncoderOpusImpl::GetANAStats() const {
+   return ANAStats();
+ }
+ 
+-std::optional<std::pair<TimeDelta, TimeDelta> >
++std::optional<std::pair<TimeDelta, TimeDelta>>
+ AudioEncoderOpusImpl::GetFrameLengthRange() const {
+   if (audio_network_adaptor_) {
+     if (config_.supported_frame_lengths_ms.empty()) {
+diff --git a/modules/audio_coding/codecs/opus/audio_encoder_opus.h b/modules/audio_coding/codecs/opus/audio_encoder_opus.h
+index 6900e0e..7aad073 100644
+--- a/modules/audio_coding/codecs/opus/audio_encoder_opus.h
++++ b/modules/audio_coding/codecs/opus/audio_encoder_opus.h
+@@ -75,6 +75,7 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
+   size_t Num10MsFramesInNextPacket() const override;
+   size_t Max10MsFramesInAPacket() const override;
+   int GetTargetBitrate() const override;
++  size_t Num10MsFramesUntilSilenceWork() const override;
+ 
+   void Reset() override;
+   bool SetFec(bool enable) override;
+@@ -100,7 +101,7 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
+   void SetReceiverFrameLengthRange(int min_frame_length_ms,
+                                    int max_frame_length_ms) override;
+   ANAStats GetANAStats() const override;
+-  std::optional<std::pair<TimeDelta, TimeDelta> > GetFrameLengthRange()
++  std::optional<std::pair<TimeDelta, TimeDelta>> GetFrameLengthRange()
+       const override;
+   std::span<const int> supported_frame_lengths_ms() const {
+     return config_.supported_frame_lengths_ms;
+diff --git a/modules/audio_coding/codecs/red/audio_encoder_copy_red.h b/modules/audio_coding/codecs/red/audio_encoder_copy_red.h
+index 070a242..241d92d 100644
+--- a/modules/audio_coding/codecs/red/audio_encoder_copy_red.h
++++ b/modules/audio_coding/codecs/red/audio_encoder_copy_red.h
+@@ -58,6 +58,10 @@ class AudioEncoderCopyRed final : public AudioEncoder {
+   size_t Num10MsFramesInNextPacket() const override;
+   size_t Max10MsFramesInAPacket() const override;
+   int GetTargetBitrate() const override;
++  // RED only adds work when the inner encoder produces a completed packet.
++  size_t Num10MsFramesUntilSilenceWork() const override {
++    return speech_encoder_->Num10MsFramesUntilSilenceWork();
++  }
+ 
+   void Reset() override;
+   bool SetFec(bool enable) override;

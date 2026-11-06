@@ -1,0 +1,95 @@
+name: Audio silence native build
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/audio-silence-build.yml
+      - webrtc-sys/libwebrtc/patches/silence_encoder_scheduling.patch
+      - webrtc-sys/test/outgoing_silence/*.cc
+      - webrtc-sys/test/outgoing_silence/run.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audio-silence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+      - name: Free native build space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          android: true
+          tool-cache: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config build-essential libglib2.0-dev libjpeg-turbo8-dev libclang-dev libc6-dev
+          python -m pip install setuptools
+      - name: Build matching WebRTC from source
+        working-directory: webrtc-sys/libwebrtc
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          with Path('.gclient').open('a') as output:
+              output.write("\ntarget_os = ['linux']\n")
+          PY
+          ./build_linux.sh --arch x64 --profile release
+      - name: Select matching native compiler and artifact
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          native = Path('webrtc-sys/libwebrtc')
+          compiler = native / 'src/third_party/llvm-build/Release+Asserts/bin/clang++'
+          with Path(os.environ['GITHUB_ENV']).open('a') as output:
+              output.write(f'CXX={compiler.absolute()}\n')
+              output.write(f'LK_CUSTOM_WEBRTC={(native / "linux-x64-release").resolve()}\n')
+          Path('artifacts').mkdir()
+          PY
+      - name: Verify codec factory and silence scheduling
+        run: |
+          python webrtc-sys/test/outgoing_silence/run.py --case factory --webrtc-dir "$LK_CUSTOM_WEBRTC" --cxx "$CXX"
+          python webrtc-sys/test/outgoing_silence/run.py --case queue --webrtc-dir "$LK_CUSTOM_WEBRTC" --cxx "$CXX"
+          python webrtc-sys/test/outgoing_silence/run.py --case runtime --webrtc-dir "$LK_CUSTOM_WEBRTC" --cxx "$CXX" > artifacts/runtime-equivalence.csv
+      - name: Build livekit-rtc FFI library
+        run: |
+          CARGO_PROFILE_RELEASE_STRIP=none cargo build --locked -p livekit-ffi --release
+          cp target/release/liblivekit_ffi.so artifacts/
+          cp LICENSE artifacts/
+          cp webrtc-sys/libwebrtc/linux-x64-release/LICENSE.md artifacts/WEBRTC-LICENSE.md
+      - name: Record build provenance
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+          library = Path('artifacts/liblivekit_ffi.so')
+          data = {
+              'sdk_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'webrtc_commit': subprocess.check_output(['git', '-C', 'webrtc-sys/libwebrtc/src', 'rev-parse', 'HEAD'], text=True).strip(),
+              'library_sha256': hashlib.sha256(library.read_bytes()).hexdigest(),
+          }
+          Path('artifacts/provenance.json').write_text(json.dumps(data, indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: livekit-rtc-silence-linux-x64
+          path: artifacts/
