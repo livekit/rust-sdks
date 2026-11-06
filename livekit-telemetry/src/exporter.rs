@@ -1512,6 +1512,108 @@ pub(crate) mod tests {
         }
     }
 
+    /// A transport that answers a script of statuses, one per request, and records at each send
+    /// what the cache held then (through a weak reference: the test owns nothing the pipeline
+    /// owns).
+    struct Scripted {
+        statuses: Mutex<std::collections::VecDeque<u16>>,
+        cache: std::sync::Weak<dyn crate::BatchCache>,
+        sends: Mutex<Vec<(u16, Vec<String>)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Scripted {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            let status = self.statuses.lock().expect("lock").pop_front().unwrap_or(200);
+            let pending = self.cache.upgrade().map(|cache| cache.pending()).unwrap_or_default();
+            self.sends.lock().expect("lock").push((status, pending));
+            Ok(ExportResponse { status, ..Default::default() })
+        }
+    }
+
+    /// What the 413 replay observed, captured before anything is asserted.
+    #[derive(Debug)]
+    struct SplitVerdict {
+        sends: Vec<(u16, Vec<String>)>,
+        left: Vec<String>,
+        uploads_sent: u64,
+        oversized: u64,
+        exporter_done: bool,
+        pipeline_freed: bool,
+        cache_freed: bool,
+    }
+
+    /// A batch cached under a larger `max_batch_bytes` (an earlier launch, an earlier configure)
+    /// is still split on 413 and both halves are sent: the bound limits what this launch
+    /// encodes, not what it replays. The exporter runs as a task against a transport that
+    /// answers 413, 200, 200; the cache is observed at each send (the parent at the first, the
+    /// halves retained after the 413, each half deleted only on its acknowledgement), and the
+    /// task is shut down, awaited and the pipeline observed destroyed before anything is
+    /// asserted.
+    #[tokio::test]
+    async fn a_larger_cached_batch_is_still_split_and_sent_on_413() {
+        let cache: Arc<dyn crate::BatchCache> = Arc::new(crate::MemoryCache::new(1 << 20));
+        let transport = Arc::new(Scripted {
+            statuses: Mutex::new([413, 200, 200].into()),
+            cache: Arc::downgrade(&cache),
+            sends: Mutex::new(Vec::new()),
+        });
+        let config = TelemetryConfig { max_batch_bytes: 600, ..TelemetryConfig::default() };
+        let (telemetry, exporter) = Telemetry::with_cache(config, transport.clone(), cache);
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(None);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &crate::destination::tests::granted(600));
+        // Two 400-character records: over the current bound once decoded, each half fits.
+        let session = ScopeState::new();
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|name| {
+                let event = TelemetryEvent::new(name).with_body("x".repeat(400));
+                QueuedEvent::new(event, session.clone())
+            })
+            .collect();
+        let body = gzip(&otlp::encode_logs(&[], &[], records));
+        assert!(body.len() < 600 && gunzip(&body).expect("gzip").len() > 600);
+        let parent =
+            format!("{:020}-000001-2-l-{}-a.livekit.cloud", now_unix_nanos(), room.state.hex());
+        telemetry.shared.cache.push(&parent, &body).expect("cached");
+        let running = tokio::spawn(exporter.run());
+        telemetry.flush().await;
+        let left = telemetry.shared.cache.pending();
+        let counters = telemetry.shared.counters.snapshot();
+        telemetry.shutdown().await;
+        let exporter_done = running.await.is_ok();
+        let shared = Arc::downgrade(&telemetry.shared);
+        let sends = std::mem::take(&mut *transport.sends.lock().expect("lock"));
+        let cache_weak = transport.cache.clone();
+        drop((room, telemetry, transport));
+        let verdict = SplitVerdict {
+            sends,
+            left,
+            uploads_sent: counters.uploads_sent,
+            oversized: counters.oversized,
+            exporter_done,
+            pipeline_freed: shared.upgrade().is_none(),
+            cache_freed: cache_weak.upgrade().is_none(),
+        };
+        assert!(
+            verdict.exporter_done && verdict.pipeline_freed && verdict.cache_freed,
+            "{verdict:?}"
+        );
+        let halves = [BatchId::half(&parent, 'a', 1), BatchId::half(&parent, 'b', 1)];
+        let expected =
+            [(413, vec![parent.clone()]), (200, halves.to_vec()), (200, vec![halves[1].clone()])];
+        // The shutdown drains a process-level batch (the pipeline's own report) after these.
+        assert_eq!(
+            verdict.sends.get(..3),
+            Some(&expected[..]),
+            "the cache at each send: {verdict:?}"
+        );
+        assert!(verdict.left.is_empty(), "both halves acknowledged: {verdict:?}");
+        assert_eq!((verdict.uploads_sent, verdict.oversized), (2, 0), "{verdict:?}");
+    }
+
     /// What one run of the retirement race observed, captured before anything is asserted.
     #[derive(Debug)]
     struct RetirementVerdict {
