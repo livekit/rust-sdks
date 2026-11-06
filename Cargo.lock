@@ -3898,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.4"
+version = "0.13.5"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4055,7 +4055,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-wakeword"
-version = "0.1.3"
+version = "0.2.0"
 dependencies = [
  "hound",
  "ndarray 0.17.2",
