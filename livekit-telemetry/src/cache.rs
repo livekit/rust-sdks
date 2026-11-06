@@ -802,6 +802,9 @@ fn create_dir_synced(dir: &Path) -> io::Result<()> {
             #[cfg(unix)]
             if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
                 fs::File::open(parent)?.sync_all()?;
+                #[cfg(test)]
+                tests::SYNCED_PARENT
+                    .with(|synced| *synced.borrow_mut() = Some(parent.to_path_buf()));
             }
             Ok(())
         }
@@ -840,6 +843,12 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    thread_local! {
+        /// The parent directory the last directory creation on this thread synced.
+        pub(super) static SYNCED_PARENT: std::cell::RefCell<Option<PathBuf>> =
+            const { std::cell::RefCell::new(None) };
+    }
 
     /// Ids the exporter would mint: a real timestamp (fixed for the test run, so ids stay
     /// stable however slow the disk) + seq.
@@ -1432,6 +1441,30 @@ mod tests {
         assert_eq!(evicted, Vec::<String>::new(), "the other pass counts it");
         assert_eq!(cache.pending(), [id(2)]);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Creating the cache directory syncs its parent: the directory named by an absolute path,
+    /// and the current directory for a bare relative name. An existing directory is not
+    /// created, so nothing is synced for it.
+    #[test]
+    fn creating_the_directory_syncs_its_parent() {
+        let dir = temp_dir("parent-sync");
+        SYNCED_PARENT.with(|synced| synced.take());
+        FileCache::open(&dir, 1 << 20).expect("open");
+        let parent = dir.parent().map(Path::to_path_buf);
+        assert_eq!(SYNCED_PARENT.with(|synced| synced.take()), parent, "an absolute path");
+        FileCache::open(&dir, 1 << 20).expect("open again");
+        assert_eq!(SYNCED_PARENT.with(|synced| synced.take()), None, "it existed");
+        let _ = fs::remove_dir_all(&dir);
+        let relative =
+            PathBuf::from(format!("lk-telemetry-parent-sync-{}", crate::event::now_unix_nanos()));
+        FileCache::open(&relative, 1 << 20).expect("open");
+        let _ = fs::remove_dir_all(&relative);
+        assert_eq!(
+            SYNCED_PARENT.with(|synced| synced.take()),
+            Some(PathBuf::from(".")),
+            "a bare relative name lives in the current directory"
+        );
     }
 
     /// Purge recovery: the first write finds the directory gone, and by the time it recreates
