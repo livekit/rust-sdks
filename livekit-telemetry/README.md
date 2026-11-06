@@ -12,6 +12,9 @@ It currently holds the shared data model and its encoding:
   (trace) it belongs to; every drop is counted.
 - **Encoding.** [OTLP/HTTP](https://opentelemetry.io/docs/specs/otlp/) protobuf logs and traces,
   using the `opentelemetry-proto` message types only (no gRPC stack).
+- **Transport and destinations.** `TelemetryTransport`, the seam that moves an encoded batch off
+  the device (`NetTransport` over `livekit-net` with the `net` feature), and the routing that
+  turns a Room's server URL and token into its LiveKit Cloud ingest URL and credential.
 
 The pipeline that batches, caches and uploads records is not part of the crate yet.
 
