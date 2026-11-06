@@ -371,7 +371,8 @@ impl<'a> ReportIndex<'a> {
                         .and_then(|transport| text(transport, "selectedCandidatePairId"))
                         .and_then(|id| self.by_id.get(id.as_str()))
                         .filter(|pair| pair.kind == "candidate-pair")
-                        .and_then(|pair| ms_f64(pair, "currentRoundTripTime")),
+                        .and_then(|pair| ms_f64(pair, "currentRoundTripTime"))
+                        .or(self.pair_rtt_ms),
                     None => self.pair_rtt_ms,
                 };
             }
@@ -1247,6 +1248,37 @@ mod tests {
             index.pair_rtt_ms, None,
             "two selected pairs are ambiguous without transports too"
         );
+    }
+
+    #[test]
+    fn inbound_rtt_falls_back_when_transport_selection_is_missing() {
+        let inbound =
+            stat("inbound-rtp", "IN", &[("transportId", AttributeValue::Str("T".into()))]);
+        let pair = stat(
+            "candidate-pair",
+            "PAIR",
+            &[
+                ("nominated", AttributeValue::Bool(true)),
+                ("state", AttributeValue::Str("succeeded".into())),
+                ("currentRoundTripTime", AttributeValue::Double(0.04)),
+            ],
+        );
+        let reports =
+            [vec![inbound.clone(), pair.clone()], vec![inbound, pair, stat("transport", "T", &[])]];
+        let rtts: Vec<_> = reports
+            .iter()
+            .map(|report| {
+                samples_from_report(
+                    "TR_1",
+                    TrackKind::Audio,
+                    StreamDirection::Inbound,
+                    report,
+                    None,
+                )[0]
+                .rtt_ms
+            })
+            .collect();
+        assert_eq!(rtts, vec![Some(40.0), Some(40.0)], "missing transport and missing selection");
     }
 
     #[test]
