@@ -1436,11 +1436,18 @@ fn jitter() -> f64 {
 }
 
 /// A cached batch is intact when it is one complete gzip member (RFC 1952) whose CRC checks
-/// out: a truncated or bit-flipped file is caught here, never sent.
+/// out: a truncated or bit-flipped file is caught here, never sent. Streamed through a fixed
+/// buffer: nothing of the decoded body is kept.
 fn intact(body: &[u8]) -> bool {
-    body.starts_with(&[0x1f, 0x8b]) && gunzip(body).is_some()
+    body.starts_with(&[0x1f, 0x8b])
+        && std::io::copy(&mut flate2::read::GzDecoder::new(body), &mut std::io::sink()).is_ok()
 }
 
+/// The decoded body, for a split after a 413: materialized whole, whatever the current
+/// `max_batch_bytes`, because a batch cached under a larger setting is still valid data that is
+/// split down to single records rather than dropped. A decoded-size bound here is an open
+/// decision (it would discard or hold such a batch); the per-replay validation above no longer
+/// materializes anything.
 fn gunzip(body: &[u8]) -> Option<Vec<u8>> {
     use std::io::Read;
     let mut out = Vec::with_capacity(body.len() * GZIP_RATIO);
@@ -1567,6 +1574,45 @@ pub(crate) mod tests {
         let shared = Arc::downgrade(&telemetry.shared);
         drop(telemetry);
         assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
+    }
+
+    /// A batch cached under a larger `max_batch_bytes` (an earlier launch, an earlier configure)
+    /// is still split on 413 and both halves are sent: the bound limits what this launch
+    /// encodes, not what it replays. Runs the real cache, pass and answer path.
+    #[tokio::test]
+    async fn a_larger_cached_batch_is_still_split_and_sent_on_413() {
+        let config = TelemetryConfig { max_batch_bytes: 600, ..TelemetryConfig::default() };
+        let (telemetry, mut exporter) = Telemetry::new(config, Arc::new(Collector::default()));
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(None);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &crate::destination::tests::granted(600));
+        // Two 400-character records: over the current bound once decoded, each half fits.
+        let session = ScopeState::new();
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|name| {
+                let event = TelemetryEvent::new(name).with_body("x".repeat(400));
+                QueuedEvent::new(event, session.clone())
+            })
+            .collect();
+        let body = gzip(&otlp::encode_logs(&[], &[], records));
+        assert!(body.len() < 600 && gunzip(&body).expect("gzip").len() > 600);
+        let id =
+            format!("{:020}-000001-2-l-{}-a.livekit.cloud", now_unix_nanos(), room.state.hex());
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.flushing = true;
+        exporter.export_pending();
+        assert!(exporter.inflight.is_some(), "the batch is on the wire");
+        exporter.on_answer(Outcome::Answered(Verdict::TooLarge));
+        for half in ["a", "b"] {
+            assert!(exporter.inflight.is_some(), "half {half} is on the wire");
+            let accepted = Verdict::Accepted { rejected: 0, reason: String::new() };
+            exporter.on_answer(Outcome::Answered(accepted));
+        }
+        let counters = telemetry.shared.counters.snapshot();
+        assert_eq!((counters.uploads_sent, counters.oversized), (2, 0), "{counters:?}");
+        assert!(telemetry.shared.cache.pending().is_empty(), "both halves went");
     }
 
     /// A running pipeline whose uploads wait at a [`Gate`].
