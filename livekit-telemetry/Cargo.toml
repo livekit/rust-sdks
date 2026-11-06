@@ -37,6 +37,8 @@ uniffi = ["dep:uniffi"]
 
 [dev-dependencies]
 tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util", "net", "io-util"] }
+# The mock collector test drives the real HTTP stack.
+livekit-net = { workspace = true, features = ["native"] }
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
