@@ -718,12 +718,13 @@ const GetAudioDevicesResponse = /*@__PURE__*/ proto2.makeMessageType(
 /**
  * Set the recording device (microphone).
  *
- * Call this before creating audio tracks to select which microphone to use.
+ * Call this before or after creating audio tracks to select which microphone to use.
  * Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
  *
  * # Platform Notes
  *
- * - Desktop: Works as expected - selects from enumerated devices.
+ * - Desktop: Works as expected - selects from enumerated devices. If recording is active,
+ *   the device is switched in place (stop, change device, restart).
  * - Mobile (iOS/Android): No-op. Mobile platforms handle microphone selection at the
  *   system level. This will succeed but has no effect. Skip calling on mobile.
  *
@@ -750,12 +751,13 @@ const SetRecordingDeviceResponse = /*@__PURE__*/ proto2.makeMessageType(
 /**
  * Set the playout device (speaker/headphones).
  *
- * Call this before connecting to select which speaker to use for audio output.
+ * Call this before or after connecting to select which speaker to use for audio output.
  * Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
  *
  * # Platform Notes
  *
- * - Desktop: Works as expected - selects from enumerated devices.
+ * - Desktop: Works as expected - selects from enumerated devices. If playout is active,
+ *   the device is switched in place (stop, change device, restart).
  * - Mobile (iOS/Android): No-op. Mobile platforms handle audio routing at the system level.
  *   This will succeed but has no effect. For audio routing on mobile:
  *   - iOS: Use AVAudioSession to control speaker/earpiece/Bluetooth routing
