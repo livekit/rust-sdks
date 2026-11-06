@@ -1409,6 +1409,38 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// The compound case: another pass unlinked the batch, and then this pass's directory sync
+    /// fails. The eviction is still the other pass's, not this one's, whatever the sync said.
+    /// Control: this pass's own unlink followed by a failed sync still counts
+    /// (`an_eviction_whose_directory_sync_fails_still_counts`).
+    #[test]
+    fn an_eviction_another_pass_made_is_not_counted_even_when_the_sync_fails() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = temp_dir("evict-twice-sync");
+        let cache = FileCache::open(&dir, 10).expect("open");
+        cache.push(&id(1), &[b'a'; 10]).expect("push");
+        let gone = cache.path(&id(1), BATCH_EXT);
+        let taken = Arc::new(AtomicBool::new(false));
+        cache.inject({
+            let taken = taken.clone();
+            move |step, path| {
+                if step == Step::Delete && path == gone {
+                    // The other pass wins the unlink.
+                    let _ = fs::remove_file(path);
+                    taken.store(true, Ordering::SeqCst);
+                }
+                if step == Step::SyncDir && taken.load(Ordering::SeqCst) {
+                    return Err(io::Error::other("injected"));
+                }
+                Ok(())
+            }
+        });
+        let evicted = cache.push(&id(2), &[b'b'; 10]).expect("push");
+        assert_eq!(evicted, Vec::<String>::new(), "the other pass counts it");
+        assert_eq!(cache.pending(), [id(2)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// Purge recovery: the first write finds the directory gone, and by the time it recreates
     /// it another generation's `open` already did. The recreated directory is used.
     #[test]
