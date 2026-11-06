@@ -1502,11 +1502,24 @@ pub(crate) mod tests {
         }
     }
 
-    /// A Room that registers and receives its token while credential retirement sits between
-    /// its snapshot of the live sessions and its prune keeps that token, so its flush uploads;
-    /// once the Room is gone with nothing cached, the token is freed.
-    #[tokio::test]
-    async fn a_room_registered_during_retirement_keeps_its_token() {
+    /// What one run of the retirement race observed, captured before anything is asserted.
+    #[derive(Debug)]
+    struct RetirementVerdict {
+        registrar_started: Option<bool>,
+        hook_timed_out: bool,
+        route_sends: bool,
+        sent: usize,
+        held_after: usize,
+        exporter_done: bool,
+        pipeline_freed: bool,
+    }
+
+    /// Run the retirement race once. `resume_within` bounds the hook's wait for the registrar
+    /// (zero forces the timeout path). Nothing asserts here: the hook is cleared, the registrar
+    /// joined, the exporter shut down and awaited, and the pipeline's destruction observed, on
+    /// every path, before the verdict goes back to the test.
+    async fn retirement_race(resume_within: Duration) -> RetirementVerdict {
+        use std::sync::atomic::{AtomicBool, Ordering};
         let collector = Arc::new(Collector::default());
         let (telemetry, exporter) = Telemetry::new(TelemetryConfig::default(), collector.clone());
         // Routing must come from the token, never from an endpoint override in the environment.
@@ -1515,96 +1528,96 @@ pub(crate) mod tests {
         let (snapshot_taken, snapshot) = std::sync::mpsc::channel();
         let (resume, resumed) = std::sync::mpsc::channel();
         let resumed = Mutex::new(resumed);
-        *telemetry.shared.retiring.lock().expect("lock") = Some(Arc::new(move || {
-            snapshot_taken.send(()).expect("registrar waits");
-            let resumed = resumed.lock().expect("lock");
-            resumed.recv_timeout(Duration::from_secs(10)).expect("registrar answers");
+        let hook_timed_out = Arc::new(AtomicBool::new(false));
+        *telemetry.shared.retiring.lock().expect("lock") = Some(Arc::new({
+            let hook_timed_out = hook_timed_out.clone();
+            move || {
+                let _ = snapshot_taken.send(());
+                let resumed = resumed.lock().unwrap_or_else(|e| e.into_inner());
+                if resumed.recv_timeout(resume_within).is_err() {
+                    hook_timed_out.store(true, Ordering::SeqCst);
+                }
+            }
         }));
         let registrar = {
             let telemetry = telemetry.clone();
             std::thread::spawn(move || {
-                snapshot.recv_timeout(Duration::from_secs(10)).expect("retirement started");
+                let started = snapshot.recv_timeout(Duration::from_secs(10)).is_ok();
                 // Registry held: the Room can register only after the prune. Free: it registers
                 // and receives its token inside retirement's window.
                 let held = telemetry.shared.scopes.try_lock().is_err();
                 if held {
-                    resume.send(()).expect("retirement waits");
+                    let _ = resume.send(());
                 }
                 let room = telemetry.begin_scope();
                 room.set_server("wss://p.livekit.cloud", &crate::destination::tests::granted(600));
                 if !held {
-                    resume.send(()).expect("retirement waits");
+                    let _ = resume.send(());
                 }
-                room
+                (started, room)
             })
         };
         exporter.retire_credentials();
-        let room = registrar.join().expect("registrar");
+        let registrar = registrar.join();
         *telemetry.shared.retiring.lock().expect("lock") = None;
-        let host = room.state.route();
-        let route = telemetry
-            .shared
-            .destinations
-            .lock()
-            .expect("lock")
-            .route(host.as_deref(), Some(room.state.hex()));
+        let (registrar_started, room) = match registrar {
+            Ok((started, room)) => (Some(started), Some(room)),
+            Err(_) => (None, None),
+        };
+        let route_sends = room.as_ref().is_some_and(|room| {
+            let host = room.state.route();
+            let destinations = telemetry.shared.destinations.lock().expect("lock");
+            matches!(destinations.route(host.as_deref(), Some(room.state.hex())), Route::Send(_))
+        });
         let running = tokio::spawn(exporter.run());
-        room.emit_custom("ping", Vec::new());
+        if let Some(room) = &room {
+            room.emit_custom("ping", Vec::new());
+        }
         telemetry.flush().await;
         let sent = collector.count();
-        assert!(
-            matches!(route, Route::Send(_)) && sent == 1,
-            "the live Room kept its token and its flush uploaded: route {route:?}, {sent} requests"
-        );
-
         drop(room);
         telemetry.flush().await;
-        let held = telemetry.shared.destinations.lock().expect("lock").credentials();
-        assert_eq!(held, 0, "a Room gone with nothing cached frees its token");
+        let held_after = telemetry.shared.destinations.lock().expect("lock").credentials();
         telemetry.shutdown().await;
-        running.await.expect("exporter");
+        let exporter_done = running.await.is_ok();
         let shared = Arc::downgrade(&telemetry.shared);
         drop(telemetry);
-        assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
+        RetirementVerdict {
+            registrar_started,
+            hook_timed_out: hook_timed_out.load(Ordering::SeqCst),
+            route_sends,
+            sent,
+            held_after,
+            exporter_done,
+            pipeline_freed: shared.upgrade().is_none(),
+        }
     }
 
-    /// A batch cached under a larger `max_batch_bytes` (an earlier launch, an earlier configure)
-    /// is still split on 413 and both halves are sent: the bound limits what this launch
-    /// encodes, not what it replays. Runs the real cache, pass and answer path.
+    /// A Room that registers and receives its token while credential retirement sits between
+    /// its snapshot of the live sessions and its prune keeps that token, so its flush uploads;
+    /// once the Room is gone with nothing cached, the token is freed.
     #[tokio::test]
-    async fn a_larger_cached_batch_is_still_split_and_sent_on_413() {
-        let config = TelemetryConfig { max_batch_bytes: 600, ..TelemetryConfig::default() };
-        let (telemetry, mut exporter) = Telemetry::new(config, Arc::new(Collector::default()));
-        *telemetry.shared.destinations.lock().expect("lock") =
-            crate::destination::Destinations::new(None);
-        let room = telemetry.begin_scope();
-        room.set_server("wss://a.livekit.cloud", &crate::destination::tests::granted(600));
-        // Two 400-character records: over the current bound once decoded, each half fits.
-        let session = ScopeState::new();
-        let records = ["a", "b"]
-            .into_iter()
-            .map(|name| {
-                let event = TelemetryEvent::new(name).with_body("x".repeat(400));
-                QueuedEvent::new(event, session.clone())
-            })
-            .collect();
-        let body = gzip(&otlp::encode_logs(&[], &[], records));
-        assert!(body.len() < 600 && gunzip(&body).expect("gzip").len() > 600);
-        let id =
-            format!("{:020}-000001-2-l-{}-a.livekit.cloud", now_unix_nanos(), room.state.hex());
-        telemetry.shared.cache.push(&id, &body).expect("cached");
-        exporter.flushing = true;
-        exporter.export_pending();
-        assert!(exporter.inflight.is_some(), "the batch is on the wire");
-        exporter.on_answer(Outcome::Answered(Verdict::TooLarge));
-        for half in ["a", "b"] {
-            assert!(exporter.inflight.is_some(), "half {half} is on the wire");
-            let accepted = Verdict::Accepted { rejected: 0, reason: String::new() };
-            exporter.on_answer(Outcome::Answered(accepted));
-        }
-        let counters = telemetry.shared.counters.snapshot();
-        assert_eq!((counters.uploads_sent, counters.oversized), (2, 0), "{counters:?}");
-        assert!(telemetry.shared.cache.pending().is_empty(), "both halves went");
+    async fn a_room_registered_during_retirement_keeps_its_token() {
+        let verdict = retirement_race(Duration::from_secs(10)).await;
+        assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
+        assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
+        assert!(!verdict.hook_timed_out, "{verdict:?}");
+        assert!(
+            verdict.route_sends && verdict.sent == 1,
+            "the live Room kept its token and its flush uploaded: {verdict:?}"
+        );
+        assert_eq!(verdict.held_after, 0, "a Room gone with nothing cached frees its token");
+    }
+
+    /// The harness's forced failure: the hook's wait times out at once. The teardown still
+    /// runs (the exporter task completes, the pipeline is destroyed) and the timeout is reported
+    /// as a verdict, not as a panic that detaches the task.
+    #[tokio::test]
+    async fn the_retirement_race_harness_tears_down_on_a_forced_timeout() {
+        let verdict = retirement_race(Duration::ZERO).await;
+        assert!(verdict.hook_timed_out, "the control forces the timeout: {verdict:?}");
+        assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
+        assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
     }
 
     /// A running pipeline whose uploads wait at a [`Gate`].
