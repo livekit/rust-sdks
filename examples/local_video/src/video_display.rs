@@ -139,7 +139,7 @@ pub(crate) fn pack_i420_into_shared(
         s.repaint_ctx.clone()
     };
     if let Some(ctx) = repaint_ctx {
-        ctx.request_repaint();
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
     }
     true
 }
@@ -610,13 +610,25 @@ const CHANNEL_RATE_PER_S: f32 = 1.0;
 
 type ChannelValues = Arc<Mutex<[f32; crate::user_data::NUM_CHANNELS]>>;
 
+/// Diagnostics are intentionally slower than video rendering so UI work cannot pace video frames.
+const DIAGNOSTICS_REPAINT_INTERVAL: Duration = Duration::from_millis(100);
+const DIAGNOSTICS_CONTENT_PADDING: i8 = 10;
+const DIAGNOSTICS_WINDOW_SIZE: [f32; 2] = [400.0, 320.0];
+const DIAGNOSTICS_WINDOW_MIN_SIZE: [f32; 2] = [320.0, 120.0];
+
+fn diagnostics_viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("publisher-diagnostics")
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
-    timing_overlay_state: PublisherTimingOverlayState,
+    timing_overlay_state: Arc<Mutex<PublisherTimingOverlayState>>,
     /// Keyboard-controlled user_data channel values shared with the capture loop.
     channels: Option<ChannelValues>,
+    diagnostics_open: Arc<AtomicBool>,
+    diagnostics_started: Arc<AtomicBool>,
 }
 
 /// Apply held-key deltas to the shared channel values and return the current
@@ -643,6 +655,113 @@ fn drive_channels(
     *values
 }
 
+fn paint_channel_controls(ui: &mut egui::Ui, values: &[f32; crate::user_data::NUM_CHANNELS]) {
+    const KEY_LABELS: [&str; crate::user_data::NUM_CHANNELS] =
+        ["Q/A", "W/S", "E/D", "R/F", "T/G", "Y/H"];
+    let mut lines = vec!["user_data channels".to_string()];
+    for (idx, value) in values.iter().enumerate() {
+        lines.push(format!("CH{} [{}]: {:>+6.2}", idx + 1, KEY_LABELS[idx], value));
+    }
+
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(lines.join("\n"))
+                .monospace()
+                .size(12.0)
+                .color(egui::Color32::WHITE),
+        )
+        .extend(),
+    );
+}
+
+fn paint_publisher_diagnostics(
+    ui: &mut egui::Ui,
+    shared: &Arc<Mutex<SharedYuv>>,
+    timing_overlay_state: &Arc<Mutex<PublisherTimingOverlayState>>,
+    channels: Option<&ChannelValues>,
+) {
+    egui::Frame::NONE.inner_margin(egui::Margin::same(DIAGNOSTICS_CONTENT_PADDING)).show(
+        ui,
+        |ui| {
+            ui.visuals_mut().override_text_color = Some(egui::Color32::WHITE);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let lines = publisher_overlay_lines(
+                    shared,
+                    &mut timing_overlay_state.lock(),
+                    Instant::now(),
+                )
+                .unwrap_or_else(|| vec!["Waiting for video...".to_string()]);
+                if lines.len() > 1 {
+                    ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
+                }
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(lines.join("\n"))
+                            .monospace()
+                            .size(12.0)
+                            .color(egui::Color32::WHITE),
+                    )
+                    .extend(),
+                );
+
+                if let Some(channels) = channels {
+                    ui.separator();
+                    let values = drive_channels(ui.ctx(), channels);
+                    paint_channel_controls(ui, &values);
+                }
+            });
+        },
+    );
+}
+
+impl VideoApp {
+    fn show_diagnostics_window(&self, ctx: &egui::Context) {
+        if !self.diagnostics_open.load(Ordering::Acquire) {
+            return;
+        }
+
+        let shared = self.shared.clone();
+        let timing_overlay_state = self.timing_overlay_state.clone();
+        let channels = self.channels.clone();
+        let diagnostics_open = self.diagnostics_open.clone();
+        let diagnostics_started = self.diagnostics_started.clone();
+
+        ctx.show_viewport_deferred(
+            diagnostics_viewport_id(),
+            egui::ViewportBuilder::default()
+                .with_title("LiveKit Publisher Diagnostics")
+                .with_inner_size(DIAGNOSTICS_WINDOW_SIZE)
+                .with_min_inner_size(DIAGNOSTICS_WINDOW_MIN_SIZE),
+            move |ui, viewport_class| {
+                if !diagnostics_started.swap(true, Ordering::AcqRel) {
+                    let viewport_class = match viewport_class {
+                        egui::ViewportClass::Root => "root",
+                        egui::ViewportClass::Deferred => "deferred",
+                        egui::ViewportClass::Immediate => "immediate",
+                        egui::ViewportClass::EmbeddedWindow => "embedded",
+                    };
+                    log::info!(
+                        "Publisher diagnostics window active: {}, refresh={}ms",
+                        viewport_class,
+                        DIAGNOSTICS_REPAINT_INTERVAL.as_millis()
+                    );
+                }
+                if ui.input(|input| input.viewport().close_requested()) {
+                    diagnostics_open.store(false, Ordering::Release);
+                    log::info!(
+                        "Publisher diagnostics window closed; video rendering remains active"
+                    );
+                    ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
+                    return;
+                }
+
+                paint_publisher_diagnostics(ui, &shared, &timing_overlay_state, channels.as_ref());
+                ui.ctx().request_repaint_after(DIAGNOSTICS_REPAINT_INTERVAL);
+            },
+        );
+    }
+}
+
 impl eframe::App for VideoApp {
     fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = root_ui.ctx().clone();
@@ -658,11 +777,7 @@ impl eframe::App for VideoApp {
             self.viewport.set_video_size(&ctx, width, height);
         }
 
-        let channel_values = self.channels.as_ref().map(|targets| drive_channels(&ctx, targets));
-
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
-            ui.ctx().request_repaint();
-
             let size =
                 viewport_aspect::fitted_video_size(ui.available_size(), self.viewport.aspect());
 
@@ -678,74 +793,8 @@ impl eframe::App for VideoApp {
                 },
             );
         });
-
-        egui::Area::new("publisher_overlay".into())
-            .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
-            .interactable(false)
-            .show(&ctx, |ui| {
-                let Some(lines) = publisher_overlay_lines(
-                    &self.shared,
-                    &mut self.timing_overlay_state,
-                    Instant::now(),
-                ) else {
-                    return;
-                };
-                let has_timing = lines.len() > 1;
-                let text = lines.join("\n");
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_black_alpha(160))
-                    .corner_radius(egui::CornerRadius::same(4))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        if has_timing {
-                            ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
-                        }
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(text).monospace().color(egui::Color32::WHITE),
-                            )
-                            .extend(),
-                        );
-                    });
-            });
-
-        if let Some(values) = channel_values {
-            paint_channel_controls(&ctx, &values);
-        }
-
-        ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
+        self.show_diagnostics_window(&ctx);
     }
-}
-
-/// Bottom-left HUD listing the channel key bindings and current values.
-fn paint_channel_controls(ctx: &egui::Context, values: &[f32; crate::user_data::NUM_CHANNELS]) {
-    const KEY_LABELS: [&str; crate::user_data::NUM_CHANNELS] =
-        ["Q/A", "W/S", "E/D", "R/F", "T/G", "Y/H"];
-    let mut lines = vec!["user_data channels".to_string()];
-    for (idx, value) in values.iter().enumerate() {
-        lines.push(format!("CH{} [{}]: {:>+6.2}", idx + 1, KEY_LABELS[idx], value));
-    }
-
-    egui::Area::new("channel_controls".into())
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
-        .interactable(false)
-        .show(ctx, |ui| {
-            egui::Frame::NONE
-                .fill(egui::Color32::from_black_alpha(160))
-                .corner_radius(egui::CornerRadius::same(4))
-                .inner_margin(egui::Margin::same(6))
-                .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(lines.join("\n"))
-                                .monospace()
-                                .size(12.0)
-                                .color(egui::Color32::WHITE),
-                        )
-                        .extend(),
-                    );
-                });
-        });
 }
 
 pub(crate) fn run_display(
@@ -759,8 +808,10 @@ pub(crate) fn run_display(
         shared,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(initial_aspect),
-        timing_overlay_state: PublisherTimingOverlayState::default(),
+        timing_overlay_state: Arc::new(Mutex::new(PublisherTimingOverlayState::default())),
         channels,
+        diagnostics_open: Arc::new(AtomicBool::new(true)),
+        diagnostics_started: Arc::new(AtomicBool::new(false)),
     };
     let native_options = viewport_aspect::native_options(initial_aspect);
     let result = eframe::run_native(title, native_options, Box::new(|_| Ok(Box::new(app))));
