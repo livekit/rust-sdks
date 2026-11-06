@@ -1,0 +1,11 @@
+[package]
+name = "session"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+livekit-session = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-token-source = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
