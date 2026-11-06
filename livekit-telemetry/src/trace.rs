@@ -273,7 +273,7 @@ impl SpanTrack {
             Attribute::new(semconv::LK_TRACK_SOURCE, self.source.as_str()),
         ];
         if let Some(sid) = &self.sid {
-            out.push(Attribute::new(semconv::LK_TRACK_SID, sid.as_str()));
+            out.push(Attribute::new(semconv::LK_TRACK_ID, sid.as_str()));
         }
         if let Some(identity) = &self.remote_identity {
             out.push(Attribute::new(
@@ -631,7 +631,7 @@ mod tests {
         let invalid = || telemetry.shared.counters.snapshot().invalid;
         let room = telemetry.begin_scope();
         let app = room.start(SpanName::Custom { name: "work".into() }, None);
-        app.set_attribute("lk.room_sid".into(), AttributeValue::Str("RM_x".into()));
+        app.set_attribute("lk.room_id".into(), AttributeValue::Str("RM_x".into()));
         app.set_attribute("otel.scope.name".into(), AttributeValue::Str("x".into()));
         app.set_attribute("app.step".into(), AttributeValue::Int(1));
         assert_eq!(invalid(), 2);
@@ -689,7 +689,7 @@ mod tests {
         let attributes = span.lock().attributes.clone();
         let get = |key: &str| attributes.iter().find(|a| a.key == key).map(|a| a.value.clone());
         assert_eq!(get("lk.track.kind"), Some(AttributeValue::Str("video".into())));
-        assert_eq!(get("lk.track_sid"), Some(AttributeValue::Str("TR_1".into())));
+        assert_eq!(get("lk.track_id"), Some(AttributeValue::Str("TR_1".into())));
         assert_eq!(get("lk.track_source"), Some(AttributeValue::Str("SOURCE_CAMERA".into())));
         assert_eq!(attributes.iter().filter(|a| a.key == "lk.track_source").count(), 1);
     }

@@ -612,7 +612,7 @@ impl Window {
         let last = self.last;
         let mut event = TelemetryEvent::new(event::LK_RTC_STATS_SAMPLE)
             .with_body(body)
-            .with_attribute(semconv::LK_TRACK_SID, last.track_sid)
+            .with_attribute(semconv::LK_TRACK_ID, last.track_sid)
             .with_attribute(semconv::LK_TRACK_KIND, last.kind.as_str())
             .with_attribute(semconv::LK_TRACK_DIRECTION, last.direction.as_str())
             .with_attribute(semconv::LK_RTC_WINDOW_MS, window_ms as i64)

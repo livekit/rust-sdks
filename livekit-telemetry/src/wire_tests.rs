@@ -42,7 +42,7 @@ use crate::{
 const SESSION_KEYS: &[&str] = &[
     "session.id",
     "otel.event.name",
-    "lk.room_sid",
+    "lk.room_id",
     "lk.pii.room_name",
     "lk.participant_id",
     "lk.pii.participant_identity",
@@ -102,7 +102,7 @@ record lk.rtc.stats.sample: lk.rtc.audio_level.avg | lk.rtc.audio_level.max \
     | lk.rtc.pauses_duration_ms | lk.rtc.quality_limitation.bandwidth_ms \
     | lk.rtc.quality_limitation.cpu_ms | lk.rtc.quality_limitation.other_ms | lk.rtc.rtt_ms.avg \
     | lk.rtc.rtt_ms.max | lk.rtc.rtt_ms.min | lk.rtc.samples | lk.rtc.silent_concealed_samples \
-    | lk.rtc.window_ms | lk.track.direction | lk.track.kind | lk.track_sid
+    | lk.rtc.window_ms | lk.track.direction | lk.track.kind | lk.track_id
 record lk.telemetry.report: lk.telemetry.cache.batches | lk.telemetry.cache.write_errors \
     | lk.telemetry.dropped.cache_error | lk.telemetry.dropped.cache_full \
     | lk.telemetry.dropped.corrupt | lk.telemetry.dropped.expired | lk.telemetry.dropped.invalid \
@@ -113,7 +113,7 @@ record lk.telemetry.report: lk.telemetry.cache.batches | lk.telemetry.cache.writ
     | lk.telemetry.uploads.unauthorized
 resource: device.model.identifier | os.name | os.version | service.name | service.version \
     | telemetry.sdk.language | telemetry.sdk.name | telemetry.sdk.version
-session: lk.participant_id | lk.pii.participant_identity | lk.pii.room_name | lk.room_sid \
+session: lk.participant_id | lk.pii.participant_identity | lk.pii.room_name | lk.room_id \
     | otel.event.name | session.id
 severity -: ERROR
 severity custom.checkout: INFO
@@ -130,11 +130,11 @@ severity lk.room.disconnected: INFO | WARN
 severity lk.rtc.stats.sample: INFO
 severity lk.telemetry.report: INFO
 span lk.connect SPAN_KIND_CLIENT: lk.connect.attempt | lk.outcome
-span lk.publish SPAN_KIND_INTERNAL: lk.outcome | lk.track.kind | lk.track_sid | lk.track_source
+span lk.publish SPAN_KIND_INTERNAL: lk.outcome | lk.track.kind | lk.track_id | lk.track_source
 span lk.reconnect SPAN_KIND_CLIENT: lk.outcome | lk.reconnect.attempts | lk.reconnect.mode \
     | lk.reconnect.reason
 span lk.subscribe SPAN_KIND_INTERNAL: error.type | lk.outcome | lk.pii.remote_participant_identity \
-    | lk.track.kind | lk.track_sid | lk.track_source
+    | lk.track.kind | lk.track_id | lk.track_source
 value error.type: timed_out
 value lk.device.app_state: background | foreground
 value lk.device.audio.interruption: began | ended

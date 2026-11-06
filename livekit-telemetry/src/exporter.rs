@@ -2035,12 +2035,12 @@ pub(crate) mod tests {
     #[test]
     fn gzip_shrinks_a_batch_of_records_at_least_this_much() {
         let session = ScopeState::new();
-        session.set_attribute("lk.room_sid", Some("RM_UpE3vYzFmJp8".into()));
+        session.set_attribute("lk.room_id", Some("RM_UpE3vYzFmJp8".into()));
         let records = (0..100)
             .map(|i| {
                 let event = TelemetryEvent::new("lk.rtc.stats.sample")
                     .with_body(format!("video inbound: {i} kbps, rtt 48 ms, 30 fps"))
-                    .with_attribute("lk.track_sid", "TR_VCd8tCgNdE9h")
+                    .with_attribute("lk.track_id", "TR_VCd8tCgNdE9h")
                     .with_attribute("lk.rtc.bytes", i as i64 * 1_000);
                 QueuedEvent::new(event, session.clone())
             })

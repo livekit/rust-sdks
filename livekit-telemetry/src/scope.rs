@@ -29,7 +29,7 @@ use crate::{
 };
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
-/// copied into them when they are captured (`lk.room_sid`, `lk.pii.participant_identity`, …).
+/// copied into them when they are captured (`lk.room_id`, `lk.pii.participant_identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
     /// The trace id as hex, formatted once: the session's owner in `Destinations`.
@@ -310,7 +310,7 @@ impl fmt::Debug for ScopeState {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RoomIdentity {
-    /// The room's sid (`RM_…`), `lk.room_sid`.
+    /// The room's sid (`RM_…`), `lk.room_id`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub sid: Option<String>,
     /// The room's name, `lk.pii.room_name`.
@@ -724,12 +724,12 @@ impl Scope {
         Span::bound(name, parent, self.telemetry.clone(), &self.state)
     }
 
-    /// The room and local participant, as `lk.room_sid`, `lk.pii.room_name`,
+    /// The room and local participant, as `lk.room_id`, `lk.pii.room_name`,
     /// `lk.participant_id` and `lk.pii.participant_identity` on every record captured from then
     /// on.
     pub fn set_room(&self, room: RoomIdentity) {
         for (key, value) in [
-            (semconv::LK_ROOM_SID, room.sid),
+            (semconv::LK_ROOM_ID, room.sid),
             (semconv::LK_PII_ROOM_NAME, room.name),
             (semconv::LK_PARTICIPANT_ID, room.participant_sid),
             (semconv::LK_PII_PARTICIPANT_IDENTITY, room.participant_identity),
@@ -989,7 +989,7 @@ mod tests {
     #[test]
     fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
         for key in [
-            "lk.room_sid",
+            "lk.room_id",
             "otel.event.name",
             "otel.scope.name",
             "code.function.name",

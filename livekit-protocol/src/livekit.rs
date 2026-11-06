@@ -97,6 +97,11 @@ pub struct MetricsRecordingHeader {
     /// force PII redaction on for this session (only ever enables, never disables)
     #[prost(bool, tag = "10")]
     pub redaction_enabled: bool,
+    /// JSON object of session facts for agent evals, at most 16 KiB. Its schema is
+    /// evalschema/session-summary.schema.json in livekit/cloud-protocol. The collector
+    /// stores it without reading individual keys.
+    #[prost(string, tag = "11")]
+    pub session_summary: ::prost::alloc::string::String,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -1995,7 +2000,8 @@ impl TrackSource {
 #[repr(i32)]
 pub enum DataTrackExtensionId {
     DteiInvalid = 0,
-    DteiParticipantSidLow = 1,
+    DteiE2ee = 1,
+    DteiUserTimestamp = 2,
     DteiParticipantSid = 255,
 }
 impl DataTrackExtensionId {
@@ -2006,7 +2012,8 @@ impl DataTrackExtensionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::DteiInvalid => "DTEI_INVALID",
-            Self::DteiParticipantSidLow => "DTEI_PARTICIPANT_SID_LOW",
+            Self::DteiE2ee => "DTEI_E2EE",
+            Self::DteiUserTimestamp => "DTEI_USER_TIMESTAMP",
             Self::DteiParticipantSid => "DTEI_PARTICIPANT_SID",
         }
     }
@@ -2014,7 +2021,8 @@ impl DataTrackExtensionId {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "DTEI_INVALID" => Some(Self::DteiInvalid),
-            "DTEI_PARTICIPANT_SID_LOW" => Some(Self::DteiParticipantSidLow),
+            "DTEI_E2EE" => Some(Self::DteiE2ee),
+            "DTEI_USER_TIMESTAMP" => Some(Self::DteiUserTimestamp),
             "DTEI_PARTICIPANT_SID" => Some(Self::DteiParticipantSid),
             _ => None,
         }
@@ -2451,20 +2459,24 @@ pub struct WebSource {
 /// Unifies deprecated Participant, TrackComposite, and Track egress.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MediaSource {
-    /// TODO: DataConfig data = 4;
     #[prost(message, optional, tag = "3")]
     pub audio: ::core::option::Option<AudioConfig>,
-    #[prost(oneof = "media_source::Video", tags = "1, 2")]
+    #[prost(message, optional, tag = "4")]
+    pub data: ::core::option::Option<DataConfig>,
+    #[prost(oneof = "media_source::Video", tags = "1, 2, 5")]
     pub video: ::core::option::Option<media_source::Video>,
 }
 /// Nested message and enum types in `MediaSource`.
 pub mod media_source {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Video {
         #[prost(string, tag = "1")]
         VideoTrackId(::prost::alloc::string::String),
         #[prost(message, tag = "2")]
         ParticipantVideo(super::ParticipantVideo),
+        /// Multiple independent video tracks; requires an MCAP file output
+        #[prost(message, tag = "5")]
+        Videos(super::VideoConfig),
     }
 }
 // --- Video Configuration ---
@@ -2475,6 +2487,34 @@ pub struct ParticipantVideo {
     pub identity: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub prefer_screen_share: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VideoConfig {
+    #[prost(bool, tag = "1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag = "2")]
+    pub selectors: ::prost::alloc::vec::Vec<VideoSelector>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VideoSelector {
+    /// Narrows the match to tracks with this name; alone, matches it from any participant
+    #[prost(string, tag = "3")]
+    pub track_name: ::prost::alloc::string::String,
+    /// Drop matching tracks, overriding capture_all and other matches
+    #[prost(bool, tag = "4")]
+    pub exclude: bool,
+    #[prost(oneof = "video_selector::Match", tags = "1, 2")]
+    pub r#match: ::core::option::Option<video_selector::Match>,
+}
+/// Nested message and enum types in `VideoSelector`.
+pub mod video_selector {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Match {
+        #[prost(string, tag = "1")]
+        TrackId(::prost::alloc::string::String),
+        #[prost(string, tag = "2")]
+        ParticipantIdentity(::prost::alloc::string::String),
+    }
 }
 // --- Audio Configuration ---
 
@@ -2490,6 +2530,12 @@ pub struct AudioConfig {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AudioRoute {
+    /// Narrows the match to tracks with this name; alone, matches it from any participant
+    #[prost(string, tag = "5")]
+    pub track_name: ::prost::alloc::string::String,
+    /// Drop matching tracks, overriding capture_all and other routes
+    #[prost(bool, tag = "6")]
+    pub exclude: bool,
     #[prost(enumeration = "AudioChannel", tag = "4")]
     pub channel: i32,
     #[prost(oneof = "audio_route::Match", tags = "1, 2, 3")]
@@ -2518,6 +2564,12 @@ pub struct DataConfig {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DataSelector {
+    /// Narrows the match to tracks with this name; alone, matches it from any participant
+    #[prost(string, tag = "3")]
+    pub track_name: ::prost::alloc::string::String,
+    /// Drop matching tracks, overriding capture_all and other matches
+    #[prost(bool, tag = "4")]
+    pub exclude: bool,
     #[prost(oneof = "data_selector::Match", tags = "1, 2")]
     pub r#match: ::core::option::Option<data_selector::Match>,
 }
@@ -2610,14 +2662,26 @@ pub struct FileOutput {
     #[prost(bool, tag = "3")]
     pub disable_manifest: bool,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamOutput {
     /// required
     #[prost(enumeration = "StreamProtocol", tag = "1")]
     pub protocol: i32,
-    /// required
+    /// urls or destinations required
     #[prost(string, repeated, tag = "2")]
     pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// urls or destinations required
+    #[prost(message, repeated, tag = "3")]
+    pub destinations: ::prost::alloc::vec::Vec<StreamDestination>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct StreamDestination {
+    /// required
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+    /// required
+    #[prost(string, tag = "2")]
+    pub url: ::prost::alloc::string::String,
 }
 /// Used to generate HLS segments or other kind of segmented output
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2931,6 +2995,9 @@ pub struct StreamInfo {
     pub last_retry_at: i64,
     #[prost(uint32, tag = "8")]
     pub retries: u32,
+    /// StreamDestination.id this stream was started from; empty for plain urls
+    #[prost(string, tag = "9")]
+    pub id: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `StreamInfo`.
 pub mod stream_info {
@@ -3351,7 +3418,7 @@ pub struct UpdateLayoutRequest {
     #[prost(string, tag = "2")]
     pub layout: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateStreamRequest {
     #[prost(string, tag = "1")]
     pub egress_id: ::prost::alloc::string::String,
@@ -3359,6 +3426,8 @@ pub struct UpdateStreamRequest {
     pub add_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]
     pub remove_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "4")]
+    pub add_destinations: ::prost::alloc::vec::Vec<StreamDestination>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StreamInfoList {
@@ -3460,6 +3529,8 @@ pub enum EncodedFileType {
     Mp4 = 1,
     Ogg = 2,
     Mp3 = 3,
+    /// One channel per captured track
+    Mcap = 4,
 }
 impl EncodedFileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3472,6 +3543,7 @@ impl EncodedFileType {
             Self::Mp4 => "MP4",
             Self::Ogg => "OGG",
             Self::Mp3 => "MP3",
+            Self::Mcap => "MCAP",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3481,6 +3553,7 @@ impl EncodedFileType {
             "MP4" => Some(Self::Mp4),
             "OGG" => Some(Self::Ogg),
             "MP3" => Some(Self::Mp3),
+            "MCAP" => Some(Self::Mcap),
             _ => None,
         }
     }
@@ -3522,7 +3595,10 @@ impl StreamProtocol {
 #[repr(i32)]
 pub enum SegmentedFileProtocol {
     DefaultSegmentedFileProtocol = 0,
+    /// MPEG-TS segments
     HlsProtocol = 1,
+    /// fragmented MP4 segments
+    HlsFmp4Protocol = 2,
 }
 impl SegmentedFileProtocol {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3533,6 +3609,7 @@ impl SegmentedFileProtocol {
         match self {
             Self::DefaultSegmentedFileProtocol => "DEFAULT_SEGMENTED_FILE_PROTOCOL",
             Self::HlsProtocol => "HLS_PROTOCOL",
+            Self::HlsFmp4Protocol => "HLS_FMP4_PROTOCOL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3540,6 +3617,7 @@ impl SegmentedFileProtocol {
         match value {
             "DEFAULT_SEGMENTED_FILE_PROTOCOL" => Some(Self::DefaultSegmentedFileProtocol),
             "HLS_PROTOCOL" => Some(Self::HlsProtocol),
+            "HLS_FMP4_PROTOCOL" => Some(Self::HlsFmp4Protocol),
             _ => None,
         }
     }
@@ -4740,6 +4818,38 @@ impl StreamState {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum NegotiatedDataChannelId {
+    NdciInvalid = 0,
+    NdciReliable = 100,
+    NdciLossy = 101,
+    NdciDataTrack = 102,
+}
+impl NegotiatedDataChannelId {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::NdciInvalid => "NDCI_INVALID",
+            Self::NdciReliable => "NDCI_RELIABLE",
+            Self::NdciLossy => "NDCI_LOSSY",
+            Self::NdciDataTrack => "NDCI_DATA_TRACK",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NDCI_INVALID" => Some(Self::NdciInvalid),
+            "NDCI_RELIABLE" => Some(Self::NdciReliable),
+            "NDCI_LOSSY" => Some(Self::NdciLossy),
+            "NDCI_DATA_TRACK" => Some(Self::NdciDataTrack),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum CandidateProtocol {
     Udp = 0,
     Tcp = 1,
@@ -4796,6 +4906,9 @@ pub struct Job {
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(bool, tag = "13")]
     pub enable_redaction: bool,
+    /// when the server created the job, in Unix nanoseconds
+    #[prost(int64, tag = "14")]
+    pub created_at: i64,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JobState {
@@ -4815,6 +4928,29 @@ pub struct JobState {
     pub worker_id: ::prost::alloc::string::String,
     #[prost(string, tag = "8")]
     pub agent_id: ::prost::alloc::string::String,
+    /// why the job has no agent, for JS_PENDING and JS_CANCELLED jobs
+    #[prost(enumeration = "JobStateReason", tag = "9")]
+    pub reason: i32,
+    /// when the server received the worker's accept for this attempt, in Unix nanoseconds
+    #[prost(int64, tag = "10")]
+    pub accepted_at: i64,
+    /// when the server sent the assignment for this attempt, in Unix nanoseconds
+    #[prost(int64, tag = "11")]
+    pub assigned_at: i64,
+    /// attempts assigned to a worker so far, the current one included
+    #[prost(uint32, tag = "12")]
+    pub attempts: u32,
+    /// started_at of the first attempt assigned to a worker, in Unix nanoseconds
+    #[prost(int64, tag = "13")]
+    pub first_started_at: i64,
+    /// time spent in attempts the agent's own code failed before the agent
+    /// joined, as an entrypoint that fails before it connects: from each such
+    /// attempt's start to the next attempt's start, in nanoseconds
+    #[prost(int64, tag = "14")]
+    pub agent_failed_attempts_ns: i64,
+    /// workers asked to take this attempt, the one that took it included
+    #[prost(uint32, tag = "15")]
+    pub workers_asked: u32,
 }
 /// from Worker to Server
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4933,11 +5069,15 @@ pub struct RegisterWorkerResponse {
     #[prost(message, optional, tag = "4")]
     pub endpoint_settings: ::core::option::Option<agent_http::AgentEndpointSettings>,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MigrateJobRequest {
     /// string job_id = 1 \[deprecated = true\];
     #[prost(string, repeated, tag = "2")]
     pub job_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// the jobs in job_ids as they were assigned, with state.participant_identity
+    /// set to the identity the worker accepted them with
+    #[prost(message, repeated, tag = "3")]
+    pub jobs: ::prost::alloc::vec::Vec<Job>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AvailabilityRequest {
@@ -4978,6 +5118,39 @@ pub struct UpdateJobStatus {
     /// metadata shown on the dashboard, useful for debugging
     #[prost(string, tag = "3")]
     pub error: ::prost::alloc::string::String,
+    /// set once the agent has connected to the room
+    #[prost(message, optional, tag = "4")]
+    pub join_timing: ::core::option::Option<JobJoinTiming>,
+}
+/// Instants of one agent join on the worker host's monotonic clock, in microseconds. The
+/// clock origin is arbitrary, so only differences between these values carry meaning on
+/// their own. The worker and its job processes share this clock.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct JobJoinTiming {
+    /// availability request received
+    #[prost(int64, tag = "1")]
+    pub offer_received_us: i64,
+    /// request handler accepted the job
+    #[prost(int64, tag = "2")]
+    pub accepted_us: i64,
+    /// job assignment received
+    #[prost(int64, tag = "3")]
+    pub assignment_received_us: i64,
+    /// a job process was handed the job
+    #[prost(int64, tag = "4")]
+    pub launched_us: i64,
+    /// an idle process took the job; false means one was spawned
+    #[prost(bool, tag = "5")]
+    pub launch_warm: bool,
+    /// the agent's entrypoint started
+    #[prost(int64, tag = "6")]
+    pub entrypoint_started_us: i64,
+    /// the agent called room connect
+    #[prost(int64, tag = "7")]
+    pub connect_called_us: i64,
+    /// the agent's primary transport connected
+    #[prost(int64, tag = "8")]
+    pub connected_us: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct UpdateWorkerStatus {
@@ -5262,6 +5435,8 @@ pub enum JobStatus {
     JsRunning = 1,
     JsSuccess = 2,
     JsFailed = 3,
+    /// the job ended before it was assigned to an agent
+    JsCancelled = 4,
 }
 impl JobStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -5274,6 +5449,7 @@ impl JobStatus {
             Self::JsRunning => "JS_RUNNING",
             Self::JsSuccess => "JS_SUCCESS",
             Self::JsFailed => "JS_FAILED",
+            Self::JsCancelled => "JS_CANCELLED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -5283,6 +5459,46 @@ impl JobStatus {
             "JS_RUNNING" => Some(Self::JsRunning),
             "JS_SUCCESS" => Some(Self::JsSuccess),
             "JS_FAILED" => Some(Self::JsFailed),
+            "JS_CANCELLED" => Some(Self::JsCancelled),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum JobStateReason {
+    JsrUnspecified = 0,
+    /// no agent was available to accept the job
+    JsrNoCapacity = 1,
+    /// the room closed before an agent was assigned
+    JsrRoomClosed = 2,
+    /// the dispatch was deleted before an agent was assigned
+    JsrDispatchDeleted = 3,
+    /// the job failed and is being dispatched again
+    JsrRetrying = 4,
+}
+impl JobStateReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::JsrUnspecified => "JSR_UNSPECIFIED",
+            Self::JsrNoCapacity => "JSR_NO_CAPACITY",
+            Self::JsrRoomClosed => "JSR_ROOM_CLOSED",
+            Self::JsrDispatchDeleted => "JSR_DISPATCH_DELETED",
+            Self::JsrRetrying => "JSR_RETRYING",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "JSR_UNSPECIFIED" => Some(Self::JsrUnspecified),
+            "JSR_NO_CAPACITY" => Some(Self::JsrNoCapacity),
+            "JSR_ROOM_CLOSED" => Some(Self::JsrRoomClosed),
+            "JSR_DISPATCH_DELETED" => Some(Self::JsrDispatchDeleted),
+            "JSR_RETRYING" => Some(Self::JsrRetrying),
             _ => None,
         }
     }
@@ -5368,6 +5584,8 @@ pub struct AgentDispatchState {
     pub created_at: i64,
     #[prost(int64, tag = "3")]
     pub deleted_at: i64,
+    #[prost(enumeration = "AgentDispatchTrigger", tag = "4")]
+    pub trigger: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -5393,6 +5611,42 @@ impl JobRestartPolicy {
         match value {
             "JRP_ON_FAILURE" => Some(Self::JrpOnFailure),
             "JRP_NEVER" => Some(Self::JrpNever),
+            _ => None,
+        }
+    }
+}
+/// what created the dispatch
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AgentDispatchTrigger {
+    AdtUnspecified = 0,
+    /// a participant joining created the room, and with it the dispatch
+    AdtJoin = 1,
+    /// the CreateRoom API created the room, and with it the dispatch
+    AdtRoomApi = 2,
+    /// the CreateDispatch API
+    AdtDispatchApi = 3,
+}
+impl AgentDispatchTrigger {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::AdtUnspecified => "ADT_UNSPECIFIED",
+            Self::AdtJoin => "ADT_JOIN",
+            Self::AdtRoomApi => "ADT_ROOM_API",
+            Self::AdtDispatchApi => "ADT_DISPATCH_API",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ADT_UNSPECIFIED" => Some(Self::AdtUnspecified),
+            "ADT_JOIN" => Some(Self::AdtJoin),
+            "ADT_ROOM_API" => Some(Self::AdtRoomApi),
+            "ADT_DISPATCH_API" => Some(Self::AdtDispatchApi),
             _ => None,
         }
     }
@@ -6081,7 +6335,7 @@ impl IngressVideoEncodingPreset {
 pub struct WebhookEvent {
     /// one of room_started, room_finished, participant_joined, participant_left, participant_connection_aborted,
     /// track_published, track_unpublished, egress_started, egress_updated, egress_ended,
-    /// ingress_started, ingress_ended, agent_job_started, agent_job_ended
+    /// ingress_started, ingress_ended, agent_job_pending, agent_job_started, agent_job_ended
     #[prost(string, tag = "1")]
     pub event: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "2")]
@@ -6179,6 +6433,10 @@ pub struct SipMediaConfig {
     /// Use specific media timeout. If zero or not specified, will use default timeout.
     #[prost(message, optional, tag = "4")]
     pub media_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// Stop sending audio RTP while outbound DTMF digits are sent.
+    /// Always on when the telephone-event clock rate differs from the audio codec's.
+    #[prost(bool, tag = "5")]
+    pub drop_audio_during_dtmf: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProviderInfo {
@@ -6854,12 +7112,16 @@ pub struct CreateSipParticipantRequest {
     /// Character 'w' can be used to add a 0.5 sec delay.
     #[prost(string, tag = "5")]
     pub dtmf: ::prost::alloc::string::String,
-    /// Optionally play dialtone in the room as an audible indicator for existing participants. The `play_ringtone` option is deprectated but has the same effect.
+    /// Deprecated: use dialtone. Setting play_dialtone (or play_ringtone) is equivalent to SIP_DIALTONE_ETSI when dialtone is unset.
     #[deprecated]
     #[prost(bool, tag = "6")]
     pub play_ringtone: bool,
+    #[deprecated]
     #[prost(bool, tag = "13")]
     pub play_dialtone: bool,
+    /// Optionally play dialtone in the room as an audible indicator for existing participants.
+    #[prost(enumeration = "SipDialtone", tag = "28")]
+    pub dialtone: i32,
     /// By default the From value (Phone number) is used for participant name/identity (if not set) and added to attributes.
     /// If true, a random value for identity will be used and numbers will be omitted from attributes.
     #[prost(bool, tag = "10")]
@@ -6900,7 +7162,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag = "21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 28
+    /// NEXT ID: 29
     #[prost(message, optional, tag = "22")]
     pub destination: ::core::option::Option<Destination>,
 }
@@ -6923,9 +7185,13 @@ pub struct TransferSipParticipantRequest {
     pub room_name: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub transfer_to: ::prost::alloc::string::String,
-    /// Optionally play dialtone to the SIP participant as an audible indicator of being transferred
+    /// Deprecated: use dialtone. Setting play_dialtone is equivalent to SIP_DIALTONE_ETSI when dialtone is unset.
+    #[deprecated]
     #[prost(bool, tag = "4")]
     pub play_dialtone: bool,
+    /// Optionally play dialtone to the SIP participant as an audible indicator of being transferred.
+    #[prost(enumeration = "SipDialtone", tag = "7")]
+    pub dialtone: i32,
     /// Add the following headers to the REFER SIP request.
     #[prost(map = "string, string", tag = "5")]
     pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
@@ -7439,6 +7705,53 @@ impl SipMediaEncryption {
             "SIP_MEDIA_ENCRYPT_DISABLE" => Some(Self::SipMediaEncryptDisable),
             "SIP_MEDIA_ENCRYPT_ALLOW" => Some(Self::SipMediaEncryptAllow),
             "SIP_MEDIA_ENCRYPT_REQUIRE" => Some(Self::SipMediaEncryptRequire),
+            _ => None,
+        }
+    }
+}
+/// Dial tone (ringback) played while a call is being placed or transferred.
+/// Receivers treat unknown values as SIP_DIALTONE_ETSI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum SipDialtone {
+    /// no tone
+    Disabled = 0,
+    /// 425 Hz, 1s on / 4s off; the tone play_dialtone used
+    Etsi = 1,
+    /// pick by the country of the called number, ETSI if unknown
+    Auto = 2,
+    /// North America (NANP)
+    Us = 3,
+    Uk = 4,
+    Jp = 5,
+    Au = 6,
+}
+impl SipDialtone {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Disabled => "SIP_DIALTONE_DISABLED",
+            Self::Etsi => "SIP_DIALTONE_ETSI",
+            Self::Auto => "SIP_DIALTONE_AUTO",
+            Self::Us => "SIP_DIALTONE_US",
+            Self::Uk => "SIP_DIALTONE_UK",
+            Self::Jp => "SIP_DIALTONE_JP",
+            Self::Au => "SIP_DIALTONE_AU",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SIP_DIALTONE_DISABLED" => Some(Self::Disabled),
+            "SIP_DIALTONE_ETSI" => Some(Self::Etsi),
+            "SIP_DIALTONE_AUTO" => Some(Self::Auto),
+            "SIP_DIALTONE_US" => Some(Self::Us),
+            "SIP_DIALTONE_UK" => Some(Self::Uk),
+            "SIP_DIALTONE_JP" => Some(Self::Jp),
+            "SIP_DIALTONE_AU" => Some(Self::Au),
             _ => None,
         }
     }
@@ -9714,6 +10027,9 @@ pub mod simulation_run {
         /// samples is 1.
         #[prost(int32, tag = "16")]
         pub sample: i32,
+        /// Set on a failed job whose cause is known; error stays the detail.
+        #[prost(enumeration = "job::FailureReason", tag = "19")]
+        pub failure_reason: i32,
     }
     /// Nested message and enum types in `Job`.
     pub mod job {
@@ -9755,6 +10071,33 @@ pub mod simulation_run {
                     "STATUS_COMPLETED" => Some(Self::Completed),
                     "STATUS_FAILED" => Some(Self::Failed),
                     "STATUS_CANCELLED" => Some(Self::Cancelled),
+                    _ => None,
+                }
+            }
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum FailureReason {
+            Unspecified = 0,
+            /// The agent under test never joined the simulation's room.
+            AgentJoinTimeout = 1,
+        }
+        impl FailureReason {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Unspecified => "FAILURE_REASON_UNSPECIFIED",
+                    Self::AgentJoinTimeout => "FAILURE_REASON_AGENT_JOIN_TIMEOUT",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "FAILURE_REASON_UNSPECIFIED" => Some(Self::Unspecified),
+                    "FAILURE_REASON_AGENT_JOIN_TIMEOUT" => Some(Self::AgentJoinTimeout),
                     _ => None,
                 }
             }
@@ -9805,6 +10148,20 @@ pub mod simulation_run {
         /// 0-1, derived from the flags above
         #[prost(float, optional, tag = "19")]
         pub conversation_progression: ::core::option::Option<f32>,
+        /// How the call ended. A failing end also sets the job's error.
+        #[prost(enumeration = "job_metrics::EndReason", tag = "21")]
+        pub end_reason: i32,
+        /// The simulated caller's language, as a language tag: what it spoke or wrote.
+        #[prost(string, tag = "22")]
+        pub caller_language: ::prost::alloc::string::String,
+        /// Audio only: the language the caller transcribed the agent in; "" means
+        /// caller_language.
+        #[prost(string, tag = "23")]
+        pub caller_listen_language: ::prost::alloc::string::String,
+        /// Audio only: what the caller's audio went through before the agent heard
+        /// it. Absent for a clean call.
+        #[prost(message, optional, tag = "24")]
+        pub impairments: ::core::option::Option<super::SimulationImpairments>,
     }
     /// Nested message and enum types in `JobMetrics`.
     pub mod job_metrics {
@@ -9945,10 +10302,13 @@ pub mod simulation_run {
             /// needs the RemoteSession; the agent's own claim
             #[prost(uint32, optional, tag = "15")]
             pub e2e_latency_ms: ::core::option::Option<u32>,
+            /// the caller's acknowledgements over the agent's speech
+            #[prost(uint32, optional, tag = "16")]
+            pub backchannel_count: ::core::option::Option<u32>,
         }
         /// Rows exist for text and audio. The groups above hold the means and pools
         /// over these; anything not measured for a turn stays unset.
-        #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+        #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Turn {
             /// 1-based, conversation order
             #[prost(uint32, tag = "1")]
@@ -9956,6 +10316,11 @@ pub mod simulation_run {
             /// ASSISTANT = the agent under test, USER = simulator persona
             #[prost(enumeration = "super::super::agent::ChatRole", tag = "2")]
             pub role: i32,
+            /// The words the judges read for this turn: the speaker's own, or as the
+            /// other side heard them when those are unknown (the agent's, without a
+            /// RemoteSession).
+            #[prost(string, tag = "18")]
+            pub text: ::prost::alloc::string::String,
             /// audio only; relative to t0; unset if the turn could not be aligned to the audio
             #[prost(uint32, optional, tag = "3")]
             pub start_ms: ::core::option::Option<u32>,
@@ -9995,6 +10360,79 @@ pub mod simulation_run {
             pub awkward_silence: ::core::option::Option<bool>,
             #[prost(bool, optional, tag = "17")]
             pub unanswered: ::core::option::Option<bool>,
+            /// Audio only; needs the text judge. One per saying of a key entity in
+            /// this turn, in order, as the other side heard it. Matched over the whole
+            /// call's transcript, so a saying spanning turns sits on its first, and
+            /// which of an entity's repeated sayings was heard is the alignment's
+            /// best guess.
+            #[prost(message, repeated, tag = "19")]
+            pub entities: ::prost::alloc::vec::Vec<turn::Entity>,
+            /// the agent's chat item id for the first message this turn holds, as its
+            /// stored transcript carries it; "" without a RemoteSession
+            #[prost(string, tag = "20")]
+            pub item_id: ::prost::alloc::string::String,
+        }
+        /// Nested message and enum types in `Turn`.
+        pub mod turn {
+            #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+            pub struct Entity {
+                /// the entity as the speaker said it
+                #[prost(string, tag = "1")]
+                pub said: ::prost::alloc::string::String,
+                /// the listener's normalized words where it landed; "" if dropped
+                #[prost(string, tag = "2")]
+                pub heard: ::prost::alloc::string::String,
+                /// heard with no word errors
+                #[prost(bool, tag = "3")]
+                pub recognized: bool,
+            }
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum EndReason {
+            Unspecified = 0,
+            /// the caller finished the scenario
+            ScenarioCompleted = 1,
+            /// the agent under test ended the call
+            AgentEnded = 2,
+            /// the agent under test went silent
+            Inactivity = 3,
+            /// the caller ran out of turns
+            TurnLimit = 4,
+            /// the agent under test kept replying with nothing
+            EmptyResponse = 5,
+            /// the agent under test failed mid-call
+            AgentError = 6,
+        }
+        impl EndReason {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Unspecified => "END_REASON_UNSPECIFIED",
+                    Self::ScenarioCompleted => "END_REASON_SCENARIO_COMPLETED",
+                    Self::AgentEnded => "END_REASON_AGENT_ENDED",
+                    Self::Inactivity => "END_REASON_INACTIVITY",
+                    Self::TurnLimit => "END_REASON_TURN_LIMIT",
+                    Self::EmptyResponse => "END_REASON_EMPTY_RESPONSE",
+                    Self::AgentError => "END_REASON_AGENT_ERROR",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "END_REASON_UNSPECIFIED" => Some(Self::Unspecified),
+                    "END_REASON_SCENARIO_COMPLETED" => Some(Self::ScenarioCompleted),
+                    "END_REASON_AGENT_ENDED" => Some(Self::AgentEnded),
+                    "END_REASON_INACTIVITY" => Some(Self::Inactivity),
+                    "END_REASON_TURN_LIMIT" => Some(Self::TurnLimit),
+                    "END_REASON_EMPTY_RESPONSE" => Some(Self::EmptyResponse),
+                    "END_REASON_AGENT_ERROR" => Some(Self::AgentError),
+                    _ => None,
+                }
+            }
         }
     }
     /// Aggregates over this run's jobs, so a run summary does not have to pull
@@ -10082,6 +10520,7 @@ pub mod simulation_run {
             #[prost(enumeration = "super::super::SimulationMode", tag = "9")]
             pub mode: i32,
             /// Impairments applied to the simulated user's audio; AUDIO mode only.
+            /// TODO(u9g): migrate these to SimulationImpairments.
             #[prost(bool, tag = "10")]
             pub background_noise: bool,
             #[prost(bool, tag = "11")]
@@ -10095,6 +10534,19 @@ pub mod simulation_run {
             /// pass^k report over scenarios and neither gates.
             #[prost(message, optional, tag = "14")]
             pub sampling: ::core::option::Option<super::SamplingOptions>,
+            /// When set, every job dials this number over SIP instead of dispatching
+            /// agent_name, as CreateSIPParticipantRequest would. AUDIO mode only.
+            #[prost(string, tag = "15")]
+            pub sip_call_to: ::prost::alloc::string::String,
+            /// Outbound trunk to dial through. Empty dials from sip_number, which must
+            /// then be a LiveKit phone number the project owns.
+            #[prost(string, tag = "16")]
+            pub sip_trunk_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "17")]
+            pub sip_number: ::prost::alloc::string::String,
+            /// Named deployment of agent_name to dispatch to; empty is production.
+            #[prost(string, tag = "18")]
+            pub deployment: ::prost::alloc::string::String,
         }
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Response {
@@ -10298,7 +10750,7 @@ pub struct Scenario {
     pub instructions: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub agent_expectations: ::prost::alloc::string::String,
-    /// Set as participant attributes on the simulation participant's access token.
+    /// Surfaced to the agent under test as SimulationContext scenario tags.
     #[prost(map = "string, string", tag = "4")]
     pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Arbitrary JSON-encoded object, surfaced to the agent under test as
@@ -10345,8 +10797,19 @@ pub struct ScenarioGroup {
     #[prost(string, tag = "3")]
     pub id: ::prost::alloc::string::String,
 }
-/// Carried (protojson-encoded) in the simulation room's metadata so the agent
-/// under test can read the scenario + run identity synchronously at connect.
+/// What the simulated caller's audio went through before the agent heard it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SimulationImpairments {
+    #[prost(bool, tag = "1")]
+    pub background_noise: bool,
+    #[prost(bool, tag = "2")]
+    pub low_quality_microphone: bool,
+    #[prost(bool, tag = "3")]
+    pub packet_loss: bool,
+}
+/// Carried (protojson-encoded) in the Job's lk.simulator.dispatch attribute, set
+/// on the agent dispatch, so the agent under test can read the scenario + run
+/// identity synchronously at job start.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SimulationDispatch {
     #[prost(string, tag = "1")]
@@ -10562,6 +11025,9 @@ pub struct NodeStats {
     #[deprecated]
     #[prost(uint32, tag = "49")]
     pub forward_jitter: u32,
+    /// mean forwarding work per write to a subscriber, in ns: (end of fan-out - dequeue) / writes
+    #[prost(uint32, tag = "57")]
+    pub forward_processing_per_write: u32,
     #[prost(message, repeated, tag = "50")]
     pub rates: ::prost::alloc::vec::Vec<NodeStatsRate>,
 }
@@ -10679,6 +11145,9 @@ pub struct StartSession {
     pub use_single_peer_connection: bool,
     #[prost(int64, tag = "26")]
     pub token_expires_at: i64,
+    /// API key that issued the join token, for correlating sessions with the key
+    #[prost(string, tag = "27")]
+    pub api_key: ::prost::alloc::string::String,
 }
 /// room info that should not be returned to clients
 #[derive(Clone, PartialEq, ::prost::Message)]

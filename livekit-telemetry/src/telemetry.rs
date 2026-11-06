@@ -1281,7 +1281,7 @@ pub(crate) mod tests {
                 .iter()
                 .find(|s| {
                     s.attributes.iter().any(|kv| {
-                        kv.key == "lk.track_sid"
+                        kv.key == "lk.track_id"
                             && kv.value.as_ref().and_then(|v| v.value.clone())
                                 == Some(Value::StringValue(sid.into()))
                     })
@@ -1310,7 +1310,7 @@ pub(crate) mod tests {
             "cancelled exports too"
         );
         assert!(
-            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track_sid"
+            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track_id"
                 && kv.value.as_ref().and_then(|v| v.value.clone())
                     == Some(Value::StringValue("TR_d".into())))),
             "still open"
@@ -1341,8 +1341,8 @@ pub(crate) mod tests {
         let sent = transport.sent();
         let logs: Vec<LogRecord> = sent.iter().flat_map(records).collect();
         let with_room =
-            logs.iter().find(|r| attribute(r, "lk.room_sid").is_some()).expect("room record");
-        assert_eq!(attribute(with_room, "lk.room_sid"), Some(Value::StringValue("RM_a".into())));
+            logs.iter().find(|r| attribute(r, "lk.room_id").is_some()).expect("room record");
+        assert_eq!(attribute(with_room, "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert!(logs.iter().any(|r| r.body.as_ref().and_then(|b| b.value.clone())
             == Some(Value::StringValue("audio interruption began".into()))));
         let decoded =
@@ -2024,13 +2024,13 @@ pub(crate) mod tests {
             sent.iter().filter(|r| r.url.ends_with("logs")).flat_map(records).collect();
         assert_eq!(logs.len(), 4);
         assert_eq!(hex(&logs[0].trace_id), a.trace_id());
-        assert_eq!(attribute(&logs[0], "lk.room_sid"), Some(Value::StringValue("RM_a".into())));
+        assert_eq!(attribute(&logs[0], "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert_eq!(attribute(&logs[0], "session.id"), Some(Value::StringValue(a.trace_id())));
         assert_eq!(hex(&logs[1].trace_id), a.trace_id(), "resolved through the span");
         assert_eq!(hex(&logs[2].trace_id), b.trace_id());
-        assert_eq!(attribute(&logs[2], "lk.room_sid"), Some(Value::StringValue("RM_b".into())));
+        assert_eq!(attribute(&logs[2], "lk.room_id"), Some(Value::StringValue("RM_b".into())));
         assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
-        assert_eq!(attribute(&logs[3], "lk.room_sid"), None);
+        assert_eq!(attribute(&logs[3], "lk.room_id"), None);
         assert!(
             logs.iter()
                 .all(|r| attribute(r, "acme.tenant") == Some(Value::StringValue("t1".into()))),
@@ -2041,7 +2041,7 @@ pub(crate) mod tests {
             ExportTraceServiceRequest::decode(&gunzip(&traces_request.body)[..]).expect("otlp");
         let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
-        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room_sid"));
+        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room_id"));
 
         // A record that names a span which has already ended — and been exported — is still that
         // session's: the SDK's log path hops threads, the span does not wait for it.
@@ -2183,21 +2183,21 @@ pub(crate) mod tests {
     async fn session_attributes_are_attached_to_every_record() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        telemetry.set_attribute("lk.room_sid", Some("RM_1".into()));
+        telemetry.set_attribute("lk.room_id", Some("RM_1".into()));
         telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room_sid", "RM_override"));
+        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room_id", "RM_override"));
         telemetry.flush().await;
         let first = records(&transport.sent()[0]);
-        assert_eq!(attribute(&first[0], "lk.room_sid"), Some(Value::StringValue("RM_1".into())));
+        assert_eq!(attribute(&first[0], "lk.room_id"), Some(Value::StringValue("RM_1".into())));
         assert_eq!(
-            attribute(&first[1], "lk.room_sid"),
+            attribute(&first[1], "lk.room_id"),
             Some(Value::StringValue("RM_override".into())),
             "an explicit attribute wins"
         );
-        telemetry.set_attribute("lk.room_sid", None);
+        telemetry.set_attribute("lk.room_id", None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room_sid"), None);
+        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room_id"), None);
     }
 
     #[tokio::test(start_paused = true)]

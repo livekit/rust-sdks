@@ -92,7 +92,7 @@ impl TelemetryEvent {
     /// when it doubles as the body.
     ///
     /// Counts the attributes the record carries: once queued, that includes its session's
-    /// (`lk.room_sid`, `lk.participant_id`, …, `session.id`) and the app's correlation
+    /// (`lk.room_id`, `lk.participant_id`, …, `session.id`) and the app's correlation
     /// attributes, all taken at capture. Pipeline-wide attributes are added at export: the
     /// exporter's drains count them for every record (`Store::drain`, `Spans::drain`).
     pub fn size_hint(&self) -> usize {
@@ -233,7 +233,7 @@ impl From<LogRecord> for TelemetryEvent {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
-    /// The attribute's name (`lk.room.sid`, `acme.checkout.step`).
+    /// The attribute's name (`lk.room_id`, `acme.checkout.step`).
     pub key: String,
     /// Its value.
     pub value: AttributeValue,

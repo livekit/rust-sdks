@@ -414,7 +414,7 @@ mod tests {
     /// The attributes `Scope::set_room` gives a session in a call.
     fn in_room(session: &crate::scope::ScopeState) {
         for (key, value) in [
-            ("lk.room_sid", "RM_UpE3vYzFmJp8"),
+            ("lk.room_id", "RM_UpE3vYzFmJp8"),
             ("lk.pii.room_name", "standup-2026-10-08"),
             ("lk.participant_id", "PA_kQ2Fv8sWbE3n"),
             ("lk.pii.participant_identity", "user-4f1c2a"),
@@ -436,17 +436,16 @@ mod tests {
     fn records_keep_the_session_attributes_they_were_captured_with() {
         let session = crate::scope::ScopeState::new();
         in_room(&session);
-        let spoofed =
-            TelemetryEvent::new("lk.room.disconnected").with_attribute("lk.room_sid", "x");
+        let spoofed = TelemetryEvent::new("lk.room.disconnected").with_attribute("lk.room_id", "x");
         let queued = QueuedEvent::new(spoofed, session.clone());
         // The platform clears the room right after the disconnect, before the next export.
-        session.set_attribute("lk.room_sid", None);
-        let global = [Attribute::new("lk.room_sid", "global"), Attribute::new("acme.tenant", "t1")];
+        session.set_attribute("lk.room_id", None);
+        let global = [Attribute::new("lk.room_id", "global"), Attribute::new("acme.tenant", "t1")];
         let bytes = encode_logs(&[], &global, vec![queued]);
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
-        assert_eq!(values(&record.attributes, "lk.room_sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&record.attributes, "lk.room_id"), [text("RM_UpE3vYzFmJp8")]);
         assert_eq!(values(&record.attributes, "session.id"), [text(session.hex())]);
         assert_eq!(values(&record.attributes, "acme.tenant"), [text("t1")], "globals fill in");
     }
@@ -457,13 +456,13 @@ mod tests {
         in_room(&session);
         let mut spans = crate::span::Spans::new(1);
         let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
-        spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room_sid", "x")]);
-        session.set_attribute("lk.room_sid", None);
+        spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room_id", "x")]);
+        session.set_attribute("lk.room_id", None);
         let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX, 0));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
-        assert_eq!(values(&span.attributes, "lk.room_sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&span.attributes, "lk.room_id"), [text("RM_UpE3vYzFmJp8")]);
         assert_eq!(values(&span.attributes, "session.id"), [text(session.hex())]);
     }
 

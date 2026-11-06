@@ -327,7 +327,7 @@ pub struct DebugMessage {
 pub struct AgentSessionEvent {
     #[prost(message, optional, tag = "1")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(oneof = "agent_session_event::Event", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof = "agent_session_event::Event", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub event: ::core::option::Option<agent_session_event::Event>,
 }
 /// Nested message and enum types in `AgentSessionEvent`.
@@ -400,6 +400,27 @@ pub mod agent_session_event {
         pub transcript: ::prost::alloc::string::String,
         #[prost(message, optional, tag = "5")]
         pub delay: ::core::option::Option<::pbjson_types::Duration>,
+        #[prost(uint32, tag = "6")]
+        pub turn_id: u32,
+        /// The stage after this prediction. Never AMD_WAIT.
+        #[prost(enumeration = "super::AmdCategory", tag = "7")]
+        pub stage: i32,
+        /// Unset when the turn ran no inference.
+        #[prost(message, optional, tag = "8")]
+        pub inference_duration: ::core::option::Option<::pbjson_types::Duration>,
+    }
+    /// Once per AMD run.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AmdCompleted {
+        #[prost(enumeration = "super::AmdCategory", tag = "1")]
+        pub category: i32,
+        #[prost(string, tag = "2")]
+        pub reason: ::prost::alloc::string::String,
+        #[prost(bool, tag = "3")]
+        pub voicemail_message_played: bool,
+        /// Unset when the run ended before any prediction.
+        #[prost(message, optional, tag = "4")]
+        pub prediction: ::core::option::Option<AmdPrediction>,
     }
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct EotPrediction {
@@ -481,6 +502,16 @@ pub mod agent_session_event {
             Ended(Ended),
         }
     }
+    /// The agent session closed: the call is over even if the agent is still in the room.
+    /// No further session events follow, and session requests are no longer answered;
+    /// finalize_simulation may still be.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct SessionClosed {
+        #[prost(enumeration = "super::CloseReason", tag = "1")]
+        pub reason: i32,
+        #[prost(string, optional, tag = "2")]
+        pub error: ::core::option::Option<::prost::alloc::string::String>,
+    }
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct AgentFalseInterruption {
         /// Agent paused its own speech for what turned out not to be a real interruption (a backchannel, brief noise, etc.).
@@ -517,6 +548,10 @@ pub mod agent_session_event {
         ToolExecutionUpdated(ToolExecutionUpdated),
         #[prost(message, tag = "23")]
         AgentFalseInterruption(AgentFalseInterruption),
+        #[prost(message, tag = "24")]
+        AmdCompleted(AmdCompleted),
+        #[prost(message, tag = "25")]
+        SessionClosed(SessionClosed),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -935,6 +970,47 @@ impl ToolReplyStatus {
         }
     }
 }
+/// Why an agent session closed. Agent evals read it from the recording upload's session
+/// summary (MetricsRecordingHeader.session_summary), as the value name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CloseReason {
+    /// not reported, or an SDK-specific reason
+    CrUnknown = 0,
+    CrError = 1,
+    CrJobShutdown = 2,
+    CrParticipantDisconnected = 3,
+    CrUserInitiated = 4,
+    CrCompleted = 5,
+}
+impl CloseReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::CrUnknown => "CR_UNKNOWN",
+            Self::CrError => "CR_ERROR",
+            Self::CrJobShutdown => "CR_JOB_SHUTDOWN",
+            Self::CrParticipantDisconnected => "CR_PARTICIPANT_DISCONNECTED",
+            Self::CrUserInitiated => "CR_USER_INITIATED",
+            Self::CrCompleted => "CR_COMPLETED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CR_UNKNOWN" => Some(Self::CrUnknown),
+            "CR_ERROR" => Some(Self::CrError),
+            "CR_JOB_SHUTDOWN" => Some(Self::CrJobShutdown),
+            "CR_PARTICIPANT_DISCONNECTED" => Some(Self::CrParticipantDisconnected),
+            "CR_USER_INITIATED" => Some(Self::CrUserInitiated),
+            "CR_COMPLETED" => Some(Self::CrCompleted),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum AmdCategory {
@@ -944,6 +1020,9 @@ pub enum AmdCategory {
     AmdMachineVm = 3,
     AmdMachineUnavailable = 4,
     AmdUncertain = 5,
+    AmdMachineScreening = 6,
+    /// A prediction only: the turn's reply is held, and the stage does not change.
+    AmdWait = 7,
 }
 impl AmdCategory {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -958,6 +1037,8 @@ impl AmdCategory {
             Self::AmdMachineVm => "AMD_MACHINE_VM",
             Self::AmdMachineUnavailable => "AMD_MACHINE_UNAVAILABLE",
             Self::AmdUncertain => "AMD_UNCERTAIN",
+            Self::AmdMachineScreening => "AMD_MACHINE_SCREENING",
+            Self::AmdWait => "AMD_WAIT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -969,6 +1050,8 @@ impl AmdCategory {
             "AMD_MACHINE_VM" => Some(Self::AmdMachineVm),
             "AMD_MACHINE_UNAVAILABLE" => Some(Self::AmdMachineUnavailable),
             "AMD_UNCERTAIN" => Some(Self::AmdUncertain),
+            "AMD_MACHINE_SCREENING" => Some(Self::AmdMachineScreening),
+            "AMD_WAIT" => Some(Self::AmdWait),
             _ => None,
         }
     }
@@ -1409,6 +1492,13 @@ pub struct SessionClose {
 pub struct InferenceStart {
     #[prost(string, tag = "1")]
     pub request_id: ::prost::alloc::string::String,
+    /// Length of the current user turn, in samples at the session sample rate.
+    /// Count from the start of the user turn, or from the last session_flush when
+    /// the start is unknown, through the last input_audio sent before this
+    /// message. The end-of-turn model reads it as the turn duration, which can be
+    /// longer than the audio window it scores. 0 means unknown.
+    #[prost(uint32, tag = "2")]
+    pub turn_samples: u32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct InferenceStop {

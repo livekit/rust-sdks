@@ -12,7 +12,7 @@ carry the `lk.` prefix, everything else follows
 
 Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamped when it is
 captured (queued), never at export; an explicit `timestamp_ns` is kept. Its attributes, like its
-owner and timestamp, are taken at capture, its session's (`lk.room_sid`, `lk.participant_id`, …,
+owner and timestamp, are taken at capture, its session's (`lk.room_id`, `lk.participant_id`, …,
 `session.id`) included, so a record captured before a disconnect keeps its room; only
 pipeline-wide attributes are added at export. A record ships each key once: of a key it repeats,
 the last value supplied wins, and its session's keys replace its own. Attribute keys the SDK
@@ -36,7 +36,7 @@ Set once per pipeline (`TelemetryConfig.resource`):
 
 One pipeline per process — started at SDK init, so audio pre-initialization, permission failures
 and connect attempts that never reach a server are captured — and one **scope** per room (one
-call). A scope is a trace id plus the attributes attached to its records (`lk.room_sid`,
+call). A scope is a trace id plus the attributes attached to its records (`lk.room_id`,
 `lk.pii.participant_identity`, …); spans, RTC windows and events are filed under the scope that
 produced them, and `session.id` (OTel semconv) is written on every record as an attribute. A log
 record emitted inside a room's span is filed under that room's scope; anything emitted outside
@@ -246,7 +246,7 @@ cadence: one per track and direction per stats window (default 60 s, stretched b
          (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
          track keep two windows.
 attributes:
-  lk.track_sid: string
+  lk.track_id: string
   lk.track.kind: enum(audio | video)
   lk.track.direction: enum(inbound | outbound)
   lk.rtc.codec: string                      # mimeType, when known
@@ -549,7 +549,7 @@ parent: the ambient span, when any; a pre-connect publish (a microphone publishe
 attributes:
   lk.track.kind: enum(audio | video)
   lk.track_source: enum(SOURCE_CAMERA | SOURCE_MICROPHONE | SOURCE_SCREENSHARE | SOURCE_SCREENSHARE_AUDIO | SOURCE_UNKNOWN)   # the RTC FFI TrackSource names, as Agents sends them
-  lk.track_sid: string            # on success
+  lk.track_id: string            # on success
 outcome: ok | error (error.type) | cancelled
 ```
 
@@ -568,7 +568,7 @@ ends:   at first media (the first inbound stats reading with bytes; the core see
 owner:  the core (`Scope::subscribe_started / subscribed / track_ended / subscribe_failed`);
         an SDK only reports the remote track's lifecycle
 attributes:
-  lk.track_sid: string
+  lk.track_id: string
   lk.track.kind: enum(audio | video)
   lk.track_source: enum(SOURCE_CAMERA | SOURCE_MICROPHONE | SOURCE_SCREENSHARE | SOURCE_SCREENSHARE_AUDIO | SOURCE_UNKNOWN)
   lk.pii.remote_participant_identity: string
@@ -588,10 +588,10 @@ the policy. `Attribute { key, value }` survives only as the open bag: `emit_cust
 | `telemetry_disable()` | the opt-out, in effect when it returns: capture stops; everything unsent is then deleted |
 | `TelemetryConfig.sdk: TelemetryResource { sdk: Sdk, sdk_version, os_name, os_version, device_model }` | `service.name = livekit-client-<sdk>`, `service.version`, `os.*`, `device.model.identifier`, plus `telemetry.sdk.*` |
 | `log(LogRecord { severity, source: LogSource, body, logger, function, file, line, timestamp_ns, span_id })` | a record with `code.function.name`, `code.file.path`, `code.line.number`, `lk.log.source`, `lk.log.logger`; the per-source floor (WebRTC at `error`, own module never) |
-| `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room_sid`, `lk.pii.room_name`, `lk.participant_id`, `lk.pii.participant_identity` on every record the scope captures from then on |
+| `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room_id`, `lk.pii.room_name`, `lk.participant_id`, `lk.pii.participant_identity` on every record the scope captures from then on |
 | `Scope::start(SpanName, parent) -> Span`; `Span::detached(name)` | an OTLP span (`lk.connect` / `lk.reconnect` are `client`, the rest `internal`); `Reconnect { reason }` sets `lk.reconnect.reason` |
 | `Span::step(SpanStep)` | a span event named `ws_open` … `room_connected`, `subscribed`, `first_media`, `attempt N quick|full` (which also sets `lk.reconnect.attempts` / `.mode`) |
-| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track_sid`, `lk.track.kind`, `lk.track_source`, `lk.pii.remote_participant_identity` |
+| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track_id`, `lk.track.kind`, `lk.track_source`, `lk.pii.remote_participant_identity` |
 | `Span::end(outcome, error)` / `fail(error)` / `cancel()` | status, `lk.outcome`, and `error.type` when it failed; ending twice is a no-op |
 | `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
 | `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |

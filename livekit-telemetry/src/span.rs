@@ -286,7 +286,7 @@ impl Spans {
     /// Its attributes are taken now, like a log record's when it is queued: `attributes`, then
     /// the app's correlation attributes, cut to [`MAX_ATTRIBUTES_PER_SPAN`] — the app's go first,
     /// then the tail of `attributes` — counted in [`SpanRecord::dropped_attributes`] and warned
-    /// about once per drain. The session's own (`lk.room_sid`, `session.id`, …) and the outcome are
+    /// about once per drain. The session's own (`lk.room_id`, `session.id`, …) and the outcome are
     /// added past the cap and always ship.
     pub fn end(
         &mut self,
@@ -512,7 +512,7 @@ mod tests {
         crate::test_log::capture();
         let mut spans = Spans::new(8);
         let session = ScopeState::new();
-        session.set_attribute("lk.room_sid", Some("RM_1".into()));
+        session.set_attribute("lk.room_id", Some("RM_1".into()));
         assert!(session.set_custom("app.call_id", Some("c1".into())));
         let overflow = |spans: &mut Spans| {
             let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
@@ -529,7 +529,7 @@ mod tests {
             assert_eq!(span.dropped_attributes_count, 1, "the app's call id");
             let keys: Vec<_> = span.attributes.iter().map(|kv| kv.key.as_str()).collect();
             assert!(!keys.contains(&"app.call_id"), "the app's own go first");
-            for key in ["lk.publish.k127", "lk.room_sid", "session.id", "lk.outcome"] {
+            for key in ["lk.publish.k127", "lk.room_id", "session.id", "lk.outcome"] {
                 assert!(keys.contains(&key), "{key} survives the cap");
             }
         }
