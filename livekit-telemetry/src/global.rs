@@ -174,6 +174,9 @@ fn uninstall() -> Option<Telemetry> {
 /// could not be deleted. Spawn it; dropping it leaves the data in place until a later configure
 /// purges it. Every call revokes, purges and awaits each generation still alive, so a repeated
 /// call resolves only once the cache is deleted, even while an earlier one is still running.
+/// All exporters are cancelled before waiting; their aggregate wait is at most the largest
+/// `export_timeout_ms` (1 s minimum) plus 1 s. Synchronous cache and filesystem work adds time
+/// outside that wait bound.
 pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
     let (live, stored) = {
         let _lifecycle = lifecycle();
@@ -201,9 +204,22 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
     };
     async move {
         let mut complete = true;
+        let wait = live
+            .iter()
+            .map(|shared| shared.config.export_timeout() + crate::telemetry::SHUTDOWN_GRACE)
+            .max()
+            .unwrap_or_default();
+        for shared in &live {
+            shared.cancel.notify_one();
+        }
+        let deadline = tokio::time::Instant::now() + wait;
+        for shared in &live {
+            shared.clear();
+        }
         for shared in live {
-            // Cancels the exporter, running or draining, and waits until it stopped.
-            complete &= shared.purge().await;
+            let mut alive = shared.exporter_alive.clone();
+            let _ = tokio::time::timeout_at(deadline, alive.changed()).await;
+            complete &= shared.clear();
         }
         for dir in stored {
             let erased = erase(&dir);
@@ -305,7 +321,49 @@ pub async fn shutdown() {
 mod tests {
     use super::*;
     use crate::telemetry::tests::{test_config, FakeTransport};
-    use std::fs;
+    use std::{fs, future::Future};
+
+    #[tokio::test(start_paused = true)]
+    async fn exporter_waits_share_one_timeout_budget() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let mut exporters = Vec::new();
+        let mut shared = Vec::new();
+        for _ in 0..3 {
+            let config = crate::TelemetryConfig { export_timeout_ms: 1000, ..test_config() };
+            let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+            shared.push(telemetry.shared.clone());
+            exporters.push(exporter); // Held, deliberately never spawned.
+            drop(install(telemetry, Vec::new()));
+        }
+        let purge = disable();
+        let started = tokio::time::Instant::now();
+        // Poll once: every exporter must already have received its cancellation signal.
+        tokio::pin!(purge);
+        std::future::poll_fn(|cx| {
+            assert!(purge.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        let all_cancelled = shared.iter().all(|s| {
+            let notified = s.cancel.notified();
+            tokio::pin!(notified);
+            std::future::Future::poll(
+                notified.as_mut(),
+                &mut std::task::Context::from_waker(std::task::Waker::noop()),
+            )
+            .is_ready()
+        });
+        assert!(purge.await);
+        let elapsed = started.elapsed();
+        drop(exporters);
+        reset_for_test();
+        assert!(
+            all_cancelled,
+            "later generations were not cancelled before waiting; elapsed {elapsed:?}"
+        );
+        assert!(elapsed <= std::time::Duration::from_secs(2), "waits accumulated: {elapsed:?}");
+    }
 
     #[tokio::test]
     async fn retired_generations_do_not_accumulate_for_one_directory() {
