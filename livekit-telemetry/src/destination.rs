@@ -21,7 +21,7 @@
 //! to, so two rooms talking to two projects never share a token or a destination.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -222,20 +222,18 @@ impl Refusals {
         self.0.contains_key(&token.id)
     }
 
-    /// Returns whether the refusal is new. `held` names the tokens some slot still holds.
-    fn add(&mut self, token: &Token, held: &HashSet<u64>) -> bool {
-        self.prune(held);
+    /// Returns whether the refusal is new.
+    fn add(&mut self, token: &Token) -> bool {
+        self.prune();
         self.0.insert(token.id, token.expires).is_none()
     }
 
-    /// Forget a refusal once nothing can send its token: no slot holds it (`held`) and its
-    /// monotonic deadline passed. The deadline here was read from the raw token when the
-    /// refusal came in, against whatever the wall clock said then, so it decides nothing while
-    /// a slot — whose own deadline was read at the handover — still holds the token.
-    fn prune(&mut self, held: &HashSet<u64>) {
+    /// Forget a refusal once its token's validity passed on the monotonic clock: nothing can
+    /// send it any more. The wall clock decides nothing here, because a correction must not
+    /// forget a refusal that a later correction would make sendable again.
+    fn prune(&mut self) {
         let now = Instant::now();
-        self.0
-            .retain(|id, expires| held.contains(id) || expires.is_none_or(|at| now < at.monotonic));
+        self.0.retain(|_, expires| expires.is_none_or(|at| now < at.monotonic));
     }
 }
 
@@ -436,8 +434,7 @@ impl Destinations {
         if let Some(established) = self.established_expiry(&token) {
             token.expires = established;
         }
-        let held = self.held_token_ids();
-        if self.refused.add(&token, &held) {
+        if self.refused.add(&token) {
             log::warn!("the collector refused a token; waiting for a new one");
         }
     }
@@ -493,9 +490,7 @@ impl Destinations {
             }
             needed || project.dead.is_some()
         });
-        // After the slots: a refusal lives as long as any slot still holds its token.
-        let held = self.held_token_ids();
-        self.refused.prune(&held);
+        self.refused.prune();
     }
 
     /// The longest validity any slot established for `token` at a handover: `Some(None)` when a
@@ -518,15 +513,6 @@ impl Destinations {
             });
         }
         best
-    }
-
-    /// The identities of the tokens some session or project slot still holds.
-    fn held_token_ids(&self) -> HashSet<u64> {
-        self.sessions
-            .values()
-            .map(|t| t.id)
-            .chain(self.projects.values().filter_map(|p| p.latest.as_ref().map(|t| t.id)))
-            .collect()
     }
 
     /// How many credentials are held, Room and project copies together.
