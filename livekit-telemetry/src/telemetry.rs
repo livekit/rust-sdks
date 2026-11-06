@@ -1087,6 +1087,7 @@ pub(crate) mod tests {
             }
         }
         crate::global::log(line("hmm"));
+        crate::global::log_with(|| panic!("a record built while no pipeline is installed"));
         assert!(crate::global::scope().is_none());
         assert_eq!(crate::global::diagnostics(), "off");
         struct Counting(std::sync::atomic::AtomicU32, std::sync::atomic::AtomicU32);
@@ -1106,7 +1107,7 @@ pub(crate) mod tests {
         let freed = Arc::downgrade(&telemetry.shared);
         assert!(crate::global::install(telemetry, vec![instrument.clone()]).is_none());
         assert_eq!(instrument.0.load(std::sync::atomic::Ordering::SeqCst), 1, "started on install");
-        crate::global::log(line("hmm"));
+        crate::global::log_with(|| Some(line("hmm")));
         crate::global::flush().await;
         assert_eq!(records(&transport.sent()[0]).len(), 2, "the instrument's own line and ours");
         assert!(crate::global::diagnostics().starts_with("ok, sent 1"));
