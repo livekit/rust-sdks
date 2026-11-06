@@ -84,8 +84,8 @@ pub(crate) struct Token {
     raw: String,
     /// `observability.write` or `observability.clientWrite`.
     grant: bool,
-    /// From `exp`, on the monotonic clock (so tests can move it).
-    expires: Option<Instant>,
+    /// From `exp`, on both clocks (see [`Expiry`]).
+    expires: Option<Expiry>,
     /// The credential's identity (a hash of the raw token): what a refusal is recorded against.
     id: u64,
 }
@@ -115,15 +115,15 @@ impl From<&str> for Token {
         // any real token lifetime is clamped (an `Instant` that far out would overflow). Only a
         // token without `exp` has no known expiry.
         let expires = claims.as_ref().and_then(|c| c.get("exp")).map(|exp| {
-            let now =
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64();
-            let left = match exp.as_f64() {
-                Some(exp) if exp.is_finite() && exp > now => {
-                    Duration::from_secs_f64((exp - now).min(MAX_TOKEN_LIFETIME.as_secs_f64()))
-                }
-                _ => Duration::ZERO,
+            let now = unix_now_secs();
+            let wall_secs = exp.as_f64().filter(|exp| exp.is_finite()).unwrap_or(0.0);
+            let left = if wall_secs > now {
+                Duration::from_secs_f64((wall_secs - now).min(MAX_TOKEN_LIFETIME.as_secs_f64()))
+            } else {
+                Duration::ZERO
             };
-            Instant::now().checked_add(left).unwrap_or_else(Instant::now)
+            let monotonic = Instant::now().checked_add(left).unwrap_or_else(Instant::now);
+            Expiry { monotonic, wall_secs }
         });
         let id = {
             use std::hash::{Hash, Hasher};
@@ -135,9 +135,30 @@ impl From<&str> for Token {
     }
 }
 
+/// When a token stops being usable, on both clocks. The monotonic one lets tests move time and
+/// keeps a backward wall-clock jump from extending a token's life; the wall clock catches what
+/// the monotonic one misses while the device sleeps (it stops on Android and Apple platforms),
+/// so a token whose `exp` passed during a long sleep is not sent on resume. Either says expired.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Expiry {
+    monotonic: Instant,
+    /// `exp` as unix seconds; `0` for an `exp` that is not a finite number.
+    wall_secs: f64,
+}
+
+impl Expiry {
+    fn passed(&self) -> bool {
+        Instant::now() >= self.monotonic || unix_now_secs() >= self.wall_secs
+    }
+}
+
+fn unix_now_secs() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64()
+}
+
 impl Token {
     fn expired(&self) -> bool {
-        self.expires.is_some_and(|at| Instant::now() >= at)
+        self.expires.is_some_and(|at| at.passed())
     }
 
     /// May be sent: carries the grant, not expired, not refused.
@@ -191,7 +212,7 @@ fn offer(slot: &mut Option<Token>, new: &Token, refused: &Refusals) {
 // ponytail: grows with refusals of tokens without `exp` (LiveKit tokens always carry one); a cap
 // if a server ever mints tokens without expiry.
 #[derive(Debug, Default)]
-struct Refusals(HashMap<u64, Option<Instant>>);
+struct Refusals(HashMap<u64, Option<Expiry>>);
 
 impl Refusals {
     fn contains(&self, token: &Token) -> bool {
@@ -206,8 +227,7 @@ impl Refusals {
 
     /// Forget refusals whose token has expired: it cannot be sent anyway.
     fn prune(&mut self) {
-        let now = Instant::now();
-        self.0.retain(|_, expires| expires.is_none_or(|at| at > now));
+        self.0.retain(|_, expires| expires.is_none_or(|at| !at.passed()));
     }
 }
 
@@ -1002,6 +1022,23 @@ pub(crate) mod tests {
         assert!(matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "fractional future");
         let host = d.set("wss://p.livekit.cloud", &token(serde_json::json!(1e300)), "s");
         assert!(matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "extreme: clamped");
+    }
+
+    /// The wall clock is checked too: the monotonic clock stops while the device sleeps, so a
+    /// token whose `exp` passed during a long sleep is expired on resume.
+    #[test]
+    fn expiry_is_checked_on_the_wall_clock_too() {
+        let mut token = Token::from(granted(600).as_str());
+        assert!(!token.expired());
+        token.expires.as_mut().expect("exp").wall_secs = unix_now_secs() - 1.0;
+        assert!(token.expired(), "monotonic deadline ahead, wall-clock expiry passed");
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &token.raw, "s");
+        d.sessions
+            .values_mut()
+            .chain(d.projects.values_mut().filter_map(|p| p.latest.as_mut()))
+            .for_each(|t| t.expires.as_mut().expect("exp").wall_secs = unix_now_secs() - 1.0);
+        assert_eq!(d.route(Some("p.livekit.cloud"), Some("s")), Route::Wait, "a hard hold");
     }
 
     #[test]
