@@ -428,12 +428,14 @@ impl FileCache {
     }
 
     /// Delete the oldest batches until the rest fit `max_bytes` and the file-count bound (a
-    /// committed split is published by the listing first). The newest batch always stays, as in
-    /// [`MemoryCache`], so it gets its upload attempt. Returns the ids actually removed. An id
-    /// counts once its file is gone, even when the directory sync after the unlink failed: the
-    /// count follows the visible removal and does not promise a delete that survives a crash. A
-    /// power loss can bring the file back, and the next open evicts it again or keeps it for
-    /// upload, like any other batch.
+    /// committed split is published by the listing first). The newest batch is never a
+    /// candidate, whatever happened to the older ones, as in [`MemoryCache`], so it gets its
+    /// upload attempt. Returns the ids this pass removed. An id counts once this pass unlinked
+    /// its file, even when the directory sync after the unlink failed: the count follows the
+    /// visible removal and does not promise a delete that survives a crash. A power loss can
+    /// bring the file back, and the next open evicts it again or keeps it for upload, like any
+    /// other batch. A file that was already gone (another cache on the directory, or an
+    /// overlapping pass, evicted it) frees its room but is that pass's eviction, not this one's.
     fn prune(&self) -> io::Result<Vec<String>> {
         let mut removed = Vec::new();
         let kept = self.ids()?;
@@ -443,20 +445,43 @@ impl FileCache {
             .collect();
         let mut total: u64 = sizes.iter().sum();
         let mut count = kept.len();
-        for (id, len) in kept.iter().zip(sizes) {
-            if (total <= self.max_bytes && count <= self.max_batches) || count == 1 {
+        for (id, len) in kept.iter().zip(sizes).take(kept.len().saturating_sub(1)) {
+            if total <= self.max_bytes && count <= self.max_batches {
                 break;
             }
-            // A batch that could not be deleted still takes its room: keep evicting, report only
-            // what really went. A delete whose directory sync failed still went.
-            if self.remove(id).is_ok() || matches!(self.path(id, BATCH_EXT).try_exists(), Ok(false))
-            {
+            let (went, mine) = match self.unlink(id) {
+                Ok(unlinked) => (true, unlinked),
+                // Unlinked but the directory sync failed: the file is gone, so it went. A
+                // batch that could not be deleted still takes its room: keep evicting.
+                Err(_) => (matches!(self.path(id, BATCH_EXT).try_exists(), Ok(false)), true),
+            };
+            if went {
                 total -= len;
                 count -= 1;
-                removed.push(id.clone());
+                if mine {
+                    removed.push(id.clone());
+                }
             }
         }
         Ok(removed)
+    }
+
+    /// Delete `id`'s file: `Ok(true)` when this call unlinked it, `Ok(false)` when it was
+    /// already gone (an earlier unlink whose directory sync failed, or another cache on the
+    /// directory), an error when it could not be deleted or the directory sync after it
+    /// failed. A gone directory (the OS purged it) has nothing left to sync.
+    fn unlink(&self, id: &str) -> io::Result<bool> {
+        let path = self.path(id, BATCH_EXT);
+        self.step(Step::Delete, &path)?;
+        let unlinked = match fs::remove_file(&path) {
+            Ok(()) => true,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => false,
+            Err(err) => return Err(err),
+        };
+        match self.sync_dir() {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(unlinked),
+            other => other.map(|()| unlinked),
+        }
     }
 
     /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
@@ -565,17 +590,7 @@ impl BatchCache for FileCache {
     }
 
     fn remove(&self, id: &str) -> io::Result<()> {
-        let path = self.path(id, BATCH_EXT);
-        self.step(Step::Delete, &path)?;
-        match fs::remove_file(&path) {
-            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
-            // A gone file is synced too (an earlier unlink's sync may have failed), but a gone
-            // directory (the OS purged it) has nothing left to sync.
-            _ => match self.sync_dir() {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-                other => other,
-            },
-        }
+        self.unlink(id).map(|_| ())
     }
 
     fn clear(&self) -> io::Result<()> {
