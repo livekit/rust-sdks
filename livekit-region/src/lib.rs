@@ -53,6 +53,27 @@ pub fn is_cloud_host(host: &str) -> bool {
     host.ends_with(".livekit.cloud") || host.ends_with(".livekit.run")
 }
 
+/// Reports whether `url` is a region URL the SDK may fall back to.
+///
+/// The region list arrives over the network, and both consumers authenticate
+/// their requests to the URLs it names — the participant JWT for signalling, the
+/// API-key-signed admin JWT for the API. Each entry is therefore validated on
+/// its own merits, rather than inherited as trusted because the *configured*
+/// host happened to be a cloud host.
+///
+/// An entry is accepted only when it
+/// - parses as a URL with a host, and
+/// - names a LiveKit Cloud host (see [`is_cloud_host`]), and
+/// - uses an encrypted scheme (`wss`/`https`), so credentials are not sent over
+///   cleartext `ws`/`http`.
+pub fn is_trusted_region_url(url: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else { return false };
+    if !matches!(parsed.scheme(), "wss" | "https") {
+        return false;
+    }
+    parsed.host_str().map(is_cloud_host).unwrap_or(false)
+}
+
 /// Parses the `max-age` directive (in seconds) out of a `Cache-Control` header
 /// value, e.g. `"public, max-age=300"` -> `Some(300s)`. Returns `None` when the
 /// directive is absent or unparseable. Directive names are case-insensitive.
@@ -262,5 +283,37 @@ mod tests {
         // clear drops everything.
         cache.clear();
         assert!(matches!(cache.get(b), Cached::Miss), "clear removes all entries");
+    }
+
+    #[test]
+    fn trusted_region_url_accepts_encrypted_cloud_urls() {
+        assert!(is_trusted_region_url("wss://eu.livekit.cloud"));
+        assert!(is_trusted_region_url("https://eu.livekit.cloud"));
+        assert!(is_trusted_region_url("wss://eu.livekit.cloud:443/rtc"));
+        assert!(is_trusted_region_url("wss://staging.livekit.run"));
+    }
+
+    #[test]
+    fn trusted_region_url_rejects_cleartext_schemes() {
+        // The transport carrying the credentials must stay encrypted.
+        assert!(!is_trusted_region_url("ws://eu.livekit.cloud"));
+        assert!(!is_trusted_region_url("http://eu.livekit.cloud"));
+    }
+
+    #[test]
+    fn trusted_region_url_rejects_foreign_hosts() {
+        assert!(!is_trusted_region_url("https://other.example.com"));
+        assert!(!is_trusted_region_url("wss://other.example.com/rtc"));
+        // Near-misses around the cloud domains must not match on suffix alone.
+        assert!(!is_trusted_region_url("https://not-livekit.cloud"));
+        assert!(!is_trusted_region_url("https://livekit.cloud.example.com"));
+    }
+
+    #[test]
+    fn trusted_region_url_rejects_malformed_and_hostless_urls() {
+        assert!(!is_trusted_region_url(""));
+        assert!(!is_trusted_region_url("not a url"));
+        assert!(!is_trusted_region_url("eu.livekit.cloud"));
+        assert!(!is_trusted_region_url("file:///etc/passwd"));
     }
 }

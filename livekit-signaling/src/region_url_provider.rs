@@ -22,7 +22,9 @@ use std::{
 use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
-use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{
+    is_cloud_host, is_trusted_region_url, parse_max_age, Cached, RegionCache, RegionsResponse,
+};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
@@ -195,7 +197,23 @@ pub(crate) async fn fetch_from_endpoint(
 
         let parsed: RegionsResponse = serde_json::from_slice(&res.body)
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-        Ok((parsed.regions.into_iter().map(|i| i.url).collect(), max_age))
+
+        // The discovery response is network input, and every URL kept here is
+        // later connected to with the participant token. Keep only encrypted
+        // LiveKit Cloud URLs; see [`is_trusted_region_url`].
+        let urls = parsed
+            .regions
+            .into_iter()
+            .map(|i| i.url)
+            .filter(|url| {
+                let trusted = is_trusted_region_url(url);
+                if !trusted {
+                    log::warn!("ignoring untrusted region url from discovery response: {url}");
+                }
+                trusted
+            })
+            .collect();
+        Ok((urls, max_age))
     };
 
     tokio::time::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
