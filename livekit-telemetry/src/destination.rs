@@ -761,6 +761,24 @@ pub(crate) mod tests {
         assert!(d.refused.0.is_empty(), "{} expired refusals kept", d.refused.0.len());
     }
 
+    /// A refusal outlives a wall-clock correction: a forward jump that prunes it, followed by a
+    /// backward jump that makes the token's own expiry pass again, must not let the refused
+    /// credential go out once more. Pruning therefore follows the monotonic deadline only.
+    #[test]
+    fn a_refusal_survives_a_wall_clock_jump() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        d.refuse(&token);
+        for expiry in d.refused.0.values_mut().flatten() {
+            expiry.wall_secs = unix_now_secs() - 1.0;
+        }
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(
+            d.refused.contains(&Token::from(token.as_str())),
+            "refused until the monotonic deadline passes"
+        );
+    }
+
     #[test]
     fn rooms_never_borrow_each_others_tokens() {
         let mut d = Destinations::default();
