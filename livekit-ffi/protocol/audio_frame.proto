@@ -448,13 +448,13 @@ message GetAudioDevicesResponse {
 
 // Set the recording device (microphone).
 //
-// Selects which microphone to use, before or after creating audio tracks.
+// Call this before or after creating audio tracks to select which microphone to use.
 // Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
 //
 // # Platform Notes
 //
-// - Desktop: Selects from enumerated devices. While recording is active, the device is
-//   switched in place (recording stops, the device changes, recording starts again).
+// - Desktop: Works as expected - selects from enumerated devices. If recording is active,
+//   the device is switched in place (stop, change device, restart).
 // - Mobile (iOS/Android): No-op. Mobile platforms handle microphone selection at the
 //   system level. This will succeed but has no effect. Skip calling on mobile.
 message SetRecordingDeviceRequest {
@@ -472,13 +472,13 @@ message SetRecordingDeviceResponse {
 
 // Set the playout device (speaker/headphones).
 //
-// Selects which speaker to use for audio output, before or after connecting.
+// Call this before or after connecting to select which speaker to use for audio output.
 // Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
 //
 // # Platform Notes
 //
-// - Desktop: Selects from enumerated devices. While playout is active, the device is
-//   switched in place (playout stops, the device changes, playout starts again).
+// - Desktop: Works as expected - selects from enumerated devices. If playout is active,
+//   the device is switched in place (stop, change device, restart).
 // - Mobile (iOS/Android): No-op. Mobile platforms handle audio routing at the system level.
 //   This will succeed but has no effect. For audio routing on mobile:
 //   - iOS: Use AVAudioSession to control speaker/earpiece/Bluetooth routing

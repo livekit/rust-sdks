@@ -111,8 +111,8 @@ pub fn on_set_recording_device(
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
     let device_id = RecordingDeviceId::from_unchecked_guid(&req.device_id);
-    // On desktop, switch in place so this also works while recording is active. Mobile platforms
-    // select the device themselves, so keep the no-op there instead of restarting audio.
+    // Desktop switches in place, which also works while recording is active. Mobile keeps the
+    // no-op of set_recording_device rather than restarting recording.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let result = ffi_audio.audio.switch_recording_device(&device_id);
     #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -130,8 +130,8 @@ pub fn on_set_playout_device(
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
     let device_id = PlayoutDeviceId::from_unchecked_guid(&req.device_id);
-    // On desktop, switch in place so this also works while playout is active. Mobile platforms
-    // route audio themselves, so keep the no-op there instead of restarting audio.
+    // Desktop switches in place, which also works while playout is active. Mobile keeps the
+    // no-op of set_playout_device rather than restarting playout.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let result = ffi_audio.audio.switch_playout_device(&device_id);
     #[cfg(any(target_os = "ios", target_os = "android"))]

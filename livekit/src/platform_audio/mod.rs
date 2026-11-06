@@ -904,6 +904,12 @@ impl PlatformAudio {
         };
 
         if !success {
+            // Resume on the previous device so a failed switch doesn't leave recording stopped
+            if was_initialized && !(runtime.init_recording() && runtime.start_recording()) {
+                log::warn!(
+                    "PlatformAudio: failed to resume recording after a failed device switch"
+                );
+            }
             return Err(AudioError::DeviceNotFound);
         }
 
@@ -974,6 +980,9 @@ impl PlatformAudio {
     ///
     /// [`set_playout_device`]: Self::set_playout_device
     pub fn switch_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
+
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.playout_is_initialized();
 
@@ -995,6 +1004,10 @@ impl PlatformAudio {
         };
 
         if !success {
+            // Resume on the previous device so a failed switch doesn't leave playout stopped
+            if was_initialized && !(runtime.init_playout() && runtime.start_playout()) {
+                log::warn!("PlatformAudio: failed to resume playout after a failed device switch");
+            }
             return Err(AudioError::DeviceNotFound);
         }
 
