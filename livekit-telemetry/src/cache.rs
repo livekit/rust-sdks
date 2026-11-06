@@ -810,13 +810,14 @@ fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
 fn create_dir_synced(dir: &Path) -> io::Result<()> {
     match fs::create_dir(dir) {
         Ok(()) => {
+            // A bare relative name (`Path::parent` is the empty path) lives in the current
+            // directory: that is the parent to sync.
+            let parent =
+                dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
             #[cfg(unix)]
-            if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-                fs::File::open(parent)?.sync_all()?;
-                #[cfg(test)]
-                tests::SYNCED_PARENT
-                    .with(|synced| *synced.borrow_mut() = Some(parent.to_path_buf()));
-            }
+            fs::File::open(parent)?.sync_all()?;
+            #[cfg(test)]
+            tests::SYNCED_PARENT.with(|synced| *synced.borrow_mut() = Some(parent.to_path_buf()));
             Ok(())
         }
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(()),
