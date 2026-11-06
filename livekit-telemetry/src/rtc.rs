@@ -547,14 +547,15 @@ impl Window {
         if let (Some(bytes), Some(ms)) =
             (delta(self.last.bytes, self.first.bytes), interval_ms.filter(|ms| *ms > 0))
         {
-            parts.push(format!("{} kbps", bytes * 8 / ms));
+            parts.push(format!("{} kbps", u128::from(bytes) * 8 / u128::from(ms)));
         }
         if let (Some(lost), Some(packets)) = (
             delta(self.last.packets_lost, self.first.packets_lost),
             delta(self.last.packets, self.first.packets),
         ) {
-            if lost + packets > 0 {
-                parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / (lost + packets) as f64));
+            let total = u128::from(lost) + u128::from(packets);
+            if total > 0 {
+                parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / total as f64));
             }
         }
         if let Some(rtt) = self.rtt.avg() {
@@ -635,7 +636,7 @@ impl Window {
         ];
         for (key, value) in counters {
             if let Some(value) = value {
-                event = event.with_attribute(key, value as i64);
+                event = event.with_attribute(key, i64::try_from(value).unwrap_or(i64::MAX));
             }
         }
         event = self.jitter.attach(event, "lk.rtc.jitter_ms");
@@ -754,13 +755,13 @@ impl Track {
 fn grow(grown: &mut Option<u64>, now: Option<u64>, before: Option<u64>) {
     let Some(now) = now else { return };
     let growth = before.map_or(0, |before| now.saturating_sub(before));
-    *grown = Some(grown.unwrap_or(0) + growth);
+    *grown = Some(grown.unwrap_or(0).saturating_add(growth));
 }
 
 /// Add a poll's growth to a running total.
 fn add(total: &mut Option<u64>, grown: Option<u64>) {
     if let Some(grown) = grown {
-        *total = Some(total.unwrap_or(0) + grown);
+        *total = Some(total.unwrap_or(0).saturating_add(grown));
     }
 }
 
@@ -974,6 +975,63 @@ mod tests {
 
     /// Simulcast layers make one series per track: its bytes grow by every layer's growth, so a
     /// stalled layer does not stall the track.
+    #[test]
+    fn extreme_counters_have_safe_summaries_and_nonnegative_encoding() {
+        let reading = |count, second: u64| RtcStatsSample {
+            bytes: Some(count),
+            packets: Some(count),
+            packets_lost: Some(count),
+            freeze_count: Some(count),
+            timestamp_ns: Some(second * 1_000_000_000),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Inbound)
+        };
+        let mut window = Window::open(0, reading(0, 1), test_session());
+        window.add(reading(u64::MAX, 2));
+        let event = window.into_event(2_000_000_000);
+        let body = event.body.as_deref().unwrap();
+        assert!(body.contains("147573952589676412 kbps"), "{body}");
+        assert!(body.contains("loss 50.0%"), "{body}");
+        for key in ["lk.rtc.bytes", "lk.rtc.packets", "lk.rtc.packets_lost", "lk.rtc.freeze_count"]
+        {
+            assert_eq!(attr(&event, key), Some(AttributeValue::Int(i64::MAX)));
+        }
+    }
+
+    #[test]
+    fn extreme_packet_loss_has_a_safe_denominator() {
+        let sample = |count| RtcStatsSample {
+            packets: Some(count),
+            packets_lost: Some(count),
+            ..RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound)
+        };
+        let mut window = Window::open(0, sample(0), test_session());
+        window.add(sample(u64::MAX));
+        assert!(window.summary().contains("loss 50.0%"));
+    }
+
+    #[test]
+    fn extreme_counter_encoding_saturates() {
+        let sample = RtcStatsSample {
+            bytes: Some(u64::MAX),
+            ..RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound)
+        };
+        let event = Window::open(0, sample, test_session()).into_event(1);
+        assert_eq!(attr(&event, "lk.rtc.bytes"), Some(AttributeValue::Int(i64::MAX)));
+    }
+
+    #[test]
+    fn extreme_layer_growth_and_running_totals_saturate() {
+        for layers in [vec!["h"], vec!["h", "f"]] {
+            let mut windows = StatsWindows::default();
+            for (second, bytes) in [(1, 0), (2, u64::MAX), (3, 0), (4, u64::MAX)] {
+                for id in &layers {
+                    windows.record(stream(id, Some(bytes), second));
+                }
+            }
+            assert_eq!(totals(&mut windows), both(i64::MAX));
+        }
+    }
+
     #[test]
     fn simulcast_layers_fold_into_one_track_series() {
         let mut windows = StatsWindows::default();
