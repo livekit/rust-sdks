@@ -1317,4 +1317,81 @@ mod tests {
         assert_eq!(cache.pending(), [id(1)]);
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// The retention floor holds even when the older batches cannot be deleted: the newest is
+    /// never a candidate.
+    #[test]
+    fn the_newest_batch_stays_when_older_deletions_fail() {
+        let dir = temp_dir("floor-undeletable");
+        let cache = FileCache::open(&dir, 25).expect("open");
+        cache.push(&id(1), &[b'a'; 10]).expect("push");
+        cache.push(&id(2), &[b'b'; 10]).expect("push");
+        let newest = cache.path(&id(3), BATCH_EXT);
+        cache.inject(move |step, path| {
+            if step == Step::Delete && path != newest {
+                return Err(io::Error::other("undeletable"));
+            }
+            Ok(())
+        });
+        let evicted = cache.push(&id(3), &[b'c'; 10]).expect("push");
+        assert_eq!(evicted, Vec::<String>::new(), "nothing older could go, the newest stays");
+        assert_eq!(cache.pending(), [id(1), id(2), id(3)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A batch another pruning pass already deleted (a second cache on the directory, or an
+    /// overlapping push) is not this pass's eviction: the exporter would count it twice.
+    #[test]
+    fn an_eviction_another_pass_already_made_is_not_counted_twice() {
+        let dir = temp_dir("evict-twice");
+        let cache = FileCache::open(&dir, 10).expect("open");
+        cache.push(&id(1), &[b'a'; 10]).expect("push");
+        let gone = cache.path(&id(1), BATCH_EXT);
+        cache.inject(move |step, path| {
+            if step == Step::Delete && path == gone {
+                // The other pass wins the unlink.
+                let _ = fs::remove_file(path);
+            }
+            Ok(())
+        });
+        let evicted = cache.push(&id(2), &[b'b'; 10]).expect("push");
+        assert_eq!(evicted, Vec::<String>::new(), "the other pass counts it");
+        assert_eq!(cache.pending(), [id(2)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Purge recovery: the first write finds the directory gone, and by the time it recreates
+    /// it another generation's `open` already did. The recreated directory is used.
+    #[test]
+    fn purge_recovery_tolerates_a_directory_another_cache_recreated() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = temp_dir("purge-race");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        let first = AtomicBool::new(true);
+        cache.inject(move |step, _| {
+            if step == Step::Write && first.swap(false, Ordering::SeqCst) {
+                return Err(io::ErrorKind::NotFound.into());
+            }
+            Ok(())
+        });
+        cache.push(&id(1), b"x").expect("the recreated directory is used");
+        assert_eq!(cache.pending(), [id(1)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A lowered file-count bound is in force while the cache opens, so opening-time pruning
+    /// (and the crash test's two-file arm) really runs under count pressure.
+    #[test]
+    fn a_lowered_file_count_bound_applies_when_the_cache_opens() {
+        let dir = temp_dir("open-bound");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        for n in 1..=3 {
+            cache.push(&id(n), b"x").expect("push");
+        }
+        drop(cache);
+        let cache = FileCache::open_with_max_batches(&dir, 1 << 20, 2).expect("reopen");
+        assert_eq!(cache.take_evicted(), [id(1)], "opening pruned to the requested bound");
+        assert_eq!(cache.pending(), [id(2), id(3)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
