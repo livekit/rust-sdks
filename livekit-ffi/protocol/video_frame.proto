@@ -234,6 +234,19 @@ message VideoFrameReceived {
   required int64 timestamp_us = 2; // In microseconds
   required VideoRotation rotation = 3;
   optional FrameMetadata metadata = 4;
+
+  // Frames this stream has dropped since it was created, because the FFI
+  // forwarding task did not keep up with the WebRTC sink.
+  //
+  // Dropped frames are decoded but never delivered. No WebRTC stat reports
+  // them -- `framesDecoded` counts them and `framesDropped` does not -- so
+  // this counter is the only way an application can observe the loss. It is
+  // cumulative and monotonic: compare it against the previous frame's value
+  // to find how many were lost in between.
+  //
+  // Always zero for a stream created with `queue_size_frames = 0`, which is
+  // unbounded and never drops.
+  optional uint64 dropped_frames = 5;
 }
 
 message VideoStreamEOS {}

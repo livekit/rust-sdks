@@ -420,6 +420,7 @@ const VideoFrameReceived = /*@__PURE__*/ proto2.makeMessageType(
     { no: 2, name: "timestamp_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
     { no: 3, name: "rotation", kind: "enum", T: proto2.getEnumType(VideoRotation), req: true },
     { no: 4, name: "metadata", kind: "message", T: FrameMetadata, opt: true },
+    { no: 5, name: "dropped_frames", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 
