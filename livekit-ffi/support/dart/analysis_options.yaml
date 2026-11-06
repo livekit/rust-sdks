@@ -8,3 +8,4 @@ analyzer:
     unnecessary_import: ignore
     unused_element: ignore
     unused_local_variable: ignore
+    unawaited_return_in_try_block: ignore
