@@ -492,6 +492,13 @@ impl Destinations {
         self.sessions.len() + self.projects.values().filter(|p| p.latest.is_some()).count()
     }
 
+    /// Whether something may still be sent to the project on `host`: a live session is routed
+    /// there or a cached batch is for it (see [`retain_owners`](Self::retain_owners)), and it
+    /// is not known to receive nothing.
+    pub fn in_use(&self, host: &str) -> bool {
+        self.projects.get(host).is_some_and(|project| project.dead.is_none())
+    }
+
     /// Try `host`'s ingest again if it answered 404 (a reconnect). Returns whether it did.
     pub fn revive(&mut self, host: &str) -> bool {
         match self.projects.get_mut(host) {

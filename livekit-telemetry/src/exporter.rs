@@ -894,6 +894,7 @@ impl Exporter {
             }
         }
         self.retire_credentials();
+        self.retire_pauses();
         if self.nobody_listens() {
             self.purge_dead();
             self.set_status(TelemetryStatus::Off);
@@ -1225,6 +1226,17 @@ impl Exporter {
         }
         self.destinations().retain_owners(&live, &backlog);
         drop(scopes);
+    }
+
+    /// Drop the pause of a destination nothing uses any more (no live session routed to it, no
+    /// batch cached for it: the credentials just retired decide). One still in use keeps its
+    /// failure history, so its backoff does not start over.
+    fn retire_pauses(&mut self) {
+        if self.pauses.is_empty() || self.has_override() {
+            return;
+        }
+        let destinations = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner());
+        self.pauses.retain(|host, _| destinations.in_use(host));
     }
 
     fn destinations(&self) -> std::sync::MutexGuard<'_, crate::destination::Destinations> {
@@ -2037,6 +2049,31 @@ pub(crate) mod tests {
             exporter.begin_pass();
         }
         assert_eq!(telemetry.shared.counters.snapshot().expired, 2, "two records, lost once");
+    }
+
+    /// A destination's pause outlives neither its last live session nor its last cached batch:
+    /// the failure history stays while something may still be sent there.
+    #[tokio::test(start_paused = true)]
+    async fn a_pause_is_retired_with_its_destination() {
+        let (telemetry, mut exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        room.emit_custom("ping", Vec::new());
+        exporter.flushing = true;
+        exporter.export_pending();
+        assert!(exporter.inflight.is_some(), "the batch is on the wire");
+        exporter.on_answer(Outcome::NoAnswer { timed_out: false, reason: "offline".to_owned() });
+        assert!(exporter.pauses.contains_key("a.livekit.cloud"), "paused after the failure");
+        drop(room);
+        exporter.begin_pass();
+        assert!(exporter.pauses.contains_key("a.livekit.cloud"), "its batch is still cached");
+        for id in telemetry.shared.cache.pending() {
+            telemetry.shared.cache.remove(&id).expect("removed");
+        }
+        exporter.begin_pass();
+        assert!(exporter.pauses.is_empty(), "nothing is left for it: {:?}", exporter.pauses);
     }
 
     #[test]
