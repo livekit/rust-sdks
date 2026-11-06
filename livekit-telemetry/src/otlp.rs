@@ -354,7 +354,7 @@ mod tests {
         store.push(QueuedEvent::new(own, session));
         // An hour in the queue (an outage) before the exporter encodes the batch.
         crate::event::CLOCK_JUMP_NS.with(|jump| jump.set(HOUR_NS as i64));
-        let bytes = encode_logs(&[], &[], store.drain(10, usize::MAX));
+        let bytes = encode_logs(&[], &[], store.drain(10, usize::MAX, 0));
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let records = &decoded.resource_logs[0].scope_logs[0].log_records;
         assert!((captured..captured + HOUR_NS).contains(&records[0].time_unix_nano));
@@ -369,7 +369,7 @@ mod tests {
         spans.end(failed, SpanOutcome::Error, Some("timeout".into()), own);
         let cancelled = spans.begin("lk.connect", SpanKind::Client, None);
         spans.end(cancelled, SpanOutcome::Cancelled, Some("CancellationError".into()), vec![]);
-        let bytes = encode_spans(&[], &[], spans.drain(2, usize::MAX));
+        let bytes = encode_spans(&[], &[], spans.drain(2, usize::MAX, 0));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let [failed, cancelled] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
             panic!("two spans")
@@ -426,7 +426,7 @@ mod tests {
         let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
         assert_eq!(values(&record.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
-        assert_eq!(values(&record.attributes, "session.id"), [text(&session.hex())]);
+        assert_eq!(values(&record.attributes, "session.id"), [text(session.hex())]);
         assert_eq!(values(&record.attributes, "acme.tenant"), [text("t1")], "globals fill in");
     }
 
@@ -438,12 +438,12 @@ mod tests {
         let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
         spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room.sid", "x")]);
         session.set_attribute("lk.room.sid", None);
-        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX, 0));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
         assert_eq!(values(&span.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
-        assert_eq!(values(&span.attributes, "session.id"), [text(&session.hex())]);
+        assert_eq!(values(&span.attributes, "session.id"), [text(session.hex())]);
     }
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
         }
         let attempt = vec![Attribute::new("lk.connect.attempt", 1i64)];
         spans.end(id, SpanOutcome::Error, Some("timeout".into()), attempt);
-        let span = spans.drain(1, usize::MAX).remove(0);
+        let span = spans.drain(1, usize::MAX, 0).remove(0);
         let hint = span.size_hint();
         let encoded =
             encode_spans(&[], &[], vec![span]).len() - encode_spans(&[], &[], vec![]).len();

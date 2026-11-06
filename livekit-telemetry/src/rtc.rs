@@ -1221,7 +1221,7 @@ mod tests {
         for (session, bytes) in [(&a, 200), (&b, 900)] {
             let window = closed.iter().find(|q| q.session == *session).expect("own window");
             assert_eq!(attr(&window.event, "lk.rtc.bytes"), Some(AttributeValue::Int(bytes)));
-            let id = Some(AttributeValue::Str(session.hex()));
+            let id = Some(AttributeValue::Str(session.hex().to_owned()));
             assert_eq!(attr(&window.event, "session.id"), id, "decorated at capture");
         }
     }
