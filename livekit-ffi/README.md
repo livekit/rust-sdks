@@ -110,3 +110,38 @@ cargo make dart-package
 ```
 
 See [support/dart/README.md](./support/dart/README.md).
+
+### Node
+
+Generate the `core-modules` node packages:
+```
+cargo make node-package
+cargo make node-native-package
+cargo make node-setup-workspace
+```
+
+Each is a separate invocation: `cargo make` takes one task name, and any further words are
+passed to it as arguments rather than run as tasks.
+
+This produces `target/packages/node` (`@livekit/uniffi`) and
+`target/packages/node-native/<triple>` (`@livekit/uniffi-<node-triple>`), sharing
+a generated pnpm workspace. Both paths are relative to the **workspace root**,
+not to this crate — `target/` belongs to the workspace, and there is no
+`livekit-ffi/target/`. The main package resolves the native library through
+its per-arch sibling, so both are needed.
+
+These are unrelated to the room-apis node SDK, which is built from
+`livekit-ffi-node-bindings`.
+
+To exercise them:
+```
+cargo make node-package-test
+```
+
+To check the published shape — `files`, `exports`, and platform-package
+resolution, none of which a workspace link goes through:
+```
+cargo make node-pack-test
+```
+
+CI (`.github/workflows/uniffi-node-test.yml`) runs both.
