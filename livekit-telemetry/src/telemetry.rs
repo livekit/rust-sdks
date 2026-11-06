@@ -794,10 +794,12 @@ impl Telemetry {
             return;
         }
         self.shared.before_commit();
-        let mut windows = self.shared.windows.lock().unwrap_or_else(|e| e.into_inner());
-        for sample in samples {
-            windows.record_in(sample, session);
-        }
+        // One capture time for the report's unstamped samples: its layers are one poll.
+        self.shared
+            .windows
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_batch_in(samples, session);
     }
 
     /// Whether `session` still collects: not once its project is known to receive nothing

@@ -1008,6 +1008,35 @@ mod tests {
         }
     }
 
+    /// Unstamped typed samples admitted as one report keep every layer's growth: the report is
+    /// stamped once, so alternating layers are one poll. End to end, from the Scope through the
+    /// pipeline to the windows (review 4487559072, wired at the cumulative integration).
+    #[tokio::test]
+    async fn unstamped_layers_admitted_together_keep_all_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let layer = |id: &str, bytes: u64| RtcStatsSample {
+            bytes: Some(bytes),
+            layer: Some(id.into()),
+            timestamp_ns: None,
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Video, StreamDirection::Outbound)
+        };
+        for bytes in [[1_000, 4_000], [5_000, 12_000]] {
+            room.record_samples(vec![layer("h", bytes[0]), layer("f", bytes[1])]);
+        }
+        let windows = telemetry.shared.windows.lock().expect("lock").close();
+        let bytes = windows
+            .iter()
+            .find_map(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+            .map(|a| a.value.clone());
+        assert_eq!(
+            bytes,
+            Some(crate::AttributeValue::Int(12_000)),
+            "{} window events",
+            windows.len()
+        );
+    }
+
     /// A report's layers are admitted as one: an exporter close landing between them (the hook
     /// stands in for its tick) ends no partial poll, so no layer's growth is lost. Two layers
     /// growing 100 → 200 → 300 bytes are 400 bytes of growth.
