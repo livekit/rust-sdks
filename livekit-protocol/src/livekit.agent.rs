@@ -1178,7 +1178,7 @@ pub mod agent_thread {
         pub next_page_token: ::prost::alloc::string::String,
     }
     /// One chat item of an agent. Stored as the JSON of
-    /// ChatContext.ChatItem (items.payload in thread_schema_v1.sql).
+    /// ChatContext.ChatItem (items.payload in thread_schema.sql).
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Item {
         #[prost(string, tag = "1")]
