@@ -225,9 +225,12 @@ impl Refusals {
         self.0.insert(token.id, token.expires).is_none()
     }
 
-    /// Forget refusals whose token has expired: it cannot be sent anyway.
+    /// Forget refusals whose token has expired: it cannot be sent anyway. On the monotonic
+    /// deadline only: a wall-clock correction must not forget a refusal that a later
+    /// correction would make sendable again.
     fn prune(&mut self) {
-        self.0.retain(|_, expires| expires.is_none_or(|at| !at.passed()));
+        let now = Instant::now();
+        self.0.retain(|_, expires| expires.is_none_or(|at| now < at.monotonic));
     }
 }
 
