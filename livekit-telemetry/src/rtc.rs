@@ -658,8 +658,10 @@ impl Window {
 #[derive(Default)]
 pub(crate) struct StatsWindows {
     windows: HashMap<TrackKey, Window>,
-    /// Last cumulative `qualityLimitationDurations.cpu` per outbound track.
-    limitation: HashMap<TrackKey, u64>,
+    /// Last cumulative `qualityLimitationDurations.cpu` per outbound track, per RTP stream
+    /// (`layer`): a layer's growth is compared with that layer's own previous poll, never with
+    /// a larger sibling's. A stream that leaves keeps its entry until its track is retired.
+    limitation: HashMap<TrackKey, HashMap<Option<String>, u64>>,
     cpu_limited_until: Option<Instant>,
     /// Per track: the poll in progress and the counting state across polls.
     tracks: HashMap<TrackKey, Track>,
@@ -831,8 +833,13 @@ impl StatsWindows {
     fn end_poll(&mut self, key: &TrackKey) {
         let Some(track) = self.tracks.get_mut(key) else { return };
         let Some(Poll { session, timestamp_ns, readings }) = track.poll.take() else { return };
+        let cpu: Vec<(Option<String>, u64)> = readings
+            .iter()
+            .filter(|(_, sample)| sample.direction == StreamDirection::Outbound)
+            .filter_map(|(layer, sample)| Some((layer.clone(), sample.quality_limitation_cpu_ms?)))
+            .collect();
         let Some(reading) = track.reading(readings) else { return };
-        self.set_limitation_baseline(key, &reading);
+        self.set_limitation_baseline(key, cpu);
         match self.windows.get_mut(key) {
             Some(window) => window.add(reading),
             None => {
@@ -935,9 +942,8 @@ impl StatsWindows {
         if sample.direction != StreamDirection::Outbound {
             return;
         }
-        let (Some(current), Some(&previous)) =
-            (sample.quality_limitation_cpu_ms, self.limitation.get(key))
-        else {
+        let previous = self.limitation.get(key).and_then(|streams| streams.get(&sample.layer));
+        let (Some(current), Some(&previous)) = (sample.quality_limitation_cpu_ms, previous) else {
             return;
         };
         if current > previous {
@@ -945,15 +951,13 @@ impl StatsWindows {
         }
     }
 
-    /// A finished poll's cpu limitation counter is the baseline for the next poll. A poll without
-    /// the counter says nothing: it must not reset the baseline.
-    fn set_limitation_baseline(&mut self, key: &TrackKey, reading: &RtcStatsSample) {
-        if reading.direction != StreamDirection::Outbound {
+    /// A finished poll's cpu limitation counters are the baselines for the next poll, one per
+    /// stream. A stream without the counter says nothing: it must not reset its baseline.
+    fn set_limitation_baseline(&mut self, key: &TrackKey, cpu: Vec<(Option<String>, u64)>) {
+        if cpu.is_empty() {
             return;
         }
-        if let Some(current) = reading.quality_limitation_cpu_ms {
-            self.limitation.insert(key.clone(), current);
-        }
+        self.limitation.entry(key.clone()).or_default().extend(cpu);
     }
 
     /// Drop everything (opt-out); returns how many RTC records went, each once: the open windows,
