@@ -1341,7 +1341,9 @@ impl Exporter {
     }
 
     /// One request, bounded by `export_timeout_ms`, as a future the loop polls. Never retried
-    /// here: the answer decides.
+    /// here: the answer decides. The transport's future must return promptly from every poll:
+    /// its first poll runs under the opt-out's admission barrier, so synchronous work there
+    /// delays `revoke`, and the timeout cannot cut a poll short, only the wait between polls.
     fn request(
         &self,
         body: &[u8],
