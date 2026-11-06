@@ -327,7 +327,13 @@ impl Lifecycle {
                     uninstall();
                     let _ = self.exporters.send(Step::Stop(done));
                 }
-                Command::Purge(purge) => purge.await,
+                Command::Purge(purge) => {
+                    purge.await;
+                    // The purge stopped the running exporter: let go of its pipeline as a stop
+                    // would, so the opt-out frees it without a shutdown.
+                    let (done, _) = oneshot::channel();
+                    let _ = self.exporters.send(Step::Stop(done));
+                }
                 Command::Barrier(done) => {
                     let _ = done.send(());
                 }
@@ -2110,5 +2116,43 @@ mod tests {
             let served = tokio::time::timeout(Duration::from_millis(300), first.next()).await;
             assert!(!matches!(served, Ok(Some(_))), "withdrawn, never served");
         });
+    }
+
+    /// The opt-out's purge releases the pipeline it stopped: once the purge is done, nothing in
+    /// the lifecycle holds that pipeline or its cache, with no shutdown needed to clear it.
+    #[test]
+    fn a_purge_releases_the_pipeline_it_stopped() {
+        let tasks = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let slot = slot_on(&tasks);
+        let installed = Arc::new(Installed::default());
+        let transport = Arc::new(Gated {
+            gate: tokio::sync::Semaphore::new(0),
+            bodies: Mutex::new(Vec::new()),
+        });
+        let cache = Arc::new(livekit_telemetry::MemoryCache::new(u64::MAX));
+        // Only the pipeline holds the cache, and only its exporter the transport.
+        let (pipeline_freed, exporter_freed) = (Arc::downgrade(&cache), Arc::downgrade(&transport));
+        runtime().block_on(async {
+            let (telemetry, exporter) = livekit_telemetry::Telemetry::with_cache(
+                TelemetryConfig::default(),
+                transport.clone(),
+                cache,
+            );
+            configure(&slot, &installed, telemetry.clone(), exporter, || ());
+            // What `telemetry_disable` does: the installed handle goes, the purge runs in turn.
+            installed.lock().expect("lock").take();
+            slot.send(Command::Purge(Box::pin(async move {
+                telemetry.purge().await;
+            })));
+            barrier(&slot).await;
+        });
+        drop(transport);
+        assert!(eventually(|| exporter_freed.upgrade().is_none()), "the exporter is gone");
+        assert!(eventually(|| pipeline_freed.upgrade().is_none()), "the pipeline is gone");
+        runtime().block_on(shut_down(&slot, &installed));
     }
 }
