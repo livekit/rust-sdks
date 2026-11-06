@@ -306,11 +306,12 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 ///   [`ExportError::Retryable`] — or the request cannot be made at all
 ///   ([`ExportError::Rejected`], e.g. an invalid URL).
 /// - Never retry: the core owns the retry policy.
-/// - Never forward the `Authorization` header across origins: do not follow a redirect to
-///   another scheme, host or port with it (returning the 3xx is fine — the core drops the batch).
-///   `NetTransport` over the native `livekit-net` client follows at most 10 redirects, never one
-///   from `https` to a plaintext scheme, and drops `Authorization` when a redirect changes the
-///   host or port.
+/// - Never forward the `Authorization` header across origins or out of TLS: do not follow a
+///   redirect to another host or port with it, nor one from `https` to a plaintext scheme
+///   (returning the 3xx is fine — the core drops the batch). A same-origin upgrade from `http`
+///   to `https` may carry it: it lands on TLS. `NetTransport` over the native `livekit-net`
+///   client follows at most 10 redirects, never one from `https` to a plaintext scheme, and
+///   drops `Authorization` when a redirect changes the host or port.
 /// - Keep the request off the call's critical path: lowest priority where the platform allows it.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
