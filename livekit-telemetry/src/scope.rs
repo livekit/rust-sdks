@@ -460,8 +460,12 @@ impl Scope {
             end_unfinished(&span, since);
         }
         self.telemetry.retire_stats(&self.state, None);
-        // Out of the call: uploads no longer yield to it.
-        self.state.server.lock().unwrap_or_else(|e| e.into_inner()).take();
+        // Out of the call: uploads no longer yield to it. Serialized with a server change
+        // (`Telemetry::set_server`), which would otherwise remember its pair after this clear.
+        {
+            let _transition = self.state.transition.lock().unwrap_or_else(|e| e.into_inner());
+            self.state.server.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
         let severity = if reason == DisconnectReason::ClientInitiated {
             crate::Severity::Info
         } else {
@@ -1051,5 +1055,35 @@ mod tests {
             .and_then(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
             .map(|a| a.value.clone());
         assert_eq!(bytes, Some(crate::AttributeValue::Int(400)));
+    }
+
+    /// A disconnect that lands while a server change is between its no-op check and remembering
+    /// the pair is not undone by the change: the session is out of the call afterwards.
+    #[tokio::test]
+    async fn a_disconnect_during_a_server_change_is_not_undone() {
+        let (telemetry, _exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        let disconnect = Arc::new(std::sync::Mutex::new(None));
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
+            let (room, disconnect) = (room.clone(), disconnect.clone());
+            move || {
+                let mut slot = disconnect.lock().expect("lock");
+                if slot.is_some() {
+                    return;
+                }
+                let room = room.clone();
+                *slot = Some(std::thread::spawn(move || {
+                    room.disconnected(DisconnectReason::ClientInitiated)
+                }));
+                // Long enough for the disconnect to finish, unless it waits for the change.
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }));
+        room.set_server("wss://a.livekit.cloud", &token);
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        let disconnect = disconnect.lock().expect("lock").take().expect("the disconnect ran");
+        disconnect.join().expect("disconnect");
+        assert!(!room.state.in_call(), "disconnected: not in a call");
     }
 }
