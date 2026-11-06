@@ -481,7 +481,9 @@ pub fn telemetry_emit(event: TelemetryEvent) {
 /// platform's own and WebRTC's lines only — never a Rust entry received through the log
 /// forwarder, which the core has already copied (`log_forward_bootstrap`). Credentials in the
 /// line (a compact JWT, the value after `Bearer` or a `token` key) are masked, as in the core's
-/// own copied lines. While telemetry is off the line is dropped unread: no masking, no copy.
+/// own copied lines. Only log bodies are masked: event bodies and attributes (`telemetry_emit`,
+/// `emit_custom`, `set_attribute`, span attributes) are exported as given. While telemetry is
+/// off the line is dropped unread: no masking, no copy.
 #[uniffi::export]
 pub fn telemetry_log(record: LogRecord) {
     global::log_with(|| Some(masked(record)));
@@ -553,7 +555,8 @@ impl TelemetryScope {
     /// An app event, exported as `custom.<name>` with the room's correlation attributes. Names
     /// and keys up to 128 bytes, values up to 1024, at most 64 attributes, none of the SDK's
     /// keys (`lk.*`, `otel.*`, `code.*`, `session.id`, `error.type`, `network.connection.type`);
-    /// anything else is rejected and counted.
+    /// anything else is rejected and counted. Values are exported as given: unlike log bodies,
+    /// they are not masked for credentials.
     pub fn emit_custom(&self, name: String, attributes: HashMap<String, String>) {
         let attributes = attributes.into_iter().map(|(k, v)| Attribute::new(k, v)).collect();
         self.0.emit_custom(&name, attributes);

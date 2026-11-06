@@ -421,7 +421,8 @@ leaves the device: every compact JWT (three base64url segments whose header and 
 to JSON objects, wherever it sits) becomes `<jwt>`, and the value after `Bearer` or after a
 `token` key (`token=`, `access_token=`, `"token": …`) becomes `<redacted>`. The console entry is
 forwarded unchanged. Platform lines handed to `telemetry_log` or `TelemetryScope.log` are masked
-the same way. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
+the same way. Only log bodies are masked: event bodies and attributes (`emit`, `emit_custom`,
+`set_attribute`, span attributes) are exported as given. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
 default `OSLogger` with `ffi: true` does), whatever level it passes: that level filters only what
 is forwarded to the platform's console (the global `log` level is kept at `warn` or looser), so
 `log_forward_bootstrap(Off)` forwards nothing to the console while the telemetry copy stays on —
