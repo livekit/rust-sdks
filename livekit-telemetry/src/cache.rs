@@ -453,12 +453,11 @@ impl FileCache {
             if total <= self.max_bytes && count <= self.max_batches {
                 break;
             }
-            let (went, mine) = match self.unlink(id) {
-                Ok(unlinked) => (true, unlinked),
-                // Unlinked but the directory sync failed: the file is gone, so it went. A
-                // batch that could not be deleted still takes its room: keep evicting.
-                Err(_) => (matches!(self.path(id, BATCH_EXT).try_exists(), Ok(false)), true),
-            };
+            // Gone, by this pass or another, frees its room. Only the pass that unlinked it
+            // reports it, whatever its directory sync said afterwards. A batch that could not
+            // be deleted still takes its room: keep evicting.
+            let (mine, _) = self.unlink(id);
+            let went = mine || matches!(self.path(id, BATCH_EXT).try_exists(), Ok(false));
             if went {
                 total -= len;
                 count -= 1;
@@ -470,22 +469,27 @@ impl FileCache {
         Ok(removed)
     }
 
-    /// Delete `id`'s file: `Ok(true)` when this call unlinked it, `Ok(false)` when it was
-    /// already gone (an earlier unlink whose directory sync failed, or another cache on the
-    /// directory), an error when it could not be deleted or the directory sync after it
-    /// failed. A gone directory (the OS purged it) has nothing left to sync.
-    fn unlink(&self, id: &str) -> io::Result<bool> {
+    /// Delete `id`'s file. The flag says whether this call unlinked it (`false`: it was
+    /// already gone, by an earlier unlink whose directory sync failed, or by another cache on
+    /// the directory). The result is the delete's: an error when the file could not be
+    /// deleted or when the directory sync after it failed. The flag is kept apart from the
+    /// result, so a failed sync never turns another pass's unlink into this one's. A gone
+    /// directory (the OS purged it) has nothing left to sync.
+    fn unlink(&self, id: &str) -> (bool, io::Result<()>) {
         let path = self.path(id, BATCH_EXT);
-        self.step(Step::Delete, &path)?;
+        if let Err(err) = self.step(Step::Delete, &path) {
+            return (false, Err(err));
+        }
         let unlinked = match fs::remove_file(&path) {
             Ok(()) => true,
             Err(err) if err.kind() == io::ErrorKind::NotFound => false,
-            Err(err) => return Err(err),
+            Err(err) => return (false, Err(err)),
         };
-        match self.sync_dir() {
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(unlinked),
-            other => other.map(|()| unlinked),
-        }
+        let synced = match self.sync_dir() {
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        };
+        (unlinked, synced)
     }
 
     /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
@@ -594,7 +598,7 @@ impl BatchCache for FileCache {
     }
 
     fn remove(&self, id: &str) -> io::Result<()> {
-        self.unlink(id).map(|_| ())
+        self.unlink(id).1
     }
 
     fn clear(&self) -> io::Result<()> {
