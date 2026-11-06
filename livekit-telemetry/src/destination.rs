@@ -248,6 +248,15 @@ pub(crate) enum Route {
     Drop,
 }
 
+/// A [`Route`] by reference: what [`Destinations::alive`] checks at the door, without formatting
+/// the ingest URLs or cloning the token a [`Target`] carries.
+enum Resolved<'a> {
+    Override(&'a Target),
+    Send { host: &'a str, token: &'a Token },
+    Wait,
+    Drop,
+}
+
 /// Every project and session this process talks to, plus the test override. Tokens live here,
 /// in memory only: never persisted, never in a batch.
 #[derive(Debug, Default)]
@@ -338,27 +347,42 @@ impl Destinations {
     /// launch's use the project's latest. A Room's records captured before it had a server go
     /// to its first project, never to another Room's.
     pub fn route(&self, host: Option<&str>, owner: Option<&str>) -> Route {
+        match self.resolve(host, owner) {
+            Resolved::Override(target) => Route::Send(target.clone()),
+            Resolved::Send { host, token } => Route::Send(Target {
+                project: Some(host.to_owned()),
+                logs: ingest_url(host, Signal::Logs),
+                traces: ingest_url(host, Signal::Traces),
+                token: Some(token.raw.clone()),
+            }),
+            Resolved::Wait => Route::Wait,
+            Resolved::Drop => Route::Drop,
+        }
+    }
+
+    /// [`route`](Self::route)'s decision, before anything is built for it.
+    fn resolve<'a>(&'a self, host: Option<&'a str>, owner: Option<&'a str>) -> Resolved<'a> {
         if let Some(target) = &self.endpoint_override {
-            return Route::Send(target.clone());
+            return Resolved::Override(target);
         }
         let room = owner.filter(|o| *o != PROCESS_OWNER);
         let host = match (host, room) {
             (Some(host), _) => host,
             (None, Some(room)) => match self.rooms.get(room) {
                 Some(first) => first.as_str(),
-                None => return Route::Wait,
+                None => return Resolved::Wait,
             },
             (None, None) => match self.fallback() {
                 Some(host) => host,
                 // Nothing to talk to yet: wait. Only dead projects so far: nobody will ever
                 // take process-level data, so it is not kept either.
-                None if self.all_dead() => return Route::Drop,
-                None => return Route::Wait,
+                None if self.all_dead() => return Resolved::Drop,
+                None => return Resolved::Wait,
             },
         };
-        let Some(project) = self.projects.get(host) else { return Route::Wait };
+        let Some(project) = self.projects.get(host) else { return Resolved::Wait };
         if project.dead.is_some() {
-            return Route::Drop;
+            return Resolved::Drop;
         }
         let token = match room {
             Some(room) if self.rooms.contains_key(room) => {
@@ -367,13 +391,8 @@ impl Destinations {
             _ => project.latest.as_ref(),
         };
         match token {
-            Some(token) if token.usable(&self.refused) => Route::Send(Target {
-                project: Some(host.to_owned()),
-                logs: ingest_url(host, Signal::Logs),
-                traces: ingest_url(host, Signal::Traces),
-                token: Some(token.raw.clone()),
-            }),
-            _ => Route::Wait,
+            Some(token) if token.usable(&self.refused) => Resolved::Send { host, token },
+            _ => Resolved::Wait,
         }
     }
 
@@ -395,7 +414,7 @@ impl Destinations {
     /// project is known to receive nothing, so its records are dropped at the door instead of
     /// cached. A Room without a server yet waits for its first project, like [`route`](Self::route).
     pub fn alive(&self, host: Option<&str>, owner: Option<&str>) -> bool {
-        !matches!(self.route(host, owner), Route::Drop)
+        !matches!(self.resolve(host, owner), Resolved::Drop)
     }
 
     /// The collector refused `token` (401/403): it is not sent again, from any slot; batches that
