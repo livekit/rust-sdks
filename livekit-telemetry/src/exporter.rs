@@ -707,6 +707,11 @@ impl Exporter {
         let now = Instant::now();
         let counters = self.shared.counters.clone();
         for id in evicted {
+            // Discarded and counted already, its delete pending: the eviction did the delete.
+            if self.undeletable.remove(id) {
+                self.born.remove(id);
+                continue;
+            }
             // `throttled` only when the evicted batch's own destination is under a server pause —
             // for a host-less batch (process-level, pre-connect), the project it routes to.
             let batch = BatchId::parse(id);
@@ -2074,6 +2079,30 @@ pub(crate) mod tests {
         }
         exporter.begin_pass();
         assert!(exporter.pauses.is_empty(), "nothing is left for it: {:?}", exporter.pauses);
+    }
+
+    /// A batch discarded and counted whose delete failed stays in the cache until a write evicts
+    /// it: that eviction retires its marker and is not a second loss.
+    #[tokio::test(start_paused = true)]
+    async fn an_evicted_batch_already_discarded_is_not_counted_again() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(Undeletable(crate::MemoryCache::new(1))),
+        );
+        let counters = telemetry.shared.counters.clone();
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.forget(&id, Some(&counters.expired));
+        assert_eq!(counters.snapshot().expired, 2);
+        assert!(exporter.undeletable.contains(&id), "its delete failed");
+        // A newer batch: the cache evicts the old one to keep its bound.
+        let (newer, body) = aged_batch(Duration::ZERO, "abc");
+        exporter.store_batch(newer.clone(), &body);
+        assert_eq!(telemetry.shared.cache.pending(), [newer]);
+        let lost = counters.snapshot();
+        assert_eq!((lost.expired, lost.cache_full, lost.throttled), (2, 0, 0), "lost once");
+        assert!(exporter.undeletable.is_empty(), "gone: nothing left to delete");
     }
 
     #[test]
