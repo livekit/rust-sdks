@@ -200,9 +200,14 @@ impl Refusals {
 
     /// Returns whether the refusal is new.
     fn add(&mut self, token: &Token) -> bool {
+        self.prune();
+        self.0.insert(token.id, token.expires).is_none()
+    }
+
+    /// Forget refusals whose token has expired: it cannot be sent anyway.
+    fn prune(&mut self) {
         let now = Instant::now();
         self.0.retain(|_, expires| expires.is_none_or(|at| at > now));
-        self.0.insert(token.id, token.expires).is_none()
     }
 }
 
@@ -393,6 +398,7 @@ impl Destinations {
         live: &HashMap<String, Option<String>>,
         backlog: &std::collections::HashSet<(Option<String>, String)>,
     ) {
+        self.refused.prune();
         // A Room's batch captured before it had a server is cached without a project: it goes
         // to that Room's first project, so it backs that project's credential.
         let backlog: std::collections::HashSet<(Option<String>, String)> = backlog
@@ -701,6 +707,19 @@ pub(crate) mod tests {
         assert_eq!(d.route(Some(&host), Some("s")), Route::Wait, "handing it over again: still no");
         d.set("wss://p.livekit.cloud", &granted(900), "s");
         assert!(matches!(d.route(Some(&host), Some("s")), Route::Send(_)));
+    }
+
+    /// Expired refusals go at routine cleanup, not only when the next token is refused.
+    #[tokio::test(start_paused = true)]
+    async fn expired_refusals_are_pruned_at_cleanup() {
+        let mut d = Destinations::default();
+        for n in 0..1000 {
+            d.refuse(&granted(60 + n));
+        }
+        assert_eq!(d.refused.0.len(), 1000);
+        tokio::time::advance(Duration::from_secs(1100)).await;
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(d.refused.0.is_empty(), "{} expired refusals kept", d.refused.0.len());
     }
 
     #[test]
