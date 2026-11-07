@@ -23,14 +23,17 @@
 set -u
 cd "$(dirname "$0")"
 HERE=$PWD
-SCRATCH=$(mktemp -d)
-trap 'rm -rf "$SCRATCH"' EXIT
+# Fail closed if no scratch directory could be created: nothing below may touch a path that is
+# not an owned, freshly created temporary directory.
+SCRATCH=$(mktemp -d) || { echo "generate_proto_check: FAIL: mktemp -d failed" >&2; exit 2; }
+[ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || { echo "generate_proto_check: FAIL: no scratch directory" >&2; exit 2; }
+trap 'rm -rf "${SCRATCH:?}"' EXIT
 GENERATED="livekit.rs livekit.serde.rs livekit.agent.rs livekit.agent.serde.rs logger.rs logger.serde.rs"
 fail() { echo "generate_proto_check: FAIL: $*" >&2; exit 1; }
 
 # A scratch generation directory with the script and a chosen set of outputs.
 scratch() {
-    rm -rf "$SCRATCH/gen"; mkdir -p "$SCRATCH/gen/src"
+    rm -rf "${SCRATCH:?}/gen"; mkdir -p "$SCRATCH/gen/src"
     cp generate_proto.sh "$SCRATCH/gen/"
 }
 # A fake tool first on PATH that exits with the given status.
