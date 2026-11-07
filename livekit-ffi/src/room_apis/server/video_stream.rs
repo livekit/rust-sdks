@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+
 use futures_util::StreamExt;
 use livekit::{
     prelude::Track,
@@ -36,6 +41,28 @@ pub struct FfiVideoStream {
 }
 
 impl FfiHandle for FfiVideoStream {}
+
+/// Frames an FFI video stream has lost, totalled across every track it
+/// forwards.
+///
+/// A participant stream keeps one handle while the participant swaps tracks,
+/// and each track gets a fresh `NativeVideoStream` whose own counter starts at
+/// zero. Carrying finished tracks' losses here is what keeps the number the
+/// application sees cumulative across a replacement.
+#[derive(Clone, Default)]
+struct DropTotal(Arc<AtomicU64>);
+
+impl DropTotal {
+    /// Losses of earlier tracks plus `current`, the live track's own count.
+    fn with_current(&self, current: u64) -> u64 {
+        self.0.load(Ordering::Relaxed) + current
+    }
+
+    /// Folds a finished track's losses in, so the next track counts on top.
+    fn finish_track(&self, current: u64) {
+        self.0.fetch_add(current, Ordering::Relaxed);
+    }
+}
 
 fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
     metadata.map(|metadata| proto::FrameMetadata {
@@ -86,6 +113,7 @@ impl FfiVideoStream {
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
+                    DropTotal::default(),
                 ));
                 server.watch_panic(handle);
                 Ok::<FfiVideoStream, FfiError>(video_stream)
@@ -139,6 +167,7 @@ impl FfiVideoStream {
         mut self_dropped_rx: oneshot::Receiver<()>,
         mut handle_dropped_rx: oneshot::Receiver<()>,
         send_eos: bool,
+        dropped_before: DropTotal,
     ) {
         loop {
             tokio::select! {
@@ -164,6 +193,13 @@ impl FfiVideoStream {
                     let handle_id = server.next_id();
                     server.store_handle(handle_id, buffer);
 
+                    // Read after the frame is popped, so the count covers every
+                    // drop that happened before this frame was delivered. The
+                    // base carries the losses of tracks this FFI stream
+                    // forwarded earlier, which keeps the total cumulative
+                    // across a track replacement.
+                    let dropped_frames = dropped_before.with_current(native_stream.dropped_frames());
+
 
                     if let Err(err) = server.send_event(
                         proto::VideoStreamEvent {
@@ -179,6 +215,7 @@ impl FfiVideoStream {
                                         info,
                                     },
                                     metadata,
+                                    dropped_frames: Some(dropped_frames),
                                 }
                             )),
                         }.into()
@@ -189,6 +226,9 @@ impl FfiVideoStream {
                 }
             }
         }
+
+        // This track is done; its losses belong to the stream's running total.
+        dropped_before.finish_track(native_stream.dropped_frames());
 
         if send_eos {
             if let Err(err) = server.send_event(
@@ -225,6 +265,9 @@ impl FfiVideoStream {
         let track_source = request.track_source();
         let normalize_stride = request.normalize_stride.unwrap_or(true);
         let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
+        // One FFI stream handle spans every track this participant publishes,
+        // so the drop total has to survive a replacement.
+        let dropped_before = DropTotal::default();
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, track_finished_rx) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
@@ -247,6 +290,7 @@ impl FfiVideoStream {
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
                 let options = NativeVideoStreamOptions { queue_size_frames };
 
+                let dropped_before = dropped_before.clone();
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
                     tokio::select! {
@@ -272,6 +316,7 @@ impl FfiVideoStream {
                         c_rx,
                         handle_dropped_rx,
                         false,
+                        dropped_before,
                     )
                     .await;
                     let _ = done_tx.send(());
@@ -304,8 +349,9 @@ impl FfiVideoStream {
 
 #[cfg(test)]
 mod tests {
-    use super::frame_metadata_to_proto;
     use livekit::webrtc::video_frame::FrameMetadata;
+
+    use super::*;
 
     #[test]
     fn missing_frame_metadata_stays_missing() {
@@ -324,5 +370,17 @@ mod tests {
         assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, None);
         assert_eq!(metadata.user_data, Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn the_drop_total_carries_across_a_track_replacement() {
+        let total = DropTotal::default();
+
+        assert_eq!(total.with_current(12), 12, "first track, 12 of its own");
+        total.finish_track(12); // the participant swaps tracks here
+
+        // The next track's NativeVideoStream starts its own counter at zero.
+        assert_eq!(total.with_current(0), 12, "the swap must not reset the total");
+        assert_eq!(total.with_current(3), 15, "and the new track counts on top");
     }
 }

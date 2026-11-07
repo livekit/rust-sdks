@@ -78,6 +78,12 @@ impl NativeVideoStream {
         self.video_track.clone()
     }
 
+    /// Frames this stream has dropped because the consumer did not keep up
+    /// with the WebRTC sink, counted since the stream was created.
+    pub fn dropped_frames(&self) -> u64 {
+        self.frame_queue.dropped_frames()
+    }
+
     pub fn close(&mut self) {
         let video = unsafe { sys_vt::ffi::media_to_video(self.video_track.sys_handle()) };
         video.remove_sink(&self.native_sink);
@@ -289,6 +295,10 @@ impl VideoFrameQueue {
         }
     }
 
+    fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
+    }
+
     fn record_drop(&self) {
         let dropped_frames = self.dropped_frames.fetch_add(1, Ordering::Relaxed) + 1;
         if dropped_frames == 1 || dropped_frames % 100 == 0 {
@@ -359,6 +369,38 @@ mod tests {
         assert_eq!(queue.dropped_frames.load(Ordering::Relaxed), 2);
         assert_eq!(pop_timestamp(&queue), Some(3));
         assert_eq!(pop_timestamp(&queue), None);
+    }
+
+    #[test]
+    fn dropped_frames_is_readable_and_cumulative() {
+        let queue = VideoFrameQueue::new(Some(1));
+
+        assert_eq!(queue.dropped_frames(), 0);
+
+        queue.push(test_frame(1));
+        assert_eq!(queue.dropped_frames(), 0, "the first frame fits");
+
+        queue.push(test_frame(2));
+        assert_eq!(queue.dropped_frames(), 1);
+
+        queue.push(test_frame(3));
+        assert_eq!(queue.dropped_frames(), 2, "the count accumulates");
+
+        // Draining does not reset it: the counter reports losses over the
+        // stream's whole life, so a consumer can diff it between frames.
+        assert_eq!(pop_timestamp(&queue), Some(3));
+        assert_eq!(queue.dropped_frames(), 2);
+    }
+
+    #[test]
+    fn an_unbounded_queue_never_reports_drops() {
+        let queue = VideoFrameQueue::new(None);
+
+        for timestamp_us in 1..=64 {
+            queue.push(test_frame(timestamp_us));
+        }
+
+        assert_eq!(queue.dropped_frames(), 0);
     }
 
     #[test]
