@@ -97,6 +97,17 @@ pub mod native {
             self.handle.track()
         }
 
+        /// Frames this stream has dropped because the consumer did not keep up
+        /// with the WebRTC sink, counted since the stream was created.
+        ///
+        /// A stream built with `queue_size_frames: Some(0)` never drops, so
+        /// this stays at zero. For any bounded queue a rising count means the
+        /// consumer is too slow for the incoming frame rate; the frames are
+        /// gone and no WebRTC stat reports them.
+        pub fn dropped_frames(&self) -> u64 {
+            self.handle.dropped_frames()
+        }
+
         pub fn close(&mut self) {
             self.handle.close();
         }
