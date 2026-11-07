@@ -1101,6 +1101,16 @@ export declare class VideoFrameReceived extends Message<VideoFrameReceived> {
  * @generated from message livekit.proto.VideoStreamEOS
  */
 export declare class VideoStreamEOS extends Message<VideoStreamEOS> {
+  /**
+   * Total frames this stream decoded but never delivered, over its whole life.
+   *
+   * A stream can lose frames after the last one it managed to forward, so the
+   * final total has no frame event to ride on. This carries it.
+   *
+   * @generated from field: optional uint64 dropped_frames = 1;
+   */
+  droppedFrames?: bigint;
+
   constructor(data?: PartialMessage<VideoStreamEOS>);
 
   static readonly runtime: typeof proto2;

@@ -429,7 +429,9 @@ const VideoFrameReceived = /*@__PURE__*/ proto2.makeMessageType(
  */
 const VideoStreamEOS = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.VideoStreamEOS",
-  [],
+  () => [
+    { no: 1, name: "dropped_frames", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
 );
 
 /**
