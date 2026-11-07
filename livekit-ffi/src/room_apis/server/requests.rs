@@ -579,10 +579,12 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
-        Ok((buffer, info)) => {
+    // One-off conversion, so there is no stream to reuse a buffer from.
+    let mut dst = Vec::new();
+    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false), &mut dst) {
+        Ok(info) => {
             let id = server.next_id();
-            server.store_handle(id, buffer);
+            server.store_handle(id, std::sync::Arc::new(dst));
             let owned_info = proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info };
             Ok(proto::VideoConvertResponse {
                 message: Some(proto::video_convert_response::Message::Buffer(owned_info)),
