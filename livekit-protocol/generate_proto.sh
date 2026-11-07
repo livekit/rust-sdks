@@ -20,6 +20,10 @@
 # the protocol repository (`otel/generate.sh`) and the crate reads `protocol/otel/gen/rust/semconv.rs`
 # straight from the submodule.
 
+# Stop at the first failing step: a failed protoc must not leave stale outputs behind, and the
+# normalization below must not turn its status into a success.
+set -eu
+
 PROTOCOL=${PROTOCOL:-protocol/protobufs}
 OUT_RUST=src
 
@@ -64,5 +68,6 @@ protoc \
 
 # protoc-gen-prost-serde leaves a trailing space after some `=` continuations. Strip it from every
 # generated file so the output passes `git diff --check` and a regeneration is byte-identical.
+# This runs only after a successful protoc (`set -e` above); `generate_proto_check.sh` pins that.
 perl -pi -e 's/[ \t]+$//' $OUT_RUST/livekit.rs $OUT_RUST/livekit.serde.rs $OUT_RUST/livekit.agent.rs \
     $OUT_RUST/livekit.agent.serde.rs $OUT_RUST/logger.rs $OUT_RUST/logger.serde.rs
