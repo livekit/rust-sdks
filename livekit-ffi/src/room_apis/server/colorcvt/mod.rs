@@ -171,6 +171,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
+            // SAFETY: `info` holds raw pointers into `i420`, which `to_i420` returned
+            // by value. It lives until the end of this arm, so the conversion has to
+            // happen here rather than after the match.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
             }
@@ -191,6 +194,8 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
+            // SAFETY: `info` holds raw pointers into `i420`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
             }
@@ -213,6 +218,8 @@ pub fn to_video_buffer_info(
                 stride_v,
                 stride_a,
             );
+            // SAFETY: `info` holds raw pointers into `i420`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false, dst)
             }
@@ -233,6 +240,8 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
+            // SAFETY: `info` holds raw pointers into `i422`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false, dst)
             }
@@ -253,6 +262,8 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
+            // SAFETY: `info` holds raw pointers into `i444`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false, dst)
             }
@@ -273,6 +284,8 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
+            // SAFETY: `info` holds raw pointers into `i010`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false, dst)
             }
@@ -291,6 +304,8 @@ pub fn to_video_buffer_info(
                 stride_y,
                 stride_uv,
             );
+            // SAFETY: `info` holds raw pointers into `nv12`, borrowed from
+            // `rtcbuffer`, which outlives this call.
             unsafe {
                 cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false, dst)
             }

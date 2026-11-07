@@ -544,6 +544,44 @@ mod tests {
         assert_eq!(total.total(), 4, "EOS reports what no frame event could");
     }
 
+    /// The other tests stand in for the FFI handle map with a local clone.
+    /// This one uses the real map, so a change to how handles are stored or
+    /// released shows up as a buffer being reused while a binding still has
+    /// the frame -- which would tear it.
+    ///
+    /// `parallel` keeps it out of `dispose_cleans_up_resources`'s window; see
+    /// the note on that test.
+    #[serial_test::parallel]
+    #[test]
+    fn the_handle_map_is_what_holds_a_buffer_out_of_rotation() {
+        use crate::FFI_SERVER;
+
+        let mut buffers = FrameBuffers::default();
+        let handle_id = FFI_SERVER.next_id();
+
+        let in_flight = {
+            let slot = buffers.acquire();
+            FFI_SERVER.store_handle(handle_id, slot.clone());
+            Arc::as_ptr(slot)
+        };
+
+        // While the handle map holds it, the buffer must not come back.
+        assert_ne!(
+            Arc::as_ptr(buffers.acquire()),
+            in_flight,
+            "reusing it here would overwrite a frame the binding still has"
+        );
+
+        assert!(FFI_SERVER.drop_handle(handle_id), "the handle was in the map");
+
+        // Released by the binding, so it is available again.
+        let reused = buffers
+            .buffers
+            .iter()
+            .any(|buffer| Arc::as_ptr(buffer) == in_flight && Arc::strong_count(buffer) == 1);
+        assert!(reused, "dropping the handle returns the buffer to the stream");
+    }
+
     #[test]
     fn a_resized_frame_reuses_the_same_buffer() {
         // A simulcast layer switch changes the frame size; the allocation
