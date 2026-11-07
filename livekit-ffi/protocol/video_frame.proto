@@ -249,7 +249,13 @@ message VideoFrameReceived {
   optional uint64 dropped_frames = 5;
 }
 
-message VideoStreamEOS {}
+message VideoStreamEOS {
+  // Total frames this stream decoded but never delivered, over its whole life.
+  //
+  // A stream can lose frames after the last one it managed to forward, so the
+  // final total has no frame event to ride on. This carries it.
+  optional uint64 dropped_frames = 1;
+}
 
 //
 // VideoSource

@@ -62,6 +62,12 @@ impl DropTotal {
     fn finish_track(&self, current: u64) {
         self.0.fetch_add(current, Ordering::Relaxed);
     }
+
+    /// Everything lost so far, for a stream that has no more frames to report
+    /// it on.
+    fn total(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
@@ -234,9 +240,9 @@ impl FfiVideoStream {
             if let Err(err) = server.send_event(
                 proto::VideoStreamEvent {
                     stream_handle,
-                    message: Some(proto::video_stream_event::Message::Eos(
-                        proto::VideoStreamEos {},
-                    )),
+                    message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {
+                        dropped_frames: Some(dropped_before.total()),
+                    })),
                 }
                 .into(),
             ) {
@@ -338,7 +344,9 @@ impl FfiVideoStream {
         if let Err(err) = server.send_event(
             proto::VideoStreamEvent {
                 stream_handle,
-                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
+                message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {
+                    dropped_frames: Some(dropped_before.total()),
+                })),
             }
             .into(),
         ) {
@@ -382,5 +390,17 @@ mod tests {
         // The next track's NativeVideoStream starts its own counter at zero.
         assert_eq!(total.with_current(0), 12, "the swap must not reset the total");
         assert_eq!(total.with_current(3), 15, "and the new track counts on top");
+    }
+
+    /// A stream can lose frames after the last one it managed to forward, so
+    /// those losses have no frame event to ride on. EOS carries the total
+    /// instead; without it they would never reach the application.
+    #[test]
+    fn the_total_survives_the_last_delivered_frame() {
+        let total = DropTotal::default();
+
+        total.finish_track(4); // two more lost after the final frame went out
+
+        assert_eq!(total.total(), 4, "EOS reports what no frame event could");
     }
 }
