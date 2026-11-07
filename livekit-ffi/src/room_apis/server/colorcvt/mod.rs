@@ -122,11 +122,37 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
     }
 }
 
+/// Converts a libwebrtc frame buffer into `dst`, tightly packed, and returns
+/// the pointers describing it.
+///
+/// `dst` belongs to the caller so a stream can hand the same allocation back
+/// frame after frame instead of churning one frame-sized block per frame. The
+/// returned info points into `dst`, so it is only valid while `dst` is.
+///
+/// TODO(sxian): skip the copy entirely when no conversion was asked for.
+///
+/// For a native-format request `cvt` only repacks the decoder's padded strides
+/// into tight ones. We could hand out the decoder's buffer instead: the handle
+/// map can already own one (`impl FfiHandle for BoxVideoBuffer`) and
+/// `VideoBufferInfo.components` already carries per-plane stride. Two steps:
+///
+/// 1. Strides already tight (`stride == width`): the info emitted is identical
+///    to what the copy produces, so no binding needs to change.
+/// 2. Padded strides: needs stride-aware consumers. The C++ SDK reads
+///    `components[].stride` already; Python's `VideoFrame` and Unity's
+///    `YuvToRgbConverter` both assume tightly packed data.
+///
+/// That would also delete the stream's `FrameBuffers`: libwebrtc's
+/// `VideoFrameBufferPool` already pools and refcounts decoder buffers, so this
+/// layer is only pooling because it copies. Not avoidable when the application
+/// requests a different pixel format, or for hardware decode where the source
+/// is a platform texture.
 pub fn to_video_buffer_info(
     rtcbuffer: BoxVideoBuffer,
     dst_type: Option<proto::VideoBufferType>,
     _normalize_stride: bool, // always normalize stride for now..
-) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
+    dst: &mut Vec<u8>,
+) -> FfiResult<proto::VideoBufferInfo> {
     match rtcbuffer.buffer_type() {
         // Convert Native buffer to I420
         VideoBufferType::Native => {
@@ -145,7 +171,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
+            }
         }
         VideoBufferType::I420 => {
             let i420 = rtcbuffer.as_i420().unwrap();
@@ -163,7 +191,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
+            }
         }
         VideoBufferType::I420A => {
             let i420 = rtcbuffer.as_i420a().unwrap();
@@ -183,7 +213,9 @@ pub fn to_video_buffer_info(
                 stride_v,
                 stride_a,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false, dst)
+            }
         }
         VideoBufferType::I422 => {
             let i422 = rtcbuffer.as_i422().unwrap();
@@ -201,7 +233,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false, dst)
+            }
         }
         VideoBufferType::I444 => {
             let i444 = rtcbuffer.as_i444().unwrap();
@@ -219,7 +253,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false, dst)
+            }
         }
         VideoBufferType::I010 => {
             let i010 = rtcbuffer.as_i010().unwrap();
@@ -237,7 +273,9 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false, dst)
+            }
         }
         VideoBufferType::NV12 => {
             let nv12 = rtcbuffer.as_nv12().unwrap();
@@ -253,7 +291,9 @@ pub fn to_video_buffer_info(
                 stride_y,
                 stride_uv,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false) }
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false, dst)
+            }
         }
         _ => todo!(),
     }
@@ -542,5 +582,84 @@ pub fn rgb_info(
         components: Vec::default(),
         data_ptr: data_ptr as u64,
         stride: Some(width * 3),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use livekit::webrtc::video_frame::I420Buffer;
+
+    use super::*;
+
+    /// A realistic shape: 640x480 I420 is 460,800 bytes.
+    const WIDTH: u32 = 640;
+    const HEIGHT: u32 = 480;
+
+    fn i420_frame(width: u32, height: u32) -> BoxVideoBuffer {
+        Box::new(I420Buffer::new(width, height)) as BoxVideoBuffer
+    }
+
+    fn convert_into(dst: &mut Vec<u8>, width: u32, height: u32) -> proto::VideoBufferInfo {
+        to_video_buffer_info(
+            i420_frame(width, height),
+            Some(proto::VideoBufferType::I420),
+            true,
+            dst,
+        )
+        .expect("i420 to i420 is supported")
+    }
+
+    #[test]
+    fn conversion_writes_into_the_buffer_it_is_given() {
+        let mut dst = Vec::new();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let chroma_w = (WIDTH + 1) / 2;
+        let chroma_h = (HEIGHT + 1) / 2;
+        assert_eq!(dst.len(), (WIDTH * HEIGHT + chroma_w * chroma_h * 2) as usize);
+        assert_eq!(info.data_ptr, dst.as_ptr() as u64, "the info points into the caller's buffer");
+    }
+
+    #[test]
+    fn converting_again_into_the_same_buffer_does_not_reallocate() {
+        // This is what lets a stream hand the same allocation back frame after
+        // frame instead of churning one per frame.
+        let mut dst = Vec::new();
+        convert_into(&mut dst, WIDTH, HEIGHT);
+        let address = dst.as_ptr();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        assert_eq!(dst.as_ptr(), address, "the second frame reused the allocation");
+        assert_eq!(info.data_ptr, address as u64);
+    }
+
+    #[test]
+    fn a_different_frame_size_resizes_the_buffer() {
+        // A simulcast layer switch changes the frame size mid-stream.
+        let mut dst = Vec::new();
+        convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let info = convert_into(&mut dst, WIDTH / 2, HEIGHT / 2);
+
+        let chroma_w = (WIDTH / 2 + 1) / 2;
+        let chroma_h = (HEIGHT / 2 + 1) / 2;
+        assert_eq!(dst.len(), ((WIDTH / 2) * (HEIGHT / 2) + chroma_w * chroma_h * 2) as usize);
+        assert_eq!(info.width, WIDTH / 2);
+        assert_eq!(info.data_ptr, dst.as_ptr() as u64);
+    }
+
+    #[test]
+    fn conversion_output_is_tightly_packed() {
+        let mut dst = Vec::new();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let chroma_w = (WIDTH + 1) / 2;
+        assert_eq!(info.width, WIDTH);
+        assert_eq!(info.height, HEIGHT);
+        let [y, u, v] = &info.components[..] else { panic!("expected three planes") };
+        assert_eq!((y.stride, u.stride, v.stride), (WIDTH, chroma_w, chroma_w));
     }
 }

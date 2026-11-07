@@ -82,7 +82,7 @@ impl FfiHandle for Arc<Mutex<AudioProcessingModule>> {}
 impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
-impl FfiHandle for Box<[u8]> {}
+impl FfiHandle for Arc<Vec<u8>> {}
 impl FfiHandle for () {}
 
 pub struct FfiServer {
