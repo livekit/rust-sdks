@@ -87,6 +87,7 @@ apply_patch "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch"
 # See: https://crbug.com/376278218
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
 apply_patch "$COMMAND_DIR/patches/disable_crel.patch" build
+apply_patch "$COMMAND_DIR/patches/enable_opus_nsq_avx2.patch" third_party
 
 cd third_party
 
