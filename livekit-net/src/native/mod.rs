@@ -212,7 +212,7 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
-        time::{Duration, Instant},
+        time::Duration,
     };
 
     use super::*;
@@ -457,19 +457,6 @@ mod tests {
         request
     }
 
-    /// Whether `listener` gets a connection within `patience`.
-    fn connected_within(listener: &TcpListener, patience: Duration) -> bool {
-        listener.set_nonblocking(true).expect("non-blocking");
-        let deadline = Instant::now() + patience;
-        while Instant::now() < deadline {
-            if listener.accept().is_ok() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        false
-    }
-
     /// A redirect that upgrades `http` to `https` on the same host and port is followed: the
     /// listener sees the client come back (and fail its TLS handshake against a plain socket).
     /// Needs a TLS backend: without one the client cannot attempt an `https` request at all.
@@ -481,6 +468,18 @@ mod tests {
     ))]
     #[tokio::test]
     async fn a_redirect_to_https_is_followed() {
+        /// Whether `listener` gets a connection within `patience`.
+        fn connected_within(listener: &TcpListener, patience: Duration) -> bool {
+            listener.set_nonblocking(true).expect("non-blocking");
+            let deadline = std::time::Instant::now() + patience;
+            while std::time::Instant::now() < deadline {
+                if listener.accept().is_ok() {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            false
+        }
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("address").port();
         let server = std::thread::spawn(move || {
