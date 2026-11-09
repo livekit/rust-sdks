@@ -282,6 +282,7 @@ jobs:
           test -s python-bindings/livekit_ffi.py
           grep -q 'def build_version' python-bindings/livekit_ffi.py
           grep -q 'class LocalDataTrack' python-bindings/livekit_ffi.py
+          grep -q 'class ByteStreamReader' python-bindings/livekit_ffi.py
 
       - name: Zip Python bindings
         if: ${{ matrix.name == 'ffi-macos-arm64' }}
