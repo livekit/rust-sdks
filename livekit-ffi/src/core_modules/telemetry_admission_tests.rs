@@ -378,17 +378,13 @@ fn admission_public_pulled_controls() {
 
 /// Run in a fresh process for each irreversible opt-out boundary: CI's tests workflow runs each
 /// `LK_ADMISSION_BOUNDARY` case (`zero`, `reserved`, `full`) as its own `cargo test` process.
+/// Every case opts out with [`telemetry_disable`], then configures; `zero` holds no reservation.
+/// Fallible steps are recorded, not unwrapped, until the lifecycle is shut down and joined.
 #[test]
 #[ignore = "one-way process consent; CI runs each LK_ADMISSION_BOUNDARY case in its own process"]
 fn admission_child_consent_boundaries() {
     let case = std::env::var("LK_ADMISSION_BOUNDARY").expect("boundary supplied by gate driver");
-    if case == "zero" {
-        runtime().block_on(telemetry_shutdown());
-        assert_eq!(LIFECYCLE.generations.load(Ordering::SeqCst), 0);
-        assert!(LIFECYCLE.admission.get().is_none());
-        assert!(LIFECYCLE.lock().is_none());
-        return;
-    }
+    assert!(["zero", "reserved", "full"].contains(&case.as_str()), "unknown case {case}");
     /// Removes the case's directory however the case ends, including a failed assertion.
     struct RemoveDir(std::path::PathBuf);
     impl Drop for RemoveDir {
@@ -401,6 +397,7 @@ fn admission_child_consent_boundaries() {
     let _remove = RemoveDir(dir.clone());
     std::fs::write(dir.join("old-secret"), b"pending").expect("old data");
     let before = LIFECYCLE.constructed.load(Ordering::SeqCst);
+    let queues_before = LIFECYCLE.queues_constructed.load(Ordering::SeqCst);
     let mut leases = Vec::new();
     let mut worker = None;
     let mut release = None;
@@ -409,10 +406,11 @@ fn admission_child_consent_boundaries() {
         let (arrived, receive) = std::sync::mpsc::sync_channel(1);
         let (open, waiting) = std::sync::mpsc::sync_channel(1);
         let waiting = Mutex::new(waiting);
-        *LIFECYCLE.before_construct.lock().expect("hook") = Some(Arc::new(move || {
-            let _ = arrived.send(());
-            let _ = waiting.lock().expect("release").recv_timeout(FIRST_UPLOAD);
-        }));
+        *LIFECYCLE.before_construct.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(Arc::new(move || {
+                let _ = arrived.send(());
+                let _ = waiting.lock().map(|waiting| waiting.recv_timeout(FIRST_UPLOAD));
+            }));
         let path = dir.to_string_lossy().into_owned();
         worker = Some(std::thread::spawn(move || {
             telemetry_configure_pulled(
@@ -426,45 +424,54 @@ fn admission_child_consent_boundaries() {
         }));
         entered = Some(receive.recv_timeout(FIRST_UPLOAD).is_ok());
         release = Some(open);
-    } else {
-        for _ in 0..3 {
-            leases.push(LIFECYCLE.reserve().expect("slot"));
-        }
+    } else if case == "full" {
+        leases.extend((0..3).filter_map(|_| LIFECYCLE.reserve().ok()));
     }
+    let reserved_slots = leases.len();
     // Opt-out does not wait for the reserved caller, and controls bypass a full counter.
     telemetry_disable();
+    let disabled = telemetry_is_disabled();
     if let Some(release) = release {
         let _ = release.send(());
     }
-    let result = if let Some(worker) = worker {
-        worker.join().expect("constructor joined")
-    } else {
-        telemetry_configure_pulled(
+    let result = match worker {
+        Some(worker) => worker.join().ok(),
+        None => Some(telemetry_configure_pulled(
             TelemetryConfig {
                 storage_dir: Some(dir.to_string_lossy().into_owned()),
                 ..Default::default()
             },
             Vec::new(),
-        )
+        )),
     };
-    *LIFECYCLE.before_construct.lock().expect("hook") = None;
-    let queue = result.expect("consent is a successful refusal");
-    let weak = Arc::downgrade(&queue);
-    let finished = queue.finished.load(Ordering::SeqCst) && queue.try_next().is_none();
+    *LIFECYCLE.before_construct.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let queue = result.and_then(Result::ok);
+    let weak = queue.as_ref().map(Arc::downgrade);
+    let finished = queue
+        .as_ref()
+        .is_some_and(|queue| queue.finished.load(Ordering::SeqCst) && queue.try_next().is_none());
+    // Capture stays refused after the refused configure.
+    let capture_refused = telemetry_scope().is_none() && telemetry_stats().is_none();
     let count_before_release = admitted(&LIFECYCLE);
+    let counter_created = LIFECYCLE.admission.get().is_some();
     drop(leases);
     runtime().block_on(telemetry_shutdown());
-    let empty = std::fs::read_dir(&dir).expect("dir").count() == 0;
+    let empty = std::fs::read_dir(&dir).map(|entries| entries.count() == 0).unwrap_or(false);
     let constructors = LIFECYCLE.constructed.load(Ordering::SeqCst) - before;
+    let queues = LIFECYCLE.queues_constructed.load(Ordering::SeqCst) - queues_before;
     drop(queue);
-    assert!(finished && empty && weak.upgrade().is_none());
+    let destroyed = weak.is_some_and(|weak| weak.upgrade().is_none());
+    assert!(disabled && finished && capture_refused && empty && destroyed, "{case}");
     assert_eq!(admitted(&LIFECYCLE), 0);
-    assert!(LIFECYCLE.lock().is_none());
+    assert!(LIFECYCLE.lock().is_none(), "the lifecycle is joined");
     assert!(telemetry_scope().is_none());
-    if case == "reserved" {
-        assert_eq!(entered, Some(true));
-        assert_eq!((constructors, count_before_release), (1, 0));
-    } else {
-        assert_eq!((constructors, count_before_release), (0, 3));
+    let observed = (reserved_slots, constructors, queues, count_before_release, counter_created);
+    match case.as_str() {
+        "zero" => assert_eq!(observed, (0, 0, 0, 0, false)),
+        "reserved" => {
+            assert_eq!(entered, Some(true));
+            assert_eq!(observed, (0, 1, 1, 0, true));
+        }
+        _ => assert_eq!(observed, (3, 0, 0, 3, true)),
     }
 }
