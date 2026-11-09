@@ -28,7 +28,7 @@ use livekit::{
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Sleep;
 
-use crate::agent::AgentTracker;
+use crate::agent::{AgentTracker, AgentTracks};
 use crate::constants::{TOPIC_CHAT, TOPIC_TRANSCRIPTION};
 use crate::dispatcher::Dispatcher;
 use crate::messages::{
@@ -243,7 +243,7 @@ impl SessionActor {
         }
     }
 
-    /// Projects the agent state and publishes the session state.
+    /// Projects the agent state and tracks, and publishes the session state.
     pub(crate) fn refresh(&mut self) {
         let participants = self.room.remote_participants();
         let agent_state = self.tracker.project(self.connection, participants.values());
@@ -252,7 +252,11 @@ impl SessionActor {
         }
         self.shared.publish(
             self.generation,
-            SessionState { connection: self.connection, agent: agent_state },
+            SessionState {
+                connection: self.connection,
+                agent: agent_state,
+                agent_tracks: AgentTracks::project(participants.values()),
+            },
         );
     }
 

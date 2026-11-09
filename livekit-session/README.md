@@ -65,7 +65,10 @@ attribute. `Failed` is not final: an agent that joins, or becomes conversational
 code needs only the predicates on `AgentState`: `is_connected`, `is_pending` and `is_finished`.
 
 The agent's microphone and its avatar's camera are available from `agent_audio_track()` and
-`agent_avatar_video_track()`, for an app that wants their frames, e.g. for a visualizer.
+`agent_avatar_video_track()`, for an app that wants their frames, e.g. for a visualizer or to show
+the avatar. `SessionState::agent_tracks` flags which of them are subscribed, so the state watch is
+the only signal an app needs: on each change, read the tracks again and compare them by `sid`, as a
+track can be replaced while its flag stays set.
 
 ## Messages
 

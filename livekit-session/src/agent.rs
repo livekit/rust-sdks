@@ -128,6 +128,36 @@ pub enum AgentFailure {
     Left,
 }
 
+/// Which of the agent's tracks the session has subscribed.
+///
+/// These are flags, not the tracks: get those from
+/// [`Session::agent_audio_track`](crate::Session::agent_audio_track) and
+/// [`Session::agent_avatar_video_track`](crate::Session::agent_avatar_video_track).
+/// Call them again on every change of [`SessionState`](crate::SessionState),
+/// not only when a flag changes: a track that is replaced, e.g. when the
+/// avatar reconnects, can leave its flag `true`. Compare tracks by their
+/// `sid` to find a replacement.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AgentTracks {
+    /// The agent's microphone is subscribed.
+    pub audio: bool,
+    /// The camera of the agent's avatar is subscribed.
+    pub avatar_video: bool,
+}
+
+impl AgentTracks {
+    /// Projects the flags from the remote participants.
+    pub(crate) fn project<'a>(
+        participants: impl IntoIterator<Item = &'a RemoteParticipant> + Clone,
+    ) -> Self {
+        Self {
+            audio: agent_audio_track(participants.clone()).is_some(),
+            avatar_video: agent_avatar_video_track(participants).is_some(),
+        }
+    }
+}
+
 /// A remote participant, as far as agent projection is concerned.
 pub(crate) trait AgentCandidate {
     fn identity(&self) -> ParticipantIdentity;
