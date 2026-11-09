@@ -472,6 +472,13 @@ mod tests {
 
     /// A redirect that upgrades `http` to `https` on the same host and port is followed: the
     /// listener sees the client come back (and fail its TLS handshake against a plain socket).
+    /// Needs a TLS backend: without one the client cannot attempt an `https` request at all.
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "native-tls-vendored",
+        feature = "rustls-tls-native-roots",
+        feature = "rustls-tls-webpki-roots"
+    ))]
     #[tokio::test]
     async fn a_redirect_to_https_is_followed() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
