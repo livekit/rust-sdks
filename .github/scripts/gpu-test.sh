@@ -50,7 +50,13 @@ cmake \
   -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DWEBRTC_ROOT="$webrtc_root"
-cmake --build "$benchmark_build_dir" --target h264_benchmark
+cmake --build "$benchmark_build_dir" \
+  --target h264_benchmark webrtc_sys_integration_tests
+LIVEKIT_REQUIRE_NVIDIA=1 ctest \
+  --test-dir "$benchmark_build_dir" \
+  --output-on-failure \
+  --no-tests=error \
+  -L nvidia
 
 fixture_dir="$benchmark_build_dir/resources"
 fixture="$fixture_dir/FourPeople_1280x720_30.yuv"
