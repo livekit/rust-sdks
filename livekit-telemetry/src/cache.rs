@@ -197,6 +197,9 @@ pub(crate) enum Step {
     Delete,
     /// Publishing a committed replacement half (`.pend` → batch).
     Publish,
+    /// Clear has taken its batch listing (tests only).
+    #[cfg(test)]
+    ClearListed,
 }
 
 #[cfg(test)]
@@ -608,6 +611,8 @@ impl BatchCache for FileCache {
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
             other => other?,
         };
+        #[cfg(test)]
+        self.step(Step::ClearListed, &self.dir)?;
         let mut first = Ok(());
         for id in ids {
             if let Err(err) = self.remove(&id) {
@@ -849,6 +854,77 @@ mod tests {
         /// The parent directory the last directory creation on this thread synced.
         pub(super) static SYNCED_PARENT: std::cell::RefCell<Option<PathBuf>> =
             const { std::cell::RefCell::new(None) };
+        /// Signals an actual contended commit lock, without a timer/readiness guess.
+        pub(super) static COMMIT_WAIT: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    }
+
+    /// Missing parents cannot be resurrected after the eviction was already counted.
+    #[test]
+    fn replacement_requires_a_parent_in_both_caches() {
+        let dir = temp_dir("missing-parent");
+        let file = FileCache::open(&dir, 1).unwrap();
+        let memory = MemoryCache::new(1);
+        let mut results = Vec::new();
+        for cache in [&file as &dyn BatchCache, &memory as &dyn BatchCache] {
+            cache.push(&id(1), b"parent").unwrap();
+            assert_eq!(cache.push(&id(2), b"newest").unwrap(), [id(1)]);
+            for children in [vec![], vec![(id(3), b"child".to_vec())]] {
+                results.push(cache.replace(&id(1), &children).map_err(|e| e.kind()));
+                assert_eq!(cache.pending(), [id(2)], "no children on missing-parent error");
+            }
+        }
+        drop(file);
+        fs::remove_dir_all(dir).unwrap();
+        assert!(results.iter().all(|r| matches!(r, Err(io::ErrorKind::NotFound))), "{results:?}");
+    }
+
+    /// Hold a real write and distinguish a blocked clear from a stale listing deterministically.
+    #[test]
+    fn standalone_clear_waits_before_listing_another_instances_held_write() {
+        use std::{sync::mpsc::sync_channel, thread, time::Duration};
+        let dir = temp_dir("clear-held-write");
+        let writer = Arc::new(FileCache::open(&dir, 1024).unwrap());
+        let clearer = Arc::new(FileCache::open(&dir, 1024).unwrap());
+        let writer_weak = Arc::downgrade(&writer);
+        let clearer_weak = Arc::downgrade(&clearer);
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (write_tx, write_rx) = sync_channel(1);
+        let write_rx = Mutex::new(write_rx);
+        writer.inject(move |step, _| {
+            if step == Step::Write {
+                let _ = entered_tx.send(());
+                write_rx.lock().unwrap().recv_timeout(Duration::from_secs(5)).map_err(io::Error::other)?;
+            }
+            Ok(())
+        });
+        let (observed_tx, observed_rx) = sync_channel(2);
+        let listed_tx = observed_tx.clone();
+        let (clear_tx, clear_rx) = sync_channel(1);
+        let clear_rx = Mutex::new(clear_rx);
+        clearer.inject(move |step, _| {
+            if step == Step::ClearListed {
+                let _ = listed_tx.send("listed");
+                clear_rx.lock().unwrap().recv_timeout(Duration::from_secs(5)).map_err(io::Error::other)?;
+            }
+            Ok(())
+        });
+        let writing = thread::spawn(move || writer.push(&id(1), b"payload"));
+        let entered = entered_rx.recv_timeout(Duration::from_secs(5));
+        let clearing = thread::spawn(move || {
+            COMMIT_WAIT.with(|slot| *slot.borrow_mut() = Some(Box::new(move || { let _ = observed_tx.send("blocked"); })));
+            clearer.clear()
+        });
+        let observed = observed_rx.recv_timeout(Duration::from_secs(5));
+        let _ = write_tx.send(());
+        let wrote = writing.join();
+        let _ = clear_tx.send(());
+        let cleared = clearing.join();
+        let files: Vec<_> = fs::read_dir(&dir).unwrap().collect();
+        fs::remove_dir_all(dir).unwrap();
+        assert!(writer_weak.upgrade().is_none() && clearer_weak.upgrade().is_none());
+        assert!(entered.is_ok() && matches!(wrote, Ok(Ok(_))) && matches!(cleared, Ok(Ok(()))));
+        assert_eq!(observed.unwrap(), "blocked", "clear must wait before taking its listing");
+        assert!(files.is_empty(), "a clear cannot miss a held writer's later commit");
     }
 
     /// Ids the exporter would mint: a real timestamp (fixed for the test run, so ids stay
