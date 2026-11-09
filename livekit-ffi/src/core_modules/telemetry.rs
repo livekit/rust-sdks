@@ -558,14 +558,32 @@ impl TelemetryScope {
     /// anything else is rejected and counted. Values are exported as given: unlike log bodies,
     /// they are not masked for credentials.
     pub fn emit_custom(&self, name: String, attributes: HashMap<String, String>) {
-        let attributes = attributes.into_iter().map(|(k, v)| Attribute::new(k, v)).collect();
+        self.emit_custom_typed(
+            name,
+            attributes.into_iter().map(|(key, value)| (key, AttributeValue::Str(value))).collect(),
+        );
+    }
+
+    /// Like [`emit_custom`](Self::emit_custom), preserving boolean, integer, double and string
+    /// values. The same core name, key, value and attribute-count limits apply.
+    pub fn emit_custom_typed(&self, name: String, attributes: HashMap<String, AttributeValue>) {
+        // UniFFI lowers owned arguments; borrow only at the existing core boundary.
+        let attributes =
+            attributes.into_iter().map(|(key, value)| Attribute::new(key, value)).collect();
         self.0.emit_custom(&name, attributes);
     }
 
     /// An app correlation attribute on every record this room captures from now on; `None`
     /// removes it. Same limits as `emit_custom`, at most 64 per room.
     pub fn set_attribute(&self, key: String, value: Option<String>) {
-        self.0.set_attribute(&key, value.map(AttributeValue::Str));
+        self.set_attribute_typed(key, value.map(AttributeValue::Str));
+    }
+
+    /// Like [`set_attribute`](Self::set_attribute), preserving scalar types; `None` removes
+    /// the key. Uses the same core validation and capture snapshots: earlier records keep
+    /// the value they captured.
+    pub fn set_attribute_typed(&self, key: String, value: Option<AttributeValue>) {
+        self.0.set_attribute(&key, value);
     }
 
     /// One peer connection's whole `getStats()` report and its tracks (MediaStreamTrack id →
@@ -2176,35 +2194,58 @@ mod tests {
         let transport_weak = Arc::downgrade(&transport);
         let (invalid, stopped) = runtime().block_on(async {
             let (telemetry, exporter) = livekit_telemetry::Telemetry::with_cache(
-                TelemetryConfig::default(), transport.clone(), cache.clone(),
+                TelemetryConfig::default(),
+                transport.clone(),
+                cache.clone(),
             );
             let mut task = tokio::spawn(exporter.run());
             let scope = TelemetryScope(telemetry.begin_scope());
             scope.set_server("wss://p.livekit.cloud".into(), granted_token());
             scope.set_attribute_typed("app.phase".into(), Some(AttributeValue::Int(-7)));
-            scope.emit_custom_typed("before".into(), HashMap::from([
-                ("app.bool".into(), AttributeValue::Bool(true)),
-                ("app.int".into(), AttributeValue::Int(i64::MIN)),
-                ("app.double".into(), AttributeValue::Double(1.25)),
-                ("app.string".into(), AttributeValue::Str("kept".into())),
-            ]));
+            scope.emit_custom_typed(
+                "before".into(),
+                HashMap::from([
+                    ("app.bool".into(), AttributeValue::Bool(true)),
+                    ("app.int".into(), AttributeValue::Int(i64::MIN)),
+                    ("app.double".into(), AttributeValue::Double(1.25)),
+                    ("app.string".into(), AttributeValue::Str("kept".into())),
+                ]),
+            );
             scope.set_attribute_typed("app.phase".into(), None);
-            scope.emit_custom("after".into(), HashMap::from([("app.compat".into(), "string".into())]));
+            scope.emit_custom(
+                "after".into(),
+                HashMap::from([("app.compat".into(), "string".into())]),
+            );
             scope.set_attribute("app.compat".into(), Some("legacy".into()));
             scope.set_attribute("app.compat".into(), None);
             scope.set_attribute_typed("lk.spoof".into(), Some(AttributeValue::Bool(true)));
             scope.set_attribute_typed("x".repeat(129), Some(AttributeValue::Int(1)));
-            scope.set_attribute_typed("app.too_long".into(), Some(AttributeValue::Str("x".repeat(1025))));
+            scope.set_attribute_typed(
+                "app.too_long".into(),
+                Some(AttributeValue::Str("x".repeat(1025))),
+            );
             scope.emit_custom_typed("x".repeat(129), HashMap::new());
-            scope.emit_custom_typed("reserved".into(), HashMap::from([("otel.spoof".into(), AttributeValue::Bool(true))]));
-            scope.emit_custom_typed("too_many".into(), (0..65).map(|i| (format!("app.{i}"), AttributeValue::Int(i))).collect());
+            scope.emit_custom_typed(
+                "reserved".into(),
+                HashMap::from([("otel.spoof".into(), AttributeValue::Bool(true))]),
+            );
+            scope.emit_custom_typed(
+                "too_many".into(),
+                (0..65).map(|i| (format!("app.{i}"), AttributeValue::Int(i))).collect(),
+            );
             let invalid = telemetry.stats().dropped_invalid;
-            let flushed = tokio::time::timeout(Duration::from_secs(2), telemetry.flush()).await.is_ok();
+            let flushed =
+                tokio::time::timeout(Duration::from_secs(2), telemetry.flush()).await.is_ok();
             drop(scope);
-            let purged = tokio::time::timeout(Duration::from_secs(2), telemetry.purge()).await == Ok(true);
+            let purged =
+                tokio::time::timeout(Duration::from_secs(2), telemetry.purge()).await == Ok(true);
             let joined = match tokio::time::timeout(Duration::from_secs(2), &mut task).await {
                 Ok(result) => result.is_ok(),
-                Err(_) => { task.abort(); let _ = task.await; false }
+                Err(_) => {
+                    task.abort();
+                    let _ = task.await;
+                    false
+                }
             };
             drop(telemetry);
             (invalid, flushed && purged && joined)
@@ -2217,5 +2258,4 @@ mod tests {
         assert!(sent, "the real exporter reached the recording transport");
         assert_eq!(invalid, 6, "typed calls retain core refusal/accounting semantics");
     }
-
 }
