@@ -1432,6 +1432,10 @@ fn gzip(body: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[path = "vote_controls.rs"]
+mod vote_controls;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Mutex;
 
