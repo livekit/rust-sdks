@@ -865,16 +865,18 @@ mod tests {
         let file = FileCache::open(&dir, 1).unwrap();
         let memory = MemoryCache::new(1);
         let mut results = Vec::new();
+        let mut listings = Vec::new();
         for cache in [&file as &dyn BatchCache, &memory as &dyn BatchCache] {
             cache.push(&id(1), b"parent").unwrap();
             assert_eq!(cache.push(&id(2), b"newest").unwrap(), [id(1)]);
             for children in [vec![], vec![(id(3), b"child".to_vec())]] {
                 results.push(cache.replace(&id(1), &children).map_err(|e| e.kind()));
-                assert_eq!(cache.pending(), [id(2)], "no children on missing-parent error");
+                listings.push(cache.pending());
             }
         }
         drop(file);
         fs::remove_dir_all(dir).unwrap();
+        assert!(listings.iter().all(|ids| ids == &[id(2)]), "no children on missing-parent error: {listings:?}");
         assert!(results.iter().all(|r| matches!(r, Err(io::ErrorKind::NotFound))), "{results:?}");
     }
 
