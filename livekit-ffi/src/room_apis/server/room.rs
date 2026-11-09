@@ -165,15 +165,20 @@ impl FfiRoom {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
                     // initialize audio filters
-                    let result = server
-                        .async_runtime
-                        .spawn_blocking(move || {
-                            for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token)?;
-                            }
-                            Ok::<(), PluginError>(())
-                        })
-                        .await;
+                    let filters = registered_audio_filter_plugins();
+                    let result = if filters.is_empty() {
+                        Ok(Ok(()))
+                    } else {
+                        server
+                            .async_runtime
+                            .spawn_blocking(move || {
+                                for filter in filters {
+                                    filter.on_load(&req.url, &req.token)?;
+                                }
+                                Ok::<(), PluginError>(())
+                            })
+                            .await
+                    };
 
                     // Filter failures are non-fatal: keep the RTC session alive, just
                     // without the filter enabled.
