@@ -62,7 +62,8 @@ pub struct TelemetryConfig {
     pub sdk: Option<TelemetryResource>,
     /// Directory for the on-disk batch cache (created if missing; its parent must exist).
     /// `None` keeps batches in memory only: they survive failed uploads, not the process.
-    /// The cache owns the directory: the start and the opt-out delete other files in it.
+    /// Supply a dedicated directory: the cache owns it exclusively, and startup and opt-out
+    /// delete other files in it. The configured path itself is used, without a child directory.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub storage_dir: Option<String>,
     /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
