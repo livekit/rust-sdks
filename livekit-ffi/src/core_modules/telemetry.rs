@@ -34,8 +34,8 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock,
     },
 };
 
@@ -55,6 +55,12 @@ pub enum TelemetryError {
     /// No transport was passed and no HTTP client is registered with `livekit-net`.
     #[error("no telemetry transport: pass one, or register an HTTP client with livekit-net first")]
     NoTransport,
+    /// Three process generations are reserved, queued, running or draining.
+    #[error("three telemetry generations are already admitted")]
+    AtCapacity,
+    /// Lifecycle delivery or acknowledgement failed, so configuration did not report success.
+    #[error("telemetry lifecycle is unavailable")]
+    LifecycleUnavailable,
 }
 
 /// Start the process pipeline; a previous one is drained and replaced. `transport = None` uses
@@ -68,7 +74,13 @@ pub enum TelemetryError {
 /// and the new instruments' `start()` on the core's runtime. Those callbacks must not block, must
 /// not wait on the calling thread (a synchronous hop to its queue deadlocks), and must not call
 /// configure, disable, flush or shutdown. The opt-out takes precedence: after it, this still
-/// returns `Ok`, and no scope exists.
+/// returns `Ok` once refusal cleanup is ordered, and no scope exists. Lifecycle delivery failure
+/// returns [`TelemetryError::LifecycleUnavailable`] instead.
+///
+/// A generation is one accepted process pipeline. At most three are admitted across construction,
+/// queued work, running exporters and drains. [`TelemetryError::AtCapacity`] changes no installed
+/// pipeline, cache or instruments. Controls, external scopes and total memory are not bounded.
+
 #[uniffi::export]
 pub fn telemetry_configure(
     config: TelemetryConfig,
@@ -79,7 +91,10 @@ pub fn telemetry_configure(
         Some(transport) => transport,
         None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
     };
-    install(config, transport, instruments);
+    let Some(lease) = admit(&LIFECYCLE, config.storage_dir.as_deref())? else {
+        return Ok(());
+    };
+    install(config, transport, instruments, lease, None)?;
     Ok(())
 }
 
@@ -89,52 +104,150 @@ pub fn telemetry_configure(
 /// Rust never calls back into it — and polls the queue with
 /// [`try_next`](TelemetryExportQueue::try_next). Blocks the calling thread as
 /// [`telemetry_configure`] does.
+///
+/// This return is fallible. On [`TelemetryError::AtCapacity`], keep servicing previous queues.
+/// The rejected replacement creates no queue and changes no installed pipeline. Only opt-out
+/// refusal returns an already finished queue successfully.
 #[uniffi::export]
 pub fn telemetry_configure_pulled(
     config: TelemetryConfig,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
-) -> Arc<TelemetryExportQueue> {
+) -> Result<Arc<TelemetryExportQueue>, TelemetryError> {
+    let Some(lease) = admit(&LIFECYCLE, config.storage_dir.as_deref())? else {
+        let queue = TelemetryExportQueue::new();
+        queue.process.store(true, Ordering::SeqCst);
+        queue.finish();
+        return Ok(queue);
+    };
+    #[cfg(test)]
+    LIFECYCLE.queues_constructed.fetch_add(1, Ordering::SeqCst);
     let queue = TelemetryExportQueue::new();
     queue.process.store(true, Ordering::SeqCst);
-    if !install(config, queue.clone(), instruments) {
-        // No exporter will ever queue a request: `next` must not wait for one.
-        queue.finish();
+    match install(config, queue.clone(), instruments, lease, Some(queue.clone())) {
+        Ok(true) => {}
+        Ok(false) => queue.finish(),
+        Err(error) => {
+            queue.finish();
+            return Err(error);
+        }
     }
-    queue
+    Ok(queue)
 }
 
-/// Install the pipeline through the process lifecycle; `false` when the install was refused
-/// (after the opt-out) and no exporter runs.
+/// Reserve before any cache or pulled-queue construction, with opt-out taking precedence.
+fn admit(
+    slot: &LifecycleSlot,
+    storage_dir: Option<&str>,
+) -> Result<Option<GenerationLease>, TelemetryError> {
+    if global::is_disabled() {
+        refuse_in(slot, storage_dir)?;
+        return Ok(None);
+    }
+    match slot.reserve() {
+        Ok(lease) => Ok(Some(lease)),
+        Err(TelemetryError::AtCapacity) if global::is_disabled() => {
+            refuse_in(slot, storage_dir)?;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Serialize refusal cleanup with earlier lifecycle work without admitting a generation.
+fn refuse_in(slot: &LifecycleSlot, storage_dir: Option<&str>) -> Result<(), TelemetryError> {
+    let (done, received) = std::sync::mpsc::sync_channel(1);
+    let result = slot
+        .send_checked(Command::Refuse { storage_dir: storage_dir.map(str::to_owned), done })
+        .and_then(|_| received.recv().map_err(|_| TelemetryError::LifecycleUnavailable)?);
+    if result.is_err() {
+        global::refuse_configuration(storage_dir);
+    }
+    result
+}
+
+/// Construct and synchronously install one already admitted generation.
 fn install(
     config: TelemetryConfig,
     transport: Arc<dyn TelemetryTransport>,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
-) -> bool {
+    lease: GenerationLease,
+    queue: Option<Arc<TelemetryExportQueue>>,
+) -> Result<bool, TelemetryError> {
+    #[cfg(test)]
+    LIFECYCLE.before_construction();
     let (telemetry, exporter) = livekit_telemetry::Telemetry::new(config, transport);
-    configure_in(&LIFECYCLE, telemetry, exporter, move |telemetry| {
-        // The pipeline it replaces is the one the lifecycle runs, and is stopped there in turn.
-        global::install(telemetry, instruments);
-        // Refused after the opt-out (the new pipeline was purged instead, its `storage_dir` with
-        // it), or opted out meanwhile (every generation revoked): nothing to run.
-        !global::is_disabled()
-    })
+    let identity = telemetry.clone();
+    let rollback_identity = identity.clone();
+    let installation = Installation {
+        apply: Box::new(move |telemetry| {
+            global::install(telemetry, instruments);
+            !global::is_disabled()
+        }),
+        rollback: Box::new(move || {
+            if let Some(queue) = queue {
+                queue.finish();
+            }
+            drop(global::uninstall_if_current(&rollback_identity));
+        }),
+    };
+    let result = configure_in(&LIFECYCLE, telemetry, exporter, lease.clone(), installation);
+    // A lifecycle task can disappear before sending its acknowledgement. Never remove a newer
+    // pipeline, and keep the caller's lease until this last installed owner is released.
+    if result.is_err() {
+        drop(global::uninstall_if_current(&identity));
+    }
+    drop(identity);
+    drop(lease);
+    result
 }
 
-/// Have the lifecycle in `slot` install `telemetry` with `install` and run its exporter in turn,
-/// and wait until it installed it: `false`, and no exporter, when `install` refused it. The
-/// lifecycle installs on its own thread, so that is where the instruments start; it answers
-/// before any drain (its exporter runner drains), so this waits only for the commands before it.
+/// The lifecycle owns both install and rollback callbacks; neither captures the lifecycle owner.
+struct Installation {
+    apply: Box<dyn FnOnce(livekit_telemetry::Telemetry) -> bool + Send>,
+    rollback: Box<dyn FnOnce() + Send>,
+}
+
+/// Wait for an admitted installation, distinguishing refusal from channel failure.
 fn configure_in(
     slot: &LifecycleSlot,
     telemetry: livekit_telemetry::Telemetry,
     exporter: livekit_telemetry::Exporter,
-    install: impl FnOnce(livekit_telemetry::Telemetry) -> bool + Send + 'static,
-) -> bool {
-    // A blocking wait: `telemetry_configure` is synchronous.
+    lease: GenerationLease,
+    installation: Installation,
+) -> Result<bool, TelemetryError> {
     let (done, installed) = std::sync::mpsc::sync_channel(1);
-    let exporter = Box::new(exporter);
-    slot.send(Command::Configure { install: Box::new(install), telemetry, exporter, done });
-    installed.recv().unwrap_or(false)
+    slot.send_checked(Command::Configure {
+        installation,
+        telemetry,
+        exporter: Box::new(exporter),
+        done,
+        lease,
+    })?;
+    installed.recv().map_err(|_| TelemetryError::LifecycleUnavailable)?
+}
+
+/// Maximum admitted process generations, including construction reservations.
+const MAX_ADMITTED_GENERATIONS: usize = 3;
+
+/// A slot owns this counter; leases own no slot, lifecycle, callback or runtime reference.
+struct AdmissionState {
+    active: AtomicUsize,
+}
+
+/// One counted generation. Its final lease disappears only after all admitted owners disappear.
+struct Reservation {
+    state: Arc<AdmissionState>,
+}
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.state.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Clones share one reservation and never consume another generation slot.
+#[derive(Clone)]
+struct GenerationLease {
+    _reservation: Arc<Reservation>,
 }
 
 /// One lifecycle operation. A lifecycle carries them out one at a time, in the order sent.
@@ -142,11 +255,18 @@ enum Command {
     /// Install a pipeline with `install` and run its exporter once the one before it stopped;
     /// answers whether it was installed.
     Configure {
-        install: Box<dyn FnOnce(livekit_telemetry::Telemetry) -> bool + Send>,
+        installation: Installation,
         telemetry: livekit_telemetry::Telemetry,
         /// Boxed: an exporter is large.
         exporter: Box<livekit_telemetry::Exporter>,
-        done: std::sync::mpsc::SyncSender<bool>,
+        done: std::sync::mpsc::SyncSender<Result<bool, TelemetryError>>,
+        // Last: queued exporter/callback destruction must complete before releasing admission.
+        lease: GenerationLease,
+    },
+    /// Refused configuration erases storage without constructing an admitted generation.
+    Refuse {
+        storage_dir: Option<String>,
+        done: std::sync::mpsc::SyncSender<Result<(), TelemetryError>>,
     },
     /// Uninstall with `uninstall`, then answer once every exporter queued before has stopped.
     Shutdown { uninstall: Box<dyn FnOnce() + Send>, done: oneshot::Sender<()> },
@@ -159,6 +279,13 @@ enum Command {
 /// Where a lifecycle lives: the running one, held by its owner, if any.
 struct LifecycleSlot {
     lifecycle: Mutex<Option<LifecycleHandle>>,
+    admission: OnceLock<Arc<AdmissionState>>,
+    #[cfg(test)]
+    before_construct: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    constructed: AtomicUsize,
+    #[cfg(test)]
+    queues_constructed: AtomicUsize,
     /// Lifecycles started in this slot so far: each new one's generation is the next number.
     generations: std::sync::atomic::AtomicU64,
     /// The runtime it runs on instead of the bridge's (tests only: so they can count its tasks).
@@ -177,10 +304,61 @@ impl LifecycleSlot {
     const fn new() -> Self {
         Self {
             lifecycle: Mutex::new(None),
+            admission: OnceLock::new(),
+            #[cfg(test)]
+            before_construct: Mutex::new(None),
+            #[cfg(test)]
+            constructed: AtomicUsize::new(0),
+            #[cfg(test)]
+            queues_constructed: AtomicUsize::new(0),
             generations: std::sync::atomic::AtomicU64::new(0),
             #[cfg(test)]
             runtime: None,
         }
+    }
+
+    /// Fail fast before generation construction; this counter survives lifecycle restarts.
+    fn reserve(&self) -> Result<GenerationLease, TelemetryError> {
+        let state = self
+            .admission
+            .get_or_init(|| Arc::new(AdmissionState { active: AtomicUsize::new(0) }))
+            .clone();
+        state
+            .active
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
+                (active < MAX_ADMITTED_GENERATIONS).then_some(active + 1)
+            })
+            .map_err(|_| TelemetryError::AtCapacity)?;
+        Ok(GenerationLease { _reservation: Arc::new(Reservation { state }) })
+    }
+
+    /// The test hook runs after reservation and outside every lifecycle/cache lock.
+    #[cfg(test)]
+    fn before_construction(&self) {
+        let hook = self.before_construct.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        self.constructed.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Report send failure after releasing the slot lock and destroying the failed command.
+    fn send_checked(&self, command: Command) -> Result<Ticket, TelemetryError> {
+        let result = {
+            let mut lifecycle = self.lock();
+            let lifecycle = lifecycle.get_or_insert_with(|| self.spawn());
+            match lifecycle.commands.send(command) {
+                Ok(()) => {
+                    lifecycle.sent += 1;
+                    Ok(lifecycle.ticket())
+                }
+                Err(error) => Err(error.0),
+            }
+        };
+        result.map_err(|command| {
+            drop(command);
+            TelemetryError::LifecycleUnavailable
+        })
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<LifecycleHandle>> {
@@ -298,8 +476,9 @@ struct Lifecycle {
 
 impl Lifecycle {
     /// Start a lifecycle and its exporter runner on `runtime`. The channels are unbounded:
-    /// `telemetry_configure` and `telemetry_disable` are synchronous and must neither block nor
-    /// fail to queue, and a command stands for one such call.
+    /// configure calls are synchronous and admitted generations are bounded separately. Controls
+    /// bypass admission so shutdown and opt-out cannot be refused by generation pressure. Their
+    /// queue and externally retained scopes are outside the generation bound.
     fn spawn(runtime: &tokio::runtime::Handle, generation: u64) -> LifecycleHandle {
         let (sender, commands) = mpsc::unbounded_channel();
         let task = runtime.spawn(async move {
@@ -313,15 +492,38 @@ impl Lifecycle {
     async fn run(mut self, runner: Owned) {
         while let Some(command) = self.commands.recv().await {
             match command {
-                Command::Configure { install, telemetry, exporter, done } => {
-                    let installed = install(telemetry.clone());
-                    if installed {
-                        let _ = self.exporters.send(Step::Run(telemetry, exporter));
-                    } else {
-                        // Gone before the answer: a refused pulled queue is held by its caller only.
-                        drop((telemetry, exporter));
+                Command::Configure { installation, telemetry, exporter, done, lease } => {
+                    let Installation { apply, rollback } = installation;
+                    let installed = apply(telemetry.clone());
+                    if !installed {
+                        drop((rollback, telemetry, exporter));
+                        drop(lease);
+                        let _ = done.send(Ok(false));
+                        continue;
                     }
-                    let _ = done.send(installed);
+                    match self.exporters.send(Step::Run(telemetry, exporter, lease)) {
+                        Err(failed) => {
+                            rollback();
+                            drop(failed);
+                            let _ = done.send(Err(TelemetryError::LifecycleUnavailable));
+                        }
+                        Ok(()) => {
+                            if done.send(Ok(true)).is_err() {
+                                rollback();
+                                let (done, _) = oneshot::channel();
+                                // Infrastructure failure drains normally; it never cuts a bound.
+                                let _ = self.exporters.send(Step::Stop(done));
+                            }
+                        }
+                    }
+                }
+                Command::Refuse { storage_dir, done } => {
+                    let result = if global::refuse_configuration(storage_dir.as_deref()) {
+                        Ok(())
+                    } else {
+                        Err(TelemetryError::LifecycleUnavailable)
+                    };
+                    let _ = done.send(result);
                 }
                 Command::Shutdown { uninstall, done } => {
                     uninstall();
@@ -348,7 +550,8 @@ impl Lifecycle {
 /// One request to the [`Exporters`] runner.
 enum Step {
     /// Stop the running exporter, then run this pipeline's.
-    Run(livekit_telemetry::Telemetry, Box<livekit_telemetry::Exporter>),
+    // Lease last: destroying a queued or dequeued exporter releases its owned resources first.
+    Run(livekit_telemetry::Telemetry, Box<livekit_telemetry::Exporter>, GenerationLease),
     /// Stop the running exporter, then answer.
     Stop(oneshot::Sender<()>),
 }
@@ -360,7 +563,32 @@ enum Step {
 struct Exporters {
     steps: mpsc::UnboundedReceiver<Step>,
     /// The running exporter's pipeline and task.
-    running: Option<(livekit_telemetry::Telemetry, Owned)>,
+    running: Option<Running>,
+}
+
+/// The exporter future drops before its lease, even when its task was never polled.
+/// Field declaration order is part of the admission contract. This safe wrapper pins only the
+/// boxed future and keeps the reservation through actual future destruction after cancellation.
+struct AdmittedTask {
+    future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    _lease: GenerationLease,
+}
+
+impl std::future::Future for AdmittedTask {
+    type Output = ();
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        self.get_mut().future.as_mut().poll(cx)
+    }
+}
+
+/// Runner ownership remains admitted until its task is joined and the pipeline is released.
+struct Running {
+    telemetry: livekit_telemetry::Telemetry,
+    task: Owned,
+    lease: GenerationLease,
 }
 
 impl Exporters {
@@ -368,8 +596,11 @@ impl Exporters {
         while let Some(step) = self.steps.recv().await {
             self.stop().await;
             match step {
-                Step::Run(telemetry, exporter) => {
-                    self.running = Some((telemetry, Owned(tokio::spawn(exporter.run()))));
+                Step::Run(telemetry, exporter, lease) => {
+                    let future =
+                        AdmittedTask { future: Box::pin(exporter.run()), _lease: lease.clone() };
+                    self.running =
+                        Some(Running { telemetry, task: Owned(tokio::spawn(future)), lease });
                 }
                 Step::Stop(done) => {
                     let _ = done.send(());
@@ -383,8 +614,10 @@ impl Exporters {
     /// Past it the exporter is cancelled and joined all the same: dropping its handle would
     /// leave it running.
     async fn stop(&mut self) {
-        let Some((telemetry, task)) = self.running.take() else { return };
+        let Some(Running { telemetry, task, lease }) = self.running.take() else { return };
         task.join(telemetry.shutdown_bound(), telemetry.shutdown()).await;
+        drop(telemetry);
+        drop(lease);
     }
 }
 
@@ -398,7 +631,8 @@ impl Exporters {
 /// The bounds are cooperative: a transport, instrument or disk call that blocks instead of
 /// yielding can make the wait longer. What did not go out stays in the cache. A disk cache
 /// (`storage_dir`) sends it on a later launch, once a room of the same project passes a fresh
-/// token, within the cache's 24 h age limit. A memory cache loses it when the process ends.
+/// token, within the cache's 24 h age limit. Memory-only data lasts while a cache owner remains;
+/// a normal completed drain can release that owner before process exit.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn telemetry_shutdown() {
     shutdown_in(&LIFECYCLE, || {
@@ -825,7 +1059,8 @@ impl TelemetryExportQueue {
     /// holder lets go. A request handed out before this
     /// call stays answerable with `complete` or `fail`, even when the host sees it only after this
     /// returns. Call after `telemetry_shutdown` or `telemetry_disable`, or when a later
-    /// `telemetry_configure_pulled` replaced this queue.
+    /// `telemetry_configure_pulled` successfully replaced this queue. Keep serving it if the
+    /// replacement returns [`TelemetryError::AtCapacity`].
     /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
     pub fn finish(&self) {
         #[cfg(test)]
@@ -1546,12 +1781,26 @@ mod tests {
         exporter: livekit_telemetry::Exporter,
         pause: impl FnOnce() + Send + 'static,
     ) {
+        let rollback = installed.clone();
         let installed = installed.clone();
-        configure_in(slot, telemetry, exporter, move |telemetry| {
-            installed.lock().expect("lock").replace(telemetry);
-            pause();
-            true
-        });
+        let lease = slot.reserve().expect("test generation admitted");
+        configure_in(
+            slot,
+            telemetry,
+            exporter,
+            lease,
+            Installation {
+                apply: Box::new(move |telemetry| {
+                    installed.lock().expect("lock").replace(telemetry);
+                    pause();
+                    true
+                }),
+                rollback: Box::new(move || {
+                    rollback.lock().expect("lock").take();
+                }),
+            },
+        )
+        .expect("test lifecycle available");
     }
 
     /// What `telemetry_shutdown` does, with `installed` for the process pipeline.
@@ -1569,7 +1818,10 @@ mod tests {
         task: tokio::task::JoinHandle<()>,
     ) {
         let steps = mpsc::unbounded_channel().1;
-        Exporters { steps, running: Some((telemetry, Owned(task))) }.stop().await;
+        let lease = LifecycleSlot::new().reserve().expect("admitted");
+        Exporters { steps, running: Some(Running { telemetry, task: Owned(task), lease }) }
+            .stop()
+            .await;
     }
 
     /// A slot whose lifecycles run on `runtime`, so a test can count their tasks.
@@ -2093,8 +2345,9 @@ mod tests {
     #[test]
     fn the_opt_out_withdraws_a_replaced_generations_pulled_request() {
         let _installs = PROCESS_PIPELINE.lock().unwrap_or_else(|e| e.into_inner());
+        admission_public_pulled_controls();
         let config = || TelemetryConfig { resource: Vec::new(), ..Default::default() };
-        let first = telemetry_configure_pulled(config(), Vec::new());
+        let first = telemetry_configure_pulled(config(), Vec::new()).expect("first");
         let room = telemetry_scope().expect("scope");
         room.set_server("wss://p.livekit.cloud".into(), granted_token());
         room.emit_custom("ping".into(), HashMap::new());
@@ -2103,7 +2356,7 @@ mod tests {
             eventually(|| first.queued.load(Ordering::SeqCst) == 1),
             "precondition: a pulled request is pending in the first queue"
         );
-        let _second = telemetry_configure_pulled(config(), Vec::new()); // `first` now drains
+        let _second = telemetry_configure_pulled(config(), Vec::new()).expect("second"); // `first` now drains
         assert!(!telemetry_is_disabled());
         telemetry_disable();
         assert!(telemetry_is_disabled(), "visible process-wide once the call returns");
@@ -2126,7 +2379,8 @@ mod tests {
         let refused = telemetry_configure_pulled(
             TelemetryConfig { storage_dir: Some(dir.to_string_lossy().into_owned()), ..config() },
             Vec::new(),
-        );
+        )
+        .expect("consent refusal is successful");
         assert_eq!(Arc::strong_count(&refused), 1, "no exporter holds its transport");
         let next = runtime()
             .block_on(async { tokio::time::timeout(Duration::from_secs(1), refused.next()).await });
@@ -2258,4 +2512,5 @@ mod tests {
         assert!(sent, "the real exporter reached the recording transport");
         assert_eq!(invalid, 6, "typed calls retain core refusal/accounting semantics");
     }
+    include!("telemetry_admission_tests.rs");
 }
