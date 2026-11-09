@@ -507,7 +507,12 @@ impl Scope {
     }
 
     /// Push one `getStats()` reading; its window ships under this session. The first inbound
-    /// reading with bytes is a subscribed track's first media.
+    /// reading with bytes is a subscribed track's first media. An unstamped sample is stamped
+    /// when it is pushed, so a host that pushes one report's layers one call at a time must
+    /// give them one `timestamp_ns` to group them into one poll. Separate calls are still
+    /// admitted one at a time: an exporter close or a correlation change landing between two
+    /// of them ends the poll there. Only [`record_stats_report`](Self::record_stats_report) and
+    /// [`record_peer_stats`](Self::record_peer_stats) admit a whole report as one.
     pub fn record_stats(&self, sample: RtcStatsSample) {
         self.record_samples(vec![sample]);
     }
@@ -526,30 +531,30 @@ impl Scope {
     /// reading is a published track's first.
     fn note_track(&self, sample: &RtcStatsSample) {
         if sample.direction == StreamDirection::Inbound && sample.bytes.unwrap_or(0) > 0 {
-            self.first_media(&sample.track_sid);
+            self.first_media(&sample.track_id);
         }
         if sample.direction == StreamDirection::Outbound {
             self.state
                 .publishing
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&sample.track_sid);
+                .remove(&sample.track_id);
         }
     }
 
     /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
     /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
-    /// ones tagged with their layer), so no SDK maps stats fields itself.
+    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
     pub fn record_stats_report(
         &self,
-        track_sid: &str,
+        track_id: &str,
         kind: TrackKind,
         direction: StreamDirection,
         report: Vec<RtcStat>,
         timestamp_ns: Option<u64>,
     ) {
         self.record_samples(crate::rtc::samples_from_report(
-            track_sid,
+            track_id,
             kind,
             direction,
             &report,
@@ -854,7 +859,7 @@ mod tests {
     /// A track sid longer than an attribute value may be is kept nowhere, as `set_track` keeps
     /// it nowhere either.
     #[tokio::test]
-    async fn an_oversized_track_sid_is_not_kept() {
+    async fn an_oversized_track_id_is_not_kept() {
         let (telemetry, _exporter) = pipeline();
         let room = telemetry.begin_scope();
         let sid = "x".repeat(100_000);
@@ -1006,6 +1011,46 @@ mod tests {
             assert_eq!(accepted, 1, "one slot left, one writer wins");
             assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
         }
+    }
+
+    /// Unstamped typed samples admitted as one report keep every layer's growth: the report is
+    /// stamped once, so alternating layers are one poll. End to end, from the Scope through the
+    /// pipeline to the windows (review 4487559072, wired at the cumulative integration).
+    #[tokio::test]
+    async fn unstamped_layers_admitted_together_keep_all_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let layer = |id: &str, bytes: u64| RtcStatsSample {
+            bytes: Some(bytes),
+            layer: Some(id.into()),
+            timestamp_ns: None,
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Video, StreamDirection::Outbound)
+        };
+        for bytes in [[1_000, 4_000], [5_000, 12_000]] {
+            room.record_samples(vec![layer("h", bytes[0]), layer("f", bytes[1])]);
+        }
+        let exported = |telemetry: &Telemetry| {
+            let windows = telemetry.shared.windows.lock().expect("lock").close();
+            let bytes = windows
+                .iter()
+                .find_map(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+                .map(|a| a.value.clone());
+            (bytes, windows.len())
+        };
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
+
+        // The public single-sample path, one layer per call: a host that stamps the layers of
+        // one poll with one time keeps the growth too.
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        for (poll, bytes) in [[1_000, 4_000], [5_000, 12_000]].into_iter().enumerate() {
+            let stamp = Some(1_000_000_000 * (poll as u64 + 1));
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("h", bytes[0]) });
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("f", bytes[1]) });
+        }
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
     }
 
     /// A report's layers are admitted as one: an exporter close landing between them (the hook

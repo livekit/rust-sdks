@@ -778,10 +778,12 @@ impl Telemetry {
             return;
         }
         self.shared.before_commit();
-        let mut windows = self.shared.windows.lock().unwrap_or_else(|e| e.into_inner());
-        for sample in samples {
-            windows.record_in(sample, session);
-        }
+        // One capture time for the report's unstamped samples: its layers are one poll.
+        self.shared
+            .windows
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_batch_in(samples, session);
     }
 
     /// Whether `session` still collects: not once its project is known to receive nothing
@@ -827,13 +829,9 @@ impl Telemetry {
 
     /// Close and forget the RTC windows of one track (or, with `None`, of the whole session):
     /// the last partial window is queued now instead of at the next tick.
-    pub(crate) fn retire_stats(&self, session: &Arc<ScopeState>, track_sid: Option<&str>) {
-        let closed = self
-            .shared
-            .windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retire(session, track_sid);
+    pub(crate) fn retire_stats(&self, session: &Arc<ScopeState>, track_id: Option<&str>) {
+        let closed =
+            self.shared.windows.lock().unwrap_or_else(|e| e.into_inner()).retire(session, track_id);
         for window in closed {
             // Windows bypass the flood guard: they are the pipeline's own, bounded output.
             if self.shared.store.push(window) {
