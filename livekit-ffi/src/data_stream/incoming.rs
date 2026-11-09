@@ -238,7 +238,7 @@ mod tests {
     use futures_util::FutureExt as _;
 
     use super::*;
-    use crate::core_modules::data_stream::tests::{manager_with_events, open_text_stream, TIMEOUT};
+    use crate::data_stream_manager::tests::{manager_with_events, open_text_stream, TIMEOUT};
 
     #[test]
     fn close_drops_the_core_reader_while_a_read_is_pending() {
