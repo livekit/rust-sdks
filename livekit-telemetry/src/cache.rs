@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     fs, io,
     path::{Path, PathBuf},
     sync::{
@@ -48,7 +48,9 @@ pub trait BatchCache: Send + Sync {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>>;
     /// Replace the batch `old` with `new` (a split): all of `new` is committed before `old`
     /// goes, and nothing is evicted in between, so a crash can duplicate records but never lose
-    /// them. On `Err`, `old` is still there. Returns the ids evicted afterwards.
+    /// them. A missing `old` returns [`io::ErrorKind::NotFound`] without storing children;
+    /// an error does not promise that a concurrently evicted parent still exists. Returns the
+    /// ids evicted afterwards, excluding any parent already reported as evicted.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>>;
     /// Ids of stored batches, oldest first.
     fn pending(&self) -> Vec<String>;
@@ -121,6 +123,9 @@ impl BatchCache for MemoryCache {
 
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
         let mut batches = self.lock();
+        if !batches.iter().any(|(id, _)| id == old) {
+            return Err(io::ErrorKind::NotFound.into());
+        }
         batches.retain(|(id, _)| id != old);
         batches.extend(new.iter().cloned());
         batches.sort_by(|a, b| a.0.cmp(&b.0));
@@ -163,6 +168,8 @@ const TMP_EXT: &str = "tmp";
 /// readable; eviction is drop-oldest above `max_bytes` or 512 files (`MAX_BATCHES`), and the
 /// newest batch always stays. Age is the exporter's call (24 h, judged by the timestamp in the id
 /// rather than file metadata — an Apple "required reason" API).
+/// Writes, recovery and clears serialize across instances in this process, including clear's
+/// listing through deletion. A clear does not revoke future writes; its caller owns consent.
 pub struct FileCache {
     dir: PathBuf,
     max_bytes: u64,
@@ -221,6 +228,63 @@ const JOURNAL_SEP: char = '@';
 // directory if that ever matters.
 static DIR_LOCK: Mutex<()> = Mutex::new(());
 
+/// Lock order: spill admission, file operation, directory journal, instance state. No host
+/// logger runs under these locks: `outside_gate` defers our diagnostics to the outer release.
+/// Reentrant custom-cache calls into spill mutations fail with WouldBlock instead of waiting.
+// ponytail: process-wide serialization; use per-directory barriers if measured contention warrants it.
+static FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
+static SPILL_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    /// The current thread owns spill admission; a custom primary must not wait on itself.
+    static SPILL_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Own spill admission until commit/clear completes, including unwinding custom primaries.
+struct SpillGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl Drop for SpillGuard {
+    fn drop(&mut self) {
+        SPILL_ACTIVE.with(|active| active.set(false));
+    }
+}
+
+/// Refuse synchronous reentry before taking the process-wide admission barrier.
+fn spill_gate() -> io::Result<SpillGuard> {
+    if SPILL_ACTIVE.with(Cell::get) {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "reentrant telemetry cache mutation",
+        ));
+    }
+    let lock = lock_commit(&SPILL_WRITE_LOCK);
+    SPILL_ACTIVE.with(|active| active.set(true));
+    Ok(SpillGuard { _lock: lock })
+}
+
+/// Acquire a commit barrier; tests observe actual contention rather than waiting a fixed time.
+fn lock_commit(lock: &'static Mutex<()>) -> std::sync::MutexGuard<'static, ()> {
+    #[cfg(test)]
+    if matches!(lock.try_lock(), Err(std::sync::TryLockError::WouldBlock)) {
+        tests::COMMIT_WAIT.with(|slot| {
+            if let Some(waiting) = slot.borrow().as_ref() {
+                waiting();
+            }
+        });
+    }
+    lock.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Serialize a whole file operation, including clear's listing, and release before diagnostics.
+fn file_operation<T>(operation: impl FnOnce() -> T) -> T {
+    outside_gate(|| {
+        let _gate = lock_commit(&FILE_WRITE_LOCK);
+        operation()
+    })
+}
+
 fn lock_dir() -> std::sync::MutexGuard<'static, ()> {
     DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -240,7 +304,11 @@ impl FileCache {
         max_bytes: u64,
         max_batches: usize,
     ) -> io::Result<Self> {
-        let dir = dir.into();
+        file_operation(|| Self::open_locked(dir.into(), max_bytes, max_batches))
+    }
+
+    /// Initialize under the file barrier so recovery and pruning cannot cross a clear.
+    fn open_locked(dir: PathBuf, max_bytes: u64, max_batches: usize) -> io::Result<Self> {
         create_dir_synced(&dir)?;
         let cache = Self {
             dir,
@@ -496,16 +564,19 @@ impl FileCache {
     }
 
     /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
-    /// commit point, with `old` whole. A rebinding has exactly one member: recovery could not
+    /// commit point; a missing `old` returns NotFound. A rebinding has exactly one member: recovery could not
     /// tell a crashed multi-member rebinding from a finished one.
     fn split(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<()> {
+        let locked = lock_dir();
+        if !self.path(old, BATCH_EXT).try_exists()? {
+            return Err(io::ErrorKind::NotFound.into());
+        }
         if new.len() > 1 && new.iter().any(|(half, _)| is_rebinding(old, half)) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "a rebinding replaces a batch with exactly one batch",
             ));
         }
-        let locked = lock_dir();
         let pends: Vec<PathBuf> = new.iter().map(|(half, _)| self.pend(old, half)).collect();
         let roll_back = |err: io::Error| {
             for ((half, _), pend) in new.iter().zip(&pends) {
@@ -562,38 +633,42 @@ impl FileCache {
 /// `FileCache::recover`.
 impl BatchCache for FileCache {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
-        let (tmp, dest) = (self.path(id, TMP_EXT), self.path(id, BATCH_EXT));
-        // Under `DIR_LOCK`: another cache opening on the directory sweeps stray `.tmp` files.
-        let locked = lock_dir();
-        let written = self
-            .write_synced(&tmp, body)
-            .and_then(|()| self.rename(&tmp, &dest, Step::Rename))
-            .and_then(|()| self.sync_dir());
-        if let Err(err) = written {
-            // Not committed: nothing of it may stay (ENOSPC leaves a truncated `.tmp`, a failed
-            // directory sync a published file of unknown durability).
-            let _ = fs::remove_file(&tmp);
-            let _ = fs::remove_file(&dest);
-            return Err(err);
-        }
-        drop(locked);
-        Ok(self.after_write())
+        file_operation(|| {
+            let (tmp, dest) = (self.path(id, TMP_EXT), self.path(id, BATCH_EXT));
+            // Under `DIR_LOCK`: another cache opening on the directory sweeps stray `.tmp` files.
+            let locked = lock_dir();
+            let written = self
+                .write_synced(&tmp, body)
+                .and_then(|()| self.rename(&tmp, &dest, Step::Rename))
+                .and_then(|()| self.sync_dir());
+            if let Err(err) = written {
+                // Not committed: nothing of it may stay (ENOSPC leaves a truncated `.tmp`, a failed
+                // directory sync a published file of unknown durability).
+                let _ = fs::remove_file(&tmp);
+                let _ = fs::remove_file(&dest);
+                return Err(err);
+            }
+            drop(locked);
+            Ok(self.after_write())
+        })
     }
 
     /// Journaled: both halves are written, `fsync`ed and renamed to `<old>@<half>.pend`, the
     /// directory is `fsync`ed, then `old` is deleted — the commit point — and the halves are
-    /// published. Before the commit point any failure rolls back and `old` stays whole; after it
+    /// published. Before the commit point any failure rolls back; an existing `old` stays whole. After it
     /// the halves are safe in the journal and published by the next listing. Nothing is evicted
     /// until the replacement is complete. A rebinding (a host-less `old` that a half extends with
     /// its project) has exactly one member. Otherwise this returns `InvalidInput` and writes
     /// nothing.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
-        self.split(old, new)?;
-        Ok(self.after_write())
+        file_operation(|| {
+            self.split(old, new)?;
+            Ok(self.after_write())
+        })
     }
 
     fn pending(&self) -> Vec<String> {
-        self.ids().unwrap_or_default()
+        file_operation(|| self.ids().unwrap_or_default())
     }
 
     fn read(&self, id: &str) -> io::Result<Vec<u8>> {
@@ -601,49 +676,51 @@ impl BatchCache for FileCache {
     }
 
     fn remove(&self, id: &str) -> io::Result<()> {
-        self.unlink(id).1
+        file_operation(|| self.unlink(id).1)
     }
 
     fn clear(&self) -> io::Result<()> {
-        // Try every file — batches and journaled split halves — then report the first failure,
-        // an unreadable directory included. A directory the OS purged is already empty.
-        let ids = match self.ids() {
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
-            other => other?,
-        };
-        #[cfg(test)]
-        self.step(Step::ClearListed, &self.dir)?;
-        let mut first = Ok(());
-        for id in ids {
-            if let Err(err) = self.remove(&id) {
-                first = first.and(Err(err));
-            }
-        }
-        for pend in self.journal()? {
-            if let Err(err) = fs::remove_file(&pend) {
-                first = first.and(Err(err));
-            }
-        }
-        // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
-        // no push or split is writing one right now.
-        {
-            let _locked = lock_dir();
-            let entries = match fs::read_dir(&self.dir) {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
+        file_operation(|| {
+            // Try every file — batches and journaled split halves — then report the first failure,
+            // an unreadable directory included. A directory the OS purged is already empty.
+            let ids = match self.ids() {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
                 other => other?,
             };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == TMP_EXT) {
-                    if let Err(err) = fs::remove_file(&path) {
-                        first = first.and(Err(err));
+            #[cfg(test)]
+            self.step(Step::ClearListed, &self.dir)?;
+            let mut first = Ok(());
+            for id in ids {
+                if let Err(err) = self.unlink(&id).1 {
+                    first = first.and(Err(err));
+                }
+            }
+            for pend in self.journal()? {
+                if let Err(err) = fs::remove_file(&pend) {
+                    first = first.and(Err(err));
+                }
+            }
+            // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
+            // no push or split is writing one right now.
+            {
+                let _locked = lock_dir();
+                let entries = match fs::read_dir(&self.dir) {
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
+                    other => other?,
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == TMP_EXT) {
+                        if let Err(err) = fs::remove_file(&path) {
+                            first = first.and(Err(err));
+                        }
                     }
                 }
             }
-        }
-        // Nothing journaled is left to publish.
-        self.recovery_failed.store(false, Ordering::Relaxed);
-        first.and_then(|()| self.sync_dir())
+            // Nothing journaled is left to publish.
+            self.recovery_failed.store(false, Ordering::Relaxed);
+            first.and_then(|()| self.sync_dir())
+        })
     }
 
     fn take_evicted(&self) -> Vec<String> {
@@ -662,10 +739,10 @@ pub(crate) struct SpillCache {
     primary: std::sync::Arc<dyn BatchCache>,
     spill: MemoryCache,
     counters: std::sync::Arc<crate::stats::Counters>,
-    /// The consent barrier at the commit point: writes check the opt-out under `gate`, and
-    /// `clear` takes `gate` too, so no write can land after a purge has cleared.
+    /// Writes check opt-out under the process-wide spill barrier and hold it through primary
+    /// commit or memory fallback. Clear takes the same barrier across generations. The SDK
+    /// revokes and clears every generation, including each generation's private memory spill.
     revoked: std::sync::Arc<AtomicBool>,
-    gate: Mutex<()>,
     /// The primary is failing: the first spill of an episode warns, a successful write ends it.
     spilling: AtomicBool,
 }
@@ -686,14 +763,13 @@ impl SpillCache {
             spill: MemoryCache::new(max_bytes),
             counters,
             revoked,
-            gate: Mutex::new(()),
             spilling: AtomicBool::new(false),
         }
     }
 
     /// Hold the write gate; `Err` once the app opted out.
-    fn open_gate(&self) -> io::Result<std::sync::MutexGuard<'_, ()>> {
-        let gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+    fn open_gate(&self) -> io::Result<SpillGuard> {
+        let gate = spill_gate()?;
         if self.revoked.load(Ordering::SeqCst) {
             return Err(io::Error::other("telemetry was disabled"));
         }
@@ -755,7 +831,7 @@ impl BatchCache for SpillCache {
 
     fn clear(&self) -> io::Result<()> {
         outside_gate(|| {
-            let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+            let _gate = spill_gate()?;
             self.spill.clear()?;
             self.primary.clear()
         })
@@ -887,7 +963,10 @@ mod tests {
         }
         drop(file);
         fs::remove_dir_all(dir).unwrap();
-        assert!(listings.iter().all(|ids| ids == &[id(2)]), "no children on missing-parent error: {listings:?}");
+        assert!(
+            listings.iter().all(|ids| ids == &[id(2)]),
+            "no children on missing-parent error: {listings:?}"
+        );
         assert!(results.iter().all(|r| matches!(r, Err(io::ErrorKind::NotFound))), "{results:?}");
     }
 
@@ -906,7 +985,11 @@ mod tests {
         writer.inject(move |step, _| {
             if step == Step::Write {
                 let _ = entered_tx.send(());
-                write_rx.lock().unwrap().recv_timeout(Duration::from_secs(5)).map_err(io::Error::other)?;
+                write_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(io::Error::other)?;
             }
             Ok(())
         });
@@ -917,14 +1000,22 @@ mod tests {
         clearer.inject(move |step, _| {
             if step == Step::ClearListed {
                 let _ = listed_tx.send("listed");
-                clear_rx.lock().unwrap().recv_timeout(Duration::from_secs(5)).map_err(io::Error::other)?;
+                clear_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(io::Error::other)?;
             }
             Ok(())
         });
         let writing = thread::spawn(move || writer.push(&id(1), b"payload"));
         let entered = entered_rx.recv_timeout(Duration::from_secs(5));
         let clearing = thread::spawn(move || {
-            COMMIT_WAIT.with(|slot| *slot.borrow_mut() = Some(Box::new(move || { let _ = observed_tx.send("blocked"); })));
+            COMMIT_WAIT.with(|slot| {
+                *slot.borrow_mut() = Some(Box::new(move || {
+                    let _ = observed_tx.send("blocked");
+                }))
+            });
             clearer.clear()
         });
         let observed = observed_rx.recv_timeout(Duration::from_secs(5));
@@ -938,6 +1029,145 @@ mod tests {
         assert!(entered.is_ok() && matches!(wrote, Ok(Ok(_))) && matches!(cleared, Ok(Ok(()))));
         assert_eq!(observed.unwrap(), "blocked", "clear must wait before taking its listing");
         assert!(files.is_empty(), "a clear cannot miss a held writer's later commit");
+    }
+
+    /// A custom primary holds a write after consent admission, before any FileCache gate.
+    struct HeldPrimary {
+        memory: MemoryCache,
+        entered: std::sync::mpsc::SyncSender<()>,
+        resume: Mutex<std::sync::mpsc::Receiver<()>>,
+        cleared: std::sync::mpsc::SyncSender<&'static str>,
+    }
+
+    impl BatchCache for HeldPrimary {
+        fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
+            let _ = self.entered.send(());
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(io::Error::other)?;
+            self.memory.push(id, body)
+        }
+        fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
+            self.memory.replace(old, new)
+        }
+        fn pending(&self) -> Vec<String> {
+            self.memory.pending()
+        }
+        fn read(&self, id: &str) -> io::Result<Vec<u8>> {
+            self.memory.read(id)
+        }
+        fn remove(&self, id: &str) -> io::Result<()> {
+            self.memory.remove(id)
+        }
+        fn clear(&self) -> io::Result<()> {
+            let _ = self.cleared.send("cleared");
+            self.memory.clear()
+        }
+    }
+
+    /// A different generation's clear waits through consent admission and custom-cache commit.
+    #[test]
+    fn spill_clear_waits_for_another_generations_admitted_write() {
+        use std::{sync::mpsc::sync_channel, thread, time::Duration};
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (resume_tx, resume_rx) = sync_channel(1);
+        let (observed_tx, observed_rx) = sync_channel(2);
+        let primary = Arc::new(HeldPrimary {
+            memory: MemoryCache::new(1024),
+            entered: entered_tx,
+            resume: Mutex::new(resume_rx),
+            cleared: observed_tx.clone(),
+        });
+        let primary_weak = Arc::downgrade(&primary);
+        let revoked = Arc::new(AtomicBool::new(false));
+        let writer =
+            Arc::new(SpillCache::new(primary.clone(), 1024, Arc::default(), revoked.clone()));
+        let clearer =
+            Arc::new(SpillCache::new(primary.clone(), 1024, Arc::default(), revoked.clone()));
+        let writer_weak = Arc::downgrade(&writer);
+        let clearer_weak = Arc::downgrade(&clearer);
+        let writing = thread::spawn(move || writer.push(&id(1), b"payload"));
+        let entered = entered_rx.recv_timeout(Duration::from_secs(5));
+        revoked.store(true, Ordering::SeqCst);
+        let clearing = thread::spawn(move || {
+            COMMIT_WAIT.with(|slot| {
+                *slot.borrow_mut() = Some(Box::new(move || {
+                    let _ = observed_tx.send("blocked");
+                }))
+            });
+            clearer.clear()
+        });
+        let observed = observed_rx.recv_timeout(Duration::from_secs(5));
+        let _ = resume_tx.send(());
+        let wrote = writing.join();
+        let cleared = clearing.join();
+        let pending = primary.pending();
+        let late = SpillCache::new(primary.clone(), 1024, Arc::default(), revoked);
+        let refused = late.push(&id(2), b"late").is_err();
+        drop(late);
+        drop(primary);
+        assert!(
+            primary_weak.upgrade().is_none()
+                && writer_weak.upgrade().is_none()
+                && clearer_weak.upgrade().is_none()
+        );
+        assert!(entered.is_ok() && matches!(wrote, Ok(Ok(_))) && matches!(cleared, Ok(Ok(()))));
+        assert_eq!(observed.unwrap(), "blocked");
+        assert!(pending.is_empty() && refused);
+    }
+
+    /// Error and unwind paths release both barriers and destroy their cache owners.
+    #[test]
+    fn commit_barriers_release_after_failed_or_cancelled_writes() {
+        for crash in [false, true] {
+            let dir = temp_dir("barrier-failure");
+            let file = Arc::new(FileCache::open(&dir, 1024).unwrap());
+            let weak = Arc::downgrade(&file);
+            file.inject(move |step, _| {
+                if step == Step::Write {
+                    assert!(!crash, "cancelled synchronous write");
+                    return Err(io::Error::other("failed write"));
+                }
+                Ok(())
+            });
+            let cache = SpillCache::new(file.clone(), 1024, Arc::default(), Arc::default());
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                cache.push(&id(1), b"body")
+            }));
+            let spilled = cache.spill.pending();
+            file.inject(|_, _| Ok(()));
+            let cleared = cache.clear();
+            let empty = fs::read_dir(&dir).unwrap().count() == 0 && cache.pending().is_empty();
+            drop(cache);
+            drop(file);
+            fs::remove_dir_all(dir).unwrap();
+            assert!(weak.upgrade().is_none() && cleared.is_ok() && empty);
+            if crash {
+                assert!(result.is_err());
+            } else {
+                assert!(matches!(result, Ok(Ok(_))) && spilled == [id(1)]);
+            }
+        }
+    }
+
+    /// A custom primary's synchronous reentry fails rather than waiting on its own barrier.
+    #[test]
+    fn spill_mutation_reentry_returns_would_block() {
+        let cache =
+            SpillCache::new(Arc::new(MemoryCache::new(1024)), 1024, Arc::default(), Arc::default());
+        let held = spill_gate().unwrap();
+        let push = cache.push(&id(1), b"body").map_err(|err| err.kind());
+        let replace = cache.replace(&id(1), &[]).map_err(|err| err.kind());
+        let clear = cache.clear().map_err(|err| err.kind());
+        drop(held);
+        let next = cache.push(&id(2), b"next");
+        let cleared = cache.clear();
+        assert_eq!(push, Err(io::ErrorKind::WouldBlock));
+        assert_eq!(replace, Err(io::ErrorKind::WouldBlock));
+        assert_eq!(clear, Err(io::ErrorKind::WouldBlock));
+        assert!(next.is_ok() && cleared.is_ok());
     }
 
     /// Ids the exporter would mint: a real timestamp (fixed for the test run, so ids stay
@@ -1093,7 +1323,7 @@ mod tests {
         let cache = Arc::new(SpillCache::new(primary, 1024, Arc::default(), Arc::default()));
         let gated = Arc::downgrade(&cache);
         crate::test_log::mark_while(move || {
-            gated.upgrade().is_some_and(|cache| cache.gate.try_lock().is_err())
+            gated.upgrade().is_some_and(|_| SPILL_ACTIVE.with(Cell::get))
         });
         let halves =
             [(format!("{}a", id(1)), b"a".to_vec()), (format!("{}b", id(1)), b"b".to_vec())];
@@ -1346,17 +1576,29 @@ mod tests {
         old.push(&parent, b"parent").expect("push");
         let other = Arc::new(Mutex::new(None));
         let (handle, path) = (other.clone(), dir.clone());
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::sync_channel(1);
+        let waiting_rx = Mutex::new(waiting_rx);
         old.inject(move |step, _| {
             // Journaled, parent still there, commit next: the new generation starts now.
             let mut handle = handle.lock().expect("lock");
             if step == Step::Delete && handle.is_none() {
                 let path = path.clone();
+                let waiting_tx = waiting_tx.clone();
                 *handle = Some(std::thread::spawn(move || {
+                    COMMIT_WAIT.with(|slot| {
+                        *slot.borrow_mut() = Some(Box::new(move || {
+                            let _ = waiting_tx.try_send(());
+                        }))
+                    });
                     let new = FileCache::open(&path, 1 << 20).expect("open");
                     new.push(&id(2), b"new generation").expect("push");
                 }));
-                // Give it every chance to reach the directory mid-split.
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                // The opener actually reached the held commit barrier mid-split.
+                waiting_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .map_err(io::Error::other)?;
             }
             Ok(())
         });
