@@ -848,12 +848,8 @@ impl Telemetry {
     /// Close and forget the RTC windows of one track (or, with `None`, of the whole session):
     /// the last partial window is queued now instead of at the next tick.
     pub(crate) fn retire_stats(&self, session: &Arc<ScopeState>, track_id: Option<&str>) {
-        let closed = self
-            .shared
-            .windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retire(session, track_id);
+        let closed =
+            self.shared.windows.lock().unwrap_or_else(|e| e.into_inner()).retire(session, track_id);
         for window in closed {
             // Windows bypass the flood guard: they are the pipeline's own, bounded output.
             if self.shared.store.push(window) {
