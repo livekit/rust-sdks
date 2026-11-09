@@ -14,7 +14,7 @@
 
 /// The count is independent of lifecycle ownership and survives replacement of the runner.
 fn admitted(slot: &LifecycleSlot) -> usize {
-    slot.admission.get().map_or(0, |state| state.active.load(Ordering::SeqCst))
+    slot.admission.get().map_or(0, |active| active.load(Ordering::SeqCst))
 }
 
 /// Three reservations block construction; the fourth returns without constructing anything.
