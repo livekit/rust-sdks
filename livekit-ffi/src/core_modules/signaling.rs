@@ -33,7 +33,7 @@ use livekit_signaling as signaling;
 use prost::Message;
 use tokio_util::sync::CancellationToken;
 
-use crate::data_stream::common::ClientCapability;
+use crate::core_modules::data_stream::common::ClientCapability;
 
 // MARK: - Options
 
