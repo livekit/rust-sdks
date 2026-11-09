@@ -14,18 +14,13 @@
 
 use std::sync::Arc;
 
-use livekit::prelude::*;
+use livekit::{prelude::*, StreamWriter as _};
 use std::time::Duration;
 use tokio::sync::oneshot;
 
 use crate::{
     proto,
-    server::{
-        data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
-        data_track,
-        room::RoomInner,
-        FfiHandle, FfiServer,
-    },
+    server::{data_stream, data_track, room::RoomInner, FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
 
@@ -207,7 +202,12 @@ impl FfiParticipant {
         let handle = server.async_runtime.spawn(async move {
             let result = match local.stream_bytes(request.options.into()).await {
                 Ok(writer) => {
-                    let ffi_writer = FfiByteStreamWriter::from_writer(server, writer);
+                    let info = writer.info().clone();
+                    let writer = Arc::new(data_stream::ByteStreamWriter::new(writer));
+                    let ffi_writer = proto::OwnedByteStreamWriter {
+                        handle: proto::FfiOwnedHandle { id: writer.ffi_handle_id() },
+                        info: info.into(),
+                    };
                     proto::byte_stream_open_callback::Result::Writer(ffi_writer)
                 }
                 Err(err) => proto::byte_stream_open_callback::Result::Error(err.into()),
@@ -230,7 +230,12 @@ impl FfiParticipant {
         let handle = server.async_runtime.spawn(async move {
             let result = match local.stream_text(request.options.into()).await {
                 Ok(writer) => {
-                    let ffi_writer = FfiTextStreamWriter::from_writer(server, writer);
+                    let info = writer.info().clone();
+                    let writer = Arc::new(data_stream::TextStreamWriter::new(writer));
+                    let ffi_writer = proto::OwnedTextStreamWriter {
+                        handle: proto::FfiOwnedHandle { id: writer.ffi_handle_id() },
+                        info: info.into(),
+                    };
                     proto::text_stream_open_callback::Result::Writer(ffi_writer)
                 }
                 Err(err) => proto::text_stream_open_callback::Result::Error(err.into()),
