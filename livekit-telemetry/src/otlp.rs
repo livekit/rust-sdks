@@ -95,32 +95,14 @@ pub(crate) fn encode_spans(
 /// holds a single record or is not the one-resource, one-scope shape this crate encodes.
 pub(crate) type Halves = Option<[(Vec<u8>, u64); 2]>;
 
+/// Split encoded log records without whole-input protobuf object decoding.
 pub(crate) fn split_logs(encoded: &[u8]) -> Halves {
-    let mut request = ExportLogsServiceRequest::decode(encoded).ok()?;
-    let [resource] = &mut request.resource_logs[..] else { return None };
-    let [scope] = &mut resource.scope_logs[..] else { return None };
-    let n = scope.log_records.len();
-    if n < 2 {
-        return None;
-    }
-    let second = scope.log_records.split_off(n / 2);
-    let first = request.encode_to_vec();
-    request.resource_logs[0].scope_logs[0].log_records = second;
-    Some([(first, (n / 2) as u64), (request.encode_to_vec(), (n - n / 2) as u64)])
+    crate::split::encoded(encoded).ok()
 }
 
+/// Split encoded span records without whole-input protobuf object decoding.
 pub(crate) fn split_spans(encoded: &[u8]) -> Halves {
-    let mut request = ExportTraceServiceRequest::decode(encoded).ok()?;
-    let [resource] = &mut request.resource_spans[..] else { return None };
-    let [scope] = &mut resource.scope_spans[..] else { return None };
-    let n = scope.spans.len();
-    if n < 2 {
-        return None;
-    }
-    let second = scope.spans.split_off(n / 2);
-    let first = request.encode_to_vec();
-    request.resource_spans[0].scope_spans[0].spans = second;
-    Some([(first, (n / 2) as u64), (request.encode_to_vec(), (n - n / 2) as u64)])
+    crate::split::encoded(encoded).ok()
 }
 
 fn log_record(

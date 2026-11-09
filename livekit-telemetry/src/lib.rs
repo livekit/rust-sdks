@@ -40,6 +40,9 @@ mod exporter;
 /// OTLP/HTTP protobuf encoding of a batch.
 mod otlp;
 
+/// Bounded-input, lossless cached-batch splitting.
+mod split;
+
 /// Queue of encoded batches between the exporter and the transport (memory or disk).
 mod cache;
 
