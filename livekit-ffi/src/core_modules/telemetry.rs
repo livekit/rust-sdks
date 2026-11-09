@@ -2163,4 +2163,59 @@ mod tests {
         assert!(exporter_gone, "the exporter is gone");
         assert!(pipeline_gone, "the pipeline is gone");
     }
+
+    /// Additive typed scope calls use core validation and release their pipeline owners.
+    #[test]
+    fn typed_scope_attributes_validate_and_release_owners() {
+        let transport = Arc::new(Gated {
+            gate: tokio::sync::Semaphore::new(32),
+            bodies: Mutex::new(Vec::new()),
+        });
+        let cache = Arc::new(livekit_telemetry::MemoryCache::new(4 * 1024 * 1024));
+        let cache_weak = Arc::downgrade(&cache);
+        let transport_weak = Arc::downgrade(&transport);
+        let (invalid, stopped) = runtime().block_on(async {
+            let (telemetry, exporter) = livekit_telemetry::Telemetry::with_cache(
+                TelemetryConfig::default(), transport.clone(), cache.clone(),
+            );
+            let mut task = tokio::spawn(exporter.run());
+            let scope = TelemetryScope(telemetry.begin_scope());
+            scope.set_server("wss://p.livekit.cloud".into(), granted_token());
+            scope.set_attribute_typed("app.phase".into(), Some(AttributeValue::Int(-7)));
+            scope.emit_custom_typed("before".into(), HashMap::from([
+                ("app.bool".into(), AttributeValue::Bool(true)),
+                ("app.int".into(), AttributeValue::Int(i64::MIN)),
+                ("app.double".into(), AttributeValue::Double(1.25)),
+                ("app.string".into(), AttributeValue::Str("kept".into())),
+            ]));
+            scope.set_attribute_typed("app.phase".into(), None);
+            scope.emit_custom("after".into(), HashMap::from([("app.compat".into(), "string".into())]));
+            scope.set_attribute("app.compat".into(), Some("legacy".into()));
+            scope.set_attribute("app.compat".into(), None);
+            scope.set_attribute_typed("lk.spoof".into(), Some(AttributeValue::Bool(true)));
+            scope.set_attribute_typed("x".repeat(129), Some(AttributeValue::Int(1)));
+            scope.set_attribute_typed("app.too_long".into(), Some(AttributeValue::Str("x".repeat(1025))));
+            scope.emit_custom_typed("x".repeat(129), HashMap::new());
+            scope.emit_custom_typed("reserved".into(), HashMap::from([("otel.spoof".into(), AttributeValue::Bool(true))]));
+            scope.emit_custom_typed("too_many".into(), (0..65).map(|i| (format!("app.{i}"), AttributeValue::Int(i))).collect());
+            let invalid = telemetry.stats().dropped_invalid;
+            let flushed = tokio::time::timeout(Duration::from_secs(2), telemetry.flush()).await.is_ok();
+            drop(scope);
+            let purged = tokio::time::timeout(Duration::from_secs(2), telemetry.purge()).await == Ok(true);
+            let joined = match tokio::time::timeout(Duration::from_secs(2), &mut task).await {
+                Ok(result) => result.is_ok(),
+                Err(_) => { task.abort(); let _ = task.await; false }
+            };
+            drop(telemetry);
+            (invalid, flushed && purged && joined)
+        });
+        let sent = !transport.bodies.lock().expect("bodies").is_empty();
+        drop((cache, transport));
+        let destroyed = cache_weak.upgrade().is_none() && transport_weak.upgrade().is_none();
+        eprintln!("D13 invalid={invalid} sent={sent} stopped={stopped} destroyed={destroyed}");
+        assert!(stopped && destroyed, "pipeline joined and destroyed before verdict");
+        assert!(sent, "the real exporter reached the recording transport");
+        assert_eq!(invalid, 6, "typed calls retain core refusal/accounting semantics");
+    }
+
 }
