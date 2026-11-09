@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
@@ -138,7 +138,7 @@ pub struct RtcStatsSample {
     /// `audioLevel`, inbound audio: 0.0 to 1.0, linear (not dB).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub audio_level: Option<f64>,
-    /// When the reading was taken; `None` = now.
+    /// When the reading was taken; `None` = now. All streams in one poll must share a timestamp.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
     /// The RTP stream this sample describes when a track has several (simulcast layers): any
@@ -185,7 +185,7 @@ fn ms(stat: &RtcStat, key: &str) -> Option<u64> {
 
 /// A duration member (seconds) as fractional milliseconds, for gauges.
 fn ms_f64(stat: &RtcStat, key: &str) -> Option<f64> {
-    num(stat, key).map(|s| s * 1000.0)
+    num(stat, key).map(|s| s * 1000.0).filter(|ms| ms.is_finite())
 }
 
 /// A string member.
@@ -270,9 +270,10 @@ impl<'a> ReportIndex<'a> {
             pair_rtt_ms: None,
             rtp: Vec::new(),
         };
-        // The transport's selected pair, else the first pair that is selected, or nominated and
-        // succeeded (not every platform names the selected pair).
-        let (mut selected, mut fallback) = (None, None);
+        // A report-wide fallback is safe only if the selected pair is unambiguous.
+        let mut selected = None;
+        let mut ambiguous = false;
+        let mut fallback = Vec::new();
         let flag =
             |stat: &RtcStat, key| matches!(stat.members.get(key), Some(AttributeValue::Bool(true)));
         for stat in report {
@@ -286,21 +287,29 @@ impl<'a> ReportIndex<'a> {
                     }
                 }
                 "transport" => {
-                    selected = selected.or_else(|| text(stat, "selectedCandidatePairId"))
+                    if let Some(id) = text(stat, "selectedCandidatePairId") {
+                        ambiguous |= selected.as_ref().is_some_and(|selected| selected != &id);
+                        selected = Some(id);
+                    }
                 }
-                "candidate-pair" if fallback.is_none() => {
+                "candidate-pair" => {
                     let succeeded = text(stat, "state").as_deref() == Some("succeeded");
                     if flag(stat, "selected") || (flag(stat, "nominated") && succeeded) {
-                        fallback = Some(stat);
+                        fallback.push(stat);
                     }
                 }
                 _ => {}
             }
         }
-        let pair = selected
-            .and_then(|id| index.by_id.get(id.as_str()).copied())
-            .filter(|pair| pair.kind == "candidate-pair")
-            .or(fallback);
+        let pair = if ambiguous {
+            None
+        } else if let Some(id) = selected {
+            index.by_id.get(id.as_str()).copied().filter(|pair| pair.kind == "candidate-pair")
+        } else if fallback.len() == 1 {
+            fallback.first().copied()
+        } else {
+            None
+        };
         index.pair_rtt_ms = pair.and_then(|pair| ms_f64(pair, "currentRoundTripTime"));
         index
     }
@@ -353,7 +362,18 @@ impl<'a> ReportIndex<'a> {
                 sample.jitter_ms = ms_f64(stat, "jitter");
                 sample.frames_per_second = num(stat, "framesPerSecond");
                 sample.audio_level = num(stat, "audioLevel");
-                sample.rtt_ms = self.pair_rtt_ms;
+                sample.rtt_ms = match text(stat, "transportId") {
+                    Some(id) => self
+                        .by_id
+                        .get(id.as_str())
+                        .filter(|transport| transport.kind == "transport")
+                        .and_then(|transport| text(transport, "selectedCandidatePairId"))
+                        .and_then(|id| self.by_id.get(id.as_str()))
+                        .filter(|pair| pair.kind == "candidate-pair")
+                        .and_then(|pair| ms_f64(pair, "currentRoundTripTime"))
+                        .or(self.pair_rtt_ms),
+                    None => self.pair_rtt_ms,
+                };
             }
         }
         sample
@@ -370,6 +390,18 @@ fn larger<T: PartialOrd>(mine: &mut Option<T>, theirs: Option<T>) {
 }
 
 impl RtcStatsSample {
+    /// Non-finite typed gauges are absent readings, just like non-finite report members.
+    fn sanitize_gauges(&mut self) {
+        for value in [
+            &mut self.jitter_ms,
+            &mut self.rtt_ms,
+            &mut self.frames_per_second,
+            &mut self.audio_level,
+        ] {
+            *value = value.filter(|v| v.is_finite());
+        }
+    }
+
     /// Merge another stream of the same poll into this reading: each field keeps the larger of
     /// the values known, so a stream without a field never erases it and the report's order
     /// changes nothing.
@@ -516,14 +548,15 @@ impl Window {
         if let (Some(bytes), Some(ms)) =
             (delta(self.last.bytes, self.first.bytes), interval_ms.filter(|ms| *ms > 0))
         {
-            parts.push(format!("{} kbps", bytes * 8 / ms));
+            parts.push(format!("{} kbps", u128::from(bytes) * 8 / u128::from(ms)));
         }
         if let (Some(lost), Some(packets)) = (
             delta(self.last.packets_lost, self.first.packets_lost),
             delta(self.last.packets, self.first.packets),
         ) {
-            if lost + packets > 0 {
-                parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / (lost + packets) as f64));
+            let total = u128::from(lost) + u128::from(packets);
+            if total > 0 {
+                parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / total as f64));
             }
         }
         if let Some(rtt) = self.rtt.avg() {
@@ -604,7 +637,7 @@ impl Window {
         ];
         for (key, value) in counters {
             if let Some(value) = value {
-                event = event.with_attribute(key, value as i64);
+                event = event.with_attribute(key, i64::try_from(value).unwrap_or(i64::MAX));
             }
         }
         event = self.jitter.attach(event, "lk.rtc.jitter_ms");
@@ -625,8 +658,10 @@ impl Window {
 #[derive(Default)]
 pub(crate) struct StatsWindows {
     windows: HashMap<TrackKey, Window>,
-    /// Last cumulative `qualityLimitationDurations.cpu` per outbound track.
-    limitation: HashMap<TrackKey, u64>,
+    /// Last cumulative `qualityLimitationDurations.cpu` per outbound track, per RTP stream
+    /// (`layer`): a layer's growth is compared with that layer's own previous poll, never with
+    /// a larger sibling's. A stream that leaves keeps its entry until its track is retired.
+    limitation: HashMap<TrackKey, HashMap<Option<String>, u64>>,
     cpu_limited_until: Option<Instant>,
     /// Per track: the poll in progress and the counting state across polls.
     tracks: HashMap<TrackKey, Track>,
@@ -658,11 +693,11 @@ struct Track {
     total: StreamCounts,
 }
 
-/// One poll's readings, as the streams of one report came in.
+/// One poll's readings, folded on arrival: one retained sample per stream.
 struct Poll {
     session: Arc<ScopeState>,
     timestamp_ns: u64,
-    readings: Vec<RtcStatsSample>,
+    readings: HashMap<Option<String>, RtcStatsSample>,
 }
 
 /// A stream's, or a track's, bytes and packets.
@@ -679,13 +714,17 @@ impl Track {
     /// the previous poll. Any other track passes its counters through as reported. A stream that was not in the previous poll only sets its starting point,
     /// so a new or returning stream's first poll is not counted (an undercount, never a double
     /// count), and an absent counter keeps the starting point it had.
-    fn reading(&mut self, readings: Vec<RtcStatsSample>) -> Option<RtcStatsSample> {
+    fn reading(
+        &mut self,
+        readings: HashMap<Option<String>, RtcStatsSample>,
+    ) -> Option<RtcStatsSample> {
         // A track's readings all share its direction (it is part of the track's key).
-        let named =
-            readings.iter().any(|r| r.direction == StreamDirection::Outbound && r.layer.is_some());
+        let named = readings
+            .values()
+            .any(|r| r.direction == StreamDirection::Outbound && r.layer.is_some());
         let mut streams: HashMap<String, StreamCounts> = HashMap::new();
         let mut reading: Option<RtcStatsSample> = None;
-        for sample in readings {
+        for sample in readings.into_values() {
             if named {
                 let stream = streams.entry(sample.layer.clone().unwrap_or_default()).or_default();
                 larger(&mut stream.bytes, sample.bytes);
@@ -723,13 +762,13 @@ impl Track {
 fn grow(grown: &mut Option<u64>, now: Option<u64>, before: Option<u64>) {
     let Some(now) = now else { return };
     let growth = before.map_or(0, |before| now.saturating_sub(before));
-    *grown = Some(grown.unwrap_or(0) + growth);
+    *grown = Some(grown.unwrap_or(0).saturating_add(growth));
 }
 
 /// Add a poll's growth to a running total.
 fn add(total: &mut Option<u64>, grown: Option<u64>) {
     if let Some(grown) = grown {
-        *total = Some(total.unwrap_or(0) + grown);
+        *total = Some(total.unwrap_or(0).saturating_add(grown));
     }
 }
 
@@ -745,12 +784,28 @@ impl StatsWindows {
         Self { revoked, ..Self::default() }
     }
 
+    /// Admit one poll's typed samples under the caller's windows lock. Unstamped samples share
+    /// one capture time; explicit timestamps are preserved and must match within each poll.
+    pub fn record_batch_in(
+        &mut self,
+        samples: impl IntoIterator<Item = RtcStatsSample>,
+        session: &Arc<ScopeState>,
+    ) {
+        let timestamp_ns = now_unix_nanos();
+        for mut sample in samples {
+            sample.timestamp_ns.get_or_insert(timestamp_ns);
+            self.record_in(sample, session);
+        }
+    }
+
     /// Add one reading to its track's poll in progress. A reading with another timestamp starts
-    /// the next poll, and the finished one goes into the track's window as one reading.
+    /// the next poll, and the finished one goes into the track's window as one reading. Streams
+    /// from the same poll must carry the same timestamp; use `record_batch_in` for unstamped samples.
     pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<ScopeState>) {
         if self.revoked.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        sample.sanitize_gauges();
         let key = track_key(session, &sample);
         self.seen.insert(key.clone());
         let timestamp_ns = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
@@ -763,9 +818,14 @@ impl StatsWindows {
         let poll = track.poll.get_or_insert_with(|| Poll {
             session: session.clone(),
             timestamp_ns,
-            readings: Vec::new(),
+            readings: HashMap::new(),
         });
-        poll.readings.push(sample);
+        match poll.readings.entry(sample.layer.clone()) {
+            Entry::Occupied(mut entry) => entry.get_mut().merge(sample),
+            Entry::Vacant(entry) => {
+                entry.insert(sample);
+            }
+        }
     }
 
     /// Read the track's poll in progress as one reading into its window, opening the window if
@@ -773,8 +833,13 @@ impl StatsWindows {
     fn end_poll(&mut self, key: &TrackKey) {
         let Some(track) = self.tracks.get_mut(key) else { return };
         let Some(Poll { session, timestamp_ns, readings }) = track.poll.take() else { return };
+        let cpu: Vec<(Option<String>, u64)> = readings
+            .iter()
+            .filter(|(_, sample)| sample.direction == StreamDirection::Outbound)
+            .filter_map(|(layer, sample)| Some((layer.clone(), sample.quality_limitation_cpu_ms?)))
+            .collect();
         let Some(reading) = track.reading(readings) else { return };
-        self.set_limitation_baseline(key, &reading);
+        self.set_limitation_baseline(key, cpu);
         match self.windows.get_mut(key) {
             Some(window) => window.add(reading),
             None => {
@@ -877,9 +942,8 @@ impl StatsWindows {
         if sample.direction != StreamDirection::Outbound {
             return;
         }
-        let (Some(current), Some(&previous)) =
-            (sample.quality_limitation_cpu_ms, self.limitation.get(key))
-        else {
+        let previous = self.limitation.get(key).and_then(|streams| streams.get(&sample.layer));
+        let (Some(current), Some(&previous)) = (sample.quality_limitation_cpu_ms, previous) else {
             return;
         };
         if current > previous {
@@ -887,15 +951,13 @@ impl StatsWindows {
         }
     }
 
-    /// A finished poll's cpu limitation counter is the baseline for the next poll. A poll without
-    /// the counter says nothing: it must not reset the baseline.
-    fn set_limitation_baseline(&mut self, key: &TrackKey, reading: &RtcStatsSample) {
-        if reading.direction != StreamDirection::Outbound {
+    /// A finished poll's cpu limitation counters are the baselines for the next poll, one per
+    /// stream. A stream without the counter says nothing: it must not reset its baseline.
+    fn set_limitation_baseline(&mut self, key: &TrackKey, cpu: Vec<(Option<String>, u64)>) {
+        if cpu.is_empty() {
             return;
         }
-        if let Some(current) = reading.quality_limitation_cpu_ms {
-            self.limitation.insert(key.clone(), current);
-        }
+        self.limitation.entry(key.clone()).or_default().extend(cpu);
     }
 
     /// Drop everything (opt-out); returns how many RTC records went, each once: the open windows,
@@ -942,6 +1004,158 @@ mod tests {
 
     /// Simulcast layers make one series per track: its bytes grow by every layer's growth, so a
     /// stalled layer does not stall the track.
+    #[test]
+    fn extreme_counters_have_safe_summaries_and_nonnegative_encoding() {
+        let reading = |count, second: u64| RtcStatsSample {
+            bytes: Some(count),
+            packets: Some(count),
+            packets_lost: Some(count),
+            freeze_count: Some(count),
+            timestamp_ns: Some(second * 1_000_000_000),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Inbound)
+        };
+        let mut window = Window::open(0, reading(0, 1), test_session());
+        window.add(reading(u64::MAX, 2));
+        let event = window.into_event(2_000_000_000);
+        let body = event.body.as_deref().unwrap();
+        assert!(body.contains("147573952589676412 kbps"), "{body}");
+        assert!(body.contains("loss 50.0%"), "{body}");
+        for key in ["lk.rtc.bytes", "lk.rtc.packets", "lk.rtc.packets_lost", "lk.rtc.freeze_count"]
+        {
+            assert_eq!(attr(&event, key), Some(AttributeValue::Int(i64::MAX)));
+        }
+    }
+
+    #[test]
+    fn extreme_packet_loss_has_a_safe_denominator() {
+        let sample = |count| RtcStatsSample {
+            packets: Some(count),
+            packets_lost: Some(count),
+            ..RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound)
+        };
+        let mut window = Window::open(0, sample(0), test_session());
+        window.add(sample(u64::MAX));
+        assert!(window.summary().contains("loss 50.0%"));
+    }
+
+    #[test]
+    fn extreme_counter_encoding_saturates() {
+        let sample = RtcStatsSample {
+            bytes: Some(u64::MAX),
+            ..RtcStatsSample::new("TR_1", TrackKind::Audio, StreamDirection::Inbound)
+        };
+        let event = Window::open(0, sample, test_session()).into_event(1);
+        assert_eq!(attr(&event, "lk.rtc.bytes"), Some(AttributeValue::Int(i64::MAX)));
+    }
+
+    #[test]
+    fn extreme_layer_growth_and_running_totals_saturate() {
+        for layers in [vec!["h"], vec!["h", "f"]] {
+            let mut windows = StatsWindows::default();
+            for (second, bytes) in [(1, 0), (2, u64::MAX), (3, 0), (4, u64::MAX)] {
+                for id in &layers {
+                    windows.record(stream(id, Some(bytes), second));
+                }
+            }
+            assert_eq!(totals(&mut windows), both(i64::MAX));
+        }
+    }
+
+    #[test]
+    fn typed_batches_preserve_explicit_timestamps() {
+        let mut windows = StatsWindows::default();
+        let session = test_session();
+        for second in [1, 2] {
+            windows.record_batch_in(
+                [
+                    stream("h", Some(second * 1_000), second),
+                    stream("f", Some(second * 4_000), second),
+                ],
+                &session,
+            );
+            let poll = windows.tracks.values().next().unwrap().poll.as_ref().unwrap();
+            assert_eq!(poll.timestamp_ns, second * 1_000_000_000);
+        }
+        assert_eq!(totals(&mut windows), both(5_000));
+    }
+
+    #[test]
+    fn unstamped_layer_batches_preserve_all_byte_growth() {
+        let mut windows = StatsWindows::default();
+        let session = test_session();
+        for bytes in [[1_000, 4_000], [5_000, 12_000]] {
+            let samples = ["h", "f"].into_iter().zip(bytes).map(|(id, bytes)| {
+                // Make separate capture times observable even on clocks with coarse resolution.
+                std::thread::sleep(Duration::from_millis(1));
+                RtcStatsSample { timestamp_ns: None, ..stream(id, Some(bytes), 1) }
+            });
+            windows.record_batch_in(samples, &session);
+        }
+        assert_eq!(totals(&mut windows), both(12_000));
+    }
+
+    #[test]
+    fn duplicate_poll_submissions_keep_one_reading_per_stream() {
+        let mut windows = StatsWindows::default();
+        for id in ["h", "f"] {
+            windows.record(stream(id, Some(0), 1));
+        }
+        for bytes in 0..10_000 {
+            windows.record(stream("h", Some(bytes), 2));
+        }
+        windows.record(stream("h", None, 2));
+        windows.record(stream("f", Some(20_000), 2));
+        let track = windows.tracks.values().next().unwrap();
+        assert_eq!(
+            track.poll.as_ref().unwrap().readings.len(),
+            2,
+            "storage follows unique streams"
+        );
+        assert_eq!(
+            totals(&mut windows),
+            both(29_999),
+            "duplicates keep the largest known counters"
+        );
+    }
+
+    /// CPU starvation on one layer is not hidden by a larger counter on another: each stream is
+    /// compared against its own previous poll, never against the track's maximum. Covered in
+    /// both arrival orders, with a poll that omits the counter (it says nothing), and with no
+    /// growth at all (the negative control).
+    #[test]
+    fn cpu_starvation_on_a_small_layer_is_not_hidden_by_a_larger_sibling() {
+        let layer = |id: &str, cpu_ms: Option<u64>, second: u64| RtcStatsSample {
+            quality_limitation_cpu_ms: cpu_ms,
+            layer: Some(id.into()),
+            timestamp_ns: Some(second * 1_000_000_000),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        for reversed in [false, true] {
+            let poll = |windows: &mut StatsWindows, h: Option<u64>, f: Option<u64>, s: u64| {
+                let mut samples = vec![layer("h", h, s), layer("f", f, s)];
+                if reversed {
+                    samples.reverse();
+                }
+                for sample in samples {
+                    windows.record(sample);
+                }
+            };
+            let mut windows = StatsWindows::default();
+            poll(&mut windows, Some(1_000), Some(100), 1);
+            poll(&mut windows, Some(1_000), Some(100), 2);
+            assert!(!windows.cpu_limited(), "reversed {reversed}: nothing grew");
+            // The small layer's counter grows while the large one stands still.
+            poll(&mut windows, Some(1_000), Some(200), 3);
+            assert!(windows.cpu_limited(), "reversed {reversed}: the small layer was starved");
+            // A poll without the counter keeps the baselines; the next growth still shows.
+            let mut windows = StatsWindows::default();
+            poll(&mut windows, Some(1_000), Some(100), 1);
+            poll(&mut windows, None, None, 2);
+            poll(&mut windows, Some(1_000), Some(150), 3);
+            assert!(windows.cpu_limited(), "reversed {reversed}: baseline survived a silent poll");
+        }
+    }
+
     #[test]
     fn simulcast_layers_fold_into_one_track_series() {
         let mut windows = StatsWindows::default();
@@ -1031,6 +1245,85 @@ mod tests {
     }
 
     #[test]
+    fn inbound_rtt_follows_each_streams_transport() {
+        let transport = |id: &str, pair: &str| {
+            stat("transport", id, &[("selectedCandidatePairId", AttributeValue::Str(pair.into()))])
+        };
+        let pair = |id: &str, rtt| {
+            stat(
+                "candidate-pair",
+                id,
+                &[
+                    ("currentRoundTripTime", AttributeValue::Double(rtt)),
+                    ("selected", AttributeValue::Bool(true)),
+                ],
+            )
+        };
+        let mut report = vec![
+            stat("inbound-rtp", "IN_A", &[("transportId", AttributeValue::Str("T_A".into()))]),
+            stat("inbound-rtp", "IN_B", &[("transportId", AttributeValue::Str("T_B".into()))]),
+            stat("inbound-rtp", "UNKNOWN", &[]),
+            transport("T_A", "A"),
+            transport("T_B", "B"),
+            pair("A", 0.01),
+            pair("B", 0.2),
+        ];
+        for reverse in [false, true] {
+            if reverse {
+                report.reverse();
+            }
+            let index = ReportIndex::new(&report);
+            for (id, expected) in [("IN_A", Some(10.0)), ("IN_B", Some(200.0)), ("UNKNOWN", None)] {
+                let sample = index.sample(
+                    index.by_id[id],
+                    "TR_1",
+                    TrackKind::Audio,
+                    StreamDirection::Inbound,
+                    None,
+                );
+                assert_eq!(sample.rtt_ms, expected, "{id}");
+            }
+        }
+        report.retain(|s| s.kind != "transport");
+        let index = ReportIndex::new(&report);
+        assert_eq!(
+            index.pair_rtt_ms, None,
+            "two selected pairs are ambiguous without transports too"
+        );
+    }
+
+    #[test]
+    fn inbound_rtt_falls_back_when_transport_selection_is_missing() {
+        let inbound =
+            stat("inbound-rtp", "IN", &[("transportId", AttributeValue::Str("T".into()))]);
+        let pair = stat(
+            "candidate-pair",
+            "PAIR",
+            &[
+                ("nominated", AttributeValue::Bool(true)),
+                ("state", AttributeValue::Str("succeeded".into())),
+                ("currentRoundTripTime", AttributeValue::Double(0.04)),
+            ],
+        );
+        let reports =
+            [vec![inbound.clone(), pair.clone()], vec![inbound, pair, stat("transport", "T", &[])]];
+        let rtts: Vec<_> = reports
+            .iter()
+            .map(|report| {
+                samples_from_report(
+                    "TR_1",
+                    TrackKind::Audio,
+                    StreamDirection::Inbound,
+                    report,
+                    None,
+                )[0]
+                .rtt_ms
+            })
+            .collect();
+        assert_eq!(rtts, vec![Some(40.0), Some(40.0)], "missing transport and missing selection");
+    }
+
+    #[test]
     fn inbound_rtt_comes_from_the_selected_candidate_pair() {
         let inbound = stat("inbound-rtp", "IN", &[("bytesReceived", AttributeValue::Int(1))]);
         let pair = |id: &str, rtt: f64, nominated: bool| {
@@ -1056,7 +1349,90 @@ mod tests {
         let transport =
             stat("transport", "T", &[("selectedCandidatePairId", AttributeValue::Str("B".into()))]);
         let named = vec![inbound, pair("A", 0.3, true), pair("B", 0.04, false), transport];
-        assert_eq!(rtt(named), Some(40.0));
+        assert_eq!(rtt(named.clone()), Some(40.0));
+        let mut shared = named;
+        for id in ["T2", "T3"] {
+            shared.push(stat(
+                "transport",
+                id,
+                &[("selectedCandidatePairId", AttributeValue::Str("B".into()))],
+            ));
+        }
+        assert_eq!(rtt(shared.clone()), Some(40.0), "several transports can select the same pair");
+        shared.push(stat(
+            "transport",
+            "T4",
+            &[("selectedCandidatePairId", AttributeValue::Str("A".into()))],
+        ));
+        shared.push(stat(
+            "transport",
+            "T5",
+            &[("selectedCandidatePairId", AttributeValue::Str("B".into()))],
+        ));
+        assert_eq!(rtt(shared), None, "repeating a pair cannot clear ambiguity");
+    }
+
+    #[test]
+    fn typed_non_finite_gauges_do_not_hide_valid_layers() {
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for reverse in [false, true] {
+                let mut windows = StatsWindows::default();
+                let gauge = |value| RtcStatsSample {
+                    jitter_ms: Some(value),
+                    rtt_ms: Some(value),
+                    frames_per_second: Some(value),
+                    audio_level: Some(value),
+                    ..stream("h", None, 1)
+                };
+                let mut samples = [gauge(invalid), gauge(30.0)];
+                samples[1].layer = Some("f".into());
+                if reverse {
+                    samples.reverse();
+                }
+                for sample in samples {
+                    windows.record(sample);
+                }
+                let event = windows.close_events().pop().unwrap();
+                for key in ["lk.rtc.jitter_ms", "lk.rtc.rtt_ms", "lk.rtc.fps", "lk.rtc.audio_level"]
+                {
+                    for suffix in ["min", "max", "avg"] {
+                        assert_eq!(
+                            attr(&event, &format!("{key}.{suffix}")),
+                            Some(AttributeValue::Double(30.0))
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn milliseconds_conversion_rejects_overflow() {
+        let report = [
+            stat("inbound-rtp", "IN", &[("jitter", AttributeValue::Double(f64::MAX))]),
+            stat("outbound-rtp", "OUT", &[]),
+            stat(
+                "remote-inbound-rtp",
+                "REMOTE",
+                &[
+                    ("localId", AttributeValue::Str("OUT".into())),
+                    ("roundTripTime", AttributeValue::Double(f64::MAX)),
+                ],
+            ),
+            stat(
+                "candidate-pair",
+                "PAIR",
+                &[
+                    ("selected", AttributeValue::Bool(true)),
+                    ("currentRoundTripTime", AttributeValue::Double(f64::MAX)),
+                ],
+            ),
+        ];
+        for direction in [StreamDirection::Inbound, StreamDirection::Outbound] {
+            let samples = samples_from_report("TR_1", TrackKind::Audio, direction, &report, None);
+            assert_eq!(samples[0].rtt_ms, None);
+            assert_eq!(samples[0].jitter_ms, None);
+        }
     }
 
     #[test]
