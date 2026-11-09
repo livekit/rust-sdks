@@ -273,19 +273,13 @@ fn a_resampler_hands_back_and_forth_across_the_seam() {
     FFI_SERVER.drop_handle(handle);
 }
 
-/// Protobuf-driven tests for data tracks, the next types to be migrated.
-///
-/// Unlike the resampler, a data track only exists inside a connected room, so
-/// these run against a LiveKit server (`livekit-server --dev` with
+/// Room helpers for the e2e tests below, driving the FFI request surface the way
+/// the bindings do. They need a LiveKit server (`livekit-server --dev` with
 /// `enable_data_tracks: true`), the same as the `livekit` crate's e2e tests.
 #[cfg(feature = "__lk-e2e-test")]
-pub(crate) mod data_track {
+pub(crate) mod e2e {
     use super::request;
-    use crate::{
-        proto,
-        server::{requests::handle_request, FfiConfig},
-        FfiHandleId, FFI_SERVER,
-    };
+    use crate::{proto, server::FfiConfig, FfiHandleId, FFI_SERVER};
     use livekit_token::{AccessToken, VideoGrants};
     use std::{
         env,
@@ -294,7 +288,7 @@ pub(crate) mod data_track {
     };
     use tokio::sync::broadcast;
 
-    const EVENT_TIMEOUT: Duration = Duration::from_secs(15);
+    pub(crate) const EVENT_TIMEOUT: Duration = Duration::from_secs(15);
 
     /// Routes every event the FFI server emits into a broadcast channel, so a test
     /// can subscribe before it sends the request that triggers the event.
@@ -415,6 +409,19 @@ pub(crate) mod data_track {
             FFI_SERVER.drop_handle(participant.local_participant_handle);
         }
     }
+}
+
+/// Protobuf-driven tests for data tracks.
+///
+/// Unlike the resampler, a data track only exists inside a connected room, so
+/// these run against a LiveKit server; see [`e2e`].
+#[cfg(feature = "__lk-e2e-test")]
+pub(crate) mod data_track {
+    pub(crate) use super::e2e::*;
+    use super::request;
+    use crate::{proto, server::requests::handle_request, FfiHandleId, FFI_SERVER};
+    use std::time::Duration;
+    use tokio::sync::broadcast;
 
     pub(crate) async fn publish(
         participant: &Participant,
@@ -757,6 +764,606 @@ pub(crate) mod data_track {
         ));
 
         FFI_SERVER.drop_handle(local.handle.id);
+        disconnect(participants).await;
+    }
+}
+
+/// Protobuf-driven tests for data streams: the readers a room hands out and the
+/// writers a local participant opens. See [`e2e`].
+#[cfg(feature = "__lk-e2e-test")]
+pub(crate) mod data_stream {
+    pub(crate) use super::e2e::*;
+    use super::request;
+    use crate::{proto, server::requests::handle_request, FfiHandleId, FFI_SERVER};
+    use std::collections::HashMap;
+    use tokio::sync::broadcast;
+
+    type Events = broadcast::Receiver<proto::ffi_event::Message>;
+
+    pub(crate) fn text_options(topic: &str) -> proto::StreamTextOptions {
+        proto::StreamTextOptions { topic: topic.into(), ..Default::default() }
+    }
+
+    pub(crate) fn byte_options(topic: &str) -> proto::StreamByteOptions {
+        proto::StreamByteOptions { topic: topic.into(), ..Default::default() }
+    }
+
+    pub(crate) async fn send_text(
+        participant: &Participant,
+        text: &str,
+        options: proto::StreamTextOptions,
+    ) -> proto::TextStreamInfo {
+        let mut events = events();
+        let async_id = match request(proto::StreamSendTextRequest {
+            local_participant_handle: participant.local_participant_handle,
+            options,
+            text: text.into(),
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::SendText(res) => res.async_id,
+            _ => panic!("expected a SendText response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::SendText(cb) if cb.async_id == async_id => cb.result,
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::stream_send_text_callback::Result::Info(info) => info,
+            proto::stream_send_text_callback::Result::Error(error) => panic!("{error:?}"),
+        }
+    }
+
+    pub(crate) async fn send_bytes(
+        participant: &Participant,
+        bytes: &[u8],
+        options: proto::StreamByteOptions,
+    ) -> proto::ByteStreamInfo {
+        let mut events = events();
+        let async_id = match request(proto::StreamSendBytesRequest {
+            local_participant_handle: participant.local_participant_handle,
+            options,
+            bytes: bytes.to_vec(),
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::SendBytes(res) => res.async_id,
+            _ => panic!("expected a SendBytes response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::SendBytes(cb) if cb.async_id == async_id => cb.result,
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::stream_send_bytes_callback::Result::Info(info) => info,
+            proto::stream_send_bytes_callback::Result::Error(error) => panic!("{error:?}"),
+        }
+    }
+
+    /// Waits for `room_handle` to be handed a text stream on `topic`.
+    pub(crate) async fn text_stream_opened(
+        events: &mut Events,
+        room_handle: FfiHandleId,
+        topic: &str,
+    ) -> proto::TextStreamOpened {
+        next_event(events, |event| match event {
+            proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
+                room_handle: handle,
+                message: Some(proto::room_event::Message::TextStreamOpened(event)),
+            }) if handle == room_handle && event.reader.info.topic == topic => Some(event),
+            _ => None,
+        })
+        .await
+    }
+
+    /// Waits for `room_handle` to be handed a byte stream on `topic`.
+    pub(crate) async fn byte_stream_opened(
+        events: &mut Events,
+        room_handle: FfiHandleId,
+        topic: &str,
+    ) -> proto::ByteStreamOpened {
+        next_event(events, |event| match event {
+            proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
+                room_handle: handle,
+                message: Some(proto::room_event::Message::ByteStreamOpened(event)),
+            }) if handle == room_handle && event.reader.info.topic == topic => Some(event),
+            _ => None,
+        })
+        .await
+    }
+
+    pub(crate) async fn text_read_all(
+        reader_handle: FfiHandleId,
+    ) -> Result<String, proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::TextStreamReaderReadAllRequest {
+            reader_handle,
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::TextReadAll(res) => res.async_id,
+            _ => panic!("expected a TextReadAll response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::TextStreamReaderReadAll(cb) if cb.async_id == async_id => {
+                cb.result
+            }
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::text_stream_reader_read_all_callback::Result::Content(text) => Ok(text),
+            proto::text_stream_reader_read_all_callback::Result::Error(error) => Err(error),
+        }
+    }
+
+    pub(crate) async fn byte_read_all(
+        reader_handle: FfiHandleId,
+    ) -> Result<Vec<u8>, proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::ByteStreamReaderReadAllRequest {
+            reader_handle,
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::ByteReadAll(res) => res.async_id,
+            _ => panic!("expected a ByteReadAll response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::ByteStreamReaderReadAll(cb) if cb.async_id == async_id => {
+                cb.result
+            }
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::byte_stream_reader_read_all_callback::Result::Content(bytes) => Ok(bytes),
+            proto::byte_stream_reader_read_all_callback::Result::Error(error) => Err(error),
+        }
+    }
+
+    /// Reads a text stream incrementally: every chunk, then the end-of-stream event.
+    pub(crate) async fn text_read_incremental(
+        reader_handle: FfiHandleId,
+    ) -> (Vec<String>, proto::TextStreamReaderEos) {
+        let mut events = events();
+        match request(proto::TextStreamReaderReadIncrementalRequest { reader_handle }) {
+            proto::ffi_response::Message::TextReadIncremental(_) => {}
+            _ => panic!("expected a TextReadIncremental response"),
+        }
+        let mut chunks = Vec::new();
+        loop {
+            let detail = next_event(&mut events, |event| match event {
+                proto::ffi_event::Message::TextStreamReaderEvent(event)
+                    if event.reader_handle == reader_handle =>
+                {
+                    event.detail
+                }
+                _ => None,
+            })
+            .await;
+            match detail {
+                proto::text_stream_reader_event::Detail::ChunkReceived(chunk) => {
+                    chunks.push(chunk.content)
+                }
+                proto::text_stream_reader_event::Detail::Eos(eos) => return (chunks, eos),
+            }
+        }
+    }
+
+    /// Reads a byte stream incrementally: every chunk, then the end-of-stream event.
+    pub(crate) async fn byte_read_incremental(
+        reader_handle: FfiHandleId,
+    ) -> (Vec<u8>, proto::ByteStreamReaderEos) {
+        let mut events = events();
+        match request(proto::ByteStreamReaderReadIncrementalRequest { reader_handle }) {
+            proto::ffi_response::Message::ByteReadIncremental(_) => {}
+            _ => panic!("expected a ByteReadIncremental response"),
+        }
+        let mut content = Vec::new();
+        loop {
+            let detail = next_event(&mut events, |event| match event {
+                proto::ffi_event::Message::ByteStreamReaderEvent(event)
+                    if event.reader_handle == reader_handle =>
+                {
+                    event.detail
+                }
+                _ => None,
+            })
+            .await;
+            match detail {
+                proto::byte_stream_reader_event::Detail::ChunkReceived(chunk) => {
+                    content.extend_from_slice(&chunk.content)
+                }
+                proto::byte_stream_reader_event::Detail::Eos(eos) => return (content, eos),
+            }
+        }
+    }
+
+    pub(crate) async fn open_text_writer(
+        participant: &Participant,
+        options: proto::StreamTextOptions,
+    ) -> proto::OwnedTextStreamWriter {
+        let mut events = events();
+        let async_id = match request(proto::TextStreamOpenRequest {
+            local_participant_handle: participant.local_participant_handle,
+            options,
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::TextStreamOpen(res) => res.async_id,
+            _ => panic!("expected a TextStreamOpen response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::TextStreamOpen(cb) if cb.async_id == async_id => cb.result,
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::text_stream_open_callback::Result::Writer(writer) => writer,
+            proto::text_stream_open_callback::Result::Error(error) => panic!("{error:?}"),
+        }
+    }
+
+    pub(crate) async fn open_byte_writer(
+        participant: &Participant,
+        options: proto::StreamByteOptions,
+    ) -> proto::OwnedByteStreamWriter {
+        let mut events = events();
+        let async_id = match request(proto::ByteStreamOpenRequest {
+            local_participant_handle: participant.local_participant_handle,
+            options,
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::ByteStreamOpen(res) => res.async_id,
+            _ => panic!("expected a ByteStreamOpen response"),
+        };
+        let result = next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::ByteStreamOpen(cb) if cb.async_id == async_id => cb.result,
+            _ => None,
+        })
+        .await;
+        match result {
+            proto::byte_stream_open_callback::Result::Writer(writer) => writer,
+            proto::byte_stream_open_callback::Result::Error(error) => panic!("{error:?}"),
+        }
+    }
+
+    pub(crate) async fn text_write(
+        writer_handle: FfiHandleId,
+        text: &str,
+    ) -> Option<proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::TextStreamWriterWriteRequest {
+            writer_handle,
+            text: text.into(),
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::TextStreamWrite(res) => res.async_id,
+            _ => panic!("expected a TextStreamWrite response"),
+        };
+        next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::TextStreamWriterWrite(cb) if cb.async_id == async_id => {
+                Some(cb.error)
+            }
+            _ => None,
+        })
+        .await
+    }
+
+    pub(crate) async fn byte_write(
+        writer_handle: FfiHandleId,
+        bytes: &[u8],
+    ) -> Option<proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::ByteStreamWriterWriteRequest {
+            writer_handle,
+            bytes: bytes.to_vec(),
+            request_async_id: None,
+        }) {
+            proto::ffi_response::Message::ByteStreamWrite(res) => res.async_id,
+            _ => panic!("expected a ByteStreamWrite response"),
+        };
+        next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::ByteStreamWriterWrite(cb) if cb.async_id == async_id => {
+                Some(cb.error)
+            }
+            _ => None,
+        })
+        .await
+    }
+
+    pub(crate) async fn text_close(
+        writer_handle: FfiHandleId,
+        reason: Option<&str>,
+        attributes: HashMap<String, String>,
+    ) -> Option<proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::TextStreamWriterCloseRequest {
+            writer_handle,
+            reason: reason.map(Into::into),
+            request_async_id: None,
+            attributes,
+        }) {
+            proto::ffi_response::Message::TextStreamClose(res) => res.async_id,
+            _ => panic!("expected a TextStreamClose response"),
+        };
+        next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::TextStreamWriterClose(cb) if cb.async_id == async_id => {
+                Some(cb.error)
+            }
+            _ => None,
+        })
+        .await
+    }
+
+    pub(crate) async fn byte_close(
+        writer_handle: FfiHandleId,
+        reason: Option<&str>,
+        attributes: HashMap<String, String>,
+    ) -> Option<proto::StreamError> {
+        let mut events = events();
+        let async_id = match request(proto::ByteStreamWriterCloseRequest {
+            writer_handle,
+            reason: reason.map(Into::into),
+            request_async_id: None,
+            attributes,
+        }) {
+            proto::ffi_response::Message::ByteStreamClose(res) => res.async_id,
+            _ => panic!("expected a ByteStreamClose response"),
+        };
+        next_event(&mut events, |event| match event {
+            proto::ffi_event::Message::ByteStreamWriterClose(cb) if cb.async_id == async_id => {
+                Some(cb.error)
+            }
+            _ => None,
+        })
+        .await
+    }
+
+    fn attributes(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// `send_text` reaches the other participant as a text stream with the same
+    /// info, read whole with one request.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_send_text_read_all() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let mut options = text_options("send-text");
+        options.attributes = attributes(&[("k", "v")]);
+        let sent = send_text(sender, "hello over the ffi", options).await;
+
+        let opened = text_stream_opened(&mut events, receiver.room_handle, "send-text").await;
+        assert_eq!(opened.participant_identity, sender.identity);
+        assert_eq!(opened.reader.info.stream_id, sent.stream_id);
+        assert_eq!(opened.reader.info.attributes.get("k").map(String::as_str), Some("v"));
+        assert_eq!(text_read_all(opened.reader.handle.id).await.unwrap(), "hello over the ffi");
+
+        disconnect(participants).await;
+    }
+
+    /// `send_bytes` reaches the other participant as a byte stream, read whole.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_send_bytes_read_all() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let payload: Vec<u8> = (0..40_000u32).map(|i| (i % 251) as u8).collect();
+        let sent = send_bytes(sender, &payload, byte_options("send-bytes")).await;
+
+        let opened = byte_stream_opened(&mut events, receiver.room_handle, "send-bytes").await;
+        assert_eq!(opened.reader.info.stream_id, sent.stream_id);
+        assert_eq!(byte_read_all(opened.reader.handle.id).await.unwrap(), payload);
+
+        disconnect(participants).await;
+    }
+
+    /// A text writer's writes arrive as incremental chunks, and the attributes it
+    /// closes with are merged into the end-of-stream event.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_text_writer_read_incremental() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let writer = open_text_writer(sender, text_options("text-writer")).await;
+        let opened = text_stream_opened(&mut events, receiver.room_handle, "text-writer").await;
+        assert_eq!(opened.reader.info.stream_id, writer.info.stream_id);
+        let read = tokio::spawn(text_read_incremental(opened.reader.handle.id));
+
+        for i in 0..5 {
+            assert_eq!(text_write(writer.handle.id, &format!("chunk {i};")).await, None);
+        }
+        let close = text_close(writer.handle.id, None, attributes(&[("done", "yes")])).await;
+        assert_eq!(close, None);
+
+        let (chunks, eos) = read.await.unwrap();
+        assert_eq!(chunks.concat(), "chunk 0;chunk 1;chunk 2;chunk 3;chunk 4;");
+        assert_eq!(eos.error, None);
+        assert_eq!(eos.attributes.get("done").map(String::as_str), Some("yes"));
+
+        disconnect(participants).await;
+    }
+
+    /// Closing a writer with a reason ends the remote stream with an error.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_writer_close_with_reason_errors_the_reader() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let writer = open_byte_writer(sender, byte_options("abort")).await;
+        let opened = byte_stream_opened(&mut events, receiver.room_handle, "abort").await;
+        let read = tokio::spawn(byte_read_incremental(opened.reader.handle.id));
+
+        assert_eq!(byte_write(writer.handle.id, b"partial").await, None);
+        assert_eq!(byte_close(writer.handle.id, Some("gave up"), HashMap::new()).await, None);
+
+        let (content, eos) = read.await.unwrap();
+        assert_eq!(content, b"partial");
+        let error = eos.error.expect("an abnormal close reaches the reader as an error");
+        assert!(error.description.contains("gave up"), "{error:?}");
+
+        disconnect(participants).await;
+    }
+
+    /// A byte writer's stream can be written to a file by the receiver.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_byte_writer_write_to_file() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let mut options = byte_options("to-file");
+        options.name = Some("from-ffi.bin".into());
+        let writer = open_byte_writer(sender, options).await;
+        let opened = byte_stream_opened(&mut events, receiver.room_handle, "to-file").await;
+        assert_eq!(opened.reader.info.name, "from-ffi.bin");
+
+        let directory =
+            std::env::temp_dir().join(format!("livekit-ffi-test-{}", FFI_SERVER.next_id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut file_events = super::e2e::events();
+        let async_id = match request(proto::ByteStreamReaderWriteToFileRequest {
+            reader_handle: opened.reader.handle.id,
+            request_async_id: None,
+            directory: Some(directory.to_string_lossy().into()),
+            name_override: None,
+        }) {
+            proto::ffi_response::Message::ByteWriteToFile(res) => res.async_id,
+            _ => panic!("expected a ByteWriteToFile response"),
+        };
+
+        for part in [&b"first "[..], b"second ", b"third"] {
+            assert_eq!(byte_write(writer.handle.id, part).await, None);
+        }
+        assert_eq!(byte_close(writer.handle.id, None, HashMap::new()).await, None);
+
+        let result = next_event(&mut file_events, |event| match event {
+            proto::ffi_event::Message::ByteStreamReaderWriteToFile(cb)
+                if cb.async_id == async_id =>
+            {
+                cb.result
+            }
+            _ => None,
+        })
+        .await;
+        let path = match result {
+            proto::byte_stream_reader_write_to_file_callback::Result::FilePath(path) => path,
+            proto::byte_stream_reader_write_to_file_callback::Result::Error(error) => {
+                panic!("{error:?}")
+            }
+        };
+        assert_eq!(std::path::Path::new(&path), directory.join("from-ffi.bin"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"first second third");
+        std::fs::remove_dir_all(&directory).unwrap();
+
+        disconnect(participants).await;
+    }
+
+    /// A reader handle is consumed by its first read, and a closed writer's handle
+    /// is gone: later requests on either fail.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_handles_are_consumed() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        send_text(sender, "once", text_options("consumed")).await;
+        let opened = text_stream_opened(&mut events, receiver.room_handle, "consumed").await;
+        assert_eq!(text_read_all(opened.reader.handle.id).await.unwrap(), "once");
+
+        let fails = |message: proto::ffi_request::Message| {
+            handle_request(&FFI_SERVER, proto::FfiRequest { message: Some(message) }).is_err()
+        };
+        assert!(fails(
+            proto::TextStreamReaderReadAllRequest {
+                reader_handle: opened.reader.handle.id,
+                request_async_id: None
+            }
+            .into()
+        ));
+
+        let writer = open_text_writer(sender, text_options("consumed-writer")).await;
+        assert_eq!(text_close(writer.handle.id, None, HashMap::new()).await, None);
+        assert!(fails(
+            proto::TextStreamWriterWriteRequest {
+                writer_handle: writer.handle.id,
+                text: "late".into(),
+                request_async_id: None
+            }
+            .into()
+        ));
+
+        disconnect(participants).await;
+    }
+
+    /// Each request resolves its handle as the type it expects. Writes look a handle
+    /// up and leave it in place; reads and closes take it out of the map first, so a
+    /// mistyped one costs the handle.
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn proto_stream_handles_resolve_only_as_their_own_type() {
+        let participants = connect(2).await;
+        let (sender, receiver) = (&participants[0], &participants[1]);
+        let mut events = events();
+
+        let text_writer = open_text_writer(sender, text_options("typed-text")).await;
+        let byte_writer = open_byte_writer(sender, byte_options("typed-bytes")).await;
+        let text_reader = text_stream_opened(&mut events, receiver.room_handle, "typed-text").await;
+        let byte_reader =
+            byte_stream_opened(&mut events, receiver.room_handle, "typed-bytes").await;
+
+        let fails = |message: proto::ffi_request::Message| {
+            handle_request(&FFI_SERVER, proto::FfiRequest { message: Some(message) }).is_err()
+        };
+        let text_write = |writer_handle| {
+            proto::TextStreamWriterWriteRequest {
+                writer_handle,
+                text: "x".into(),
+                request_async_id: None,
+            }
+            .into()
+        };
+        let byte_write = |writer_handle| {
+            proto::ByteStreamWriterWriteRequest {
+                writer_handle,
+                bytes: vec![1],
+                request_async_id: None,
+            }
+            .into()
+        };
+        assert!(fails(text_write(byte_writer.handle.id)));
+        assert!(fails(text_write(text_reader.reader.handle.id)));
+        assert!(fails(byte_write(text_writer.handle.id)));
+        assert!(fails(byte_write(byte_reader.reader.handle.id)));
+
+        assert_eq!(text_close(text_writer.handle.id, None, HashMap::new()).await, None);
+        assert_eq!(byte_close(byte_writer.handle.id, None, HashMap::new()).await, None);
+        assert_eq!(text_read_all(text_reader.reader.handle.id).await.unwrap(), "");
+
+        send_text(sender, "mistyped", text_options("typed-take")).await;
+        let mistyped = text_stream_opened(&mut events, receiver.room_handle, "typed-take").await;
+        let byte_read = |reader_handle| {
+            proto::ByteStreamReaderReadAllRequest { reader_handle, request_async_id: None }.into()
+        };
+        assert!(fails(byte_read(mistyped.reader.handle.id)));
+        assert!(fails(
+            proto::TextStreamReaderReadAllRequest {
+                reader_handle: mistyped.reader.handle.id,
+                request_async_id: None
+            }
+            .into()
+        ));
+
         disconnect(participants).await;
     }
 }
