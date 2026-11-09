@@ -38,6 +38,9 @@ pub struct ByteStreamReader {
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
+// After the migration is complete, this call can be removed.
+#[cfg(feature = "room-apis")]
+crate::migrate_from_ffi!(ByteStreamReader);
 
 impl ByteStreamReader {
     pub(crate) fn new(reader: ds_api::ByteStreamReader) -> Self {
@@ -50,6 +53,15 @@ impl ByteStreamReader {
             #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Takes the core reader for the room-apis request handlers, which consume it. The reader
+    /// then reads as closed here, without ending the stream. After the migration is complete,
+    /// this can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) async fn take_inner(&self) -> Option<ds_api::ByteStreamReader> {
+        self.closed.cancel();
+        self.inner.lock().await.take()
     }
 }
 
@@ -117,6 +129,9 @@ pub struct TextStreamReader {
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
+// After the migration is complete, this call can be removed.
+#[cfg(feature = "room-apis")]
+crate::migrate_from_ffi!(TextStreamReader);
 
 impl TextStreamReader {
     pub(crate) fn new(reader: ds_api::TextStreamReader) -> Self {
@@ -129,6 +144,15 @@ impl TextStreamReader {
             #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Takes the core reader for the room-apis request handlers, which consume it. The reader
+    /// then reads as closed here, without ending the stream. After the migration is complete,
+    /// this can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) async fn take_inner(&self) -> Option<ds_api::TextStreamReader> {
+        self.closed.cancel();
+        self.inner.lock().await.take()
     }
 }
 
