@@ -240,6 +240,36 @@ async fn larger_than_budget_logs_and_spans_split_then_ack_in_memory_and_file() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn deferred_unsplittable_batch_reports_paused_while_other_uploads_succeed() {
+    let original = gzip(&[0x0a, 0xff, 0xff]);
+    let record = record(30, false, 0, false);
+    let good = gzip(&fixture(&[record.clone(), record]));
+    let mut rig = Rig::new(false, &original, false, 2);
+    let good_id = rig.parent.replace("000001", "000002");
+    rig.telemetry.shared.cache.push(&good_id, &good).expect("same-project second batch");
+    let facts = async {
+        answer(rig.next().await?, 413)?;
+        let unrelated = rig.next().await?;
+        answer(unrelated, 200)?;
+        rig.flush().await?;
+        let deferred = rig.telemetry.stats().status;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        let again = rig.next().await?;
+        let retried = again.body == original;
+        answer(again, 200)?;
+        rig.flush().await?;
+        Ok::<_, String>((deferred, retried, rig.telemetry.stats().status))
+    }
+    .await;
+    assert!(rig.cleanup().await, "cleanup");
+    let (deferred, retried, delivered) = facts.expect("deferred status handshake");
+    eprintln!("status while deferred={deferred} after retry ack={delivered}");
+    assert_eq!(deferred, TelemetryStatus::Paused);
+    assert!(retried);
+    assert_eq!(delivered, TelemetryStatus::Ok);
+}
+
+#[tokio::test(start_paused = true)]
 async fn unsupported_and_malformed_batches_wait_without_blocking_same_project_or_busy_loop() {
     for disk in [false, true] {
         for case in ["malformed", "resources", "scopes"] {
