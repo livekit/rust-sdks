@@ -66,6 +66,10 @@ struct Rig {
 
 impl Rig {
     fn new(disk: bool, body: &[u8], traces: bool, count: u64) -> Self {
+        Self::at_limit(disk, body, traces, count, 600)
+    }
+
+    fn at_limit(disk: bool, body: &[u8], traces: bool, count: u64, limit: u64) -> Self {
         let directory = disk.then(|| crate::cache::temp_dir("streaming-split"));
         let cache: Arc<dyn BatchCache> = match directory.as_ref() {
             Some(path) => Arc::new(FileCache::open(path, 64 * 1024 * 1024).expect("file cache")),
@@ -74,7 +78,7 @@ impl Rig {
         let (send, sends) = mpsc::channel(8);
         let host = Arc::new(Host { cache: Arc::downgrade(&cache), sends: send });
         let (telemetry, exporter) = Telemetry::with_cache(
-            TelemetryConfig { max_batch_bytes: 600, ..Default::default() },
+            TelemetryConfig { max_batch_bytes: limit, ..Default::default() },
             host.clone(),
             cache,
         );
@@ -448,4 +452,105 @@ async fn opt_out_during_recovery_discards_children_and_public_purge_erases_origi
         assert_eq!(result, Err(crate::split::Failure::Cancelled));
         assert!(retained && replacement.is_err() && empty);
     }
+}
+
+/// Build the exact earlier 824-byte fixture without mutable production state.
+fn legacy_824_body() -> Vec<u8> {
+    use prost::Message;
+    let raw = ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            scope_logs: vec![ScopeLogs {
+                log_records: (0..2)
+                    .map(|_| LogRecord {
+                        body: Some(AnyValue {
+                            value: Some(any_value::Value::StringValue("x".repeat(400))),
+                        }),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    }
+    .encode_to_vec();
+    raw
+}
+
+/// Replay the exact previously reviewed 824-byte FileCache fixture and its two controls.
+#[tokio::test(start_paused = true)]
+async fn persisted_824_bytes_replay_below_current_600_limit_and_controls() {
+    use crate::proto::opentelemetry::proto::{
+        collector::logs::v1::ExportLogsServiceRequest,
+        common::v1::{any_value, AnyValue},
+        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
+    };
+    let raw = legacy_824_body();
+    assert_eq!(raw.len(), 824, "unchanged fixture before any tasks start");
+    let body = gzip(&raw);
+    for (limit, first_status) in [(600, 413), (2048, 413), (600, 200)] {
+        let mut rig = Rig::at_limit(true, &body, false, 2, limit);
+        let facts = async {
+            let first = rig.next().await?;
+            let mut sizes = vec![decoded(&first.body).len()];
+            let mut committed = first
+                .pending
+                .iter()
+                .any(|id| rig.telemetry.shared.cache.read(id).ok().as_ref() == Some(&first.body));
+            answer(first, first_status)?;
+            if first_status == 413 {
+                for _ in 0..2 {
+                    let half = rig.next().await?;
+                    sizes.push(decoded(&half.body).len());
+                    committed &= half.pending.iter().any(|id| {
+                        rig.telemetry.shared.cache.read(id).ok().as_ref() == Some(&half.body)
+                    });
+                    answer(half, 200)?;
+                }
+            }
+            rig.flush().await?;
+            let stats = rig.telemetry.stats();
+            Ok::<_, String>((
+                sizes,
+                committed,
+                rig.telemetry.shared.cache.pending().is_empty(),
+                stats.uploads_sent,
+                stats.dropped,
+                stats.dropped_corrupt,
+            ))
+        }
+        .await;
+        let clean = rig.cleanup().await;
+        assert!(clean, "FileCache exporter joined and all Weak owners destroyed");
+        let (sizes, committed, empty, sent, dropped, corrupt) = facts.expect("persisted replay");
+        eprintln!("legacy 824 limit={limit} status={first_status} sizes={sizes:?} committed={committed} sent={sent}");
+        assert_eq!(sizes, if first_status == 413 { vec![824, 415, 415] } else { vec![824] });
+        assert!(committed && empty && dropped == 0 && corrupt == 0);
+        assert_eq!(sent, if first_status == 413 { 2 } else { 1 });
+    }
+}
+
+/// The same persisted fixture with a bad CRC follows the existing pre-send corruption policy.
+#[tokio::test(start_paused = true)]
+async fn persisted_bad_crc_is_not_sent_or_reclassified_as_a_split_failure() {
+    let mut body = gzip(&legacy_824_body());
+    let crc = body.len() - 8;
+    body[crc] ^= 1;
+    let mut rig = Rig::new(true, &body, false, 2);
+    let facts = async {
+        rig.flush().await?;
+        let stats = rig.telemetry.stats();
+        Ok::<_, String>((
+            rig.sends.try_recv().is_err(),
+            rig.telemetry.shared.cache.pending().is_empty(),
+            stats.uploads_sent,
+            stats.dropped_corrupt,
+            stats.dropped_oversized,
+        ))
+    }
+    .await;
+    let clean = rig.cleanup().await;
+    assert!(clean, "exporter joined and owners destroyed before outcome assertions");
+    let (unsent, empty, sent, corrupt, oversized) = facts.expect("corruption control");
+    assert!(unsent && empty && sent == 0 && corrupt == 2 && oversized == 0);
 }
