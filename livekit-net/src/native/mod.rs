@@ -105,7 +105,7 @@ impl HttpClient for LimitedNativeClient {
         headers: Vec<Header>,
         body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
-        self.transport.request_with_response_limit(method, url, headers, body, self.limit).await
+        self.transport.request_inner(method, &url, &headers, body, Some(self.limit)).await
     }
 }
 
@@ -165,17 +165,6 @@ impl HttpClient for NativeTransport {
 }
 
 impl NativeTransport {
-    async fn request_with_response_limit(
-        &self,
-        method: HttpMethod,
-        url: String,
-        headers: Vec<Header>,
-        body: Option<Vec<u8>>,
-        max_response_bytes: u64,
-    ) -> Result<HttpResponse, TransportError> {
-        self.request_inner(method, &url, &headers, body, Some(max_response_bytes)).await
-    }
-
     async fn request_inner(
         &self,
         method: HttpMethod,
@@ -304,12 +293,12 @@ mod tests {
                 });
                 let client = NativeTransport::new();
                 let result = client
-                    .request_with_response_limit(
+                    .request_inner(
                         HttpMethod::Get,
-                        format!("http://{addr}"),
-                        vec![],
+                        &format!("http://{addr}"),
+                        &[],
                         None,
-                        cap as u64,
+                        Some(cap as u64),
                     )
                     .await;
                 drop(client);
@@ -390,12 +379,12 @@ mod tests {
             let weak = Arc::downgrade(&client);
             let task = tokio::spawn(async move {
                 client
-                    .request_with_response_limit(
+                    .request_inner(
                         HttpMethod::Get,
-                        format!("http://{addr}"),
-                        vec![],
+                        &format!("http://{addr}"),
+                        &[],
                         None,
-                        65_536,
+                        Some(65_536),
                     )
                     .await
             });
