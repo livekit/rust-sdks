@@ -3942,6 +3942,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "bytes",
+ "flate2",
  "futures-util",
  "http 1.4.2",
  "log",

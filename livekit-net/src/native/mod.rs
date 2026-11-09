@@ -90,6 +90,29 @@ pub(crate) fn native_http_client() -> Arc<dyn HttpClient> {
     default_transport()
 }
 
+/// An opt-in view over the shared transport; no back-reference to the view is retained.
+struct LimitedNativeClient {
+    transport: Arc<NativeTransport>,
+    limit: u64,
+}
+
+#[async_trait::async_trait]
+impl HttpClient for LimitedNativeClient {
+    async fn request(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpResponse, TransportError> {
+        self.transport.request_with_response_limit(method, url, headers, body, self.limit).await
+    }
+}
+
+pub(crate) fn native_http_client_with_response_limit(limit: u64) -> Arc<dyn HttpClient> {
+    Arc::new(LimitedNativeClient { transport: default_transport(), limit })
+}
+
 #[async_trait::async_trait]
 impl WsClient for NativeTransport {
     async fn connect(
@@ -137,33 +160,129 @@ impl HttpClient for NativeTransport {
         headers: Vec<Header>,
         body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
-        {
-            let client = &self.http;
-            let mut req = match method {
-                HttpMethod::Get => client.get(&url),
-                HttpMethod::Post => client.post(&url),
-            };
-            for h in &headers {
-                req = req.header(&h.name, &h.value);
-            }
-            if let Some(body) = body {
-                req = req.body(body);
-            }
-            let res = req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))?;
-            let status = res.status().as_u16();
-            let resp_headers = res
-                .headers()
-                .iter()
-                .filter_map(|(n, v)| {
-                    v.to_str()
-                        .ok()
-                        .map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
-                })
-                .collect();
+        self.request_inner(method, &url, &headers, body, None).await
+    }
+}
+
+impl NativeTransport {
+    async fn request_with_response_limit(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+        max_response_bytes: u64,
+    ) -> Result<HttpResponse, TransportError> {
+        self.request_inner(method, &url, &headers, body, Some(max_response_bytes)).await
+    }
+
+    async fn request_inner(
+        &self,
+        method: HttpMethod,
+        url: &str,
+        headers: &[Header],
+        body: Option<Vec<u8>>,
+        limit: Option<u64>,
+    ) -> Result<HttpResponse, TransportError> {
+        use std::io::Write;
+
+        let mut req = match method {
+            HttpMethod::Get => self.http.get(url),
+            HttpMethod::Post => self.http.post(url),
+        };
+        for h in headers {
+            req = req.header(&h.name, &h.value);
+        }
+        if let Some(body) = body {
+            req = req.body(body);
+        }
+        let mut res = req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))?;
+        let status = res.status().as_u16();
+        let mut headers: Vec<_> = res
+            .headers()
+            .iter()
+            .filter_map(|(n, v)| {
+                v.to_str().ok().map(|v| Header { name: n.as_str().to_owned(), value: v.to_owned() })
+            })
+            .collect();
+        let Some(limit) = limit else {
             let body =
                 res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
-            Ok(HttpResponse { status, headers: resp_headers, body })
+            return Ok(HttpResponse { status, headers, body });
+        };
+        // Decode only this opt-in path; ordinary clients keep their existing response semantics.
+        if headers.iter().any(|h| {
+            h.name.eq_ignore_ascii_case("content-encoding")
+                && !matches!(h.value.trim().to_ascii_lowercase().as_str(), "gzip" | "identity")
+        }) {
+            return Err(TransportError::Other(
+                "unsupported bounded response content encoding".into(),
+            ));
         }
+        let gzip = headers.iter().any(|h| {
+            h.name.eq_ignore_ascii_case("content-encoding") && h.value.eq_ignore_ascii_case("gzip")
+        });
+        let mut plain = LimitedBody { bytes: Vec::new(), limit, overflow: false };
+        let mut decoder = gzip.then(|| {
+            flate2::write::GzDecoder::new(LimitedBody { bytes: Vec::new(), limit, overflow: false })
+        });
+        while let Some(chunk) =
+            res.chunk().await.map_err(|e| TransportError::Other(e.to_string()))?
+        {
+            let result = match decoder.as_mut() {
+                Some(decoder) => decoder.write_all(&chunk),
+                None => plain.write_all(&chunk),
+            };
+            if let Err(error) = result {
+                let overflow = decoder.as_ref().map_or(plain.overflow, |d| d.get_ref().overflow);
+                return Err(if overflow {
+                    TransportError::ResponseTooLarge { headers }
+                } else {
+                    TransportError::Other(error.to_string())
+                });
+            }
+        }
+        let body = match decoder {
+            Some(mut decoder) => {
+                if let Err(error) = decoder.try_finish() {
+                    return Err(if decoder.get_ref().overflow {
+                        TransportError::ResponseTooLarge { headers }
+                    } else {
+                        TransportError::Other(error.to_string())
+                    });
+                }
+                let decoded = decoder.finish().map_err(|e| TransportError::Other(e.to_string()))?;
+                headers.retain(|h| {
+                    !h.name.eq_ignore_ascii_case("content-encoding")
+                        && !h.name.eq_ignore_ascii_case("content-length")
+                });
+                decoded.bytes
+            }
+            None => plain.bytes,
+        };
+        Ok(HttpResponse { status, headers, body })
+    }
+}
+
+/// Owns only the accepted decoded prefix; never appends bytes beyond the requested limit.
+struct LimitedBody {
+    bytes: Vec<u8>,
+    limit: u64,
+    overflow: bool,
+}
+
+impl std::io::Write for LimitedBody {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() as u64 > self.limit.saturating_sub(self.bytes.len() as u64) {
+            self.overflow = true;
+            return Err(std::io::Error::other("response body exceeds requested limit"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -176,6 +295,184 @@ mod tests {
     };
 
     use super::*;
+
+    #[tokio::test]
+    async fn bounded_responses_count_decoded_bytes_and_leave_shared_requests_uncapped() {
+        use flate2::{write::GzEncoder, Compression};
+        let cap = 65_536;
+        for size in [cap - 1, cap, cap + 1] {
+            for framing in [
+                "length",
+                "chunked",
+                "close",
+                "false-length",
+                "gzip",
+                "gzip-chunked",
+                "gzip-corrupt",
+            ] {
+                let mut decoded = vec![b'x'; size];
+                // A disabled phrase beyond the accepted prefix must never classify a partial body.
+                if size > cap {
+                    let phrase = b"data recording is disabled by owner";
+                    decoded[size - phrase.len()..].copy_from_slice(phrase);
+                }
+                let mut wire = if framing.starts_with("gzip") {
+                    let mut zip = GzEncoder::new(Vec::new(), Compression::default());
+                    zip.write_all(&decoded).expect("gzip");
+                    zip.finish().expect("finish")
+                } else {
+                    decoded.clone()
+                };
+                if framing == "gzip-corrupt" {
+                    let last = wire.len() - 1;
+                    wire[last] ^= 1;
+                }
+                let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+                let addr = listener.local_addr().expect("address");
+                let server = std::thread::spawn(move || {
+                    let (mut stream, _) = listener.accept().expect("accept");
+                    stream.set_read_timeout(Some(Duration::from_secs(5))).expect("timeout");
+                    read_request(&mut stream);
+                    let framing_header = match framing {
+                        "chunked" | "gzip-chunked" => "Transfer-Encoding: chunked\r\n".into(),
+                        "close" => String::new(),
+                        "false-length" => format!("Content-Length: {}\r\n", wire.len() + 1),
+                        _ => format!("Content-Length: {}\r\n", wire.len()),
+                    };
+                    let encoding =
+                        if framing.starts_with("gzip") { "Content-Encoding: gzip\r\n" } else { "" };
+                    let head = format!("HTTP/1.1 403 Forbidden\r\nRetry-After: 17\r\n{framing_header}{encoding}Connection: close\r\n\r\n");
+                    stream.write_all(head.as_bytes()).expect("headers");
+                    if matches!(framing, "chunked" | "gzip-chunked") {
+                        for piece in wire.chunks(8192) {
+                            if write!(stream, "{:x}\r\n", piece.len())
+                                .and_then(|_| stream.write_all(piece))
+                                .and_then(|_| stream.write_all(b"\r\n"))
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                        let _ = stream.write_all(b"0\r\n\r\n");
+                    } else {
+                        let _ = stream.write_all(&wire);
+                    }
+                });
+                let client = NativeTransport::new();
+                let result = client
+                    .request_with_response_limit(
+                        HttpMethod::Get,
+                        format!("http://{addr}"),
+                        vec![],
+                        None,
+                        cap as u64,
+                    )
+                    .await;
+                server.join().expect("joined server before assertions");
+                if size > cap {
+                    assert!(
+                        matches!(result, Err(TransportError::ResponseTooLarge { ref headers })
+                        if headers.iter().any(|h| h.name.eq_ignore_ascii_case("retry-after") && h.value == "17")),
+                        "{size} {framing}: {result:?}"
+                    );
+                } else if matches!(framing, "false-length" | "gzip-corrupt") {
+                    assert!(result.is_err(), "truncated framing must fail");
+                } else {
+                    assert_eq!(result.expect(framing).body.len(), size);
+                }
+            }
+        }
+        // The default/shared request path still returns the complete body, including gzip bytes.
+        for gzip in [false, true] {
+            let decoded = vec![b'x'; cap * 2];
+            let wire = if gzip {
+                let mut zip = GzEncoder::new(Vec::new(), Compression::default());
+                zip.write_all(&decoded).expect("gzip");
+                zip.finish().expect("finish")
+            } else {
+                decoded
+            };
+            let expected = wire.clone();
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("address");
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept");
+                read_request(&mut stream);
+                let encoding = if gzip { "Content-Encoding: gzip\r\n" } else { "" };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\n{encoding}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    wire.len()
+                )
+                .expect("header");
+                stream.write_all(&wire).expect("body");
+            });
+            let result = NativeTransport::new()
+                .request(HttpMethod::Get, format!("http://{addr}"), vec![], None)
+                .await;
+            server.join().expect("joined server");
+            assert_eq!(result.expect("shared request").body, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_reader_finishes_before_the_rest_of_the_body_and_cancellation_destroys_owner() {
+        for cancel in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("address");
+            let (release, wait) = std::sync::mpsc::sync_channel(1);
+            let (ready, arrived) = tokio::sync::oneshot::channel();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept");
+                stream.set_read_timeout(Some(Duration::from_secs(5))).expect("read timeout");
+                stream.set_write_timeout(Some(Duration::from_secs(5))).expect("write timeout");
+                read_request(&mut stream);
+                stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 10000000\r\nRetry-After: 17\r\n\r\n").expect("headers");
+                if !cancel {
+                    stream.write_all(&vec![b'x'; 65_537]).expect("prefix");
+                }
+                let _ = ready.send(());
+                let released = wait.recv_timeout(Duration::from_secs(10)).is_ok();
+                // The client must finish/abort before the server releases the remaining body.
+                released
+            });
+            let client = Arc::new(NativeTransport::new());
+            let weak = Arc::downgrade(&client);
+            let task = tokio::spawn(async move {
+                client
+                    .request_with_response_limit(
+                        HttpMethod::Get,
+                        format!("http://{addr}"),
+                        vec![],
+                        None,
+                        65_536,
+                    )
+                    .await
+            });
+            let readiness = arrived.await;
+            let (result, joined) = if cancel {
+                task.abort();
+                (None, task.await.is_err_and(|e| e.is_cancelled()))
+            } else {
+                let mut task = task;
+                let answer = tokio::time::timeout(Duration::from_secs(5), &mut task).await;
+                match answer {
+                    Ok(Ok(result)) => (Some(result), true),
+                    _ => {
+                        task.abort();
+                        let _ = task.await;
+                        (None, false)
+                    }
+                }
+            };
+            let _ = release.send(());
+            let released = server.join().expect("joined server before assertions");
+            assert!(readiness.is_ok() && joined && released && weak.upgrade().is_none());
+            if !cancel {
+                assert!(matches!(result, Some(Err(TransportError::ResponseTooLarge { .. }))));
+            }
+        }
+    }
 
     #[test]
     fn only_a_redirect_out_of_tls_is_a_downgrade() {
