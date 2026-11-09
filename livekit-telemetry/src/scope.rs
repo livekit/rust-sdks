@@ -558,30 +558,31 @@ impl Scope {
     /// reading is a published track's first.
     fn note_track(&self, sample: &RtcStatsSample) {
         if sample.direction == StreamDirection::Inbound && sample.bytes.unwrap_or(0) > 0 {
-            self.first_media(&sample.track_sid);
+            self.first_media(&sample.track_id);
         }
         if sample.direction == StreamDirection::Outbound {
             self.state
                 .publishing
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&sample.track_sid);
+                .remove(&sample.track_id);
         }
     }
 
     /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
     /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
-    /// ones tagged with their layer), so no SDK maps stats fields itself.
+    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the
+    /// LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
     pub fn record_stats_report(
         &self,
-        track_sid: &str,
+        track_id: &str,
         kind: TrackKind,
         direction: StreamDirection,
         report: Vec<RtcStat>,
         timestamp_ns: Option<u64>,
     ) {
         self.record_samples(crate::rtc::samples_from_report(
-            track_sid,
+            track_id,
             kind,
             direction,
             &report,
@@ -887,7 +888,7 @@ mod tests {
     /// A track sid longer than an attribute value may be is kept nowhere, as `set_track` keeps
     /// it nowhere either.
     #[tokio::test]
-    async fn an_oversized_track_sid_is_not_kept() {
+    async fn an_oversized_track_id_is_not_kept() {
         let (telemetry, _exporter) = pipeline();
         let room = telemetry.begin_scope();
         let sid = "x".repeat(100_000);
