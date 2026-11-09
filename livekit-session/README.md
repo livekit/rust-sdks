@@ -66,9 +66,9 @@ code needs only the predicates on `AgentState`: `is_connected`, `is_pending` and
 
 The agent's microphone and its avatar's camera are available from `agent_audio_track()` and
 `agent_avatar_video_track()`, for an app that wants their frames, e.g. for a visualizer or to show
-the avatar. `SessionState::agent_tracks` flags which of them are subscribed, so the state watch is
-the only signal an app needs: on each change, read the tracks again and compare them by `sid`, as a
-track can be replaced while its flag stays set.
+the avatar. `SessionState::agent_tracks` flags which of them are subscribed: read the tracks again
+when a flag changes. In edge cases, e.g. an avatar reconnecting, a track can be replaced without its
+flag changing, so compare tracks by `sid` whenever you read them.
 
 ## Messages
 
