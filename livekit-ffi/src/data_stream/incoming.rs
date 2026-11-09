@@ -34,6 +34,9 @@ pub struct ByteStreamReader {
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
     closer: ds_api::StreamCloser,
+    // After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
 
 impl ByteStreamReader {
@@ -44,6 +47,8 @@ impl ByteStreamReader {
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
         }
     }
 }
@@ -108,6 +113,9 @@ pub struct TextStreamReader {
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
     closer: ds_api::StreamCloser,
+    // After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
 
 impl TextStreamReader {
@@ -118,6 +126,8 @@ impl TextStreamReader {
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
         }
     }
 }

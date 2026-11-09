@@ -39,23 +39,38 @@ impl std::fmt::Debug for dyn StreamProgressDelegate {
 
 /// Writer for an open text data stream.
 #[derive(uniffi::Object)]
-pub struct TextStreamWriter(pub(crate) ds_api::TextStreamWriter);
+pub struct TextStreamWriter {
+    inner: ds_api::TextStreamWriter,
+    // After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    handle_id: std::sync::OnceLock<crate::FfiHandleId>,
+}
+
+impl TextStreamWriter {
+    pub(crate) fn new(inner: ds_api::TextStreamWriter) -> Self {
+        Self {
+            inner,
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl TextStreamWriter {
     /// Information about the underlying stream.
     pub fn info(&self) -> TextStreamInfo {
-        self.0.info().clone().into()
+        self.inner.info().clone().into()
     }
 
     /// Whether the stream is still open — false once it has been closed locally or a send has failed.
     pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
+        !self.inner.is_closed().await
     }
 
     /// Appends text to the stream.
     pub async fn write(&self, text: String) -> Result<(), DataStreamError> {
-        Ok(self.0.write(&text).await?)
+        Ok(self.inner.write(&text).await?)
     }
 
     /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
@@ -66,34 +81,49 @@ impl TextStreamWriter {
         reason: Option<String>,
         attributes: HashMap<String, String>,
     ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
+        Ok(self.inner.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
     }
 
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
+        Ok(self.inner.clone().close_with_reason(&reason).await?)
     }
 }
 
 /// Writer for an open byte data stream.
 #[derive(uniffi::Object)]
-pub struct ByteStreamWriter(pub(crate) ds_api::ByteStreamWriter);
+pub struct ByteStreamWriter {
+    inner: ds_api::ByteStreamWriter,
+    // After the migration is complete, this field can be removed.
+    #[cfg(feature = "room-apis")]
+    handle_id: std::sync::OnceLock<crate::FfiHandleId>,
+}
+
+impl ByteStreamWriter {
+    pub(crate) fn new(inner: ds_api::ByteStreamWriter) -> Self {
+        Self {
+            inner,
+            #[cfg(feature = "room-apis")]
+            handle_id: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ByteStreamWriter {
     /// Information about the underlying stream.
     pub fn info(&self) -> ByteStreamInfo {
-        self.0.info().clone().into()
+        self.inner.info().clone().into()
     }
 
     /// Whether the stream is still open — false once it has been closed locally or a send has failed.
     pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
+        !self.inner.is_closed().await
     }
 
     /// Appends bytes to the stream.
     pub async fn write(&self, data: Bytes) -> Result<(), DataStreamError> {
-        Ok(self.0.write(data.as_ref()).await?)
+        Ok(self.inner.write(data.as_ref()).await?)
     }
 
     /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
@@ -104,11 +134,11 @@ impl ByteStreamWriter {
         reason: Option<String>,
         attributes: HashMap<String, String>,
     ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
+        Ok(self.inner.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
     }
 
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
+        Ok(self.inner.clone().close_with_reason(&reason).await?)
     }
 }
