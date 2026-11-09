@@ -15,7 +15,7 @@
 #![cfg(feature = "net")]
 
 use livekit_net::{Header, HttpClient, HttpMethod, HttpResponse, TransportError};
-use livekit_telemetry::{ExportRequest, NetTransport, TelemetryTransport};
+use livekit_telemetry::{ExportError, ExportRequest, NetTransport, TelemetryTransport};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -56,6 +56,53 @@ async fn registry_missing_or_native_then_registered_host() {
     } else {
         assert!(NetTransport::from_registry().is_some());
         eprintln!("native: unregistered backend resolves");
+        // Exercise the public resolver, not a separately constructed native test client.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address");
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let mut server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut request = [0; 4096];
+            stream.read(&mut request).await.expect("request");
+            stream.write_all(b"HTTP/1.1 403 Forbidden\r\nRetry-After: 17\r\nContent-Length: 10000000\r\n\r\n").await.expect("headers");
+            stream.write_all(&vec![b'x'; 65_537]).await.expect("overflow prefix");
+            let _ = held.await;
+        });
+        let transport = Arc::new(NetTransport::from_registry().expect("native bounded view"));
+        let weak = Arc::downgrade(&transport);
+        let mut send = tokio::spawn(async move {
+            transport
+                .send(ExportRequest {
+                    url: format!("http://{address}/v1/logs"),
+                    ..Default::default()
+                })
+                .await
+        });
+        let answer = match tokio::time::timeout(std::time::Duration::from_secs(5), &mut send).await
+        {
+            Ok(Ok(answer)) => Some(answer),
+            _ => {
+                send.abort();
+                let _ = send.await;
+                None
+            }
+        };
+        let _ = release.send(());
+        let joined =
+            match tokio::time::timeout(std::time::Duration::from_secs(5), &mut server).await {
+                Ok(result) => result.is_ok(),
+                Err(_) => {
+                    server.abort();
+                    let _ = server.await;
+                    false
+                }
+            };
+        assert!(joined && weak.upgrade().is_none(), "cleanup precedes verdict assertions");
+        assert!(matches!(
+            answer,
+            Some(Err(ExportError::Retryable { retry_after_ms: Some(17_000), .. }))
+        ));
     }
     let host = Arc::new(Host(AtomicUsize::new(0)));
     livekit_net::set_http_client(host.clone());
