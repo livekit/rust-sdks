@@ -201,7 +201,8 @@ fn uninstall() -> Option<Telemetry> {
 /// call resolves only once the cache is deleted, even while an earlier one is still running.
 /// All exporters are cancelled before waiting; their aggregate wait is at most the largest
 /// `export_timeout_ms` (1 s minimum) plus 1 s. Synchronous cache and filesystem work adds time
-/// outside that wait bound.
+/// outside that wait bound. A failed final per-cache clear keeps the result `false` even if
+/// the later directory sweep succeeds; that sweep cannot certify a caller-provided cache.
 pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
     let (live, stored) = {
         let _lifecycle = lifecycle();
