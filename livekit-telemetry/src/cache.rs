@@ -923,10 +923,21 @@ fn is_rebinding(parent: &str, half: &str) -> bool {
     parent.ends_with('-') && half.len() > parent.len() && half.starts_with(parent)
 }
 
+/// A directory no other test uses. Tests run in parallel threads, and the wall clock repeats
+/// within its resolution (a microsecond on macOS), so the process id and a counter tell them apart:
+/// two tests on one directory would share a cache and delete each other's files.
 #[cfg(test)]
 pub(crate) fn temp_dir(tag: &str) -> PathBuf {
+    temp_dir_at(tag, crate::event::now_unix_nanos())
+}
+
+/// [`temp_dir`] at a given wall-clock time.
+#[cfg(test)]
+fn temp_dir_at(tag: &str, unix_nanos: u64) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir()
-        .join(format!("livekit-telemetry-{tag}-{}", crate::event::now_unix_nanos()));
+        .join(format!("livekit-telemetry-{tag}-{}-{n}-{unix_nanos}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     dir
 }
@@ -943,6 +954,19 @@ mod tests {
             const { std::cell::RefCell::new(None) };
         /// Signals an actual contended commit lock, without a timer/readiness guess.
         pub(super) static COMMIT_WAIT: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    }
+
+    /// Tests in parallel threads ask for directories within one clock tick; each gets its own,
+    /// and asking for one never deletes another test's.
+    #[test]
+    fn temp_dirs_are_unique_within_one_clock_tick() {
+        let first = temp_dir_at("same-tick", 42);
+        fs::create_dir_all(&first).expect("first directory");
+        let second = temp_dir_at("same-tick", 42);
+        let kept = first.exists();
+        let _ = fs::remove_dir_all(&first);
+        assert_ne!(first, second);
+        assert!(kept, "the second request deleted the first directory");
     }
 
     /// Missing parents cannot be resurrected after the eviction was already counted.
