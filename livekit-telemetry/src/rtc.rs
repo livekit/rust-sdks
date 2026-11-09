@@ -59,8 +59,8 @@ pub enum StreamDirection {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtcStatsSample {
-    /// The track's sid (`TR_…`).
-    pub track_sid: String,
+    /// The LiveKit track identifier (`TR_…`); the value is unchanged from the former `track_sid` field.
+    pub track_id: String,
     /// Audio or video.
     pub kind: TrackKind,
     /// Sent (outbound) or received (inbound).
@@ -204,7 +204,7 @@ fn text(stat: &RtcStat, key: &str) -> Option<String> {
 /// `remote-inbound-rtp` that reports on the stream (outbound) or the selected candidate pair
 /// (inbound), durations converted from seconds to milliseconds. One mapping for every SDK.
 pub(crate) fn samples_from_report(
-    track_sid: &str,
+    track_id: &str,
     kind: TrackKind,
     direction: StreamDirection,
     report: &[RtcStat],
@@ -217,7 +217,7 @@ pub(crate) fn samples_from_report(
         .rtp
         .iter()
         .filter(|(_, d)| *d == direction)
-        .map(|(stat, direction)| index.sample(stat, track_sid, kind, *direction, timestamp_ns))
+        .map(|(stat, direction)| index.sample(stat, track_id, kind, *direction, timestamp_ns))
         .collect()
 }
 
@@ -321,12 +321,12 @@ impl<'a> ReportIndex<'a> {
     fn sample(
         &self,
         stat: &RtcStat,
-        track_sid: &str,
+        track_id: &str,
         kind: TrackKind,
         direction: StreamDirection,
         timestamp_ns: Option<u64>,
     ) -> RtcStatsSample {
-        let mut sample = RtcStatsSample::new(track_sid, kind, direction);
+        let mut sample = RtcStatsSample::new(track_id, kind, direction);
         sample.codec = text(stat, "codecId")
             .and_then(|id| self.by_id.get(id.as_str()).copied())
             .filter(|codec| codec.kind == "codec")
@@ -434,9 +434,9 @@ impl RtcStatsSample {
     }
 
     /// A sample with every optional field unset.
-    pub fn new(track_sid: impl Into<String>, kind: TrackKind, direction: StreamDirection) -> Self {
+    pub fn new(track_id: impl Into<String>, kind: TrackKind, direction: StreamDirection) -> Self {
         Self {
-            track_sid: track_sid.into(),
+            track_id: track_id.into(),
             kind,
             direction,
             codec: None,
@@ -612,7 +612,7 @@ impl Window {
         let last = self.last;
         let mut event = TelemetryEvent::new(event::LK_RTC_STATS_SAMPLE)
             .with_body(body)
-            .with_attribute(semconv::LK_TRACK_ID, last.track_sid)
+            .with_attribute(semconv::LK_TRACK_ID, last.track_id)
             .with_attribute(semconv::LK_TRACK_KIND, last.kind.as_str())
             .with_attribute(semconv::LK_TRACK_DIRECTION, last.direction.as_str())
             .with_attribute(semconv::LK_RTC_WINDOW_MS, window_ms as i64)
@@ -701,7 +701,7 @@ pub(crate) struct StatsWindows {
 type TrackKey = ([u8; 16], String, StreamDirection);
 
 fn track_key(session: &ScopeState, sample: &RtcStatsSample) -> TrackKey {
-    (session.trace_id, sample.track_sid.clone(), sample.direction)
+    (session.trace_id, sample.track_id.clone(), sample.direction)
 }
 
 /// One track's state across polls.
@@ -898,11 +898,11 @@ impl StatsWindows {
         self.windows.drain().map(|(_, window)| window.into_queued(end)).collect()
     }
 
-    /// A track left `session` (`track_sid`), or the session ended (`None`): close its windows now
+    /// A track left `session` (`track_id`), or the session ended (`None`): close its windows now
     /// — the last partial window still ships — and forget everything kept for it.
-    pub fn retire(&mut self, session: &ScopeState, track_sid: Option<&str>) -> Vec<QueuedEvent> {
+    pub fn retire(&mut self, session: &ScopeState, track_id: Option<&str>) -> Vec<QueuedEvent> {
         let gone = |(trace_id, sid, _): &TrackKey| {
-            *trace_id == session.trace_id && track_sid.is_none_or(|t| t == sid)
+            *trace_id == session.trace_id && track_id.is_none_or(|t| t == sid)
         };
         self.end_polls(gone);
         self.tracks.retain(|key, _| !gone(key));
@@ -1699,9 +1699,9 @@ mod tests {
         assert_eq!(out.len(), 3, "two camera layers and the known remote track");
         assert!(out
             .iter()
-            .filter(|s| s.track_sid == "TR_cam")
+            .filter(|s| s.track_id == "TR_cam")
             .all(|s| { s.kind == TrackKind::Video && s.direction == StreamDirection::Outbound }));
-        let remote = out.iter().find(|s| s.track_sid == "TR_remote").expect("remote");
+        let remote = out.iter().find(|s| s.track_id == "TR_remote").expect("remote");
         assert_eq!((remote.kind, remote.bytes), (TrackKind::Audio, Some(7)));
     }
 
@@ -1994,7 +1994,7 @@ mod tests {
         // A window with a pending poll of its own, and another track with only a pending poll.
         windows.record(stream("f", Some(100), 1));
         windows.record(stream("f", Some(200), 2));
-        windows.record(RtcStatsSample { track_sid: "TR_2".into(), ..stream("f", Some(100), 1) });
+        windows.record(RtcStatsSample { track_id: "TR_2".into(), ..stream("f", Some(100), 1) });
         assert_eq!(windows.clear(), 2, "one per track, its pending poll included");
     }
 }
