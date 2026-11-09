@@ -91,20 +91,6 @@ pub(crate) fn encode_spans(
     .encode_to_vec()
 }
 
-/// An encoded batch cut in two halves (a 413 answer), each with its record count; `None` when it
-/// holds a single record or is not the one-resource, one-scope shape this crate encodes.
-pub(crate) type Halves = Option<[(Vec<u8>, u64); 2]>;
-
-/// Split encoded log records without whole-input protobuf object decoding.
-pub(crate) fn split_logs(encoded: &[u8]) -> Halves {
-    crate::split::encoded(encoded).ok()
-}
-
-/// Split encoded span records without whole-input protobuf object decoding.
-pub(crate) fn split_spans(encoded: &[u8]) -> Halves {
-    crate::split::encoded(encoded).ok()
-}
-
 fn log_record(
     QueuedEvent { mut event, session, .. }: QueuedEvent,
     global: &[Attribute],

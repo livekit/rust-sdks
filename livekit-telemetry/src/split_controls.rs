@@ -374,7 +374,7 @@ async fn evicted_parent_never_resurrects_children_or_retains_birth_metadata() {
             Telemetry::with_cache(Default::default(), host.clone(), Arc::new(RemovedParent(cache)));
         let weak = Arc::downgrade(&telemetry.shared);
         exporter.born.insert(parent.clone(), Instant::now());
-        let result = exporter.split(&parent, &body, Signal::Logs).map_err(|e| e.kind());
+        let result = exporter.split(&parent, &body).map_err(|e| e.kind());
         let no_birth = !exporter.born.contains_key(&parent);
         let pending = telemetry.shared.cache.pending();
         let oversized = telemetry.shared.counters.snapshot().oversized;
@@ -416,7 +416,7 @@ async fn partial_file_replacement_failure_keeps_original_and_age_and_removes_tem
     let weak = Arc::downgrade(&telemetry.shared);
     let born = Instant::now();
     exporter.born.insert(parent.clone(), born);
-    let result = exporter.split(&parent, &body, Signal::Logs).map_err(|e| e.kind());
+    let result = exporter.split(&parent, &body).map_err(|e| e.kind());
     let original = cache.read(&parent).ok() == Some(body);
     let age = exporter.born.get(&parent).copied() == Some(born);
     let pending = cache.pending() == [parent];
