@@ -122,7 +122,7 @@ impl AgentActivity {
 #[non_exhaustive]
 pub enum AgentFailure {
     /// No agent became conversational within
-    /// [`SessionOptions::agent_connect_timeout`](crate::SessionOptions::agent_connect_timeout).
+    /// [`SessionOptions::with_agent_connect_timeout`](crate::SessionOptions::with_agent_connect_timeout).
     Timeout,
     /// The agent left the room while the session stayed connected.
     Left,

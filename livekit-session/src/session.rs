@@ -50,34 +50,12 @@ impl SessionTokenSource {
     }
 }
 
-/// Options for a [`Session`].
+/// Options for a [`Session`], set through the `with_*` methods.
 #[derive(Clone, Debug)]
-#[non_exhaustive]
 pub struct SessionOptions {
-    /// How long after connecting an agent gets to become conversational
-    /// before the agent state reports
-    /// [`AgentFailure::Timeout`](crate::AgentFailure::Timeout). Defaults to 20
-    /// seconds.
-    ///
-    /// Armed on every connect, whether or not the token names an agent: an
-    /// agent registered without a name is dispatched into every new room.
-    pub agent_connect_timeout: Duration,
-    /// Options for the session's room, including
-    /// [`encryption`](RoomOptions::encryption), which can be toggled once
-    /// connected through [`Session::room`].
-    pub room_options: RoomOptions,
-    /// Whether [`start`](Session::start) uses the platform's audio devices:
-    /// the microphone is captured and published as the local participant's
-    /// [`TrackSource::Microphone`] track, and the agent's audio plays through
-    /// the speakers, until the session ends. Defaults to `true`.
-    ///
-    /// `start` fails with [`SessionStartError::PlatformAudio`] on a machine
-    /// without audio devices. Turn this off to converse by text alone, or to
-    /// publish audio of your own through [`Session::room`].
-    ///
-    /// Device selection and audio processing are shared by every
-    /// [`PlatformAudio`] in the process, so configure them on one of your own.
-    pub platform_audio: bool,
+    agent_connect_timeout: Duration,
+    room_options: RoomOptions,
+    platform_audio: bool,
 }
 
 impl Default for SessionOptions {
@@ -91,19 +69,37 @@ impl Default for SessionOptions {
 }
 
 impl SessionOptions {
-    /// Sets [`agent_connect_timeout`](Self::agent_connect_timeout).
+    /// Sets how long after connecting an agent gets to become conversational
+    /// before the agent state reports
+    /// [`AgentFailure::Timeout`](crate::AgentFailure::Timeout). Defaults to 20
+    /// seconds.
+    ///
+    /// Armed on every connect, whether or not the token names an agent: an
+    /// agent registered without a name is dispatched into every new room.
     pub fn with_agent_connect_timeout(mut self, timeout: Duration) -> Self {
         self.agent_connect_timeout = timeout;
         self
     }
 
-    /// Sets [`room_options`](Self::room_options).
+    /// Sets the options for the session's room, including
+    /// [`encryption`](RoomOptions::encryption), which can be toggled once
+    /// connected through [`Session::room`].
     pub fn with_room_options(mut self, room_options: RoomOptions) -> Self {
         self.room_options = room_options;
         self
     }
 
-    /// Sets [`platform_audio`](Self::platform_audio).
+    /// Sets whether [`start`](Session::start) uses the platform's audio
+    /// devices: the microphone is captured and published as the local
+    /// participant's [`TrackSource::Microphone`] track, and the agent's audio
+    /// plays through the speakers, until the session ends. Defaults to `true`.
+    ///
+    /// `start` fails with [`SessionStartError::PlatformAudio`] on a machine
+    /// without audio devices. Turn this off to converse by text alone, or to
+    /// publish audio of your own through [`Session::room`].
+    ///
+    /// Device selection and audio processing are shared by every
+    /// [`PlatformAudio`] in the process, so configure them on one of your own.
     pub fn with_platform_audio(mut self, platform_audio: bool) -> Self {
         self.platform_audio = platform_audio;
         self
@@ -136,7 +132,7 @@ pub enum SessionEvent {
 ///
 /// By default `start` also captures the platform microphone, publishes it as
 /// the local participant's microphone track, and plays the agent through the
-/// speakers, until the session ends. [`SessionOptions::platform_audio`] turns
+/// speakers, until the session ends. [`SessionOptions::with_platform_audio`] turns
 /// that off.
 ///
 /// Handles are cheap to clone and share one session. Dropping the last handle
@@ -272,7 +268,7 @@ impl Session {
     }
 
     /// Fetches credentials, connects the room, and publishes the microphone
-    /// (see [`SessionOptions::platform_audio`]).
+    /// (see [`SessionOptions::with_platform_audio`]).
     ///
     /// Resolves once the room is connected, not once the agent is: wait for
     /// that on [`state`](Self::state). Fails with
