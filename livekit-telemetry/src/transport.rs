@@ -22,7 +22,7 @@ use prost::Message;
 /// a transport only moves the bytes. The body is an `ExportLogsServiceRequest` or an
 /// `ExportTraceServiceRequest`, as `url` says.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExportRequest {
     /// Where to POST: the OTLP logs or traces endpoint of the batch's project.
     pub url: String,
@@ -60,6 +60,19 @@ const DISABLED_ANSWER: &str = "data recording is disabled by owner";
 /// The most characters of an error body that a verdict's reason keeps: enough to read the cause in
 /// a log line, short enough that a large HTML error page does not fill it.
 const MAX_REASON_CHARS: usize = 200;
+
+/// Inclusive decoded collector-response limit; never a request or shared-client limit.
+const MAX_RESPONSE_BYTES: usize = 65_536;
+
+fn response_overflow<'a>(headers: impl Iterator<Item = (&'a str, &'a str)>) -> ExportError {
+    let retry_after_ms = headers
+        .filter(|(name, _)| name.eq_ignore_ascii_case("retry-after"))
+        .find_map(|(_, value)| retry_after_ms(value));
+    ExportError::Retryable {
+        reason: "collector response exceeds 65536 decoded bytes".into(),
+        retry_after_ms,
+    }
+}
 
 /// How long a 429 that names no delay holds uploads: LiveKit Cloud's quota answer names none.
 const THROTTLE_DEFAULT_MS: u64 = 60_000;
@@ -127,6 +140,16 @@ pub(crate) enum Verdict {
 impl Verdict {
     /// Classify a collector response.
     pub(crate) fn of(response: &ExportResponse) -> Self {
+        if response.body.len() > MAX_RESPONSE_BYTES {
+            return match response_overflow(
+                response.headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+            ) {
+                ExportError::Retryable { reason, retry_after_ms } => {
+                    Self::Retry { delay_ms: retry_after_ms, reason }
+                }
+                ExportError::Rejected { .. } => unreachable!("overflow is retryable"),
+            };
+        }
         let status = response.status;
         if (200..300).contains(&status) {
             return match PartialSuccessResponse::decode(response.body.as_slice()) {
@@ -137,16 +160,17 @@ impl Verdict {
             };
         }
         // OTLP/HTTP errors are a protobuf `google.rpc.Status`; Cloud's auth answers are text.
+        // The whole answer is searched for the phrase, in place; only the logged reason is
+        // decoded, from a head long enough to hold it (a large error page is never copied).
         let rpc = RpcStatus::decode(response.body.as_slice()).ok();
-        let text = match rpc.as_ref().map(|s| s.message.trim()).filter(|m| !m.is_empty()) {
-            Some(message) => message.to_owned(),
-            None => String::from_utf8_lossy(&response.body).trim().to_owned(),
-        };
-        // The whole answer is searched for the phrase; only the logged reason is cut.
-        if matches!(status, 401 | 403) && text.to_ascii_lowercase().contains(DISABLED_ANSWER) {
+        let message = rpc.as_ref().map(|s| s.message.trim()).filter(|m| !m.is_empty());
+        let answer = message.map_or(response.body.as_slice(), str::as_bytes);
+        if matches!(status, 401 | 403) && contains_ignore_ascii_case(answer, DISABLED_ANSWER) {
             return Self::Disabled;
         }
-        let text: String = text.chars().take(MAX_REASON_CHARS).collect();
+        let head = &answer[..answer.len().min(MAX_REASON_CHARS * 4)];
+        let text: String =
+            String::from_utf8_lossy(head).trim().chars().take(MAX_REASON_CHARS).collect();
         // `reason`, not `message`: a UniFFI field named `message` collides with
         // `Throwable.message` in Kotlin.
         let reason = if text.is_empty() {
@@ -184,6 +208,12 @@ impl Verdict {
             _ => Self::Rejected(reason),
         }
     }
+}
+
+/// Whether `haystack` contains `needle` ignoring ASCII case, without copying either.
+fn contains_ignore_ascii_case(haystack: &[u8], needle: &str) -> bool {
+    needle.is_empty()
+        || haystack.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 /// `ExportLogsServiceResponse` and `ExportTraceServiceResponse` share one shape: field 1 is the
@@ -298,11 +328,17 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 ///   fail only when there was no response (connection, DNS, TLS, timeout) —
 ///   [`ExportError::Retryable`] — or the request cannot be made at all
 ///   ([`ExportError::Rejected`], e.g. an invalid URL).
+/// - Bound the decoded response body to 65,536 bytes while reading. On overflow return
+///   [`ExportError::Retryable`], preserving a valid `Retry-After` as `retry_after_ms`.
+///   Never return a truncated body for classification. The core defensively rejects oversized
+///   already-buffered host/pulled answers; that check cannot bound host read-time allocation.
 /// - Never retry: the core owns the retry policy.
-/// - Never forward the `Authorization` header across origins: do not follow a redirect to
-///   another scheme, host or port with it (returning the 3xx is fine — the core drops the batch).
-///   `NetTransport` over the native `livekit-net` client follows at most 10 redirects, never one
-///   that changes the scheme, and drops `Authorization` when a redirect changes the host or port.
+/// - Never forward the `Authorization` header across origins or out of TLS: do not follow a
+///   redirect to another host or port with it, nor one from `https` to a plaintext scheme
+///   (returning the 3xx is fine — the core drops the batch). A same-origin upgrade from `http`
+///   to `https` may carry it: it lands on TLS. `NetTransport` over the native `livekit-net`
+///   client follows at most 10 redirects, never one from `https` to a plaintext scheme, and
+///   drops `Authorization` when a redirect changes the host or port.
 /// - Keep the request off the call's critical path: lowest priority where the platform allows it.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
@@ -315,9 +351,12 @@ pub trait TelemetryTransport: Send + Sync {
 mod net {
     use std::sync::Arc;
 
-    use livekit_net::{Header, HttpClient, HttpClientExt, HttpResponse, TransportError};
+    use livekit_net::{Header, HttpClient, HttpMethod, HttpResponse, TransportError};
 
-    use super::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
+    use super::{
+        response_overflow, ExportError, ExportRequest, ExportResponse, TelemetryTransport,
+        MAX_RESPONSE_BYTES,
+    };
 
     /// Default transport: HTTP POST through a `livekit-net` client — the native backend, or
     /// whatever the host registered with `livekit_net::set_http_client`.
@@ -330,8 +369,16 @@ mod net {
         }
 
         /// Resolve the process-wide `livekit-net` client; `None` when none is available.
+        ///
+        /// A registered client is returned as is. Without one, on a `livekit-net/native`
+        /// build, the first lookup in the process builds the native client — a `reqwest`
+        /// client, whose TLS backend may load the system root store synchronously — and
+        /// concurrent first lookups wait for it; later lookups return the memoized client.
+        /// Call it where blocking is acceptable (the exporter's own task), not on a Room's
+        /// connect path. That build panics if the TLS backend fails to initialize, as
+        /// `reqwest::Client::new` does.
         pub fn from_registry() -> Option<Self> {
-            livekit_net::http_client().map(Self::new)
+            livekit_net::http_client_with_response_limit(MAX_RESPONSE_BYTES as u64).map(Self::new)
         }
     }
 
@@ -348,11 +395,35 @@ mod net {
     #[async_trait::async_trait]
     impl TelemetryTransport for NetTransport {
         async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
+            // A request that cannot be made is final: the client would report a malformed or
+            // non-HTTP URL as a connection error, and the batch would retry until its cache
+            // expired.
+            match url::Url::parse(&request.url) {
+                Err(error) => {
+                    return Err(ExportError::Rejected {
+                        reason: format!("{}: {error}", request.url),
+                    })
+                }
+                Ok(url) if !matches!(url.scheme(), "http" | "https") => {
+                    let reason = format!("{}: not an HTTP URL", request.url);
+                    return Err(ExportError::Rejected { reason });
+                }
+                Ok(_) => {}
+            }
             let headers =
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
-            match self.0.post(request.url, headers, request.body).await {
+            match self.0.request(HttpMethod::Post, request.url, headers, Some(request.body)).await {
+                Ok(response) if response.body.len() > MAX_RESPONSE_BYTES => Err(response_overflow(
+                    response.headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+                )),
                 Ok(response) => Ok(response.into()),
-                // The client swallowed the body with the status; the core still classifies it.
+                Err(TransportError::ResponseTooLarge { headers }) => Err(response_overflow(
+                    headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+                )),
+                // Against the `HttpClient` contract, a host client reported a status as an
+                // error and discarded the headers and body with it; the native client never
+                // does. The status still classifies, but a refusal's text and `Retry-After`
+                // are gone: a "disabled by owner" 401 reads as a bad credential.
                 Err(TransportError::Http { status }) => {
                     Ok(ExportResponse { status, ..Default::default() })
                 }
@@ -367,11 +438,114 @@ mod net {
 #[cfg(feature = "net")]
 pub use net::NetTransport;
 
+#[cfg(all(test, feature = "net"))]
+mod net_tests {
+    use std::sync::Arc;
+
+    use livekit_net::{Header, HttpClient, HttpMethod, HttpResponse, TransportError};
+
+    use super::*;
+
+    /// A client that must never be asked anything.
+    struct Unreachable;
+
+    #[async_trait::async_trait]
+    impl HttpClient for Unreachable {
+        async fn request(
+            &self,
+            _: HttpMethod,
+            url: String,
+            _: Vec<Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<HttpResponse, TransportError> {
+            panic!("{url} reached the client")
+        }
+    }
+
+    struct BufferedHost;
+
+    #[async_trait::async_trait]
+    impl HttpClient for BufferedHost {
+        async fn request(
+            &self,
+            _: HttpMethod,
+            _: String,
+            _: Vec<Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<HttpResponse, TransportError> {
+            Ok(HttpResponse {
+                status: 403,
+                headers: vec![Header { name: "Retry-After".into(), value: "17".into() }],
+                body: vec![b'x'; MAX_RESPONSE_BYTES + 1],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn already_buffered_host_overflow_is_retryable_and_preserves_headers() {
+        let host = Arc::new(BufferedHost);
+        let weak = Arc::downgrade(&host);
+        let transport = NetTransport::new(host);
+        let result = transport
+            .send(ExportRequest { url: "http://collector/v1/logs".into(), ..Default::default() })
+            .await;
+        drop(transport);
+        assert!(weak.upgrade().is_none());
+        assert!(matches!(result, Err(ExportError::Retryable { retry_after_ms: Some(17_000), .. })));
+    }
+
+    /// A URL the client cannot even build a request for is a final failure, not a retry: the
+    /// native client would report it as a connection error. So is a URL it parses but cannot
+    /// make an HTTP request to.
+    #[tokio::test]
+    async fn a_malformed_url_is_rejected_before_the_client_sees_it() {
+        let transport = NetTransport::new(Arc::new(Unreachable));
+        for url in ["not a url", "ftp://collector/v1/logs", "file:///tmp/collector", "mailto:x@y"] {
+            let request = ExportRequest { url: url.into(), ..Default::default() };
+            assert!(
+                matches!(
+                    transport.send(request).await,
+                    Err(ExportError::Rejected { ref reason }) if reason.contains(url)
+                ),
+                "{url}"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use prost::Message;
 
     use super::*;
+
+    #[test]
+    fn oversized_host_answers_retry_before_status_or_disabled_classification() {
+        for status in [200, 400, 401, 403, 413, 503] {
+            let mut body = vec![b'x'; MAX_RESPONSE_BYTES + 1];
+            body.extend_from_slice(DISABLED_ANSWER.as_bytes());
+            let response = ExportResponse {
+                status,
+                body,
+                headers: HashMap::from([("Retry-After".into(), "17".into())]),
+            };
+            assert!(matches!(
+                Verdict::of(&response),
+                Verdict::Retry { delay_ms: Some(17_000), .. }
+            ));
+        }
+        for size in [MAX_RESPONSE_BYTES - 1, MAX_RESPONSE_BYTES] {
+            let response =
+                ExportResponse { status: 403, body: vec![b'x'; size], ..Default::default() };
+            assert!(matches!(Verdict::of(&response), Verdict::Unauthorized(_)));
+        }
+        let response = ExportResponse {
+            status: 403,
+            body: DISABLED_ANSWER.as_bytes().to_vec(),
+            ..Default::default()
+        };
+        assert_eq!(Verdict::of(&response), Verdict::Disabled);
+    }
 
     fn status_body(message: &str, retry: Option<(i64, i32)>) -> Vec<u8> {
         let details = retry
@@ -447,6 +621,18 @@ mod tests {
             panic!("a credential answer")
         };
         assert_eq!(reason.len(), "HTTP 401: ".len() + MAX_REASON_CHARS);
+        let mixed_case = b"Project Data Recording Is DISABLED By Owner".to_vec();
+        assert_eq!(verdict(403, &[], mixed_case), Verdict::Disabled);
+        assert!(contains_ignore_ascii_case(b"ab", ""));
+        assert!(!contains_ignore_ascii_case(b"a", "ab"));
+        // Not UTF-8, and the phrase past the logged head: still found, the reason still cut.
+        let mut page = vec![0xFF; 5_000];
+        page.extend_from_slice(b"data recording is disabled by owner");
+        assert_eq!(verdict(401, &[], page), Verdict::Disabled);
+        let Verdict::Unauthorized(reason) = verdict(401, &[], vec![0xFF; 5_000]) else {
+            panic!("a credential answer")
+        };
+        assert_eq!(reason.chars().count(), "HTTP 401: ".len() + MAX_REASON_CHARS);
         // Only the documented phrase: another answer that merely mentions "disabled" is a
         // credential problem, not a project switch.
         for body in ["account disabled", "token disabled for this room"] {

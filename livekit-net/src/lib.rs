@@ -138,6 +138,53 @@ pub fn http_client() -> Option<Arc<dyn HttpClient>> {
     }
 }
 
+/// Resolve an opt-in client view with an inclusive decoded response-body byte limit.
+///
+/// The native backend stops reading on overflow (including gzip decoding), returning
+/// [`TransportError::ResponseTooLarge`] with the received headers. Ordinary [`http_client`]
+/// requests keep their existing behavior. A registered host client is checked only after its
+/// callback returns a buffered response: this cannot bound host read-time allocation. Such a
+/// host must enforce its own reader limit before claiming that bound. No callback API changes.
+pub fn http_client_with_response_limit(max_response_bytes: u64) -> Option<Arc<dyn HttpClient>> {
+    if let Some(client) = HTTP.get() {
+        return Some(Arc::new(LimitedHostClient {
+            client: Arc::clone(client),
+            limit: max_response_bytes,
+        }));
+    }
+    #[cfg(feature = "native")]
+    {
+        Some(native::native_http_client_with_response_limit(max_response_bytes))
+    }
+    #[cfg(not(feature = "native"))]
+    {
+        None
+    }
+}
+
+/// Owns the registered client without a reverse edge; host buffering remains host-owned.
+struct LimitedHostClient {
+    client: Arc<dyn HttpClient>,
+    limit: u64,
+}
+
+#[async_trait::async_trait]
+impl HttpClient for LimitedHostClient {
+    async fn request(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpResponse, TransportError> {
+        let response = self.client.request(method, url, headers, body).await?;
+        if response.body.len() as u64 > self.limit {
+            return Err(TransportError::ResponseTooLarge { headers: response.headers });
+        }
+        Ok(response)
+    }
+}
+
 #[cfg(feature = "native")]
 pub mod testing {
     use crate::{HttpClient, WsClient};
