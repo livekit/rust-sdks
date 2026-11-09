@@ -229,18 +229,14 @@ fn configure_in(
 /// Maximum admitted process generations, including construction reservations.
 const MAX_ADMITTED_GENERATIONS: usize = 3;
 
-/// A slot owns this counter; leases own no slot, lifecycle, callback or runtime reference.
-struct AdmissionState {
-    active: AtomicUsize,
-}
-
 /// One counted generation. Its final lease disappears only after all admitted owners disappear.
+/// It shares only the slot's counter: no slot, lifecycle, callback or runtime reference.
 struct Reservation {
-    state: Arc<AdmissionState>,
+    active: Arc<AtomicUsize>,
 }
 impl Drop for Reservation {
     fn drop(&mut self) {
-        self.state.active.fetch_sub(1, Ordering::SeqCst);
+        self.active.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -279,7 +275,8 @@ enum Command {
 /// Where a lifecycle lives: the running one, held by its owner, if any.
 struct LifecycleSlot {
     lifecycle: Mutex<Option<LifecycleHandle>>,
-    admission: OnceLock<Arc<AdmissionState>>,
+    /// Admitted generations; it survives lifecycle restarts.
+    admission: OnceLock<Arc<AtomicUsize>>,
     #[cfg(test)]
     before_construct: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -319,17 +316,13 @@ impl LifecycleSlot {
 
     /// Fail fast before generation construction; this counter survives lifecycle restarts.
     fn reserve(&self) -> Result<GenerationLease, TelemetryError> {
-        let state = self
-            .admission
-            .get_or_init(|| Arc::new(AdmissionState { active: AtomicUsize::new(0) }))
-            .clone();
-        state
-            .active
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
-                (active < MAX_ADMITTED_GENERATIONS).then_some(active + 1)
+        let active = self.admission.get_or_init(Arc::default).clone();
+        active
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < MAX_ADMITTED_GENERATIONS).then_some(n + 1)
             })
             .map_err(|_| TelemetryError::AtCapacity)?;
-        Ok(GenerationLease { _reservation: Arc::new(Reservation { state }) })
+        Ok(GenerationLease { _reservation: Arc::new(Reservation { active }) })
     }
 
     /// The test hook runs after reservation and outside every lifecycle/cache lock.
