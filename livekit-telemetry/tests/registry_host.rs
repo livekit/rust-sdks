@@ -64,7 +64,9 @@ async fn registry_missing_or_native_then_registered_host() {
         let mut server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.expect("accept");
             let mut request = [0; 4096];
-            stream.read(&mut request).await.expect("request");
+            if stream.read(&mut request).await.expect("request") == 0 {
+                return;
+            }
             stream.write_all(b"HTTP/1.1 403 Forbidden\r\nRetry-After: 17\r\nContent-Length: 10000000\r\n\r\n").await.expect("headers");
             stream.write_all(&vec![b'x'; 65_537]).await.expect("overflow prefix");
             let _ = held.await;
