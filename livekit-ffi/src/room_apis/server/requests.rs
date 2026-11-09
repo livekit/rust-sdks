@@ -19,7 +19,7 @@ use livekit::{
     prelude::*,
     register_audio_filter_plugin,
     webrtc::{native::apm, native::audio_resampler, prelude::*},
-    AudioFilterPlugin, SimulateScenario,
+    AudioFilterPlugin, SimulateScenario, StreamError, StreamReader as _, StreamWriter as _,
 };
 use parking_lot::Mutex;
 
@@ -1178,40 +1178,77 @@ fn on_byte_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
-    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
-    reader.read_incremental(server, request)
+    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
+    data_stream::read_byte_incremental(server, request.reader_handle, reader);
+    Ok(proto::ByteStreamReaderReadIncrementalResponse {})
 }
 
 fn on_byte_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadAllRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
-    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
-    reader.read_all(server, request)
+    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let result = match reader.take_inner().await {
+            Some(reader) => reader.read_all().await,
+            None => Err(StreamError::AlreadyClosed),
+        };
+        let callback =
+            proto::ByteStreamReaderReadAllCallback { async_id, result: Some(result.into()) };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::ByteStreamReaderReadAllResponse { async_id })
 }
 
 fn on_byte_stream_reader_write_to_file(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderWriteToFileRequest,
 ) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
-    let reader = server.take_handle::<data_stream::FfiByteStreamReader>(request.reader_handle)?;
-    reader.write_to_file(server, request)
+    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let result = match reader.take_inner().await {
+            Some(reader) => {
+                reader.write_to_file(request.directory, request.name_override.as_deref()).await
+            }
+            None => Err(StreamError::AlreadyClosed),
+        };
+        let callback =
+            proto::ByteStreamReaderWriteToFileCallback { async_id, result: Some(result.into()) };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::ByteStreamReaderWriteToFileResponse { async_id })
 }
 
 fn on_text_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
-    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
-    reader.read_incremental(server, request)
+    let reader = server.take_handle::<Arc<data_stream::TextStreamReader>>(request.reader_handle)?;
+    data_stream::read_text_incremental(server, request.reader_handle, reader);
+    Ok(proto::TextStreamReaderReadIncrementalResponse {})
 }
 
 fn on_text_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadAllRequest,
 ) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
-    let reader = server.take_handle::<data_stream::FfiTextStreamReader>(request.reader_handle)?;
-    reader.read_all(server, request)
+    let reader = server.take_handle::<Arc<data_stream::TextStreamReader>>(request.reader_handle)?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let result = match reader.take_inner().await {
+            Some(reader) => reader.read_all().await,
+            None => Err(StreamError::AlreadyClosed),
+        };
+        let callback =
+            proto::TextStreamReaderReadAllCallback { async_id, result: Some(result.into()) };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::TextStreamReaderReadAllResponse { async_id })
 }
 
 fn on_send_file(
@@ -1254,17 +1291,40 @@ fn on_byte_stream_write(
     server: &'static FfiServer,
     request: proto::ByteStreamWriterWriteRequest,
 ) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
-    let writer =
-        server.retrieve_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
-    writer.write(server, request)
+    let writer = server
+        .retrieve_handle::<Arc<data_stream::ByteStreamWriter>>(request.writer_handle)?
+        .clone();
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let result = writer.inner().write(&request.bytes).await;
+        let callback = proto::ByteStreamWriterWriteCallback {
+            async_id,
+            error: result.map_err(|e| e.into()).err(),
+        };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::ByteStreamWriterWriteResponse { async_id })
 }
 
 fn on_byte_stream_close(
     server: &'static FfiServer,
     request: proto::ByteStreamWriterCloseRequest,
 ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
-    let writer = server.take_handle::<data_stream::FfiByteStreamWriter>(request.writer_handle)?;
-    writer.close(server, request)
+    let writer = server.take_handle::<Arc<data_stream::ByteStreamWriter>>(request.writer_handle)?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());
+        let result =
+            writer.inner().clone().close_with_options(request.reason.as_deref(), attributes).await;
+        let callback = proto::ByteStreamWriterCloseCallback {
+            async_id,
+            error: result.map_err(|e| e.into()).err(),
+        };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::ByteStreamWriterCloseResponse { async_id })
 }
 
 fn on_text_stream_open(
@@ -1280,17 +1340,40 @@ fn on_text_stream_write(
     server: &'static FfiServer,
     request: proto::TextStreamWriterWriteRequest,
 ) -> FfiResult<proto::TextStreamWriterWriteResponse> {
-    let writer =
-        server.retrieve_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
-    writer.write(server, request)
+    let writer = server
+        .retrieve_handle::<Arc<data_stream::TextStreamWriter>>(request.writer_handle)?
+        .clone();
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let result = writer.inner().write(&request.text).await;
+        let callback = proto::TextStreamWriterWriteCallback {
+            async_id,
+            error: result.map_err(|e| e.into()).err(),
+        };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::TextStreamWriterWriteResponse { async_id })
 }
 
 fn on_text_stream_close(
     server: &'static FfiServer,
     request: proto::TextStreamWriterCloseRequest,
 ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
-    let writer = server.take_handle::<data_stream::FfiTextStreamWriter>(request.writer_handle)?;
-    writer.close(server, request)
+    let writer = server.take_handle::<Arc<data_stream::TextStreamWriter>>(request.writer_handle)?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());
+        let result =
+            writer.inner().clone().close_with_options(request.reason.as_deref(), attributes).await;
+        let callback = proto::TextStreamWriterCloseCallback {
+            async_id,
+            error: result.map_err(|e| e.into()).err(),
+        };
+        let _ = server.send_event(callback.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::TextStreamWriterCloseResponse { async_id })
 }
 
 fn on_publish_data_track(
