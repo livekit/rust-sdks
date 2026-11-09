@@ -84,13 +84,18 @@ ANDROID_AAR_BASENAME = "livekit-ffi-android-release"
 
 [tasks.build-android]
 extend = "android-shared"
-install_crate = { crate_name = "cargo-ndk", binary = "cargo-ndk", test_arg = "--help" }
 script_runner = "@shell"
 # The profile switch lives in the script, not in [tasks.build-android.env]: the
 # per-arch tasks below set `env = { TARGET = ... }`, and cargo-make's `extend`
 # *replaces* the env map instead of merging it — anything declared here would be
 # silently dropped, producing a debug .so under `--profile release`.
 script = """
+set -e
+# cargo-ndk 4.x requires Cargo's plugin context, including the CARGO variable.
+if ! cargo ndk --help >/dev/null 2>&1; then
+  cargo install --locked cargo-ndk
+fi
+
 echo "TARGET: ${TARGET}"
 rustup target add "${TARGET}"
 
