@@ -45,6 +45,9 @@ pub struct TextStreamWriter {
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
+// After the migration is complete, this call can be removed.
+#[cfg(feature = "room-apis")]
+crate::migrate_from_ffi!(TextStreamWriter);
 
 impl TextStreamWriter {
     pub(crate) fn new(inner: ds_api::TextStreamWriter) -> Self {
@@ -53,6 +56,13 @@ impl TextStreamWriter {
             #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The wrapped writer, for the room-apis request handlers. After the migration is complete,
+    /// this can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) fn inner(&self) -> &ds_api::TextStreamWriter {
+        &self.inner
     }
 }
 
@@ -98,6 +108,9 @@ pub struct ByteStreamWriter {
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
+// After the migration is complete, this call can be removed.
+#[cfg(feature = "room-apis")]
+crate::migrate_from_ffi!(ByteStreamWriter);
 
 impl ByteStreamWriter {
     pub(crate) fn new(inner: ds_api::ByteStreamWriter) -> Self {
@@ -106,6 +119,13 @@ impl ByteStreamWriter {
             #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The wrapped writer, for the room-apis request handlers. After the migration is complete,
+    /// this can be removed.
+    #[cfg(feature = "room-apis")]
+    pub(crate) fn inner(&self) -> &ds_api::ByteStreamWriter {
+        &self.inner
     }
 }
 
