@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod buffered;
 mod transport;
 mod types;
 
@@ -19,7 +20,8 @@ mod types;
 mod native;
 
 pub use transport::{
-    HttpClient, HttpClientExt, HttpMethod, WsClient, WsConnectResult, WsConnection,
+    HttpBodyStream, HttpClient, HttpClientExt, HttpMethod, HttpStreamClient, HttpStreamResponse,
+    WsClient, WsConnectResult, WsConnection,
 };
 pub use types::{Header, HttpResponse, TransportError};
 
@@ -42,6 +44,7 @@ pub fn redact_url(url: &url::Url) -> String {
 
 static WS: OnceLock<Arc<dyn WsClient>> = OnceLock::new();
 static HTTP: OnceLock<Arc<dyn HttpClient>> = OnceLock::new();
+static HTTP_STREAM: OnceLock<Arc<dyn HttpStreamClient>> = OnceLock::new();
 
 /// Register the process-wide WebSocket client. Call once at startup, before the
 /// first `connect`. A later call is ignored (first registration wins).
@@ -58,6 +61,12 @@ pub fn set_ws_client(c: Arc<dyn WsClient>) {
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn set_http_client(c: Arc<dyn HttpClient>) {
     let _ = HTTP.set(c);
+}
+
+/// Register the process-wide streaming HTTP client. Call once at startup,
+/// before the first request. A later call is ignored (first registration wins).
+pub fn set_http_stream_client(c: Arc<dyn HttpStreamClient>) {
+    let _ = HTTP_STREAM.set(c);
 }
 
 /// Self-test: GET `url` via the registered HTTP client; returns the full response
@@ -138,9 +147,33 @@ pub fn http_client() -> Option<Arc<dyn HttpClient>> {
     }
 }
 
+/// Resolve the process-wide streaming HTTP client.
+///
+/// Returns the explicitly registered streaming client if any. Otherwise, if a
+/// host registered an [`HttpClient`] with [`set_http_client`], that client, which
+/// reads the whole body and gives it as one chunk: the host's transport is used
+/// for every request, even without streaming. Otherwise, on native builds, the
+/// built-in native client; otherwise `None`.
+pub fn http_stream_client() -> Option<Arc<dyn HttpStreamClient>> {
+    if let Some(c) = HTTP_STREAM.get() {
+        return Some(Arc::clone(c));
+    }
+    if let Some(c) = HTTP.get() {
+        return Some(Arc::new(buffered::BufferedStreamClient(Arc::clone(c))));
+    }
+    #[cfg(feature = "native")]
+    {
+        Some(native::native_http_stream_client())
+    }
+    #[cfg(not(feature = "native"))]
+    {
+        None
+    }
+}
+
 #[cfg(feature = "native")]
 pub mod testing {
-    use crate::{HttpClient, WsClient};
+    use crate::{HttpClient, HttpStreamClient, WsClient};
     use std::sync::Arc;
     /// A fresh native WebSocket client for tests (bypasses the global registry).
     pub fn native_ws_client() -> Arc<dyn WsClient> {
@@ -148,6 +181,10 @@ pub mod testing {
     }
     /// A fresh native HTTP client for tests (bypasses the global registry).
     pub fn native_http_client() -> Arc<dyn HttpClient> {
+        Arc::new(crate::native::NativeTransport::new())
+    }
+    /// A fresh native streaming HTTP client for tests (bypasses the global registry).
+    pub fn native_http_stream_client() -> Arc<dyn HttpStreamClient> {
         Arc::new(crate::native::NativeTransport::new())
     }
 }

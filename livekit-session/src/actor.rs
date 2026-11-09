@@ -100,6 +100,17 @@ impl Shared {
         self.events.register()
     }
 
+    /// The messages and a new subscriber, under the store's lock, which
+    /// every dispatch holds: a message dispatched after this is not in the
+    /// messages, and none in the messages reaches the subscriber.
+    pub(crate) fn subscribe_with_messages(
+        &self,
+    ) -> (Vec<Message>, mpsc::UnboundedReceiver<SessionEvent>) {
+        let messages = lock(&self.messages);
+        let receiver = self.events.register();
+        (messages.messages().to_vec(), receiver)
+    }
+
     /// Adds or updates a message and notifies subscribers. The event is
     /// dispatched under the store's lock, so subscribers see updates in the
     /// order the store applied them.

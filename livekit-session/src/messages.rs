@@ -58,6 +58,9 @@ pub enum MessageOrigin {
     UserInput,
     /// Chat sent by another participant.
     Chat,
+    /// Text the agent wrote outside a room, such as a text answer in an agent
+    /// thread. It is not a transcript.
+    AgentText,
 }
 
 /// A message as a source reports it, before the store assigns its `seq`.
