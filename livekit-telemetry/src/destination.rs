@@ -270,6 +270,9 @@ enum Resolved<'a> {
 #[derive(Debug, Default)]
 pub(crate) struct Destinations {
     projects: HashMap<String, Project>,
+    /// Unowned recomputable dead projects were compacted. They still count toward all-dead
+    /// routing, but never override a currently alive project or a new Room's own token.
+    compacted_dead: bool,
     /// Each Room session's own latest token per project, by (host, session id): its batches for
     /// that project are sent with it and never with another Room's, nor with the token it later
     /// got for another project.
@@ -415,7 +418,8 @@ impl Destinations {
     }
 
     fn all_dead(&self) -> bool {
-        !self.projects.is_empty() && self.projects.values().all(|p| p.dead.is_some())
+        (self.compacted_dead || !self.projects.is_empty())
+            && self.projects.values().all(|p| p.dead.is_some())
     }
 
     /// Whether session `owner`, routed to `host`, should still collect: `false` once its
@@ -471,9 +475,9 @@ impl Destinations {
             .chain(self.rooms.values())
             .cloned()
             .collect();
-        // An entry nothing needs goes: the table follows the live sessions and the backlog. A
-        // dead entry stays for the process, so a later Room or process-level record is not
-        // collected for a project that takes nothing.
+        // Compact only state a later handover can recompute. Disabled is authoritative for
+        // the process; a 404 may also carry earlier consent that a grantless refresh cannot
+        // reconstruct. Current owners/backlog keep their complete routing state.
         self.projects.retain(|host, project| {
             let needed = live.values().any(|route| route.as_deref() == Some(host))
                 || backlog.iter().any(|(h, _)| h.as_deref() == Some(host))
@@ -482,8 +486,27 @@ impl Destinations {
             if !needed {
                 project.latest = None;
             }
-            needed || project.dead.is_some()
+            if needed {
+                return true;
+            }
+            match project.dead {
+                Some(Dead::Disabled) => true,
+                Some(Dead::NotFound) if project.consented => true,
+                Some(_) => {
+                    self.compacted_dead = true;
+                    false
+                }
+                None => false,
+            }
         });
+        if self.latest.as_ref().is_some_and(|host| !self.projects.contains_key(host)) {
+            self.latest = None;
+        }
+        // Release retired ownership allocations too; retaining entries alone leaves the
+        // largest historical table allocated. Keep spare capacity proportional to live state.
+        self.projects.shrink_to(self.projects.len().saturating_mul(2));
+        self.sessions.shrink_to(self.sessions.len().saturating_mul(2));
+        self.rooms.shrink_to(self.rooms.len().saturating_mul(2));
     }
 
     /// How many credentials are held, Room and project copies together.
@@ -1033,6 +1056,30 @@ pub(crate) mod tests {
         }
     }
 
+    /// A secure registration followed by plaintext on the same hostname cannot share tokens.
+    #[test]
+    fn secure_then_plaintext_keeps_cloud_credentials_isolated() {
+        let mut d = Destinations::default();
+        let secure_token = granted(600);
+        let cloud = d.set("wss://p.livekit.cloud", &secure_token, "secure").unwrap();
+        for (n, scheme) in ["ws", "http"].into_iter().enumerate() {
+            let owner = format!("plain-{n}");
+            let plain = d.set(&format!("{scheme}://p.livekit.cloud"), &granted(700), &owner);
+            assert_ne!(plain.as_deref(), Some(cloud.as_str()));
+            assert_eq!(d.route(plain.as_deref(), Some(&owner)), Route::Drop);
+            assert_eq!(d.route(None, Some(&owner)), Route::Drop);
+            assert_eq!(
+                send(d.route(Some(&cloud), Some("secure"))).token.as_deref(),
+                Some(secure_token.as_str())
+            );
+            assert_eq!(send(d.route(None, None)).token.as_deref(), Some(secure_token.as_str()));
+        }
+        let control = granted(800);
+        d.set("https://p.livekit.cloud", &control, "second-secure");
+        assert_eq!(send(d.route(Some(&cloud), Some("second-secure"))).token, Some(control));
+        assert_eq!(send(d.route(Some(&cloud), Some("secure"))).token, Some(secure_token));
+    }
+
     #[test]
     fn a_room_without_a_project_waits_for_its_first_one() {
         let mut d = Destinations::default();
@@ -1120,7 +1167,9 @@ pub(crate) mod tests {
             d.retain_owners(&Default::default(), &Default::default());
         }
         assert!(d.projects.is_empty(), "unowned recomputable dead projects must compact");
+        assert_eq!(d.projects.capacity(), 0);
         assert!(d.rooms.is_empty() && d.sessions.is_empty());
+        assert_eq!((d.rooms.capacity(), d.sessions.capacity()), (0, 0));
         assert_eq!(d.credentials(), 0);
         assert!(d.latest.is_none(), "the last routing key must be released too");
         assert_eq!(d.route(None, None), Route::Drop);
