@@ -1088,7 +1088,8 @@ impl Exporter {
                         }
                     }
                     Err(err) => {
-                        // The batch stays whole where it was; try the split again later.
+                        // Storage failures leave an existing parent whole. NotFound means it
+                        // was already evicted/removed; never resurrect or count that loss twice.
                         self.back_off(&key, None, &format!("cannot store the split batch: {err}"));
                     }
                 }
@@ -1143,8 +1144,8 @@ impl Exporter {
     /// 413: re-encode the batch as two halves and replace it in the cache transactionally —
     /// both halves committed where the batch was (on disk stays on disk) before it goes, nothing
     /// evicted in between. `Ok` holds the halves' ids, oldest first, or none for a single record
-    /// (it cannot shrink); `Err` means the cache could not take the halves and the batch is
-    /// still there, whole.
+    /// (it cannot shrink). An error leaves an existing parent whole; NotFound means it was
+    /// already evicted/removed, so the caller must not assume it still exists or count it again.
     fn split(&mut self, id: &str, body: &[u8], signal: Signal) -> std::io::Result<Vec<String>> {
         let Some(encoded) = gunzip(body) else { return Ok(Vec::new()) };
         let halves = match signal {
