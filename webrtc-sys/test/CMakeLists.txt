@@ -8,49 +8,52 @@ set(BINARY_NAME "h264_benchmark")
 # Set the C++ standard to C++23.
 set(CMAKE_CXX_STANDARD 20)
 
-set(CMAKE_BUILD_TYPE Debug)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 
+set(WEBRTC_ROOT "" CACHE PATH "Path to the extracted LiveKit libwebrtc artifact")
+if(NOT WEBRTC_ROOT)
+  message(FATAL_ERROR "WEBRTC_ROOT must point to an extracted LiveKit libwebrtc artifact")
+endif()
 
-add_definitions(-DWEBRTC_POSIX)
-add_definitions(-DWEBRTC_LINUX)
-add_definitions(-DUSE_UDEV)
-add_definitions(-DUSE_AURA=1)
-add_definitions(-DUSE_GLIB=1)
-add_definitions(-DUSE_OZONE=1)
-add_definitions(-D__STDC_CONSTANT_MACROS)
-add_definitions(-D__STDC_FORMAT_MACROS)
-add_definitions(-D_FILE_OFFSET_BITS=64)
-add_definitions(-D_LARGEFILE_SOURCE)
-add_definitions(-D_LARGEFILE64_SOURCE)
-add_definitions(-D_GNU_SOURCE)
-add_definitions(-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE)
-add_definitions(-D_GLIBCXX_ASSERTIONS=1)
-add_definitions(-DCR_CLANG_REVISION=\"llvmorg-19-init-8091-gab037c4f-1\")
-add_definitions(-DCR_SYSROOT_KEY=20230611T210420Z-2)
-add_definitions(-DDYNAMIC_ANNOTATIONS_ENABLED=1)
-add_definitions(-DWEBRTC_ENABLE_PROTOBUF=0)
-add_definitions(-DWEBRTC_STRICT_FIELD_TRIALS=0)
-add_definitions(-DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE)
-add_definitions(-DRTC_USE_LIBAOM_AV1_ENCODER)
-add_definitions(-DRTC_ENABLE_VP9)
-add_definitions(-DRTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
-add_definitions(-DWEBRTC_HAVE_SCTP)
-add_definitions(-DWEBRTC_USE_H264)
-add_definitions(-DWEBRTC_ENABLE_LIBEVENT)
-add_definitions(-DWEBRTC_LIBRARY_IMPL)
-add_definitions(-DWEBRTC_ENABLE_AVX2)
+set(CUDA_HOME "$ENV{CUDA_HOME}" CACHE PATH "Path to the CUDA toolkit")
+if(NOT CUDA_HOME)
+  set(CUDA_HOME "/usr/local/cuda")
+endif()
+
+set(WEBRTC_INCLUDE "${WEBRTC_ROOT}/include")
+set(WEBRTC_LIBCXX "${WEBRTC_INCLUDE}/third_party/libc++/src/include")
+set(WEBRTC_LIBCXXABI "${WEBRTC_INCLUDE}/third_party/libc++abi/src/include")
+
+# Keep benchmark compilation ABI-compatible with the pinned libwebrtc archive.
+foreach(ninja_file webrtc.ninja desktop_capture.ninja)
+  file(STRINGS "${WEBRTC_ROOT}/${ninja_file}" ninja_defines_line LIMIT_COUNT 1)
+  string(REGEX MATCHALL "-D[A-Za-z_][A-Za-z0-9_]*(=[^ ]+)?" ninja_defines
+    "${ninja_defines_line}")
+  foreach(ninja_define IN LISTS ninja_defines)
+    if(NOT ninja_define MATCHES "^-D(CR_CLANG_REVISION|CR_XCODE_VERSION)=")
+      add_definitions("${ninja_define}")
+    endif()
+  endforeach()
+endforeach()
+
+add_definitions(-DUSE_NVIDIA_VIDEO_CODEC=1)
+add_definitions(-DUSE_VAAPI_VIDEO_CODEC=1)
 
 include_directories(
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-debug/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/include/third_party/abseil-cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/include/third_party/libyuv/include"
+  "${WEBRTC_INCLUDE}"
+  "${WEBRTC_INCLUDE}/third_party/abseil-cpp"
+  "${WEBRTC_INCLUDE}/third_party/libyuv/include"
+  "${WEBRTC_INCLUDE}/buildtools/third_party/libc++"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src/nvidia/NvCodec/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src/nvidia/NvCodec/NvCodec"
   "${CMAKE_CURRENT_SOURCE_DIR}/../src"
+  "${CUDA_HOME}/include"
 )
 
 link_libraries(
-  "${CMAKE_CURRENT_SOURCE_DIR}/../libwebrtc/linux-x64-release/lib/libwebrtc.a"
+  "${WEBRTC_ROOT}/lib/libwebrtc.a"
 )
 
 find_package (Threads)
@@ -76,21 +79,29 @@ add_executable(${BINARY_NAME}
   "../src/nvidia/nvidia_decoder_factory.cpp"
   "../src/nvidia/nvidia_encoder_factory.cpp"
   "../src/nvidia/cuda_context.cpp"
-  "../src/nvidia/implib/libcuda.so.init.c"
-  "../src/nvidia/implib/libcuda.so.tramp.S"
-  "../src/nvidia/implib/libnvcuvid.so.init.c"
-  "../src/nvidia/implib/libnvcuvid.so.tramp.S"
+  "../src/lazy_load_deps_for/nvidia/x86_64-linux-gnu/libcuda.so.init.c"
+  "../src/lazy_load_deps_for/nvidia/x86_64-linux-gnu/libcuda.so.tramp.S"
+  "../src/lazy_load_deps_for/nvidia/x86_64-linux-gnu/libnvcuvid.so.init.c"
+  "../src/lazy_load_deps_for/nvidia/x86_64-linux-gnu/libnvcuvid.so.tramp.S"
 
   "benchmark_vaapi.cc"
   "../src/vaapi/vaapi_display_drm.cpp"
   "../src/vaapi/vaapi_h264_encoder_wrapper.cpp"
   "../src/vaapi/vaapi_encoder_factory.cpp"
   "../src/vaapi/h264_encoder_impl.cpp"
-  "../src/vaapi/implib/libva-drm.so.init.c"
-  "../src/vaapi/implib/libva-drm.so.tramp.S"
-  "../src/vaapi/implib/libva.so.init.c"
-  "../src/vaapi/implib/libva.so.tramp.S"
+  "../src/lazy_load_deps_for/vaapi/x86_64-linux-gnu/libva-drm.so.init.c"
+  "../src/lazy_load_deps_for/vaapi/x86_64-linux-gnu/libva-drm.so.tramp.S"
+  "../src/lazy_load_deps_for/vaapi/x86_64-linux-gnu/libva.so.init.c"
+  "../src/lazy_load_deps_for/vaapi/x86_64-linux-gnu/libva.so.tramp.S"
 )
 
+target_compile_options(${BINARY_NAME} PRIVATE
+  -nostdinc++
+  "-isystem${WEBRTC_LIBCXX}"
+  "-isystem${WEBRTC_LIBCXXABI}"
+  -Wno-deprecated-declarations
+  -Wno-nullability-completeness
+)
+target_link_options(${BINARY_NAME} PRIVATE -nostdlib++)
 target_link_libraries(${BINARY_NAME} ${CMAKE_THREAD_LIBS_INIT})
-target_link_libraries(${BINARY_NAME} dl)
+target_link_libraries(${BINARY_NAME} dl m rt)

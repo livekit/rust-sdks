@@ -74,6 +74,7 @@ class VideoEncodeCompleteCallback : public webrtc::EncodedImageCallback {
   webrtc::EncodedImageCallback::Result OnEncodedImage(
       const webrtc::EncodedImage& encoded_image,
       const webrtc::CodecSpecificInfo* codec_specific_info) override;
+  void OnFrameDropped(uint32_t, int, bool) override {}
 
   uint32_t EncodedBytes();
 

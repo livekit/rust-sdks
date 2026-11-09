@@ -3,6 +3,8 @@
 #include "benchmark_vaapi.h"
 #include "stdio.h"
 
+#include <vector>
+
 int main(int argc, char** argv) {
 
   std::vector<Benchmark*> benchmarks;
