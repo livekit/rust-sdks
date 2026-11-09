@@ -31,4 +31,4 @@ pub mod outgoing;
 pub mod polled;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
