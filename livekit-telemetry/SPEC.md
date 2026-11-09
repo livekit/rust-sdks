@@ -104,7 +104,7 @@ The exporter bounds each transport attempt by `export_timeout_ms`.
 This timeout is cooperative: transport futures must return promptly from each poll.
 The exporter clamps server-directed pauses from `Retry-After`, `RetryInfo.retry_delay` and
 `retry_after_ms` to 24 hours for the affected destination.
-The exporter stage enforces these limits. The transport interface alone does not.
+The exporter enforces these limits. The transport interface alone does not.
 
 ## Events
 
