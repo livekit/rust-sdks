@@ -12,11 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
-/// Returns the process-global Tokio runtime, initializing it on first use.
+/// Returns the process-global Tokio runtime: the FFI server's in room-apis.
+#[cfg(feature = "room-apis")]
 pub(crate) fn runtime() -> &'static Runtime {
+    &crate::FFI_SERVER.async_runtime
+}
+
+/// Returns the process-global Tokio runtime, initializing it on first use.
+#[cfg(feature = "core-modules")]
+pub(crate) fn runtime() -> &'static Runtime {
+    use std::sync::OnceLock;
+
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()

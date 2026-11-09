@@ -42,9 +42,6 @@ pub mod signaling;
 /// Forward log messages from Rust.
 pub mod log_forward;
 
-/// Global async runtime.
-pub mod runtime;
-
 // Forces livekit-net's UniFFI scaffolding into the cdylib. Nothing in this
 // crate names livekit-net by path, so without this its exports go missing.
 extern crate livekit_net;
