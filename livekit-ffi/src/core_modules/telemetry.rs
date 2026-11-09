@@ -606,16 +606,17 @@ impl TelemetryScope {
         self.0.log(masked(record));
     }
 
-    /// One track's whole `getStats()` report; the core maps it (see `record_stats`).
+    /// One track's whole `getStats()` report; `track_id` is its LiveKit identifier (`TR_…`).
+    /// The core maps the report (see `record_stats`).
     pub fn record_stats_report(
         &self,
-        track_sid: String,
+        track_id: String,
         kind: TrackKind,
         direction: StreamDirection,
         report: Vec<RtcStat>,
         timestamp_ns: Option<u64>,
     ) {
-        self.0.record_stats_report(&track_sid, kind, direction, report, timestamp_ns);
+        self.0.record_stats_report(&track_id, kind, direction, report, timestamp_ns);
     }
 
     /// Intent to subscribe (autoSubscribe: the remote publish; manual: the call; tracks already
