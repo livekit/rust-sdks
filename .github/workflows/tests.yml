@@ -197,6 +197,20 @@ jobs:
           cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi \
             --no-default-features --features core-modules
 
+      # Telemetry opt-out is one-way for a process, so each boundary case of this
+      # ignored test runs in a process of its own. The test removes its directory
+      # even when an assertion fails.
+      - name: Test telemetry opt-out admission boundaries (one process per case)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for boundary in zero reserved full; do
+            LK_ADMISSION_BOUNDARY="$boundary" cargo test --verbose --target ${{ matrix.target }} \
+              -p livekit-ffi --no-default-features --features core-modules --lib \
+              core_modules::telemetry::tests::admission_child_consent_boundaries \
+              -- --ignored --exact
+          done
+
       - name: Test RPC seam (livekit-rpc)
         shell: bash
         run: |
