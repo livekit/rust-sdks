@@ -151,7 +151,6 @@ enum Outcome {
 /// served while it is out.
 struct InFlight {
     id: String,
-    signal: Signal,
     /// Which destination's pause the answer drives.
     key: String,
     target: Target,
@@ -666,11 +665,9 @@ impl Exporter {
     fn push_batch(&mut self, signal: Signal, owner: &Owner, count: u64, body: &[u8]) {
         let limit = usize::try_from(self.shared.config.max_batch_bytes).unwrap_or(usize::MAX);
         if body.len() > limit {
-            let halves = match signal {
-                Signal::Logs => otlp::split_logs(body),
-                Signal::Traces => otlp::split_spans(body),
-            };
-            if let Some([(first, first_count), (second, second_count)]) = halves {
+            // Logs and spans share one envelope shape; anything else cannot be split here.
+            if let Ok([(first, first_count), (second, second_count)]) = crate::split::encoded(body)
+            {
                 self.push_batch(signal, owner, first_count, &first);
                 self.push_batch(signal, owner, second_count, &second);
             } else {
@@ -1020,7 +1017,7 @@ impl Exporter {
                 self.allowance = self.allowance.saturating_sub(1);
             }
             let request = self.request(&body, signal, &target);
-            self.inflight = Some(InFlight { id, signal, key, target, body, request });
+            self.inflight = Some(InFlight { id, key, target, body, request });
             return;
         }
     }
@@ -1067,7 +1064,7 @@ impl Exporter {
 
     /// What the collector answered to the request on the wire, acted on; then the pass goes on.
     fn on_answer(&mut self, outcome: Outcome) {
-        let Some(InFlight { id, signal, key, target, body, .. }) = self.inflight.take() else {
+        let Some(InFlight { id, key, target, body, .. }) = self.inflight.take() else {
             return;
         };
         // The app opted out while the request was out: whatever came back, nothing is written,
@@ -1093,7 +1090,7 @@ impl Exporter {
             Outcome::Answered(Verdict::TooLarge) => {
                 // Split in two; the halves go at once, down to single records — each one a
                 // request of its own against this pass's budget.
-                match self.split(&id, &body, signal) {
+                match self.split(&id, &body) {
                     Ok(halves) if halves.is_empty() => {
                         log::warn!("a single record is larger than the collector accepts; dropped");
                         self.forget(&id, Some(&counters.oversized));
@@ -1184,7 +1181,7 @@ impl Exporter {
     /// (it cannot shrink). Other errors retain an existing parent; NotFound means it was
     /// already evicted/removed and must not be resurrected or counted lost again. Unsupported
     /// or malformed OTLP is retained for a delayed per-batch retry, never called a single record.
-    fn split(&mut self, id: &str, body: &[u8], _signal: Signal) -> std::io::Result<Vec<String>> {
+    fn split(&mut self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
         let [(first, first_count), (second, second_count)] =
             match crate::split::recover(body, || self.shared.revoked()) {
                 Ok(halves) => halves,
@@ -2209,7 +2206,7 @@ pub(crate) mod tests {
         exporter.born.insert(id.clone(), Instant::now());
         assert!(!exporter.expired(&id), "fresh on the monotonic clock");
         tokio::time::advance(Duration::from_secs(23 * 60 * 60)).await;
-        let halves = exporter.split(&id, &body, Signal::Logs).expect("split");
+        let halves = exporter.split(&id, &body).expect("split");
         assert_eq!(halves.len(), 2);
         tokio::time::advance(Duration::from_secs(2 * 60 * 60)).await;
         assert!(halves.iter().all(|half| exporter.expired(half)), "as old as the parent");
@@ -2227,7 +2224,7 @@ pub(crate) mod tests {
         let (id, body) = aged_batch(Duration::from_secs(60), "abc");
         telemetry.shared.cache.push(&id, &body).expect("cached");
         exporter.born.insert(id.clone(), Instant::now());
-        let halves = exporter.split(&id, &body, Signal::Logs).expect("split");
+        let halves = exporter.split(&id, &body).expect("split");
         let pending = telemetry.shared.cache.pending();
         assert_eq!(pending, [halves[1].clone()], "the older half went to keep the bound");
         assert_eq!(exporter.born.keys().collect::<Vec<_>>(), [&halves[1]]);
