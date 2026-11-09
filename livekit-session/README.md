@@ -91,6 +91,6 @@ conversation.
   Streams on other topics are left to the app.
 - **Platform audio.** By default `start` captures the microphone and publishes it as the local
   participant's microphone track, and the agent's audio plays through the speakers, until the
-  session ends. `SessionOptions::platform_audio` turns this off, for a conversation by text alone
+  session ends. `SessionOptions::with_platform_audio(false)` turns this off, for a conversation by text alone
   or to publish audio of your own through `room()`. Device selection and audio processing are
   shared by every `PlatformAudio` in the process, so configure them on one of your own.

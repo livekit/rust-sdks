@@ -34,7 +34,8 @@ pub enum SessionStartError {
     #[error("failed to connect: {0}")]
     Connect(#[from] RoomError),
     /// Platform audio could not be started, e.g. on a machine without audio
-    /// devices. See [`SessionOptions::platform_audio`](crate::SessionOptions::platform_audio).
+    /// devices. See
+    /// [`SessionOptions::with_platform_audio`](crate::SessionOptions::with_platform_audio).
     #[error("failed to start platform audio: {0}")]
     PlatformAudio(#[from] AudioError),
     /// The microphone track failed to publish.

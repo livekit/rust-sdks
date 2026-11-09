@@ -217,6 +217,13 @@ fn text_options() -> SessionOptions {
     SessionOptions::default().with_platform_audio(false)
 }
 
+/// [`text_options`] for a room that gives up after its first failed join.
+fn text_options_without_retries() -> SessionOptions {
+    let mut room_options = RoomOptions::default();
+    room_options.join_retries = 0;
+    text_options().with_room_options(room_options)
+}
+
 /// The machine's audio devices, or `None` when it has no microphone to
 /// publish, logging that the test is skipped.
 fn microphone_probe() -> Option<PlatformAudio> {
@@ -337,8 +344,7 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()> {
     let env = TestEnv::new();
-    let options =
-        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
     let session = Session::new(env.user_source(true), options);
     session.start().await?;
     wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
@@ -352,8 +358,7 @@ async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_is_armed_without_dispatch() -> Result<()> {
     let env = TestEnv::new();
-    let options =
-        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
     // An agent registered without a name is dispatched automatically, so a
     // token naming none still waits for one.
     let session = Session::new(env.user_source(false), options);
@@ -366,8 +371,7 @@ async fn timeout_is_armed_without_dispatch() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
     let env = TestEnv::new();
-    let options =
-        SessionOptions { agent_connect_timeout: Duration::from_millis(500), ..text_options() };
+    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
     // Joined first, so the agent is present before the timeout can fire.
     let (agent, _agent_events) = env.join_agent(AGENT, "initializing").await?;
     let session = Session::new(env.user_source(true), options);
@@ -640,8 +644,7 @@ async fn restarting_after_a_server_side_disconnect() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rejected_token_fails_the_start() -> Result<()> {
     let env = TestEnv::new();
-    let mut options = text_options();
-    options.room_options.join_retries = 0;
+    let options = text_options_without_retries();
     let session = Session::new(literal(env.url.clone(), "not a token"), options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
     assert_eq!(current(&session), SessionState::default());
@@ -714,11 +717,11 @@ impl SilentServer {
 
     /// Options for a session connecting to this server.
     fn session_options() -> SessionOptions {
-        let mut options = text_options();
-        options.room_options.join_retries = 0;
+        let mut room_options = RoomOptions::default();
+        room_options.join_retries = 0;
         // Long enough that only a cancel can end the handshake.
-        options.room_options.connect_timeout = Duration::from_secs(60);
-        options
+        room_options.connect_timeout = Duration::from_secs(60);
+        text_options().with_room_options(room_options)
     }
 }
 
@@ -944,8 +947,7 @@ async fn failed_starts_spawn_nothing() -> Result<()> {
     assert_eq!(weak_shared(&session).strong_count(), 1);
 
     let env = TestEnv::new();
-    let mut options = text_options();
-    options.room_options.join_retries = 0;
+    let options = text_options_without_retries();
     let session = Session::new(literal("ws://127.0.0.1:1", env.token(USER, |t| t)), options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
     assert_eq!(current(&session), SessionState::default());
