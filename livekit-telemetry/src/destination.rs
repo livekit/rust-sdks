@@ -1110,6 +1110,53 @@ pub(crate) mod tests {
         }
     }
 
+    /// Recomputable dead destinations leave no per-Room state after their last owner retires.
+    #[test]
+    fn dead_project_churn_is_compacted_without_reviving_process_capture() {
+        let mut d = Destinations::default();
+        for n in 0..1000 {
+            d.set(&format!("ws://host-{n}.example"), &granted(600), "room");
+            d.set(&format!("wss://p{n}.livekit.cloud"), &grantless(600), "room");
+            d.retain_owners(&Default::default(), &Default::default());
+        }
+        assert!(d.projects.is_empty(), "unowned recomputable dead projects must compact");
+        assert!(d.rooms.is_empty() && d.sessions.is_empty());
+        assert_eq!(d.credentials(), 0);
+        assert!(d.latest.is_none(), "the last routing key must be released too");
+        assert_eq!(d.route(None, None), Route::Drop);
+        assert_eq!(d.route(None, Some("new-room")), Route::Wait);
+        let token = granted(700);
+        let host = d.set("wss://p0.livekit.cloud", &token, "new-room");
+        assert_eq!(send(d.route(host.as_deref(), Some("new-room"))).token, Some(token));
+        d.kill("p0.livekit.cloud", Dead::Disabled);
+        assert_eq!(d.route(None, None), Route::Drop, "previously alive is now dead");
+        d.retain_owners(&Default::default(), &Default::default());
+        assert_eq!(d.route(None, None), Route::Drop);
+        d.set("wss://p0.livekit.cloud", &granted(800), "late");
+        assert_eq!(d.route(None, Some("late")), Route::Drop, "Disabled stays authoritative");
+    }
+
+    /// Current and queued owners retain routing, including consent remembered after a 404.
+    #[test]
+    fn compaction_preserves_needed_dead_routes_and_late_grantless_reconnects() {
+        let mut d = Destinations::default();
+        let host = d.set("wss://p.livekit.cloud", &granted(600), "room").unwrap();
+        d.kill(&host, Dead::NotFound);
+        d.retain_owners(&Default::default(), &Default::default());
+        d.set("wss://p.livekit.cloud", &grantless(700), "late");
+        assert_eq!(d.route(Some(&host), Some("late")), Route::Wait, "consent is remembered");
+        let dead = d.set("wss://no.livekit.cloud", &grantless(600), "queued").unwrap();
+        let backlog = [(None, "queued".to_owned())].into();
+        d.retain_owners(&Default::default(), &backlog);
+        assert_eq!(d.first_project("queued"), Some(dead));
+        assert_eq!(d.route(None, Some("queued")), Route::Drop);
+        d.set("wss://alive.livekit.cloud", &granted(600), "alive");
+        assert!(matches!(d.route(None, None), Route::Send(_)));
+        d.retain_owners(&Default::default(), &Default::default());
+        // No live destination remains; only dead knowledge survives, never an historical-alive bit.
+        assert_eq!(d.route(None, None), Route::Drop);
+    }
+
     /// A past, negative, fractional-past or malformed `exp` is expired (a hard hold); only a
     /// missing one means no known expiry.
     #[tokio::test(start_paused = true)]
