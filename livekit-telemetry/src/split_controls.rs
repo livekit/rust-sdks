@@ -456,8 +456,13 @@ async fn opt_out_during_recovery_discards_children_and_public_purge_erases_origi
 
 /// Build the exact earlier 824-byte fixture without mutable production state.
 fn legacy_824_body() -> Vec<u8> {
+    use crate::proto::opentelemetry::proto::{
+        collector::logs::v1::ExportLogsServiceRequest,
+        common::v1::{any_value, AnyValue},
+        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
+    };
     use prost::Message;
-    let raw = ExportLogsServiceRequest {
+    ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
             scope_logs: vec![ScopeLogs {
                 log_records: (0..2)
@@ -473,18 +478,12 @@ fn legacy_824_body() -> Vec<u8> {
             ..Default::default()
         }],
     }
-    .encode_to_vec();
-    raw
+    .encode_to_vec()
 }
 
 /// Replay the exact previously reviewed 824-byte FileCache fixture and its two controls.
 #[tokio::test(start_paused = true)]
 async fn persisted_824_bytes_replay_below_current_600_limit_and_controls() {
-    use crate::proto::opentelemetry::proto::{
-        collector::logs::v1::ExportLogsServiceRequest,
-        common::v1::{any_value, AnyValue},
-        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
-    };
     let raw = legacy_824_body();
     assert_eq!(raw.len(), 824, "unchanged fixture before any tasks start");
     let body = gzip(&raw);
