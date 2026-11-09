@@ -376,9 +376,10 @@ fn admission_public_pulled_controls() {
     }
 }
 
-/// Run in a fresh process for each irreversible opt-out boundary, by the recorded gate driver.
+/// Run in a fresh process for each irreversible opt-out boundary: CI's tests workflow runs each
+/// `LK_ADMISSION_BOUNDARY` case (`zero`, `reserved`, `full`) as its own `cargo test` process.
 #[test]
-#[ignore = "one-way process consent; run with the phase4 driver for each boundary"]
+#[ignore = "one-way process consent; CI runs each LK_ADMISSION_BOUNDARY case in its own process"]
 fn admission_child_consent_boundaries() {
     let case = std::env::var("LK_ADMISSION_BOUNDARY").expect("boundary supplied by gate driver");
     if case == "zero" {
@@ -388,8 +389,16 @@ fn admission_child_consent_boundaries() {
         assert!(LIFECYCLE.lock().is_none());
         return;
     }
+    /// Removes the case's directory however the case ends, including a failed assertion.
+    struct RemoveDir(std::path::PathBuf);
+    impl Drop for RemoveDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     let dir = std::env::temp_dir().join(format!("lk-admission-consent-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("dir");
+    let _remove = RemoveDir(dir.clone());
     std::fs::write(dir.join("old-secret"), b"pending").expect("old data");
     let before = LIFECYCLE.constructed.load(Ordering::SeqCst);
     let mut leases = Vec::new();
@@ -448,7 +457,6 @@ fn admission_child_consent_boundaries() {
     let empty = std::fs::read_dir(&dir).expect("dir").count() == 0;
     let constructors = LIFECYCLE.constructed.load(Ordering::SeqCst) - before;
     drop(queue);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(finished && empty && weak.upgrade().is_none());
     assert_eq!(admitted(&LIFECYCLE), 0);
     assert!(LIFECYCLE.lock().is_none());
