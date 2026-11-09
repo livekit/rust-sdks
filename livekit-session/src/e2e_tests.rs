@@ -534,19 +534,6 @@ fn is_subscribed(session: &Session, sid: &TrackSid) -> bool {
         .any(|p| p.track_publications().get(sid).is_some_and(|p| p.is_subscribed()))
 }
 
-async fn eventually_some<T>(what: &str, mut poll: impl FnMut() -> Option<T>) -> Result<T> {
-    timeout(WAIT, async {
-        loop {
-            if let Some(value) = poll() {
-                return value;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out waiting for {what}"))
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<()> {
     let env = TestEnv::new();
@@ -562,13 +549,20 @@ async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<
     eventually("the screen share audio to be subscribed", || is_subscribed(&session, &other.sid()))
         .await?;
     assert!(session.agent_audio_track().is_none());
+    assert!(!current(&session).agent_tracks.audio);
 
     let microphone = publish_audio(&agent, TrackSource::Microphone).await?;
-    let track = eventually_some("the agent's microphone", || session.agent_audio_track()).await?;
+    wait_for(&session, "the agent's audio flag", |s| s.agent_tracks.audio).await?;
+    let track = session.agent_audio_track().ok_or_else(|| anyhow!("flag set, track missing"))?;
     assert_eq!(track.sid(), microphone.sid());
+
+    agent.local_participant().unpublish_track(&microphone.sid()).await?;
+    wait_for(&session, "the agent's audio flag to clear", |s| !s.agent_tracks.audio).await?;
+    assert!(session.agent_audio_track().is_none());
 
     session.end().await;
     assert!(session.agent_audio_track().is_none());
+    assert_eq!(current(&session).agent_tracks, AgentTracks::default());
     Ok(())
 }
 
@@ -588,21 +582,30 @@ async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed()
     })
     .await?;
     assert!(session.agent_avatar_video_track().is_none());
+    assert!(!current(&session).agent_tracks.avatar_video);
 
     let (avatar, _avatar_events) = env.join_avatar_worker(AVATAR, AGENT).await?;
     let camera = publish_video(&avatar, TrackSource::Camera).await?;
+    wait_for(&session, "the avatar's video flag", |s| s.agent_tracks.avatar_video).await?;
     let track =
-        eventually_some("the avatar's camera", || session.agent_avatar_video_track()).await?;
+        session.agent_avatar_video_track().ok_or_else(|| anyhow!("flag set, track missing"))?;
     assert_eq!(track.sid(), camera.sid());
     assert!(session.agent_audio_track().is_none());
+    assert!(!current(&session).agent_tracks.audio);
 
     // The worker is of kind agent too, and reports no agent state. The state
     // still follows the agent, so the worker was not taken for it.
     set_agent_state(&agent, "speaking").await?;
     wait_for_agent(&session, AgentState::Connected(AgentActivity::Speaking)).await?;
 
+    avatar.local_participant().unpublish_track(&camera.sid()).await?;
+    wait_for(&session, "the avatar's video flag to clear", |s| !s.agent_tracks.avatar_video)
+        .await?;
+    assert!(session.agent_avatar_video_track().is_none());
+
     session.end().await;
     assert!(session.agent_avatar_video_track().is_none());
+    assert_eq!(current(&session).agent_tracks, AgentTracks::default());
     Ok(())
 }
 
