@@ -133,10 +133,9 @@ pub enum AgentFailure {
 /// These are flags, not the tracks: get those from
 /// [`Session::agent_audio_track`](crate::Session::agent_audio_track) and
 /// [`Session::agent_avatar_video_track`](crate::Session::agent_avatar_video_track).
-/// Call them again on every change of [`SessionState`](crate::SessionState),
-/// not only when a flag changes: a track that is replaced, e.g. when the
-/// avatar reconnects, can leave its flag `true`. Compare tracks by their
-/// `sid` to find a replacement.
+/// Read them again when a flag changes. In edge cases, e.g. an avatar
+/// reconnecting, a track can be replaced without its flag changing, so
+/// compare tracks by their `sid` whenever you read them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AgentTracks {
