@@ -239,6 +239,8 @@ pub struct Exporter {
     /// When this launch wrote each cached batch, on the monotonic clock (see
     /// [`Exporter::expired`]).
     born: HashMap<String, Instant>,
+    /// Unsplittable OTLP waits by cache-owned id, without blocking its project's other batches.
+    deferred_splits: HashMap<String, Instant>,
     /// Policy transitions are logged once, not per tick: the hold reason last logged and the
     /// cadence factor last logged.
     hold_logged: Option<&'static str>,
@@ -278,6 +280,7 @@ impl Exporter {
             flushing: false,
             allowance: 0,
             born: HashMap::new(),
+            deferred_splits: HashMap::new(),
             hold_logged: None,
             cadence_logged: 1,
             seq: 0,
@@ -707,6 +710,7 @@ impl Exporter {
         let now = Instant::now();
         let counters = self.shared.counters.clone();
         for id in evicted {
+            self.deferred_splits.remove(id);
             // Discarded and counted already, its delete pending: the eviction did the delete.
             if self.undeletable.remove(id) {
                 self.born.remove(id);
@@ -840,7 +844,12 @@ impl Exporter {
     /// When the loop must wake to upload without a tick: the earliest pause to run out, or a
     /// soft hold reaching its cap while batches wait.
     fn retry_deadline(&self) -> Option<Instant> {
-        let pause = self.pauses.values().filter_map(|p| p.until).min();
+        let pause = self
+            .pauses
+            .values()
+            .filter_map(|p| p.until)
+            .chain(self.deferred_splits.values().copied())
+            .min();
         // A hard hold suppresses the soft hold's cap: waking for it could send nothing. It comes
         // back when the hard hold lifts (a device change wakes the loop).
         let hold = self
@@ -853,6 +862,7 @@ impl Exporter {
 
     fn clear_expired_pauses(&mut self) {
         let now = Instant::now();
+        self.deferred_splits.retain(|_, until| now < *until);
         for pause in self.pauses.values_mut() {
             pause.until = pause.until.filter(|t| now < *t);
             pause.server_until = pause.server_until.filter(|t| now < *t);
@@ -906,6 +916,11 @@ impl Exporter {
             return self.answer_flushes();
         }
         let pending = self.shared.cache.pending();
+        let now = Instant::now();
+        if !self.deferred_splits.is_empty() {
+            let owned: std::collections::HashSet<_> = pending.iter().collect();
+            self.deferred_splits.retain(|id, until| now < *until && owned.contains(id));
+        }
         if pending.is_empty() {
             self.held_since = None;
             // A hold that lifted while nothing waited ends its episode too: the next one warns.
@@ -949,6 +964,10 @@ impl Exporter {
             };
             let Some(id) = next else { return self.finish_pass() };
             if self.undeletable.contains(&id) {
+                continue;
+            }
+            if self.deferred_splits.get(&id).is_some_and(|until| Instant::now() < *until) {
+                self.mark(|pass| pass.waiting = true);
                 continue;
             }
             if !self.may_send() {
@@ -1024,7 +1043,7 @@ impl Exporter {
         };
         let status = if paused(true) {
             TelemetryStatus::Throttled
-        } else if paused(false) {
+        } else if paused(false) || !self.deferred_splits.is_empty() {
             TelemetryStatus::Paused
         } else if pass.held {
             TelemetryStatus::Held
@@ -1086,8 +1105,28 @@ impl Exporter {
                             }
                         }
                     }
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        // Normal eviction/removal won the race; there is no retained parent to
+                        // retry or count lost again, and other batches may proceed.
+                        log::debug!("split parent {id} was removed before replacement");
+                    }
+                    Err(err)
+                        if err
+                            .get_ref()
+                            .is_some_and(|cause| cause.is::<crate::split::Failure>()) =>
+                    {
+                        // Not a single record and never a drop. Retry no faster than the existing
+                        // retry cap; deferring this id must not stall other batches of its project.
+                        if !self.shared.revoked() {
+                            self.deferred_splits.insert(id.clone(), Instant::now() + RETRY_CAP);
+                            log::warn!(
+                                "cannot split cached batch {id}: {err}; retained for later retry"
+                            );
+                        }
+                    }
                     Err(err) => {
-                        // The batch stays whole where it was; try the split again later.
+                        // Storage errors preserve an existing parent. NotFound means it was
+                        // already evicted/removed; never resurrect or count that loss twice.
                         self.back_off(&key, None, &format!("cannot store the split batch: {err}"));
                     }
                 }
@@ -1142,22 +1181,32 @@ impl Exporter {
     /// 413: re-encode the batch as two halves and replace it in the cache transactionally —
     /// both halves committed where the batch was (on disk stays on disk) before it goes, nothing
     /// evicted in between. `Ok` holds the halves' ids, oldest first, or none for a single record
-    /// (it cannot shrink); `Err` means the cache could not take the halves and the batch is
-    /// still there, whole.
-    fn split(&mut self, id: &str, body: &[u8], signal: Signal) -> std::io::Result<Vec<String>> {
-        let Some(encoded) = gunzip(body) else { return Ok(Vec::new()) };
-        let halves = match signal {
-            Signal::Logs => otlp::split_logs(&encoded),
-            Signal::Traces => otlp::split_spans(&encoded),
-        };
-        let Some([(first, first_count), (second, second_count)]) = halves else {
-            return Ok(Vec::new());
-        };
+    /// (it cannot shrink). Other errors retain an existing parent; NotFound means it was
+    /// already evicted/removed and must not be resurrected or counted lost again. Unsupported
+    /// or malformed OTLP is retained for a delayed per-batch retry, never called a single record.
+    fn split(&mut self, id: &str, body: &[u8], _signal: Signal) -> std::io::Result<Vec<String>> {
+        let [(first, first_count), (second, second_count)] =
+            match crate::split::recover(body, || self.shared.revoked()) {
+                Ok(halves) => halves,
+                Err(crate::split::Failure::SingleRecord) => return Ok(Vec::new()),
+                Err(failure) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, failure))
+                }
+            };
         let new = [
-            (BatchId::half(id, 'a', first_count), gzip(&first)),
-            (BatchId::half(id, 'b', second_count), gzip(&second)),
+            (BatchId::half(id, 'a', first_count), first),
+            (BatchId::half(id, 'b', second_count), second),
         ];
-        let evicted = self.shared.cache.replace(id, &new)?;
+        let evicted = match self.shared.cache.replace(id, &new) {
+            Ok(evicted) => evicted,
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    self.born.remove(id);
+                    self.deferred_splits.remove(id);
+                }
+                return Err(error);
+            }
+        };
         // The halves are as old as the batch was: a split changes its size, not its age. A batch
         // from an earlier launch has no birth on this launch's clock, and neither do its halves.
         // Their births are in place before the evictions are counted, which may take one back.
@@ -1280,6 +1329,7 @@ impl Exporter {
     /// delete that fails leaves the batch pending deletion: never uploaded again, deleted as soon
     /// as the storage lets us (a restart before then may send it once more).
     fn forget(&mut self, id: &str, lost: Option<&AtomicU64>) {
+        self.deferred_splits.remove(id);
         // Already done with and counted: this is another try at the delete, nothing more.
         if self.undeletable.contains(id) {
             if self.shared.cache.remove(id).is_ok() {
@@ -1435,11 +1485,8 @@ fn intact(body: &[u8]) -> bool {
         && std::io::copy(&mut flate2::read::GzDecoder::new(body), &mut std::io::sink()).is_ok()
 }
 
-/// The decoded body, for a split after a 413: materialized whole, whatever the current
-/// `max_batch_bytes`, because a batch cached under a larger setting is still valid data that is
-/// split down to single records rather than dropped. A decoded-size bound here is an open
-/// decision (it would discard or hold such a batch); the per-replay validation above no longer
-/// materializes anything.
+/// Decode test fixtures; production cached recovery uses bounded/streaming splitting.
+#[cfg(test)]
 fn gunzip(body: &[u8]) -> Option<Vec<u8>> {
     use std::io::Read;
     let mut out = Vec::with_capacity(body.len() * GZIP_RATIO);
@@ -1460,6 +1507,10 @@ fn gzip(body: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 #[path = "vote_controls.rs"]
 mod vote_controls;
+
+#[cfg(test)]
+#[path = "split_controls.rs"]
+mod split_controls;
 
 #[cfg(test)]
 pub(crate) mod tests {
