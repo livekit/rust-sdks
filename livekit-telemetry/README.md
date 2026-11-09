@@ -97,3 +97,5 @@ cached batches replay. Platform end-to-end tests set the same variable before th
   [`Telemetry::set_device_state`]; the core stretches its cadence and holds uploads.
 - **Size.** OTLP types come from `opentelemetry-proto` (`gen-tonic-messages`, no tonic); JWT
   claims are read with `base64` and `serde_json`, both already linked by the UniFFI library.
+
+Collector responses are limited to 65,536 decoded body bytes. Overflow is retryable and preserves a valid Retry-After delay; no truncated body is used to classify acceptance or a project refusal. NetTransport uses livekit-net's opt-in bounded client view. Its native backend stops during the read, including gzip decoding; ordinary HTTP requests remain uncapped. A host TelemetryTransport must enforce the same limit in its reader. The core also checks already-buffered custom/FFI/pulled responses, but this cannot bound allocation that already occurred in the host.

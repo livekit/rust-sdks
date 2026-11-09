@@ -61,6 +61,19 @@ const DISABLED_ANSWER: &str = "data recording is disabled by owner";
 /// a log line, short enough that a large HTML error page does not fill it.
 const MAX_REASON_CHARS: usize = 200;
 
+/// Inclusive decoded collector-response limit; never a request or shared-client limit.
+const MAX_RESPONSE_BYTES: usize = 65_536;
+
+fn response_overflow<'a>(headers: impl Iterator<Item = (&'a str, &'a str)>) -> ExportError {
+    let retry_after_ms = headers
+        .filter(|(name, _)| name.eq_ignore_ascii_case("retry-after"))
+        .find_map(|(_, value)| retry_after_ms(value));
+    ExportError::Retryable {
+        reason: "collector response exceeds 65536 decoded bytes".into(),
+        retry_after_ms,
+    }
+}
+
 /// How long a 429 that names no delay holds uploads: LiveKit Cloud's quota answer names none.
 const THROTTLE_DEFAULT_MS: u64 = 60_000;
 
@@ -127,6 +140,16 @@ pub(crate) enum Verdict {
 impl Verdict {
     /// Classify a collector response.
     pub(crate) fn of(response: &ExportResponse) -> Self {
+        if response.body.len() > MAX_RESPONSE_BYTES {
+            return match response_overflow(
+                response.headers.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+            ) {
+                ExportError::Retryable { reason, retry_after_ms } => {
+                    Self::Retry { delay_ms: retry_after_ms, reason }
+                }
+                ExportError::Rejected { .. } => unreachable!("overflow is retryable"),
+            };
+        }
         let status = response.status;
         if (200..300).contains(&status) {
             return match PartialSuccessResponse::decode(response.body.as_slice()) {
@@ -305,6 +328,10 @@ fn retry_info_ms(status: &RpcStatus) -> Option<u64> {
 ///   fail only when there was no response (connection, DNS, TLS, timeout) —
 ///   [`ExportError::Retryable`] — or the request cannot be made at all
 ///   ([`ExportError::Rejected`], e.g. an invalid URL).
+/// - Bound the decoded response body to 65,536 bytes while reading. On overflow return
+///   [`ExportError::Retryable`], preserving a valid `Retry-After` as `retry_after_ms`.
+///   Never return a truncated body for classification. The core defensively rejects oversized
+///   already-buffered host/pulled answers; that check cannot bound host read-time allocation.
 /// - Never retry: the core owns the retry policy.
 /// - Never forward the `Authorization` header across origins or out of TLS: do not follow a
 ///   redirect to another host or port with it, nor one from `https` to a plaintext scheme
@@ -324,9 +351,12 @@ pub trait TelemetryTransport: Send + Sync {
 mod net {
     use std::sync::Arc;
 
-    use livekit_net::{Header, HttpClient, HttpClientExt, HttpResponse, TransportError};
+    use livekit_net::{Header, HttpClient, HttpMethod, HttpResponse, TransportError};
 
-    use super::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
+    use super::{
+        response_overflow, ExportError, ExportRequest, ExportResponse, TelemetryTransport,
+        MAX_RESPONSE_BYTES,
+    };
 
     /// Default transport: HTTP POST through a `livekit-net` client — the native backend, or
     /// whatever the host registered with `livekit_net::set_http_client`.
@@ -348,7 +378,7 @@ mod net {
         /// connect path. That build panics if the TLS backend fails to initialize, as
         /// `reqwest::Client::new` does.
         pub fn from_registry() -> Option<Self> {
-            livekit_net::http_client().map(Self::new)
+            livekit_net::http_client_with_response_limit(MAX_RESPONSE_BYTES as u64).map(Self::new)
         }
     }
 
@@ -382,8 +412,14 @@ mod net {
             }
             let headers =
                 request.headers.into_iter().map(|(name, value)| Header { name, value }).collect();
-            match self.0.post(request.url, headers, request.body).await {
+            match self.0.request(HttpMethod::Post, request.url, headers, Some(request.body)).await {
+                Ok(response) if response.body.len() > MAX_RESPONSE_BYTES => Err(response_overflow(
+                    response.headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+                )),
                 Ok(response) => Ok(response.into()),
+                Err(TransportError::ResponseTooLarge { headers }) => Err(response_overflow(
+                    headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+                )),
                 // Against the `HttpClient` contract, a host client reported a status as an
                 // error and discarded the headers and body with it; the native client never
                 // does. The status still classifies, but a refusal's text and `Retry-After`
@@ -426,6 +462,38 @@ mod net_tests {
         }
     }
 
+    struct BufferedHost;
+
+    #[async_trait::async_trait]
+    impl HttpClient for BufferedHost {
+        async fn request(
+            &self,
+            _: HttpMethod,
+            _: String,
+            _: Vec<Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<HttpResponse, TransportError> {
+            Ok(HttpResponse {
+                status: 403,
+                headers: vec![Header { name: "Retry-After".into(), value: "17".into() }],
+                body: vec![b'x'; MAX_RESPONSE_BYTES + 1],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn already_buffered_host_overflow_is_retryable_and_preserves_headers() {
+        let host = Arc::new(BufferedHost);
+        let weak = Arc::downgrade(&host);
+        let transport = NetTransport::new(host);
+        let result = transport
+            .send(ExportRequest { url: "http://collector/v1/logs".into(), ..Default::default() })
+            .await;
+        drop(transport);
+        assert!(weak.upgrade().is_none());
+        assert!(matches!(result, Err(ExportError::Retryable { retry_after_ms: Some(17_000), .. })));
+    }
+
     /// A URL the client cannot even build a request for is a final failure, not a retry: the
     /// native client would report it as a connection error. So is a URL it parses but cannot
     /// make an HTTP request to.
@@ -450,6 +518,34 @@ mod tests {
     use prost::Message;
 
     use super::*;
+
+    #[test]
+    fn oversized_host_answers_retry_before_status_or_disabled_classification() {
+        for status in [200, 400, 401, 403, 413, 503] {
+            let mut body = vec![b'x'; MAX_RESPONSE_BYTES + 1];
+            body.extend_from_slice(DISABLED_ANSWER.as_bytes());
+            let response = ExportResponse {
+                status,
+                body,
+                headers: HashMap::from([("Retry-After".into(), "17".into())]),
+            };
+            assert!(matches!(
+                Verdict::of(&response),
+                Verdict::Retry { delay_ms: Some(17_000), .. }
+            ));
+        }
+        for size in [MAX_RESPONSE_BYTES - 1, MAX_RESPONSE_BYTES] {
+            let response =
+                ExportResponse { status: 403, body: vec![b'x'; size], ..Default::default() };
+            assert!(matches!(Verdict::of(&response), Verdict::Unauthorized(_)));
+        }
+        let response = ExportResponse {
+            status: 403,
+            body: DISABLED_ANSWER.as_bytes().to_vec(),
+            ..Default::default()
+        };
+        assert_eq!(Verdict::of(&response), Verdict::Disabled);
+    }
 
     fn status_body(message: &str, retry: Option<(i64, i32)>) -> Vec<u8> {
         let details = retry
