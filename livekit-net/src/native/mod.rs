@@ -224,7 +224,11 @@ impl NativeTransport {
         });
         let mut plain = LimitedBody { bytes: Vec::new(), limit, overflow: false };
         let mut decoder = gzip.then(|| {
-            flate2::write::GzDecoder::new(LimitedBody { bytes: Vec::new(), limit, overflow: false })
+            flate2::write::MultiGzDecoder::new(LimitedBody {
+                bytes: Vec::new(),
+                limit,
+                overflow: false,
+            })
         });
         while let Some(chunk) =
             res.chunk().await.map_err(|e| TransportError::Other(e.to_string()))?
@@ -309,6 +313,7 @@ mod tests {
                 "gzip",
                 "gzip-chunked",
                 "gzip-corrupt",
+                "gzip-multi",
             ] {
                 let mut decoded = vec![b'x'; size];
                 // A disabled phrase beyond the accepted prefix must never classify a partial body.
@@ -318,8 +323,19 @@ mod tests {
                 }
                 let mut wire = if framing.starts_with("gzip") {
                     let mut zip = GzEncoder::new(Vec::new(), Compression::default());
-                    zip.write_all(&decoded).expect("gzip");
-                    zip.finish().expect("finish")
+                    if framing == "gzip-multi" {
+                        zip.write_all(&decoded[..decoded.len() / 2]).expect("gzip first member");
+                        let mut first = zip.finish().expect("first member");
+                        let mut second = GzEncoder::new(Vec::new(), Compression::default());
+                        second
+                            .write_all(&decoded[decoded.len() / 2..])
+                            .expect("gzip second member");
+                        first.extend(second.finish().expect("second member"));
+                        first
+                    } else {
+                        zip.write_all(&decoded).expect("gzip");
+                        zip.finish().expect("finish")
+                    }
                 } else {
                     decoded.clone()
                 };
