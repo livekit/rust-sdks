@@ -184,8 +184,6 @@ impl NativeTransport {
         body: Option<Vec<u8>>,
         limit: Option<u64>,
     ) -> Result<HttpResponse, TransportError> {
-        use std::io::Write;
-
         let mut req = match method {
             HttpMethod::Get => self.http.get(url),
             HttpMethod::Post => self.http.post(url),
@@ -198,7 +196,7 @@ impl NativeTransport {
         }
         let mut res = req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))?;
         let status = res.status().as_u16();
-        let mut headers: Vec<_> = res
+        let headers: Vec<_> = res
             .headers()
             .iter()
             .filter_map(|(n, v)| {
@@ -210,83 +208,13 @@ impl NativeTransport {
                 res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
             return Ok(HttpResponse { status, headers, body });
         };
-        // Decode only this opt-in path; ordinary clients keep their existing response semantics.
-        if headers.iter().any(|h| {
-            h.name.eq_ignore_ascii_case("content-encoding")
-                && !matches!(h.value.trim().to_ascii_lowercase().as_str(), "gzip" | "identity")
-        }) {
-            return Err(TransportError::Other(
-                "unsupported bounded response content encoding".into(),
-            ));
-        }
-        let gzip = headers.iter().any(|h| {
-            h.name.eq_ignore_ascii_case("content-encoding") && h.value.eq_ignore_ascii_case("gzip")
-        });
-        let mut plain = LimitedBody { bytes: Vec::new(), limit, overflow: false };
-        let mut decoder = gzip.then(|| {
-            flate2::write::MultiGzDecoder::new(LimitedBody {
-                bytes: Vec::new(),
-                limit,
-                overflow: false,
-            })
-        });
+        let mut body = crate::bounded::BodyReader::new(status, headers, limit)?;
         while let Some(chunk) =
             res.chunk().await.map_err(|e| TransportError::Other(e.to_string()))?
         {
-            let result = match decoder.as_mut() {
-                Some(decoder) => decoder.write_all(&chunk),
-                None => plain.write_all(&chunk),
-            };
-            if let Err(error) = result {
-                let overflow = decoder.as_ref().map_or(plain.overflow, |d| d.get_ref().overflow);
-                return Err(if overflow {
-                    TransportError::ResponseTooLarge { headers }
-                } else {
-                    TransportError::Other(error.to_string())
-                });
-            }
+            body.push(&chunk)?;
         }
-        let body = match decoder {
-            Some(mut decoder) => {
-                if let Err(error) = decoder.try_finish() {
-                    return Err(if decoder.get_ref().overflow {
-                        TransportError::ResponseTooLarge { headers }
-                    } else {
-                        TransportError::Other(error.to_string())
-                    });
-                }
-                let decoded = decoder.finish().map_err(|e| TransportError::Other(e.to_string()))?;
-                headers.retain(|h| {
-                    !h.name.eq_ignore_ascii_case("content-encoding")
-                        && !h.name.eq_ignore_ascii_case("content-length")
-                });
-                decoded.bytes
-            }
-            None => plain.bytes,
-        };
-        Ok(HttpResponse { status, headers, body })
-    }
-}
-
-/// Owns only the accepted decoded prefix; never appends bytes beyond the requested limit.
-struct LimitedBody {
-    bytes: Vec<u8>,
-    limit: u64,
-    overflow: bool,
-}
-
-impl std::io::Write for LimitedBody {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() as u64 > self.limit.saturating_sub(self.bytes.len() as u64) {
-            self.overflow = true;
-            return Err(std::io::Error::other("response body exceeds requested limit"));
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+        body.finish()
     }
 }
 
@@ -384,7 +312,11 @@ mod tests {
                         cap as u64,
                     )
                     .await;
-                server.join().expect("joined server before assertions");
+                drop(client);
+                // Release a failed setup's blocked accept before joining its thread.
+                let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
+                let server_joined = server.join().is_ok();
+                assert!(server_joined, "server joined before response assertions");
                 if size > cap {
                     assert!(
                         matches!(result, Err(TransportError::ResponseTooLarge { ref headers })
@@ -426,7 +358,9 @@ mod tests {
             let result = NativeTransport::new()
                 .request(HttpMethod::Get, format!("http://{addr}"), vec![], None)
                 .await;
-            server.join().expect("joined server");
+            let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
+            let server_joined = server.join().is_ok();
+            assert!(server_joined, "server joined before response assertions");
             assert_eq!(result.expect("shared request").body, expected);
         }
     }
@@ -465,7 +399,7 @@ mod tests {
                     )
                     .await
             });
-            let readiness = arrived.await;
+            let readiness = tokio::time::timeout(Duration::from_secs(5), arrived).await;
             let (result, joined) = if cancel {
                 task.abort();
                 (None, task.await.is_err_and(|e| e.is_cancelled()))
@@ -482,8 +416,11 @@ mod tests {
                 }
             };
             let _ = release.send(());
-            let released = server.join().expect("joined server before assertions");
-            assert!(readiness.is_ok() && joined && released && weak.upgrade().is_none());
+            let _ = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
+            let released = server.join().unwrap_or(false);
+            assert!(
+                matches!(readiness, Ok(Ok(()))) && joined && released && weak.upgrade().is_none()
+            );
             if !cancel {
                 assert!(matches!(result, Some(Err(TransportError::ResponseTooLarge { .. }))));
             }

@@ -17,7 +17,7 @@ uniffi = ["dep:uniffi"]
 
 # Native backend bundle: the bundled websocket/HTTP stack. Without it the crate
 # is transport-blind and the host must register a client.
-native = ["dep:tokio-tungstenite", "dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:base64", "dep:flate2"]
+native = ["dep:tokio-tungstenite", "dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:base64"]
 
 
 # ── TLS (only meaningful with a native backend) ───────────────────
@@ -69,8 +69,8 @@ bytes = { workspace = true, optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
-# Already used by telemetry and data streams; only the opt-in bounded reader decodes gzip.
-flate2 = { version = "1", optional = true }
+# Already used by telemetry and data streams; the opt-in reader also decodes already-buffered host responses.
+flate2 = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
