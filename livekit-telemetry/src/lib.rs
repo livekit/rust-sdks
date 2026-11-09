@@ -40,6 +40,9 @@ mod exporter;
 /// OTLP/HTTP protobuf encoding of a batch.
 mod otlp;
 
+/// Bounded-input, lossless cached-batch splitting.
+mod split;
+
 /// Queue of encoded batches between the exporter and the transport (memory or disk).
 mod cache;
 
@@ -79,6 +82,9 @@ mod backend_tests;
 /// The device contract, end to end through the pipeline and the process-wide opt-out.
 #[cfg(test)]
 mod device_tests;
+/// Every name and enum value on the wire, pinned to the registry.
+#[cfg(test)]
+mod wire_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();

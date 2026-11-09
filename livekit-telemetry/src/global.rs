@@ -1,10 +1,24 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! One pipeline per process, the way `log` and `tracing` do it: install it once (or again),
 //! reach it anywhere without a handle, and every call is a no-op while none is installed. The
 //! core does not assume an async runtime, so whoever builds the pipeline spawns its exporter and
 //! shuts down the one `install` hands back.
 
 use std::{
-    fs,
+    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -21,10 +35,15 @@ use crate::{
 /// Started right after the pipeline is installed and stopped when it goes; calls may come from
 /// any thread and must not block.
 ///
-/// `start` and `stop` run synchronously on the thread that installs or opts out, under the
-/// lifecycle lock (the opt-out's `stop` inside [`disable`], before it returns): they must not
-/// block on that caller's queue and must not install, disable or wait on telemetry from inside
-/// (capture calls are fine).
+/// `start` and `stop` run synchronously under the lifecycle lock on the thread performing the
+/// lifecycle operation (the opt-out's `stop` inside [`disable`], before it returns). They must
+/// not call [`install`] or [`disable`], poll [`shutdown`], or synchronously wait for telemetry
+/// lifecycle work, including work on another thread or queue: that would re-enter the same
+/// non-reentrant lock. Constructing the `shutdown()` future is safe, as is scheduling it without
+/// waiting for it.
+///
+/// The same restrictions apply to instrument destructors, which may also run under the lifecycle
+/// lock. Capture calls, including logging, are supported from hooks and destructors.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 pub trait TelemetryInstrument: Send + Sync {
     /// Runs once, at install.
@@ -45,40 +64,29 @@ static INSTALLED: RwLock<Option<Installed>> = RwLock::new(None);
 /// Serializes the lifecycle — install (with its instruments' `start`), uninstall and disable
 /// (with their `stop`) — so an instrument can never start after the opt-out stopped it. Held
 /// while instruments run: they may call back into the capture functions (which only read
-/// `INSTALLED`), but must not install or disable from `start`/`stop` — nor block waiting on a thread
-/// or queue that may itself be inside `install`/`disable` (e.g. a synchronous hop to a platform
-/// queue that is configuring telemetry): that would deadlock. Hop asynchronously instead.
+/// `INSTALLED`), but hooks and destructors must not re-enter lifecycle operations or poll
+/// `shutdown`, nor wait on a thread or queue performing lifecycle work. Schedule it without
+/// waiting instead; see [`TelemetryInstrument`].
 static LIFECYCLE: Mutex<()> = Mutex::new(());
 
-/// The app opted out ([`disable`]): nothing installs for the rest of the process. Written and
-/// read under `LIFECYCLE`.
+/// The app opted out ([`disable`]): nothing installs for the rest of the process. Written
+/// under `LIFECYCLE`, so an install cannot race the opt-out; read anywhere without it
+/// ([`is_disabled`] is a plain atomic load, and so is the check at the top of `install`, which
+/// then holds the lock).
 static DISABLED: AtomicBool = AtomicBool::new(false);
 
-/// Every pipeline generation ever installed that may still hold data — the current one,
-/// replaced ones still draining, and the disk cache of any that are gone — reachable without
-/// being kept alive, so the opt-out can revoke, cancel and await each, and delete what each left
-/// on disk.
-struct Generation {
-    shared: Weak<Shared>,
-    /// The `storage_dir` it was built with (none for a caller-provided cache), kept until it is
-    /// known to hold nothing.
-    storage: Option<PathBuf>,
+/// Live pipelines and deduplicated disk paths, retained independently so retired weak
+/// allocations can be freed even when a newer pipeline still uses the same directory.
+/// Pending paths leave `stored` only after a successful opt-out erase.
+#[derive(Default)]
+struct Generations {
+    live: Vec<Weak<Shared>>,
+    stored: BTreeSet<PathBuf>,
 }
 
-impl Generation {
-    /// Whether the opt-out may still have something to do here: a pipeline alive, or files on
-    /// disk.
-    fn holds_data(&self) -> bool {
-        self.shared.strong_count() > 0 || self.storage.as_deref().is_some_and(may_hold_files)
-    }
-}
-
-/// Whether `dir` may hold files: only a missing directory or an empty listing says it does not.
-/// One that cannot be read now may hold batches, so its generation is kept for a later opt-out.
-fn may_hold_files(dir: &Path) -> bool {
-    match fs::read_dir(dir) {
-        Ok(mut entries) => entries.next().is_some(),
-        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+impl Generations {
+    fn compact(&mut self) {
+        self.live.retain(|shared| shared.strong_count() > 0);
     }
 }
 
@@ -97,7 +105,8 @@ fn erase(dir: &Path) -> bool {
     erased.is_ok()
 }
 
-static GENERATIONS: Mutex<Vec<Generation>> = Mutex::new(Vec::new());
+static GENERATIONS: Mutex<Generations> =
+    Mutex::new(Generations { live: Vec::new(), stored: BTreeSet::new() });
 
 fn lifecycle() -> MutexGuard<'static, ()> {
     LIFECYCLE.lock().unwrap_or_else(|e| e.into_inner())
@@ -125,7 +134,10 @@ fn stop_installed_instruments() {
 
 /// Make `telemetry` the process pipeline and start `instruments` on it. Returns the pipeline it
 /// replaces (its instruments already stopped), still holding data: the caller shuts it down.
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead.
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
+/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
+/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
+/// by the caller (nothing here owns it).
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
@@ -138,21 +150,24 @@ pub fn install(
         drop(lifecycle);
         telemetry.shared.clear();
         // A storage dir it could not open still holds what an earlier launch cached.
-        // ponytail: a dir that is still unreadable is retried by the next configure, not by a
-        // later opt-out in this process, because no generation records it. Record it if that
-        // matters.
         if let Some(dir) = telemetry.shared.config.storage_dir.as_deref() {
-            erase(Path::new(dir));
+            if !erase(Path::new(dir)) {
+                GENERATIONS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .stored
+                    .insert(PathBuf::from(dir));
+            }
         }
         return Some(telemetry);
     }
     {
         let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        generations.retain(Generation::holds_data);
-        generations.push(Generation {
-            shared: Arc::downgrade(&telemetry.shared),
-            storage: telemetry.shared.config.storage_dir.as_ref().map(PathBuf::from),
-        });
+        generations.compact();
+        generations.live.push(Arc::downgrade(&telemetry.shared));
+        if let Some(dir) = &telemetry.shared.config.storage_dir {
+            generations.stored.insert(PathBuf::from(dir));
+        }
     }
     stop_installed_instruments();
     // `INSTALLED` is released before any instrument runs: `start` may call straight back in.
@@ -188,6 +203,10 @@ pub fn uninstall() -> Option<Telemetry> {
 /// could not be deleted. Spawn it; dropping it leaves the data in place until a later configure
 /// purges it. Every call revokes, purges and awaits each generation still alive, so a repeated
 /// call resolves only once the cache is deleted, even while an earlier one is still running.
+/// All exporters are cancelled before waiting; their aggregate wait is at most the largest
+/// `export_timeout_ms` (1 s minimum) plus 1 s. Synchronous cache and filesystem work adds time
+/// outside that wait bound. A failed final per-cache clear keeps the result `false` even if
+/// the later directory sweep succeeds; that sweep cannot certify a caller-provided cache.
 pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
     let (live, stored) = {
         let _lifecycle = lifecycle();
@@ -198,22 +217,17 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         }
         // A snapshot, not a drain: a second call must find (and purge) them too.
         let mut list = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        list.retain(Generation::holds_data);
+        list.compact();
         // Every pipeline still alive is held before the installed handle goes, so the opt-out
         // reaches its exporter even when that handle was the last one. Revoked here: every
         // capture, cache write and request checks it under the lock it commits under, so
         // nothing lands or starts after this returns.
-        let live: Vec<Arc<Shared>> = list
-            .iter()
-            .filter_map(|g| g.shared.upgrade())
-            .inspect(|shared| shared.revoke())
-            .collect();
+        let live: Vec<Arc<Shared>> =
+            list.live.iter().filter_map(Weak::upgrade).inspect(|shared| shared.revoke()).collect();
         // Every generation's disk, deleted after the live purges, which count what they delete.
         // A live pipeline that fell back to memory at start leaves an earlier launch's batches
         // there, and a gone one leaves what it cached.
-        let mut stored: Vec<PathBuf> = list.iter().filter_map(|g| g.storage.clone()).collect();
-        stored.sort_unstable();
-        stored.dedup();
+        let stored: Vec<PathBuf> = list.stored.iter().cloned().collect();
         // Freed outside every lock but the lifecycle one: an instrument's destructor may log.
         drop(list);
         drop(taken);
@@ -221,12 +235,31 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
     };
     async move {
         let mut complete = true;
+        let wait = live
+            .iter()
+            .map(|shared| shared.config.export_timeout() + crate::telemetry::SHUTDOWN_GRACE)
+            .max()
+            .unwrap_or_default();
+        for shared in &live {
+            shared.cancel.notify_one();
+        }
+        for shared in &live {
+            shared.clear();
+        }
+        let deadline = tokio::time::Instant::now() + wait;
         for shared in live {
-            // Cancels the exporter, running or draining, and waits until it stopped.
-            complete &= shared.purge().await;
+            let mut alive = shared.exporter_alive.clone();
+            let _ = tokio::time::timeout_at(deadline, alive.changed()).await;
+            complete &= shared.clear();
         }
         for dir in stored {
-            complete &= erase(&dir);
+            let erased = erase(&dir);
+            complete &= erased;
+            if erased {
+                let mut list = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+                list.stored.remove(&dir);
+                list.compact();
+            }
         }
         complete
     }
@@ -237,9 +270,9 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
 pub(crate) fn reset_for_test() {
     let _lifecycle = lifecycle();
     DISABLED.store(false, Ordering::SeqCst);
-    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
-    drop(installed);
-    GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    let taken = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    drop(taken);
+    *GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()) = Generations::default();
 }
 
 /// Serializes tests that use the process-wide pipeline.
@@ -326,5 +359,161 @@ pub async fn flush() {
 pub async fn shutdown() {
     if let Some(t) = uninstall() {
         t.shutdown().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telemetry::tests::{test_config, FakeTransport};
+    use std::{fs, future::Future};
+
+    #[tokio::test(start_paused = true)]
+    async fn exporter_waits_share_one_timeout_budget() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let mut exporters = Vec::new();
+        let mut shared = Vec::new();
+        for _ in 0..3 {
+            let config = crate::TelemetryConfig { export_timeout_ms: 1000, ..test_config() };
+            let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+            shared.push(telemetry.shared.clone());
+            exporters.push(exporter); // Held, deliberately never spawned.
+            drop(install(telemetry, Vec::new()));
+        }
+        let purge = disable();
+        let started = tokio::time::Instant::now();
+        // Poll once: every exporter must already have received its cancellation signal.
+        tokio::pin!(purge);
+        std::future::poll_fn(|cx| {
+            assert!(purge.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        // Consuming the cancellation permits is intentional: these exporters never run.
+        let all_cancelled = shared.iter().all(|s| {
+            let notified = s.cancel.notified();
+            tokio::pin!(notified);
+            std::future::Future::poll(
+                notified.as_mut(),
+                &mut std::task::Context::from_waker(std::task::Waker::noop()),
+            )
+            .is_ready()
+        });
+        assert!(purge.await);
+        let elapsed = started.elapsed();
+        drop(exporters);
+        reset_for_test();
+        assert!(
+            all_cancelled,
+            "later generations were not cancelled before waiting; elapsed {elapsed:?}"
+        );
+        assert!(elapsed <= std::time::Duration::from_secs(2), "waits accumulated: {elapsed:?}");
+    }
+
+    #[tokio::test]
+    async fn retired_generations_do_not_accumulate_for_one_directory() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let dir = crate::cache::temp_dir("compact-generations");
+        let cache = FileCache::open(&dir, u64::MAX).unwrap();
+        cache.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        drop(cache);
+        for _ in 0..64 {
+            let config = crate::TelemetryConfig {
+                storage_dir: Some(dir.to_string_lossy().into_owned()),
+                ..test_config()
+            };
+            let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+            drop(exporter);
+            drop(install(telemetry, Vec::new()));
+            drop(uninstall());
+        }
+        let (count, directories) = {
+            let list = GENERATIONS.lock().unwrap();
+            (list.live.len(), list.stored.len())
+        };
+        assert!(disable().await);
+        reset_for_test();
+        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(directories, 1);
+        assert!(count <= 1, "retained {count} dead weak allocations for one directory");
+    }
+
+    #[tokio::test]
+    async fn synchronous_registry_keeps_uninspected_directories() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let dir = crate::cache::temp_dir("uninspected-registry");
+        fs::create_dir(&dir).unwrap();
+        GENERATIONS.lock().unwrap().stored.insert(dir.clone());
+        let purge = disable();
+        // Even an empty directory stays pending until the asynchronous cleanup phase.
+        let retained = GENERATIONS.lock().unwrap().stored.contains(&dir);
+        assert!(purge.await);
+        reset_for_test();
+        fs::remove_dir_all(dir).unwrap();
+        assert!(retained, "the synchronous phase inspected and discarded the directory");
+    }
+
+    #[tokio::test]
+    async fn refused_erase_is_retried_by_later_opt_out() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        assert!(disable().await);
+        let root = crate::cache::temp_dir("refused-retry");
+        let backup = root.with_extension("backup");
+        fs::create_dir(&root).unwrap();
+        let dir = root.join("cache");
+        let cache = FileCache::open(&dir, u64::MAX).unwrap();
+        cache.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        drop(cache);
+        fs::rename(&root, &backup).unwrap();
+        fs::write(&root, b"temporarily inaccessible parent").unwrap();
+        let config = crate::TelemetryConfig {
+            storage_dir: Some(dir.to_string_lossy().into_owned()),
+            ..test_config()
+        };
+        let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+        drop(exporter);
+        drop(install(telemetry, Vec::new()));
+        fs::remove_file(&root).unwrap();
+        fs::rename(&backup, &root).unwrap();
+        assert!(disable().await);
+        let left = fs::read_dir(&dir).unwrap().count();
+        reset_for_test();
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(left, 0, "a later opt-out must retry the refused configuration");
+    }
+
+    struct CaptureOnDrop;
+
+    impl TelemetryInstrument for CaptureOnDrop {
+        fn start(&self) {}
+        fn stop(&self) {}
+    }
+
+    impl Drop for CaptureOnDrop {
+        fn drop(&mut self) {
+            assert!(GENERATIONS.try_lock().is_ok(), "generation registry held during Drop");
+            emit(TelemetryEvent::new("custom.instrument_dropped"));
+        }
+    }
+
+    #[tokio::test]
+    async fn instrument_destruction_can_capture() {
+        let _global = TEST_LOCK.lock().await;
+        for path in ["uninstall", "disable", "reset"] {
+            reset_for_test();
+            let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
+            drop(exporter);
+            install(telemetry, vec![Arc::new(CaptureOnDrop)]);
+            match path {
+                "uninstall" => drop(uninstall()),
+                "disable" => assert!(disable().await),
+                _ => reset_for_test(),
+            }
+        }
+        reset_for_test();
     }
 }

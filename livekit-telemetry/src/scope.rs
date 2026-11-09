@@ -19,6 +19,7 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{self, event, lk_disconnect_reason as reason, upstream};
 use tokio::time::Instant;
 
 use crate::{
@@ -28,12 +29,12 @@ use crate::{
 };
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
-/// copied into them when they are captured (`lk.room.sid`, `lk.participant.identity`, …).
+/// copied into them when they are captured (`lk.room_id`, `lk.pii.participant_identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
     /// The trace id as hex, formatted once: the session's owner in `Destinations`.
     hex: String,
-    /// SDK-owned attributes (`lk.room.*`, `lk.participant.*`), copied into each record when it is
+    /// SDK-owned attributes (the room and local participant), copied into each record when it is
     /// captured (see [`ScopeState::decorate`]).
     attributes: Mutex<Vec<Attribute>>,
     /// The app's correlation attributes, copied into each record when it is captured, so a
@@ -93,9 +94,11 @@ impl ScopeState {
         })
     }
 
-    /// In a call: it has a server and has not disconnected since.
+    /// In a call: it has a server and has not disconnected since. A server handed over after
+    /// the disconnect (a late token refresh) is not a call until the next `lk.connect`.
     pub fn in_call(&self) -> bool {
         self.server.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            && !self.disconnected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Whether `(url, token)` is what this session already has.
@@ -278,8 +281,8 @@ impl ScopeState {
             own.push(attribute.clone());
         }
         drop(session);
-        own.retain(|a| a.key != "session.id");
-        own.push(Attribute::new("session.id", self.hex()));
+        own.retain(|a| a.key != upstream::SESSION_ID);
+        own.push(Attribute::new(upstream::SESSION_ID, self.hex()));
     }
 }
 
@@ -307,16 +310,16 @@ impl fmt::Debug for ScopeState {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RoomIdentity {
-    /// The room's sid (`RM_…`), `lk.room.sid`.
+    /// The room's sid (`RM_…`), `lk.room_id`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub sid: Option<String>,
-    /// The room's name, `lk.room.name`.
+    /// The room's name, `lk.pii.room_name`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub name: Option<String>,
-    /// The local participant's sid (`PA_…`), `lk.participant.sid`.
+    /// The local participant's sid (`PA_…`), `lk.participant_id`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub participant_sid: Option<String>,
-    /// The local participant's identity, `lk.participant.identity`.
+    /// The local participant's identity, `lk.pii.participant_identity`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub participant_identity: Option<String>,
 }
@@ -361,6 +364,33 @@ pub enum DisconnectReason {
     AgentError,
     /// The reconnect policy ran out of attempts.
     ReconnectFailed,
+}
+
+impl DisconnectReason {
+    /// The protobuf `DisconnectReason` name, the spelling Agents sends; `RECONNECT_FAILED` is the
+    /// one client-only value.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => reason::UNKNOWN_REASON,
+            Self::ClientInitiated => reason::CLIENT_INITIATED,
+            Self::DuplicateIdentity => reason::DUPLICATE_IDENTITY,
+            Self::ServerShutdown => reason::SERVER_SHUTDOWN,
+            Self::ParticipantRemoved => reason::PARTICIPANT_REMOVED,
+            Self::RoomDeleted => reason::ROOM_DELETED,
+            Self::StateMismatch => reason::STATE_MISMATCH,
+            Self::JoinFailure => reason::JOIN_FAILURE,
+            Self::Migration => reason::MIGRATION,
+            Self::SignalClose => reason::SIGNAL_CLOSE,
+            Self::RoomClosed => reason::ROOM_CLOSED,
+            Self::UserUnavailable => reason::USER_UNAVAILABLE,
+            Self::UserRejected => reason::USER_REJECTED,
+            Self::SipTrunkFailure => reason::SIP_TRUNK_FAILURE,
+            Self::ConnectionTimeout => reason::CONNECTION_TIMEOUT,
+            Self::MediaFailure => reason::MEDIA_FAILURE,
+            Self::AgentError => reason::AGENT_ERROR,
+            Self::ReconnectFailed => reason::RECONNECT_FAILED,
+        }
+    }
 }
 
 impl From<i32> for DisconnectReason {
@@ -460,21 +490,24 @@ impl Scope {
             end_unfinished(&span, since);
         }
         self.telemetry.retire_stats(&self.state, None);
-        // Out of the call: uploads no longer yield to it.
-        self.state.server.lock().unwrap_or_else(|e| e.into_inner()).take();
+        // Out of the call: uploads no longer yield to it. Serialized with a server change
+        // (`Telemetry::set_server`), which would otherwise remember its pair after this clear.
+        {
+            let _transition = self.state.transition.lock().unwrap_or_else(|e| e.into_inner());
+            self.state.server.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
         let severity = if reason == DisconnectReason::ClientInitiated {
             crate::Severity::Info
         } else {
             crate::Severity::Warn
         };
-        let reason = crate::device::snake_case(reason);
         // The body repeats the reason on purpose: it is the display line a log view shows (like
         // the device events' bodies), and it takes the place of the name a body-less event shows.
         self.emit(
-            TelemetryEvent::new("lk.room.disconnected")
+            TelemetryEvent::new(event::LK_ROOM_DISCONNECTED)
                 .with_severity(severity)
-                .with_body(format!("disconnected: {reason}"))
-                .with_attribute("lk.disconnect.reason", reason),
+                .with_body(format!("disconnected: {}", crate::device::snake_case(reason)))
+                .with_attribute(semconv::LK_DISCONNECT_REASON, reason.as_str()),
         );
     }
 
@@ -538,7 +571,8 @@ impl Scope {
 
     /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
     /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
-    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
+    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the
+    /// LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
     pub fn record_stats_report(
         &self,
         track_id: &str,
@@ -696,14 +730,15 @@ impl Scope {
         Span::bound(name, parent, self.telemetry.clone(), &self.state)
     }
 
-    /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record
-    /// captured from then on.
+    /// The room and local participant, as `lk.room_id`, `lk.pii.room_name`,
+    /// `lk.participant_id` and `lk.pii.participant_identity` on every record captured from then
+    /// on.
     pub fn set_room(&self, room: RoomIdentity) {
         for (key, value) in [
-            ("lk.room.sid", room.sid),
-            ("lk.room.name", room.name),
-            ("lk.participant.sid", room.participant_sid),
-            ("lk.participant.identity", room.participant_identity),
+            (semconv::LK_ROOM_ID, room.sid),
+            (semconv::LK_PII_ROOM_NAME, room.name),
+            (semconv::LK_PARTICIPANT_ID, room.participant_sid),
+            (semconv::LK_PII_PARTICIPANT_IDENTITY, room.participant_identity),
         ] {
             // Identifiers, not free text: an over-long one is not attached (counted as invalid).
             if value.as_ref().is_some_and(|v| v.len() > crate::event::MAX_VALUE_BYTES) {
@@ -948,11 +983,11 @@ mod tests {
             .map(DisconnectReason::from)
             .chain([DisconnectReason::ReconnectFailed, DisconnectReason::from(0)]);
         assert_eq!(
-            reasons.map(crate::device::snake_case).collect::<Vec<_>>().join(" | "),
-            "client_initiated | duplicate_identity | server_shutdown | participant_removed \
-             | room_deleted | state_mismatch | join_failure | migration | signal_close \
-             | room_closed | user_unavailable | user_rejected | sip_trunk_failure \
-             | connection_timeout | media_failure | agent_error | reconnect_failed | unknown"
+            reasons.map(DisconnectReason::as_str).collect::<Vec<_>>().join(" | "),
+            "CLIENT_INITIATED | DUPLICATE_IDENTITY | SERVER_SHUTDOWN | PARTICIPANT_REMOVED \
+             | ROOM_DELETED | STATE_MISMATCH | JOIN_FAILURE | MIGRATION | SIGNAL_CLOSE \
+             | ROOM_CLOSED | USER_UNAVAILABLE | USER_REJECTED | SIP_TRUNK_FAILURE \
+             | CONNECTION_TIMEOUT | MEDIA_FAILURE | AGENT_ERROR | RECONNECT_FAILED | UNKNOWN_REASON"
         );
         assert_eq!(DisconnectReason::from(99), DisconnectReason::Unknown);
     }
@@ -960,7 +995,7 @@ mod tests {
     #[test]
     fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
         for key in [
-            "lk.room.sid",
+            "lk.room_id",
             "otel.event.name",
             "otel.scope.name",
             "code.function.name",
@@ -1006,6 +1041,10 @@ mod tests {
             assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
         }
     }
+
+    /// Unstamped typed samples admitted as one report keep every layer's growth: the report is
+    /// stamped once, so alternating layers are one poll. End to end, from the Scope through the
+    /// pipeline to the windows (review 4487559072, wired at the cumulative integration).
     #[tokio::test]
     async fn unstamped_layers_admitted_together_keep_all_growth() {
         let (telemetry, _exporter) = pipeline();
@@ -1041,5 +1080,166 @@ mod tests {
         }
         let (bytes, count) = exported(&telemetry);
         assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
+    }
+
+    /// A report's layers are admitted as one: an exporter close landing between them (the hook
+    /// stands in for its tick) ends no partial poll, so no layer's growth is lost. Two layers
+    /// growing 100 → 200 → 300 bytes are 400 bytes of growth.
+    #[tokio::test]
+    async fn a_close_between_a_reports_layers_loses_no_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let report = |bytes: i64| {
+            ["f", "h"]
+                .into_iter()
+                .map(|rid| crate::rtc::RtcStat {
+                    kind: "outbound-rtp".into(),
+                    id: format!("OUT_{rid}"),
+                    members: HashMap::from([
+                        ("rid".to_owned(), crate::AttributeValue::Str(rid.into())),
+                        ("bytesSent".to_owned(), crate::AttributeValue::Int(bytes)),
+                    ]),
+                })
+                .collect::<Vec<_>>()
+        };
+        let admissions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let shared = Arc::downgrade(&telemetry.shared);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
+            let admissions = admissions.clone();
+            move || {
+                // The fourth admission would be the second layer of the second report.
+                if admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 3 {
+                    if let Some(shared) = shared.upgrade() {
+                        let _ = shared.windows.lock().expect("lock").close();
+                    }
+                }
+            }
+        }));
+        for (second, bytes) in [(1, 100), (2, 200), (3, 300)] {
+            room.record_stats_report(
+                "TR_1",
+                TrackKind::Video,
+                StreamDirection::Outbound,
+                report(bytes),
+                Some(second * 1_000_000_000),
+            );
+        }
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        let windows = telemetry.shared.windows.lock().expect("lock").close();
+        let bytes = windows
+            .last()
+            .and_then(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+            .map(|a| a.value.clone());
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(400)));
+    }
+
+    /// A destination warning (a server that is not LiveKit Cloud) reaches the host logger once
+    /// the destinations and session transition locks are released: a logger that calls back
+    /// into the pipeline cannot deadlock on them.
+    #[tokio::test]
+    async fn destination_diagnostics_are_logged_outside_the_locks() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let shared = Arc::downgrade(&telemetry.shared);
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            shared.upgrade().is_some_and(|s| s.destinations.try_lock().is_err())
+                || state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("ws://localhost:7880", "token");
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("not LiveKit Cloud")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
+    /// A disconnect that lands while a server change is between its no-op check and remembering
+    /// the pair is not undone by the change: the session is out of the call afterwards. The
+    /// stored hook captures only channel ends (never the Room, whose owner stores the hook);
+    /// the disconnect runs on a thread released by the hook, and the hook waits for it with a
+    /// bound, so with the change serialized the wait ends by the bound, not by the disconnect.
+    #[tokio::test]
+    async fn a_disconnect_during_a_server_change_is_not_undone() {
+        use std::sync::mpsc;
+        let (telemetry, exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        let (paused_tx, paused_rx) = mpsc::channel::<()>();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let done_rx = std::sync::Mutex::new(done_rx);
+        let disconnect = {
+            let room = room.clone();
+            std::thread::spawn(move || {
+                paused_rx.recv().expect("the change paused");
+                room.disconnected(DisconnectReason::ClientInitiated);
+                let _ = done_tx.send(());
+            })
+        };
+        let fired = std::sync::atomic::AtomicBool::new(false);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new(move || {
+            // Only the server change's pause releases the disconnect; the disconnect's own
+            // captures pause too and must not wait on themselves.
+            if fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let _ = paused_tx.send(());
+            let done = done_rx.lock().expect("lock");
+            let _ = done.recv_timeout(Duration::from_secs(2));
+        }));
+        room.set_server("wss://a.livekit.cloud", &token);
+        // Cleanup before any verdict: the hook goes, the thread is joined.
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        disconnect.join().expect("disconnect");
+        let in_call = room.state.in_call();
+        let server = room.state.server.lock().expect("lock").clone();
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop((room, telemetry, exporter));
+        assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
+        assert!(!in_call, "disconnected: not in a call");
+        assert!(server.is_none(), "the change did not remember its pair after the disconnect");
+    }
+
+    /// A server handed over after the disconnect (a late token refresh) does not put the session
+    /// back in a call: only the next `lk.connect` does.
+    #[tokio::test]
+    async fn a_late_server_update_after_the_disconnect_is_not_a_call() {
+        let (telemetry, _exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(room.state.in_call());
+        room.disconnected(DisconnectReason::ClientInitiated);
+        assert!(!room.state.in_call());
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(!room.state.in_call(), "a late update, no new connect");
+        let _connect = room.start(SpanName::Connect, None);
+        assert!(room.state.in_call(), "the new call");
+    }
+
+    /// A project change closes the session's windows into a full queue: the queue-full warning
+    /// reaches the host logger once the session transition lock is released, like the
+    /// destination lines.
+    #[tokio::test]
+    async fn a_project_change_logs_the_queue_full_warning_outside_the_transition() {
+        crate::test_log::capture();
+        let config = crate::TelemetryConfig { max_queue_size: 1, ..Default::default() };
+        let (telemetry, _exporter) =
+            Telemetry::new(config, Arc::new(crate::exporter::tests::Collector::default()));
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        room.record_stats(RtcStatsSample {
+            bytes: Some(1),
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Inbound)
+        });
+        room.emit_custom("fill", Vec::new());
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("wss://b.livekit.cloud", &token);
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("queue full")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
     }
 }

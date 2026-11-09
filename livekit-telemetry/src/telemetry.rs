@@ -20,6 +20,7 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{self, upstream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Instant};
 
@@ -62,7 +63,8 @@ pub struct TelemetryConfig {
     pub sdk: Option<TelemetryResource>,
     /// Directory for the on-disk batch cache (created if missing; its parent must exist).
     /// `None` keeps batches in memory only: they survive failed uploads, not the process.
-    /// The cache owns the directory: the start and the opt-out delete other files in it.
+    /// Supply a dedicated directory: the cache owns it exclusively, and startup and opt-out
+    /// delete other files in it. The configured path itself is used, without a child directory.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub storage_dir: Option<String>,
     /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
@@ -206,7 +208,7 @@ impl TelemetryConfig {
 /// let room = telemetry.begin_scope();
 /// room.set_server("wss://my-project.livekit.cloud", "<participant token>");
 /// room.emit_custom("checkout", vec![Attribute::new("plan", "pro")]);
-/// telemetry.emit(TelemetryEvent::new("lk.ping"));
+/// telemetry.emit(TelemetryEvent::new(livekit_protocol::semconv::event::LK_PING));
 /// telemetry.shutdown().await;
 /// # }
 /// ```
@@ -463,6 +465,9 @@ impl Telemetry {
     /// Build the pipeline with the cache the config asks for: a [`FileCache`] in `storage_dir`,
     /// or a [`MemoryCache`] when unset — or when the directory is unusable (logged, never an
     /// error). Spawn the returned [`Exporter`] with `exporter.run()` on your runtime.
+    ///
+    /// With a `storage_dir` this opens the directory, recovers an interrupted split and prunes
+    /// it, synchronously on the calling thread (disk I/O): call it off the UI thread.
     pub fn new(
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
@@ -579,7 +584,9 @@ impl Telemetry {
     /// authorizes the upload. Called at connect and again with every refreshed token; cheap and
     /// idempotent. Everything cached for the project starts uploading once the token allows.
     pub(crate) fn set_server(&self, session: &ScopeState, url: &str, token: &str) {
-        let routed = {
+        // The registry's diagnostics wait until both locks are released: a host logger may call
+        // back into the pipeline.
+        let routed = logged_after(|| {
             // One change at a time per session: the pair is remembered only once its destination
             // and route are in place, so a racing change cannot leave the pair of one change
             // and the route of the other (and the next hand-over taken for a no-op).
@@ -594,7 +601,7 @@ impl Telemetry {
                 if revived {
                     self.shared.release();
                 }
-                return;
+                return None;
             }
             self.shared.before_commit();
             let host = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).set(
@@ -613,8 +620,9 @@ impl Telemetry {
                 );
             }
             session.remember_server(url, token);
-            host.is_some()
-        };
+            Some(host.is_some())
+        });
+        let Some(routed) = routed else { return };
         if !routed {
             log::warn!("server url has no host; this session's telemetry stays cached");
             return;
@@ -743,7 +751,8 @@ impl Telemetry {
     /// the core sets on every record or span (`session.id`, `error.type`, `lk.outcome`), or 64
     /// keys are already set.
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
-        let core_owned = matches!(key, "session.id" | "error.type" | "lk.outcome");
+        let core_owned =
+            matches!(key, upstream::SESSION_ID | upstream::ERROR_TYPE | semconv::LK_OUTCOME);
         if core_owned || !within_limits(key, value.as_ref()) {
             return self.count_invalid();
         }
@@ -907,7 +916,8 @@ impl Telemetry {
     }
 
     /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
-    /// backend as `lk.telemetry.report` events whenever something went wrong.
+    /// backend as `lk.telemetry.report` events whenever something went wrong. Counts the cached
+    /// batches by listing the cache synchronously (a directory listing with a [`FileCache`]).
     pub fn stats(&self) -> TelemetryStats {
         TelemetryStats::new(
             self.shared.counters.snapshot(),
@@ -920,6 +930,9 @@ impl Telemetry {
     /// queue, open and finished spans, RTC windows and every cached batch, on disk included.
     /// Events emitted afterwards go nowhere. Returns `false` when the storage refused to delete
     /// something (it is logged; the files stay until a later purge or configure succeeds).
+    /// Waits for the exporter to stop: if the returned [`Exporter`] is still held but was never
+    /// spawned, that wait lasts `export_timeout_ms` (1 s at least) plus 1 s; once it is dropped
+    /// the wait ends at once, as for [`shutdown`](Self::shutdown).
     pub async fn purge(&self) -> bool {
         self.shared.purge().await
     }
@@ -984,13 +997,13 @@ pub struct TelemetryResource {
 impl TelemetryResource {
     pub(crate) fn attributes(&self) -> Vec<Attribute> {
         let mut out = vec![
-            Attribute::new("service.name", format!("livekit-client-{}", self.sdk.as_str())),
-            Attribute::new("service.version", self.sdk_version.as_str()),
-            Attribute::new("os.name", self.os_name.as_str()),
-            Attribute::new("os.version", self.os_version.as_str()),
+            Attribute::new(upstream::SERVICE_NAME, format!("livekit-client-{}", self.sdk.as_str())),
+            Attribute::new(upstream::SERVICE_VERSION, self.sdk_version.as_str()),
+            Attribute::new(upstream::OS_NAME, self.os_name.as_str()),
+            Attribute::new(upstream::OS_VERSION, self.os_version.as_str()),
         ];
         if let Some(model) = &self.device_model {
-            out.push(Attribute::new("device.model.identifier", model.as_str()));
+            out.push(Attribute::new(upstream::DEVICE_MODEL_IDENTIFIER, model.as_str()));
         }
         out
     }
@@ -1005,10 +1018,10 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResourc
         }
     }
     let defaults = [
-        ("service.name", "livekit-client"),
-        ("telemetry.sdk.name", env!("CARGO_PKG_NAME")),
-        ("telemetry.sdk.language", "rust"),
-        ("telemetry.sdk.version", env!("CARGO_PKG_VERSION")),
+        (upstream::SERVICE_NAME, "livekit-client"),
+        (upstream::TELEMETRY_SDK_NAME, env!("CARGO_PKG_NAME")),
+        (upstream::TELEMETRY_SDK_LANGUAGE, upstream::telemetry_sdk_language::RUST),
+        (upstream::TELEMETRY_SDK_VERSION, env!("CARGO_PKG_VERSION")),
     ];
     for (key, value) in defaults {
         if !resource.iter().any(|a| a.key == key) {
@@ -1265,7 +1278,7 @@ pub(crate) mod tests {
                 .iter()
                 .find(|s| {
                     s.attributes.iter().any(|kv| {
-                        kv.key == "lk.track.sid"
+                        kv.key == "lk.track_id"
                             && kv.value.as_ref().and_then(|v| v.value.clone())
                                 == Some(Value::StringValue(sid.into()))
                     })
@@ -1294,7 +1307,7 @@ pub(crate) mod tests {
             "cancelled exports too"
         );
         assert!(
-            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track.sid"
+            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track_id"
                 && kv.value.as_ref().and_then(|v| v.value.clone())
                     == Some(Value::StringValue("TR_d".into())))),
             "still open"
@@ -1325,8 +1338,8 @@ pub(crate) mod tests {
         let sent = transport.sent();
         let logs: Vec<LogRecord> = sent.iter().flat_map(records).collect();
         let with_room =
-            logs.iter().find(|r| attribute(r, "lk.room.sid").is_some()).expect("room record");
-        assert_eq!(attribute(with_room, "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+            logs.iter().find(|r| attribute(r, "lk.room_id").is_some()).expect("room record");
+        assert_eq!(attribute(with_room, "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert!(logs.iter().any(|r| r.body.as_ref().and_then(|b| b.value.clone())
             == Some(Value::StringValue("audio interruption began".into()))));
         let decoded =
@@ -2008,13 +2021,13 @@ pub(crate) mod tests {
             sent.iter().filter(|r| r.url.ends_with("logs")).flat_map(records).collect();
         assert_eq!(logs.len(), 4);
         assert_eq!(hex(&logs[0].trace_id), a.trace_id());
-        assert_eq!(attribute(&logs[0], "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert_eq!(attribute(&logs[0], "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert_eq!(attribute(&logs[0], "session.id"), Some(Value::StringValue(a.trace_id())));
         assert_eq!(hex(&logs[1].trace_id), a.trace_id(), "resolved through the span");
         assert_eq!(hex(&logs[2].trace_id), b.trace_id());
-        assert_eq!(attribute(&logs[2], "lk.room.sid"), Some(Value::StringValue("RM_b".into())));
+        assert_eq!(attribute(&logs[2], "lk.room_id"), Some(Value::StringValue("RM_b".into())));
         assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
-        assert_eq!(attribute(&logs[3], "lk.room.sid"), None);
+        assert_eq!(attribute(&logs[3], "lk.room_id"), None);
         assert!(
             logs.iter()
                 .all(|r| attribute(r, "acme.tenant") == Some(Value::StringValue("t1".into()))),
@@ -2025,7 +2038,7 @@ pub(crate) mod tests {
             ExportTraceServiceRequest::decode(&gunzip(&traces_request.body)[..]).expect("otlp");
         let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
-        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room.sid"));
+        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room_id"));
 
         // A record that names a span which has already ended — and been exported — is still that
         // session's: the SDK's log path hops threads, the span does not wait for it.
@@ -2167,21 +2180,21 @@ pub(crate) mod tests {
     async fn session_attributes_are_attached_to_every_record() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        telemetry.set_attribute("lk.room.sid", Some("RM_1".into()));
+        telemetry.set_attribute("lk.room_id", Some("RM_1".into()));
         telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room.sid", "RM_override"));
+        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room_id", "RM_override"));
         telemetry.flush().await;
         let first = records(&transport.sent()[0]);
-        assert_eq!(attribute(&first[0], "lk.room.sid"), Some(Value::StringValue("RM_1".into())));
+        assert_eq!(attribute(&first[0], "lk.room_id"), Some(Value::StringValue("RM_1".into())));
         assert_eq!(
-            attribute(&first[1], "lk.room.sid"),
+            attribute(&first[1], "lk.room_id"),
             Some(Value::StringValue("RM_override".into())),
             "an explicit attribute wins"
         );
-        telemetry.set_attribute("lk.room.sid", None);
+        telemetry.set_attribute("lk.room_id", None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room.sid"), None);
+        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room_id"), None);
     }
 
     #[tokio::test(start_paused = true)]
