@@ -8712,6 +8712,7 @@ dependencies = [
  "cxx",
  "cxx-build",
  "glob",
+ "livekit-hwcodec",
  "log",
  "pkg-config",
  "webrtc-sys-build",

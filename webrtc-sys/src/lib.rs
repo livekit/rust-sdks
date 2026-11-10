@@ -37,6 +37,8 @@ pub mod rtp_parameters;
 pub mod rtp_receiver;
 pub mod rtp_sender;
 pub mod rtp_transceiver;
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+mod rust_video_encoder;
 pub mod video_frame;
 pub mod video_frame_buffer;
 pub mod video_track;
