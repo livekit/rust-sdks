@@ -194,7 +194,7 @@ impl LocalDataTrackManager {
         };
 
         let event: local::SfuPublishResponse =
-            msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
+            msg.try_into().map_err(HandleSignalResponseError::Internal)?;
         _ = self.input.send(event.into());
 
         Ok(())
