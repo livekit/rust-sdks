@@ -534,6 +534,8 @@ pub(crate) struct RoomSession {
     handle: AsyncMutex<Option<Handle>>,
     /// Set once the room reaches `Disconnected`, which is final from then on.
     disconnected: AtomicBool,
+    /// Set under the remote participant map's write lock before teardown drains it.
+    closing: AtomicBool,
 }
 
 struct Handle {
@@ -753,6 +755,7 @@ impl Room {
             rpc_server: RpcServerManager::new(),
             handle: Default::default(),
             disconnected: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
@@ -808,7 +811,9 @@ impl Room {
                         .collect(),
                 )
             };
-            participant.update_info(pi.clone());
+            if let Some(participant) = participant {
+                participant.update_info(pi.clone());
+            }
         }
 
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
@@ -1018,6 +1023,9 @@ impl Room {
     }
 }
 
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+mod lifecycle_tests;
+
 impl RoomSession {
     async fn room_task(
         self: Arc<Self>,
@@ -1194,24 +1202,21 @@ impl RoomSession {
     /// Unregisters the callbacks that keep remote participants alive, and empties the map.
     ///
     /// Dropping the map is not enough: each remote publication registers callbacks that hold
-    /// the participant which owns them, so the participant — and the `Arc<RtcEngine>` it holds
-    /// — survives the room unless those callbacks are unregistered.
+    /// the participant which owns them, so the participant (and the `Arc<RtcEngine>` it holds)
+    /// survives the room unless those callbacks are unregistered. `handle_participant_disconnect`
+    /// is deliberately not reused: it dispatches events carrying the participant, and these peers
+    /// have not left, the room is closing.
     ///
-    /// Unregister before detaching the track, not after: `RemoteTrackPublication::set_track(None)`
-    /// invokes the unsubscribe handler *before* clearing, and that handler dispatches
-    /// `TrackUnsubscribed` carrying strong clones of the participant and track. Clearing the
-    /// handlers first keeps teardown silent, so a receiver the application has stopped draining
-    /// cannot pin the participant through a queued event. `handle_participant_disconnect` is
-    /// deliberately not reused for the same reason: these peers have not left, the room is closing.
-    ///
-    /// Idempotent, so `close` can call it both before it suspends and after its tasks are joined.
+    /// Sets `closing` under the map's write lock, so no participant can be inserted once the
+    /// snapshot is taken.
     fn release_remote_participants(&self) {
-        let remote_participants = std::mem::take(&mut *self.remote_participants.write());
-        for participant in remote_participants.into_values() {
-            for (sid, publication) in participant.track_publications() {
-                participant.remove_publication(&sid);
-                publication.set_track(None);
-            }
+        let participants = {
+            let mut participants = self.remote_participants.write();
+            self.closing.store(true, Ordering::Relaxed);
+            std::mem::take(&mut *participants)
+        };
+        for participant in participants.into_values() {
+            participant.teardown();
         }
     }
 
@@ -1221,8 +1226,9 @@ impl RoomSession {
         // Release the remote participants before anything below can suspend. `close` takes the
         // handle, so a caller that bounds it with a timeout and drops the future cannot retry:
         // a later call returns `AlreadyClosed`. Doing this first means a cancelled close still
-        // unlinks the callback cycles. It runs again after the task joins, because `room_task`
-        // can insert a participant in the meantime.
+        // unlinks the callback cycles. No second drain is needed after the tasks join: `closing`
+        // rejects later inserts, and each participant's teardown rejects updates that already
+        // hold a clone.
         self.release_remote_participants();
 
         // remove published tracks
@@ -1244,9 +1250,6 @@ impl RoomSession {
         let _ = handle.remote_dt_forward_task.await;
         let _ = handle.remote_dt_task.await;
         let _ = handle.room_handle.await;
-
-        // Again, to catch anything `room_task` inserted after the drain above.
-        self.release_remote_participants();
 
         self.dispatcher.clear();
         Ok(())
@@ -1343,7 +1346,7 @@ impl RoomSession {
                 participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
-                let remote_participant = {
+                let Some(remote_participant) = ({
                     let pi = pi.clone();
                     let pi_kind = pi.kind().into();
                     let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
@@ -1365,6 +1368,8 @@ impl RoomSession {
                             .filter_map(|&c| ClientCapability::try_from(c).ok())
                             .collect(),
                     )
+                }) else {
+                    continue;
                 };
 
                 self.dispatcher
@@ -2194,7 +2199,11 @@ impl RoomSession {
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
         capabilities: Vec<ClientCapability>,
-    ) -> RemoteParticipant {
+    ) -> Option<RemoteParticipant> {
+        let mut participants = self.remote_participants.write();
+        if self.closing.load(Ordering::Relaxed) {
+            return None;
+        }
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
@@ -2324,9 +2333,8 @@ impl RoomSession {
             }
         });
 
-        let mut participants = self.remote_participants.write();
         participants.insert(identity, participant.clone());
-        participant
+        Some(participant)
     }
 
     /// A participant has disconnected

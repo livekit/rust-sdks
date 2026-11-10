@@ -52,6 +52,8 @@ struct RemoteEvents {
 struct RemoteInfo {
     events: Arc<RemoteEvents>,
     auto_subscribe: bool, // better way to access this from room?
+    /// Serializes publication mutation with teardown; true permanently rejects new updates.
+    closed: Mutex<bool>,
 }
 
 #[derive(Clone)]
@@ -104,7 +106,11 @@ impl RemoteParticipant {
                 client_protocol,
                 capabilities,
             ),
-            remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
+            remote: Arc::new(RemoteInfo {
+                events: Default::default(),
+                auto_subscribe,
+                closed: Mutex::new(false),
+            }),
         }
     }
 
@@ -112,13 +118,40 @@ impl RemoteParticipant {
         self.inner.track_publications.read().clone()
     }
 
-    /// Test-only: returns a probe that reports whether this participant's internals have
-    /// been dropped. Each of its publications registers callbacks that hold the
-    /// participant, so teardown has to unregister them; `Drop` alone never runs.
+    /// Silently unlinks publication callbacks and prevents in-flight updates from restoring them.
+    ///
+    /// Unregister before detaching the track, not after: `RemoteTrackPublication::set_track(None)`
+    /// invokes the unsubscribe handler *before* clearing, and that handler dispatches
+    /// `TrackUnsubscribed` carrying strong clones of the participant and track. Clearing the
+    /// handlers first keeps teardown silent, so a receiver the application has stopped draining
+    /// cannot pin the participant through a queued event.
+    pub(crate) fn teardown(&self) {
+        let mut closed = self.remote.closed.lock();
+        if *closed {
+            return;
+        }
+        *closed = true;
+
+        // Removing the last encrypted publication normally emits a participant notification.
+        // A room closing locally must not enqueue that event and retain this participant.
+        self.on_encryption_status_changed(|_, _| {});
+        for (sid, publication) in self.track_publications() {
+            self.remove_publication_inner(&sid);
+            if let Some(track) = publication.track() {
+                track.disable();
+            }
+            publication.set_track(None);
+        }
+    }
+
+    /// Test-only: returns a probe that reports whether this participant's state has been
+    /// dropped. Each of its publications registers callbacks that hold the participant, so
+    /// teardown has to unregister them; `Drop` alone never runs.
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
         let inner = Arc::downgrade(&self.inner);
-        move || inner.upgrade().is_none()
+        let remote = Arc::downgrade(&self.remote);
+        move || inner.upgrade().is_none() && remote.upgrade().is_none()
     }
 
     pub(crate) async fn add_subscribed_media_track(
@@ -132,9 +165,12 @@ impl RemoteParticipant {
             let sid = sid.clone();
             async move {
                 loop {
+                    if *participant.remote.closed.lock() {
+                        return None;
+                    }
                     let publication = participant.get_track_publication(&sid);
                     if let Some(publication) = publication {
-                        return publication;
+                        return Some(publication);
                     }
 
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -142,7 +178,11 @@ impl RemoteParticipant {
             }
         };
 
-        if let Ok(remote_publication) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
+        if let Ok(Some(remote_publication)) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
+            let closed = self.remote.closed.lock();
+            if *closed {
+                return;
+            }
             let track = match remote_publication.kind() {
                 TrackKind::Audio => {
                     if let MediaStreamTrack::Audio(rtc_track) = media_track {
@@ -182,12 +222,16 @@ impl RemoteParticipant {
                 ..Default::default()
             });
 
-            self.add_publication(TrackPublication::Remote(remote_publication.clone()));
+            self.add_publication_inner(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
             remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
                                                        // publication
         } else {
+            let closed = self.remote.closed.lock();
+            if *closed {
+                return;
+            }
             log::error!("could not find published track with sid: {:?}", sid);
 
             if let Some(track_subscription_failed) =
@@ -203,6 +247,15 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn unpublish_track(&self, sid: &TrackSid) {
+        let closed = self.remote.closed.lock();
+        if *closed {
+            return;
+        }
+        self.unpublish_track_inner(sid);
+    }
+
+    /// Unpublishes a track while the caller holds the publication mutation lock.
+    fn unpublish_track_inner(&self, sid: &TrackSid) {
         if let Some(publication) = self.get_track_publication(sid) {
             // Unsubscribe to the track if needed
             if let Some(track) = publication.track() {
@@ -210,7 +263,7 @@ impl RemoteParticipant {
                 publication.set_track(None); // This will fire TrackUnsubscribed on the publication
             }
 
-            self.remove_publication(sid);
+            self.remove_publication_inner(sid);
 
             if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
                 track_unpublished(self.clone(), publication);
@@ -219,6 +272,10 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn update_info(&self, info: proto::ParticipantInfo) {
+        let closed = self.remote.closed.lock();
+        if *closed {
+            return;
+        }
         super::update_info(&self.inner, &Participant::Remote(self.clone()), info.clone());
 
         let mut valid_tracks = HashSet::<TrackSid>::new();
@@ -230,7 +287,7 @@ impl RemoteParticipant {
                 let publication =
                     RemoteTrackPublication::new(track.clone(), None, self.remote.auto_subscribe);
 
-                self.add_publication(TrackPublication::Remote(publication.clone()));
+                self.add_publication_inner(TrackPublication::Remote(publication.clone()));
 
                 // This is a new track, dispatch publish event
                 if let Some(track_published) = self.remote.events.track_published.lock().as_ref() {
@@ -248,7 +305,7 @@ impl RemoteParticipant {
                 continue;
             }
 
-            self.unpublish_track(sid);
+            self.unpublish_track_inner(sid);
         }
     }
 
@@ -354,6 +411,15 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
+        let closed = self.remote.closed.lock();
+        if *closed {
+            return;
+        }
+        self.add_publication_inner(publication);
+    }
+
+    /// Installs callbacks while the caller holds the publication mutation lock.
+    fn add_publication_inner(&self, publication: TrackPublication) {
         super::add_publication(
             &self.inner,
             &Participant::Remote(self.clone()),
@@ -488,6 +554,15 @@ impl RemoteParticipant {
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        let closed = self.remote.closed.lock();
+        if *closed {
+            return None;
+        }
+        self.remove_publication_inner(sid)
+    }
+
+    /// Removes callbacks while the caller holds the publication mutation lock.
+    fn remove_publication_inner(&self, sid: &TrackSid) -> Option<TrackPublication> {
         let publication =
             super::remove_publication(&self.inner, &Participant::Remote(self.clone()), sid);
 
