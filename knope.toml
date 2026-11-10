@@ -220,6 +220,15 @@ versioned_files = [
 changelog = "livekit-bitstream/CHANGELOG.md"
 scopes = ["livekit-bitstream"]
 
+[packages.livekit-hwcodec]
+versioned_files = [
+  "livekit-hwcodec/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-hwcodec" },
+]
+changelog = "livekit-hwcodec/CHANGELOG.md"
+scopes = ["livekit-hwcodec"]
+
 [packages.livekit-capture]
 versioned_files = [
   "livekit-capture/Cargo.toml",
