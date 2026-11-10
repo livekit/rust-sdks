@@ -26,6 +26,7 @@ use crate::{
     peer_connection::PeerConnection,
     peer_connection_factory::RtcConfiguration,
     rtp_parameters::RtpCapabilities,
+    rtp_sender::VideoEncoderBackend,
     video_source::native::NativeVideoSource,
     video_track::RtcVideoTrack,
     MediaType, RtcError,
@@ -35,12 +36,35 @@ lazy_static! {
     static ref LOG_SINK: Mutex<Option<UniquePtr<sys_rtc::ffi::LogSink>>> = Default::default();
 }
 
+/// Maps a libwebrtc severity onto the matching `log` level.
+///
+/// Warning and error move up so consumers can see them. Verbose and info both
+/// move down a step -- libwebrtc logs both very heavily, and the sink is
+/// installed at `LS_VERBOSE`, so mapping info to `Info` would flood every
+/// binding that shows it. Keeping info at `Debug` preserves today's behaviour
+/// for the noisy levels while making the two that matter visible.
+fn log_level(severity: sys_rtc::ffi::LoggingSeverity) -> Option<log::Level> {
+    match severity {
+        sys_rtc::ffi::LoggingSeverity::Verbose => Some(log::Level::Trace),
+        sys_rtc::ffi::LoggingSeverity::Info => Some(log::Level::Debug),
+        sys_rtc::ffi::LoggingSeverity::Warning => Some(log::Level::Warn),
+        sys_rtc::ffi::LoggingSeverity::Error => Some(log::Level::Error),
+        _ => None,
+    }
+}
+
 fn ensure_log_sink() {
     let mut log_sink = LOG_SINK.lock();
     if log_sink.is_none() {
-        *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
+        *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
+            // Every message used to arrive as Debug regardless of severity, so
+            // libwebrtc warnings and errors were discarded by any consumer
+            // filtering at Info -- which is every binding's default.
+            let Some(level) = log_level(severity) else {
+                return;
+            };
             let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
-            log::debug!(target: "libwebrtc", "{}", msg);
+            log::log!(target: "libwebrtc", level, "{}", msg);
         }));
     }
 }
@@ -139,6 +163,10 @@ impl PeerConnectionFactory {
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle.rtp_receiver_capabilities(media_type.into()).into()
+    }
+
+    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<String> {
+        self.sys_handle.video_encoder_backend_codecs(backend.into())
     }
 
     // ===== Device Management Methods =====
@@ -351,6 +379,7 @@ impl PeerConnectionFactory {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use webrtc_sys::webrtc::ffi::LoggingSeverity;
 
     static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -372,5 +401,28 @@ mod tests {
         factory.set_adm_recording_enabled(!initial_recording);
         assert_eq!(factory.adm_recording_enabled(), !initial_recording);
         factory.set_adm_recording_enabled(initial_recording);
+    }
+
+    /// Warnings and errors used to arrive as `Debug` and were filtered out by
+    /// default in every binding; these pin the mapping that fixed that.
+    #[test]
+    fn libwebrtc_warnings_and_errors_map_to_visible_levels() {
+        assert_eq!(log_level(LoggingSeverity::Warning), Some(log::Level::Warn));
+        assert_eq!(log_level(LoggingSeverity::Error), Some(log::Level::Error));
+    }
+
+    #[test]
+    fn the_noisy_levels_stay_below_info() {
+        // libwebrtc logs both heavily and the sink is installed at LS_VERBOSE,
+        // so neither may reach a level a binding shows by default.
+        for severity in [LoggingSeverity::Verbose, LoggingSeverity::Info] {
+            let level = log_level(severity).expect("still forwarded");
+            assert!(level > log::Level::Info, "{severity:?} mapped to {level:?}");
+        }
+    }
+
+    #[test]
+    fn severity_none_is_dropped() {
+        assert_eq!(log_level(LoggingSeverity::None), None);
     }
 }
