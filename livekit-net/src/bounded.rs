@@ -33,18 +33,23 @@ impl BodyReader {
         headers: Vec<Header>,
         limit: u64,
     ) -> Result<Self, TransportError> {
-        if headers.iter().any(|h| {
-            h.name.eq_ignore_ascii_case("content-encoding")
-                && !matches!(h.value.trim().to_ascii_lowercase().as_str(), "gzip" | "identity")
-        }) {
-            return Err(TransportError::Other(
-                "unsupported bounded response content encoding".into(),
-            ));
+        // Field lines combine into one comma list (RFC 9110 §5.3); `identity` and empty elements
+        // add no coding. ponytail: one gzip layer only; stacked codings are rejected.
+        let mut gzip = false;
+        for coding in headers
+            .iter()
+            .filter(|h| h.name.eq_ignore_ascii_case("content-encoding"))
+            .flat_map(|h| h.value.split(','))
+            .map(str::trim)
+            .filter(|c| !c.is_empty() && !c.eq_ignore_ascii_case("identity"))
+        {
+            if gzip || !coding.eq_ignore_ascii_case("gzip") {
+                return Err(TransportError::Other(
+                    "unsupported bounded response content encoding".into(),
+                ));
+            }
+            gzip = true;
         }
-        let gzip = headers.iter().any(|h| {
-            h.name.eq_ignore_ascii_case("content-encoding")
-                && h.value.trim().eq_ignore_ascii_case("gzip")
-        });
         Ok(Self {
             status,
             headers,
@@ -118,5 +123,33 @@ impl std::io::Write for LimitedBody {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read(lines: &[&str], wire: &[u8]) -> Result<HttpResponse, TransportError> {
+        let headers = lines
+            .iter()
+            .map(|v| Header { name: "Content-Encoding".into(), value: (*v).into() })
+            .collect();
+        let mut body = BodyReader::new(200, headers, 1024)?;
+        body.push(wire)?;
+        body.finish()
+    }
+
+    #[test]
+    fn content_coding_list_allows_identity_and_one_gzip_layer() {
+        let mut zip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        zip.write_all(b"ok").expect("gzip");
+        let gz = zip.finish().expect("finish");
+        for lines in [&["gzip"][..], &["identity, gzip"], &["identity", "gzip"], &["gzip,"]] {
+            assert_eq!(read(lines, &gz).expect("decodes").body, b"ok", "{lines:?}");
+        }
+        for lines in [&["br"][..], &["gzip, gzip"], &["gzip", "gzip"]] {
+            assert!(matches!(read(lines, &gz), Err(TransportError::Other(_))), "{lines:?}");
+        }
     }
 }
