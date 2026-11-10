@@ -9,3 +9,5 @@ Regenerate protocol bindings and preserve existing egress requests when the prot
 adds optional stream destinations.
 
 Use Unix milliseconds consistently for persisted thread timestamps, inbox arrivals and lease expiry.
+
+Update the protocol schema pin to remove cross-worker interruption markers from partition ownership.
