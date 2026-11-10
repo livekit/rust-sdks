@@ -113,6 +113,21 @@ pub fn h264_is_keyframe(nal_units: &[&[u8]]) -> Result<bool, NalError> {
     nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
 }
 
+/// Returns `true` when the H.264 NAL units contain both an SPS and a PPS,
+/// which a decoder needs before it can decode an IDR picture.
+pub fn h264_has_parameter_sets(nal_units: &[&[u8]]) -> Result<bool, NalError> {
+    let mut has_sps = false;
+    let mut has_pps = false;
+    for nal in nal_units {
+        match h264_nal_type(nal)? {
+            7 => has_sps = true,
+            8 => has_pps = true,
+            _ => {}
+        }
+    }
+    Ok(has_sps && has_pps)
+}
+
 /// Returns `true` when the H.265 NAL units form a WebRTC-usable keyframe:
 /// parameter sets (VPS/SPS/PPS) plus an IDR picture.
 pub fn h265_is_keyframe(nal_units: &[&[u8]]) -> Result<bool, NalError> {
@@ -146,6 +161,17 @@ mod tests {
 
         assert!(h264_is_keyframe(&[&sps, &idr]).unwrap());
         assert!(!h264_is_keyframe(&[&sps, &non_idr]).unwrap());
+    }
+
+    #[test]
+    fn h264_parameter_sets_require_sps_and_pps() {
+        let sps = [0x67, 1, 2, 3];
+        let pps = [0x68, 1];
+        let idr = [0x65, 4, 5, 6];
+
+        assert!(h264_has_parameter_sets(&[&sps, &pps, &idr]).unwrap());
+        assert!(!h264_has_parameter_sets(&[&sps, &idr]).unwrap());
+        assert!(!h264_has_parameter_sets(&[&pps, &idr]).unwrap());
     }
 
     #[test]
