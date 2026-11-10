@@ -506,7 +506,7 @@ pub(crate) mod fault {
     };
 
     pub(crate) use super::bindings::{
-        VIDIOC_QBUF, VIDIOC_QUERYBUF, VIDIOC_REQBUFS, VIDIOC_STREAMON, VIDIOC_S_FMT,
+        VIDIOC_DQBUF, VIDIOC_QBUF, VIDIOC_QUERYBUF, VIDIOC_REQBUFS, VIDIOC_STREAMON, VIDIOC_S_FMT,
         VIDIOC_S_SELECTION,
     };
 
@@ -520,13 +520,19 @@ pub(crate) mod fault {
         request: libc::c_ulong,
         remaining: u32,
         action: Action,
+        persistent: bool,
     }
 
     static FAULTS: Mutex<Vec<Fault>> = Mutex::new(Vec::new());
 
     /// Applies `action` once, to the `nth` call (from 1) of `request` on any thread.
     pub(crate) fn inject(request: libc::c_ulong, nth: u32, action: Action) {
-        let fault = Fault { request, remaining: nth, action };
+        let fault = Fault { request, remaining: nth, action, persistent: false };
+        FAULTS.lock().unwrap_or_else(PoisonError::into_inner).push(fault);
+    }
+
+    pub(crate) fn inject_always(request: libc::c_ulong, action: Action) {
+        let fault = Fault { request, remaining: 1, action, persistent: true };
         FAULTS.lock().unwrap_or_else(PoisonError::into_inner).push(fault);
     }
 
@@ -540,11 +546,15 @@ pub(crate) mod fault {
             let Some(index) = faults.iter().position(|fault| fault.request == request) else {
                 return Ok(());
             };
-            faults[index].remaining -= 1;
-            if faults[index].remaining > 0 {
-                return Ok(());
+            if faults[index].persistent {
+                faults[index].action
+            } else {
+                faults[index].remaining -= 1;
+                if faults[index].remaining > 0 {
+                    return Ok(());
+                }
+                faults.remove(index).action
             }
-            faults.remove(index).action
         };
         match action {
             Action::Fail(errno) => Err(io::Error::from_raw_os_error(errno)),
