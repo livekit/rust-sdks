@@ -3950,6 +3950,7 @@ name = "livekit-hwcodec"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "livekit-bitstream",
  "log",
  "thiserror 2.0.19",
 ]

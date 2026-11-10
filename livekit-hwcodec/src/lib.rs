@@ -87,3 +87,6 @@ pub enum EncodeStatus {
 // 32-bit targets lay out `v4l2_buffer` differently.
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod v4l2;
+
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+pub use v4l2::{V4l2Encoder, V4l2EncoderFactory};

@@ -89,6 +89,8 @@ pub(crate) struct Encoded<'a> {
     pub timestamp: u64,
     /// Flagged by the driver.
     pub corrupt: bool,
+    /// Flagged by the driver.
+    pub keyframe: bool,
 }
 
 /// Dropping it releases everything, whatever state setup reached.
@@ -219,7 +221,12 @@ impl Session {
             .and_then(|planes| planes.first())
             .and_then(|plane| plane.as_slice().get(buffer.payload.clone()));
         let consumed = data.map(|data| {
-            consume(Encoded { data, timestamp: buffer.timestamp, corrupt: buffer.error })
+            consume(Encoded {
+                data,
+                timestamp: buffer.timestamp,
+                corrupt: buffer.error,
+                keyframe: buffer.keyframe,
+            })
         });
         self.device
             .queue_buffer(Queue::Capture, buffer.index, 0, &[])
