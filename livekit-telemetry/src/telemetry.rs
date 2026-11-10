@@ -253,6 +253,10 @@ pub(crate) struct Shared {
     /// under (to hold a producer exactly where a racing purge could slip in).
     #[cfg(test)]
     pub pause: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Test-only: runs inside credential retirement, between its snapshot of the live sessions
+    /// and the prune that applies it.
+    #[cfg(test)]
+    pub retiring: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Upload passes started, for tests that must see the exporter stay idle.
     #[cfg(test)]
     pub passes: std::sync::atomic::AtomicU64,
@@ -460,6 +464,9 @@ impl Telemetry {
     /// Build the pipeline with the cache the config asks for: a [`FileCache`] in `storage_dir`,
     /// or a [`MemoryCache`] when unset — or when the directory is unusable (logged, never an
     /// error). Spawn the returned [`Exporter`] with `exporter.run()` on your runtime.
+    ///
+    /// With a `storage_dir` this opens the directory, recovers an interrupted split and prunes
+    /// it, synchronously on the calling thread (disk I/O): call it off the UI thread.
     pub fn new(
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
@@ -560,6 +567,8 @@ impl Telemetry {
             passes: Default::default(),
             #[cfg(test)]
             pause: Mutex::new(None),
+            #[cfg(test)]
+            retiring: Mutex::new(None),
             wake: tokio::sync::Notify::new(),
             overflowed: AtomicBool::new(false),
             released: AtomicBool::new(false),
@@ -574,7 +583,9 @@ impl Telemetry {
     /// authorizes the upload. Called at connect and again with every refreshed token; cheap and
     /// idempotent. Everything cached for the project starts uploading once the token allows.
     pub(crate) fn set_server(&self, session: &ScopeState, url: &str, token: &str) {
-        let routed = {
+        // The registry's diagnostics wait until both locks are released: a host logger may call
+        // back into the pipeline.
+        let routed = logged_after(|| {
             // One change at a time per session: the pair is remembered only once its destination
             // and route are in place, so a racing change cannot leave the pair of one change
             // and the route of the other (and the next hand-over taken for a no-op).
@@ -589,7 +600,7 @@ impl Telemetry {
                 if revived {
                     self.shared.release();
                 }
-                return;
+                return None;
             }
             self.shared.before_commit();
             let host = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner()).set(
@@ -608,8 +619,9 @@ impl Telemetry {
                 );
             }
             session.remember_server(url, token);
-            host.is_some()
-        };
+            Some(host.is_some())
+        });
+        let Some(routed) = routed else { return };
         if !routed {
             log::warn!("server url has no host; this session's telemetry stays cached");
             return;
@@ -776,14 +788,19 @@ impl Telemetry {
         })
     }
 
-    /// Window one `getStats()` reading under `session`. Readings never count against the flood
-    /// guard.
-    pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<ScopeState>) {
-        if self.shared.revoked() || !self.collects(session) {
+    /// Window one report's `getStats()` readings under `session`, under one windows lock, so
+    /// nothing ends a poll between its layers. Readings never count against the flood guard.
+    pub(crate) fn record_stats_in(&self, samples: Vec<RtcStatsSample>, session: &Arc<ScopeState>) {
+        if samples.is_empty() || self.shared.revoked() || !self.collects(session) {
             return;
         }
         self.shared.before_commit();
-        self.shared.windows.lock().unwrap_or_else(|e| e.into_inner()).record_in(sample, session);
+        // One capture time for the report's unstamped samples: its layers are one poll.
+        self.shared
+            .windows
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_batch_in(samples, session);
     }
 
     /// Whether `session` still collects: not once its project is known to receive nothing
@@ -829,13 +846,9 @@ impl Telemetry {
 
     /// Close and forget the RTC windows of one track (or, with `None`, of the whole session):
     /// the last partial window is queued now instead of at the next tick.
-    pub(crate) fn retire_stats(&self, session: &Arc<ScopeState>, track_sid: Option<&str>) {
-        let closed = self
-            .shared
-            .windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retire(session, track_sid);
+    pub(crate) fn retire_stats(&self, session: &Arc<ScopeState>, track_id: Option<&str>) {
+        let closed =
+            self.shared.windows.lock().unwrap_or_else(|e| e.into_inner()).retire(session, track_id);
         for window in closed {
             // Windows bypass the flood guard: they are the pipeline's own, bounded output.
             if self.shared.store.push(window) {
@@ -901,7 +914,8 @@ impl Telemetry {
     }
 
     /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
-    /// backend as `lk.telemetry.report` events whenever something went wrong.
+    /// backend as `lk.telemetry.report` events whenever something went wrong. Counts the cached
+    /// batches by listing the cache synchronously (a directory listing with a [`FileCache`]).
     pub fn stats(&self) -> TelemetryStats {
         TelemetryStats::new(
             self.shared.counters.snapshot(),
@@ -914,6 +928,9 @@ impl Telemetry {
     /// queue, open and finished spans, RTC windows and every cached batch, on disk included.
     /// Events emitted afterwards go nowhere. Returns `false` when the storage refused to delete
     /// something (it is logged; the files stay until a later purge or configure succeeds).
+    /// Waits for the exporter to stop: if the returned [`Exporter`] is still held but was never
+    /// spawned, that wait lasts `export_timeout_ms` (1 s at least) plus 1 s; once it is dropped
+    /// the wait ends at once, as for [`shutdown`](Self::shutdown).
     pub async fn purge(&self) -> bool {
         self.shared.purge().await
     }
@@ -1455,7 +1472,7 @@ pub(crate) mod tests {
 
         /// Window a reading under the process session.
         pub(crate) fn record_stats(&self, sample: RtcStatsSample) {
-            self.record_stats_in(sample, &self.shared.process);
+            self.record_stats_in(vec![sample], &self.shared.process);
         }
 
         /// An app event under the process session.

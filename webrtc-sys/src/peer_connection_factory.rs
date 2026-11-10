@@ -79,6 +79,7 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type MediaType = crate::webrtc::ffi::MediaType;
+        type VideoEncoderBackend = crate::webrtc::ffi::VideoEncoderBackend;
     }
 
     unsafe extern "C++" {
@@ -130,7 +131,14 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
+
+        fn video_encoder_backend_codecs(
+            self: &PeerConnectionFactory,
+            backend: VideoEncoderBackend,
+        ) -> Vec<String>;
     }
+
+    impl WeakPtr<PeerConnectionFactory> {}
 
     extern "Rust" {
         type PeerConnectionObserverWrapper;

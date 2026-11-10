@@ -194,7 +194,9 @@ pub enum TelemetryStatus {
     /// Uploads wait for a connect/reconnect to finish or for the device (Low Data Mode, low
     /// battery); capped at 60 s.
     Held,
-    /// The last upload failed; retrying after a jittered exponential backoff.
+    /// A failed upload waits to retry while its batch stays cached: a destination backs off
+    /// (jittered exponential backoff), or a batch that is too large and cannot be split waits
+    /// for its next attempt. Other destinations and batches can still upload meanwhile.
     Paused,
     /// The collector asked for a pause (`Retry-After`).
     Throttled,

@@ -53,10 +53,18 @@ impl From<OfferOptions> for sys_pc::ffi::RtcOfferAnswerOptions {
     fn from(options: OfferOptions) -> Self {
         Self {
             ice_restart: options.ice_restart,
-            offer_to_receive_audio: options.offer_to_receive_audio as i32,
-            offer_to_receive_video: options.offer_to_receive_video as i32,
+            offer_to_receive_audio: offer_to_receive(options.offer_to_receive_audio),
+            offer_to_receive_video: offer_to_receive(options.offer_to_receive_video),
             ..Default::default()
         }
+    }
+}
+
+/// libwebrtc's `offer_to_receive_*` value, where -1 is its `kUndefined`.
+fn offer_to_receive(option: Option<bool>) -> i32 {
+    match option {
+        None => -1,
+        Some(enabled) => enabled as i32,
     }
 }
 
@@ -643,7 +651,7 @@ impl sys_pcf::PeerConnectionObserver for PeerObserver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        peer_connection::BitrateSettings,
+        peer_connection::{BitrateSettings, OfferOptions},
         peer_connection_factory::{PeerConnectionFactory, RtcConfiguration},
         RtcErrorType,
     };
@@ -678,5 +686,21 @@ mod tests {
             .set_bitrate(BitrateSettings { start_bitrate_bps: Some(500_000), ..Default::default() })
             .expect_err("a closed connection should reject set_bitrate");
         assert_eq!(err.error_type, RtcErrorType::InvalidState, "unexpected error: {err}");
+    }
+
+    #[test]
+    fn offer_to_receive_conversion() {
+        let convert = |option| {
+            let options: webrtc_sys::peer_connection::ffi::RtcOfferAnswerOptions = OfferOptions {
+                offer_to_receive_audio: option,
+                offer_to_receive_video: option,
+                ..Default::default()
+            }
+            .into();
+            (options.offer_to_receive_audio, options.offer_to_receive_video)
+        };
+        assert_eq!(convert(None), (-1, -1));
+        assert_eq!(convert(Some(false)), (0, 0));
+        assert_eq!(convert(Some(true)), (1, 1));
     }
 }

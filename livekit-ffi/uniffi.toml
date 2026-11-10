@@ -41,7 +41,10 @@ omit_checksums = true
 "ByteStreamWriter.close" = "close_stream"
 "TextStreamWriter.close" = "close_stream"
 "IncomingStreamQueue.close" = "close_stream"
+"ByteStreamReader.close" = "close_stream"
+"TextStreamReader.close" = "close_stream"
 "OutgoingPacketQueue.close" = "close_stream"
+"SignalSession.close" = "close_session"
 
 # `WsConnection.close` needs the same treatment, but a rename table only reaches items from the
 # crate whose uniffi.toml it came from -- see livekit-net/uniffi.toml.

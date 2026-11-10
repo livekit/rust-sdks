@@ -70,10 +70,11 @@ pub unsafe extern "C" fn livekit_ffi_request(
             }
         };
 
-        let res = match server::requests::handle_request(&FFI_SERVER, req.clone()) {
+        let res = match server::requests::handle_request(&FFI_SERVER, req) {
             Ok(res) => res,
             Err(err) => {
-                log::error!("failed to handle request {:?}: {:?}", req, err);
+                // Do not log the request: it can hold E2EE key material.
+                log::error!("failed to handle request: {:?}", err);
                 return INVALID_HANDLE;
             }
         }

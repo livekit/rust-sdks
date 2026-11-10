@@ -3056,7 +3056,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.53"
+version = "0.4.0"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.6"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.9.1"
+version = "0.10.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3820,12 +3820,12 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "url",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.6"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "chrono",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "async-compression",
  "bmrng",
@@ -3870,6 +3870,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3897,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.13.0"
+version = "0.13.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3919,6 +3920,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-signaling",
  "livekit-token",
  "log",
  "once_cell",
@@ -3942,6 +3944,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "bytes",
+ "flate2",
  "futures-util",
  "http 1.4.2",
  "log",
@@ -3973,7 +3976,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-rpc"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -3990,7 +3993,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.7"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4009,12 +4012,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "url",
 ]
 
 [[package]]
 name = "livekit-telemetry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4034,7 +4038,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-token"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "hmac",
  "jsonwebtoken",
@@ -6298,7 +6302,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -6485,9 +6489,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -6549,9 +6553,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -7262,7 +7266,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -8666,9 +8670,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -8679,21 +8683,21 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.9",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.50"
+version = "0.3.53"
 dependencies = [
  "cc",
  "cxx",
@@ -8706,7 +8710,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.20"
+version = "0.3.21"
 dependencies = [
  "anyhow",
  "fs2",
@@ -9614,9 +9618,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.0.4"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a954114b47a54df49f83d2722814e86b23d4bb1b54a1b90fb7d92b41619ddc22"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
  "flate2",

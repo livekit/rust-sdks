@@ -5,6 +5,8 @@ description = "ONNX-based wake word detection for LiveKit"
 edition.workspace = true
 repository.workspace = true
 license.workspace = true
+# Test models are too large to publish.
+exclude = ["tests/fixtures"]
 
 [dependencies]
 ndarray = "0.17.2"
