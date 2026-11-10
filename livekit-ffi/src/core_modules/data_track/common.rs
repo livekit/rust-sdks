@@ -111,7 +111,6 @@ pub enum HandleSignalResponseError {
 pub(crate) fn deserialize_signal_response(
     res: &[u8],
 ) -> Result<proto::signal_response::Message, HandleSignalResponseError> {
-    let res =
-        proto::SignalResponse::decode(res).map_err(|err| HandleSignalResponseError::Decode(err))?;
+    let res = proto::SignalResponse::decode(res).map_err(HandleSignalResponseError::Decode)?;
     res.message.ok_or(HandleSignalResponseError::EmptyMessage)
 }

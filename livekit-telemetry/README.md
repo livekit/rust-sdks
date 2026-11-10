@@ -20,3 +20,5 @@ The pipeline that batches, caches and uploads records is not part of the crate y
 
 Event names, attributes and span rules are defined in [`SPEC.md`](SPEC.md). It is the contract
 for the whole crate, including the parts not implemented yet.
+
+Collector responses are limited to 65,536 decoded body bytes. Overflow is retryable and preserves a valid Retry-After delay; no truncated body is used to classify acceptance or a project refusal. NetTransport uses livekit-net's opt-in bounded client view. Its native backend stops during the read, including gzip decoding; ordinary HTTP requests remain uncapped. A host TelemetryTransport must enforce the same limit in its reader. The core also checks already-buffered custom/FFI/pulled responses, but this cannot bound allocation that already occurred in the host.

@@ -84,8 +84,8 @@ pub(crate) struct Token {
     raw: String,
     /// `observability.write` or `observability.clientWrite`.
     grant: bool,
-    /// From `exp`, on the monotonic clock (so tests can move it).
-    expires: Option<Instant>,
+    /// From `exp`, on both clocks (see [`Expiry`]).
+    expires: Option<Expiry>,
     /// The credential's identity (a hash of the raw token): what a refusal is recorded against.
     id: u64,
 }
@@ -115,15 +115,15 @@ impl From<&str> for Token {
         // any real token lifetime is clamped (an `Instant` that far out would overflow). Only a
         // token without `exp` has no known expiry.
         let expires = claims.as_ref().and_then(|c| c.get("exp")).map(|exp| {
-            let now =
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64();
-            let left = match exp.as_f64() {
-                Some(exp) if exp.is_finite() && exp > now => {
-                    Duration::from_secs_f64((exp - now).min(MAX_TOKEN_LIFETIME.as_secs_f64()))
-                }
-                _ => Duration::ZERO,
+            let now = unix_now_secs();
+            let wall_secs = exp.as_f64().filter(|exp| exp.is_finite()).unwrap_or(0.0);
+            let left = if wall_secs > now {
+                Duration::from_secs_f64((wall_secs - now).min(MAX_TOKEN_LIFETIME.as_secs_f64()))
+            } else {
+                Duration::ZERO
             };
-            Instant::now().checked_add(left).unwrap_or_else(Instant::now)
+            let monotonic = Instant::now().checked_add(left).unwrap_or_else(Instant::now);
+            Expiry { monotonic, wall_secs }
         });
         let id = {
             use std::hash::{Hash, Hasher};
@@ -135,9 +135,33 @@ impl From<&str> for Token {
     }
 }
 
+/// When a token stops being usable, on both clocks. The monotonic one lets tests move time and
+/// keeps a backward wall-clock jump from extending a token's life; the wall clock catches what
+/// the monotonic one misses while the device sleeps (it stops on Android and Apple platforms),
+/// so a token whose `exp` passed during a long sleep is not sent on resume. Either says expired.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Expiry {
+    monotonic: Instant,
+    /// `exp` as unix seconds; `0` for an `exp` that is not a finite number.
+    wall_secs: f64,
+}
+
+impl Expiry {
+    fn passed(&self) -> bool {
+        Instant::now() >= self.monotonic || unix_now_secs() >= self.wall_secs
+    }
+}
+
+fn unix_now_secs() -> f64 {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64();
+    #[cfg(test)]
+    let now = now + tests::WALL_OFFSET_SECS.with(|offset| offset.get());
+    now
+}
+
 impl Token {
     fn expired(&self) -> bool {
-        self.expires.is_some_and(|at| Instant::now() >= at)
+        self.expires.is_some_and(|at| at.passed())
     }
 
     /// May be sent: carries the grant, not expired, not refused.
@@ -191,7 +215,7 @@ fn offer(slot: &mut Option<Token>, new: &Token, refused: &Refusals) {
 // ponytail: grows with refusals of tokens without `exp` (LiveKit tokens always carry one); a cap
 // if a server ever mints tokens without expiry.
 #[derive(Debug, Default)]
-struct Refusals(HashMap<u64, Option<Instant>>);
+struct Refusals(HashMap<u64, Option<Expiry>>);
 
 impl Refusals {
     fn contains(&self, token: &Token) -> bool {
@@ -200,9 +224,18 @@ impl Refusals {
 
     /// Returns whether the refusal is new.
     fn add(&mut self, token: &Token) -> bool {
-        let now = Instant::now();
-        self.0.retain(|_, expires| expires.is_none_or(|at| at > now));
+        self.prune();
         self.0.insert(token.id, token.expires).is_none()
+    }
+
+    /// Forget refusals whose token expired, when the next refusal comes in (not at routine
+    /// cleanup: pruning there is the open decision of review 4486909931, since it would let a
+    /// later handover of a forgotten refused token go out once). The monotonic clock alone
+    /// decides, as it did before the wall-clock expiry was added: a wall-clock correction must
+    /// not forget a refusal that a later correction would make sendable again.
+    fn prune(&mut self) {
+        let now = Instant::now();
+        self.0.retain(|_, expires| expires.is_none_or(|at| now < at.monotonic));
     }
 }
 
@@ -223,11 +256,23 @@ pub(crate) enum Route {
     Drop,
 }
 
+/// A [`Route`] by reference: what [`Destinations::alive`] checks at the door, without formatting
+/// the ingest URLs or cloning the token a [`Target`] carries.
+enum Resolved<'a> {
+    Override(&'a Target),
+    Send { host: &'a str, token: &'a Token },
+    Wait,
+    Drop,
+}
+
 /// Every project and session this process talks to, plus the test override. Tokens live here,
 /// in memory only: never persisted, never in a batch.
 #[derive(Debug, Default)]
 pub(crate) struct Destinations {
     projects: HashMap<String, Project>,
+    /// Unowned recomputable dead projects were compacted. They still count toward all-dead
+    /// routing, but never override a currently alive project or a new Room's own token.
+    compacted_dead: bool,
     /// Each Room session's own latest token per project, by (host, session id): its batches for
     /// that project are sent with it and never with another Room's, nor with the token it later
     /// got for another project.
@@ -248,7 +293,9 @@ impl Destinations {
     /// there instead.
     pub fn new(endpoint_override: Option<&str>) -> Self {
         Self {
-            endpoint_override: endpoint_override.filter(|e| !e.is_empty()).map(override_target),
+            endpoint_override: endpoint_override
+                .filter(|e| !e.is_empty())
+                .and_then(override_target),
             ..Self::default()
         }
     }
@@ -311,27 +358,42 @@ impl Destinations {
     /// launch's use the project's latest. A Room's records captured before it had a server go
     /// to its first project, never to another Room's.
     pub fn route(&self, host: Option<&str>, owner: Option<&str>) -> Route {
+        match self.resolve(host, owner) {
+            Resolved::Override(target) => Route::Send(target.clone()),
+            Resolved::Send { host, token } => Route::Send(Target {
+                project: Some(host.to_owned()),
+                logs: ingest_url(host, Signal::Logs),
+                traces: ingest_url(host, Signal::Traces),
+                token: Some(token.raw.clone()),
+            }),
+            Resolved::Wait => Route::Wait,
+            Resolved::Drop => Route::Drop,
+        }
+    }
+
+    /// [`route`](Self::route)'s decision, before anything is built for it.
+    fn resolve<'a>(&'a self, host: Option<&'a str>, owner: Option<&'a str>) -> Resolved<'a> {
         if let Some(target) = &self.endpoint_override {
-            return Route::Send(target.clone());
+            return Resolved::Override(target);
         }
         let room = owner.filter(|o| *o != PROCESS_OWNER);
         let host = match (host, room) {
             (Some(host), _) => host,
             (None, Some(room)) => match self.rooms.get(room) {
                 Some(first) => first.as_str(),
-                None => return Route::Wait,
+                None => return Resolved::Wait,
             },
             (None, None) => match self.fallback() {
                 Some(host) => host,
                 // Nothing to talk to yet: wait. Only dead projects so far: nobody will ever
                 // take process-level data, so it is not kept either.
-                None if self.all_dead() => return Route::Drop,
-                None => return Route::Wait,
+                None if self.all_dead() => return Resolved::Drop,
+                None => return Resolved::Wait,
             },
         };
-        let Some(project) = self.projects.get(host) else { return Route::Wait };
+        let Some(project) = self.projects.get(host) else { return Resolved::Wait };
         if project.dead.is_some() {
-            return Route::Drop;
+            return Resolved::Drop;
         }
         let token = match room {
             Some(room) if self.rooms.contains_key(room) => {
@@ -340,13 +402,8 @@ impl Destinations {
             _ => project.latest.as_ref(),
         };
         match token {
-            Some(token) if token.usable(&self.refused) => Route::Send(Target {
-                project: Some(host.to_owned()),
-                logs: ingest_url(host, Signal::Logs),
-                traces: ingest_url(host, Signal::Traces),
-                token: Some(token.raw.clone()),
-            }),
-            _ => Route::Wait,
+            Some(token) if token.usable(&self.refused) => Resolved::Send { host, token },
+            _ => Resolved::Wait,
         }
     }
 
@@ -361,14 +418,15 @@ impl Destinations {
     }
 
     fn all_dead(&self) -> bool {
-        !self.projects.is_empty() && self.projects.values().all(|p| p.dead.is_some())
+        (self.compacted_dead || !self.projects.is_empty())
+            && self.projects.values().all(|p| p.dead.is_some())
     }
 
     /// Whether session `owner`, routed to `host`, should still collect: `false` once its
     /// project is known to receive nothing, so its records are dropped at the door instead of
     /// cached. A Room without a server yet waits for its first project, like [`route`](Self::route).
     pub fn alive(&self, host: Option<&str>, owner: Option<&str>) -> bool {
-        !matches!(self.route(host, owner), Route::Drop)
+        !matches!(self.resolve(host, owner), Resolved::Drop)
     }
 
     /// The collector refused `token` (401/403): it is not sent again, from any slot; batches that
@@ -417,9 +475,9 @@ impl Destinations {
             .chain(self.rooms.values())
             .cloned()
             .collect();
-        // An entry nothing needs goes: the table follows the live sessions and the backlog. A
-        // dead entry stays for the process, so a later Room or process-level record is not
-        // collected for a project that takes nothing.
+        // Compact only state a later handover can recompute. Disabled is authoritative for
+        // the process; a 404 may also carry earlier consent that a grantless refresh cannot
+        // reconstruct. Current owners/backlog keep their complete routing state.
         self.projects.retain(|host, project| {
             let needed = live.values().any(|route| route.as_deref() == Some(host))
                 || backlog.iter().any(|(h, _)| h.as_deref() == Some(host))
@@ -428,8 +486,27 @@ impl Destinations {
             if !needed {
                 project.latest = None;
             }
-            needed || project.dead.is_some()
+            if needed {
+                return true;
+            }
+            match project.dead {
+                Some(Dead::Disabled) => true,
+                Some(Dead::NotFound) if project.consented => true,
+                Some(_) => {
+                    self.compacted_dead = true;
+                    false
+                }
+                None => false,
+            }
         });
+        if self.latest.as_ref().is_some_and(|host| !self.projects.contains_key(host)) {
+            self.latest = None;
+        }
+        // Release retired ownership allocations too; retaining entries alone leaves the
+        // largest historical table allocated. Keep spare capacity proportional to live state.
+        self.projects.shrink_to(self.projects.len().saturating_mul(2));
+        self.sessions.shrink_to(self.sessions.len().saturating_mul(2));
+        self.rooms.shrink_to(self.rooms.len().saturating_mul(2));
     }
 
     /// How many credentials are held, Room and project copies together.
@@ -476,7 +553,12 @@ struct Server {
 impl Server {
     fn parse(url: &str) -> Option<Self> {
         let url = url::Url::parse(url).ok()?;
-        let host = url.host_str().filter(|h| !h.is_empty())?.to_ascii_lowercase();
+        // An absolute DNS name ends in one dot and names the same host.
+        let host = url.host_str()?;
+        let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+        if host.is_empty() {
+            return None;
+        }
         let key = match url.port() {
             Some(port) => format!("{host}:{port}"),
             None => host.clone(),
@@ -523,22 +605,30 @@ fn ingest_url(host: &str, signal: Signal) -> String {
     format!("https://{host}/observability/client/{signal}/otlp/v0")
 }
 
-/// The targets of [`ENDPOINT_OVERRIDE_ENV`].
-fn override_target(endpoint: &str) -> Target {
+/// The targets of [`ENDPOINT_OVERRIDE_ENV`]; `None` (logged) when it is not an HTTP URL, so no
+/// batch is ever built for a request the transport cannot make.
+fn override_target(endpoint: &str) -> Option<Target> {
     let endpoint = endpoint.trim_end_matches('/');
+    let url = url::Url::parse(endpoint).ok().filter(|u| matches!(u.scheme(), "http" | "https"));
+    let Some(mut url) = url else {
+        log::warn!("{ENDPOINT_OVERRIDE_ENV} is not an HTTP URL: ignoring it");
+        return None;
+    };
     // A logs URL has a whole `logs` path segment; its traces URL swaps that segment.
-    let traces = url::Url::parse(endpoint).ok().and_then(|mut url| {
-        let mut segments: Vec<String> = url.path_segments()?.map(str::to_owned).collect();
+    let traces = url.path_segments().and_then(|segments| {
+        let mut segments: Vec<String> = segments.map(str::to_owned).collect();
         let logs = segments.iter().rposition(|s| s == "logs")?;
         segments[logs] = "traces".to_owned();
-        url.set_path(&segments.join("/"));
-        Some(url.to_string())
+        Some(segments.join("/"))
     });
     let (logs, traces) = match traces {
-        Some(traces) => (endpoint.to_owned(), traces),
+        Some(path) => {
+            url.set_path(&path);
+            (endpoint.to_owned(), url.to_string())
+        }
         None => (format!("{endpoint}/v1/logs"), format!("{endpoint}/v1/traces")),
     };
-    Target { project: None, logs, traces, token: None }
+    Some(Target { project: None, logs, traces, token: None })
 }
 
 #[cfg(test)]
@@ -632,6 +722,25 @@ pub(crate) mod tests {
         assert_eq!(target.logs, "https://p.livekit.cloud/observability/client/logs/otlp/v0");
     }
 
+    /// An absolute DNS name (`p.livekit.cloud.`) is the same project: its key and ingest URL
+    /// drop the trailing dot.
+    #[test]
+    fn a_trailing_dot_names_the_same_cloud_project() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud./rtc", &token, "s");
+        assert_eq!(host.as_deref(), Some("p.livekit.cloud"));
+        let target = send(d.route(host.as_deref(), Some("s")));
+        assert_eq!(target.logs, "https://p.livekit.cloud/observability/client/logs/otlp/v0");
+        assert_eq!(d.set("wss://p.livekit.cloud/rtc", &token, "s"), host, "one key");
+        for url in ["wss://livekit.cloud.", "wss://.livekit.cloud.", "wss://p.livekit.cloud.."] {
+            let mut d = Destinations::default();
+            let host = d.set(url, &token, "s");
+            assert_ne!(host.as_deref(), Some("p.livekit.cloud"), "{url}");
+            assert!(!matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "{url}");
+        }
+    }
+
     #[test]
     fn a_token_without_the_grant_is_not_consent() {
         let mut d = Destinations::default();
@@ -667,6 +776,108 @@ pub(crate) mod tests {
         assert_eq!(d.route(Some(&host), Some("s")), Route::Wait, "handing it over again: still no");
         d.set("wss://p.livekit.cloud", &granted(900), "s");
         assert!(matches!(d.route(Some(&host), Some("s")), Route::Send(_)));
+    }
+
+    // Tests only: seconds added to the wall clock this thread reads, to model a clock
+    // correction without touching the system clock.
+    thread_local! {
+        pub(super) static WALL_OFFSET_SECS: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+    }
+
+    /// A refused token stays refused while a slot still holds it, whatever the wall clock did
+    /// in between: a forward jump past `exp` before the 401 lands, then a correction back,
+    /// must not let the same token go out again from the Room's slot.
+    #[test]
+    fn a_refused_token_stays_refused_across_a_wall_clock_jump() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        assert!(matches!(d.route(Some(&host), Some("s")), Route::Send(_)));
+        let live: HashMap<String, Option<String>> = [("s".to_owned(), Some(host.clone()))].into();
+        // The wall clock jumps 1,200 s ahead, past `exp`, before the collector's 401 lands.
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
+        d.refuse(&token);
+        d.retain_owners(&live, &Default::default());
+        // The clock is corrected back; the Room's slot still holds the token.
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        assert_eq!(d.route(Some(&host), Some("s")), Route::Wait, "refused, whatever the clock did");
+        // Control: with no jump the same sequence waits as well.
+        let mut d = Destinations::default();
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        d.retain_owners(&live, &Default::default());
+        assert_eq!(d.route(Some(&host), Some("s")), Route::Wait);
+    }
+
+    /// A refusal outlives the Room that held the token: with the wall clock jumped past `exp`
+    /// when the 401 lands, the Room retired, and the clock corrected back, a new Room handing
+    /// over the identical token is still refused. Once the token's established validity has
+    /// passed on the monotonic clock and nothing holds it, the refusal goes (bounded retention).
+    #[tokio::test(start_paused = true)]
+    async fn a_refusal_outlives_the_room_that_held_the_token_across_a_wall_clock_jump() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
+        d.refuse(&token);
+        // The Room is gone with nothing cached: its slot retires, the refusal must not.
+        d.retain_owners(&Default::default(), &Default::default());
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+        assert!(d.refused.contains(&Token::from(token.as_str())));
+        // Past the token's established validity with nothing holding it, the next refusal of
+        // another token forgets it (the published head's rule); routine cleanup never does.
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &token, "s");
+        WALL_OFFSET_SECS.with(|offset| offset.set(1_200.0));
+        d.refuse(&token);
+        WALL_OFFSET_SECS.with(|offset| offset.set(0.0));
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(d.refused.contains(&Token::from(token.as_str())), "kept until the deadline");
+        tokio::time::advance(Duration::from_secs(700)).await;
+        d.retain_owners(&Default::default(), &Default::default());
+        assert!(d.refused.contains(&Token::from(token.as_str())), "cleanup forgets nothing");
+        d.refuse(&granted(60));
+        assert!(!d.refused.contains(&Token::from(token.as_str())), "the next refusal does");
+    }
+
+    /// The monotonic clock runs past the token's validity while the wall clock stands still (a
+    /// backward correction, or a wall clock that was ahead): with the old Room still alive and
+    /// holding the refused token, routine cleanup must not forget the refusal, or a new Room
+    /// handing over the identical token re-reads a future deadline and sends it.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_token_held_by_a_live_room_stays_refused_past_its_monotonic_deadline() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        let live: HashMap<String, Option<String>> = [("s".to_owned(), Some(host.clone()))].into();
+        tokio::time::advance(Duration::from_secs(601)).await;
+        d.retain_owners(&live, &Default::default());
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+    }
+
+    /// The same with the old Room retired before the monotonic deadline passed: the published
+    /// head keeps the refusal (it forgets one only when another token is refused), and so does
+    /// this head. Forgetting it at routine cleanup is the deferred decision of thread
+    /// 4486909931: it would let a new Room send the refused token once more.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_token_stays_refused_after_its_holder_retired_and_its_deadline_passed() {
+        let mut d = Destinations::default();
+        let token = granted(600);
+        let host = d.set("wss://p.livekit.cloud", &token, "s").expect("host");
+        d.refuse(&token);
+        d.retain_owners(&Default::default(), &Default::default());
+        tokio::time::advance(Duration::from_secs(601)).await;
+        d.retain_owners(&Default::default(), &Default::default());
+        d.set("wss://p.livekit.cloud", &token, "t");
+        assert_eq!(d.route(Some(&host), Some("t")), Route::Wait, "the same token stays refused");
+        // The negative control, the published head's rule: the next refusal of another token
+        // forgets a refusal whose established deadline passed while nothing held it.
+        d.refuse(&granted(60));
+        assert!(!d.refused.contains(&Token::from(token.as_str())), "forgotten at the next refusal");
     }
 
     #[test]
@@ -783,6 +994,21 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn an_override_that_is_not_an_http_url_is_ignored() {
+        crate::test_log::capture();
+        for endpoint in ["not a url", "localhost:4318", "ftp://collector/v1/logs", "/v1/logs"] {
+            let d = Destinations::new(Some(endpoint));
+            assert!(!d.has_override(), "{endpoint}");
+            assert_eq!(d.route(None, None), Route::Wait, "{endpoint}: no collector, no override");
+            let lines = crate::test_log::take();
+            assert!(
+                lines.iter().any(|l| l.contains(ENDPOINT_OVERRIDE_ENV)),
+                "{endpoint}: {lines:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_override_swaps_only_a_whole_logs_segment() {
         let targets = |endpoint| {
             let target = send(Destinations::new(Some(endpoint)).route(None, None));
@@ -828,6 +1054,30 @@ pub(crate) mod tests {
             let host = d.set("wss://p.livekit.cloud", &granted(600), "b");
             assert!(matches!(d.route(host.as_deref(), Some("b")), Route::Send(_)), "{first}");
         }
+    }
+
+    /// A secure registration followed by plaintext on the same hostname cannot share tokens.
+    #[test]
+    fn secure_then_plaintext_keeps_cloud_credentials_isolated() {
+        let mut d = Destinations::default();
+        let secure_token = granted(600);
+        let cloud = d.set("wss://p.livekit.cloud", &secure_token, "secure").unwrap();
+        for (n, scheme) in ["ws", "http"].into_iter().enumerate() {
+            let owner = format!("plain-{n}");
+            let plain = d.set(&format!("{scheme}://p.livekit.cloud"), &granted(700), &owner);
+            assert_ne!(plain.as_deref(), Some(cloud.as_str()));
+            assert_eq!(d.route(plain.as_deref(), Some(&owner)), Route::Drop);
+            assert_eq!(d.route(None, Some(&owner)), Route::Drop);
+            assert_eq!(
+                send(d.route(Some(&cloud), Some("secure"))).token.as_deref(),
+                Some(secure_token.as_str())
+            );
+            assert_eq!(send(d.route(None, None)).token.as_deref(), Some(secure_token.as_str()));
+        }
+        let control = granted(800);
+        d.set("https://p.livekit.cloud", &control, "second-secure");
+        assert_eq!(send(d.route(Some(&cloud), Some("second-secure"))).token, Some(control));
+        assert_eq!(send(d.route(Some(&cloud), Some("secure"))).token, Some(secure_token));
     }
 
     #[test]
@@ -907,6 +1157,55 @@ pub(crate) mod tests {
         }
     }
 
+    /// Recomputable dead destinations leave no per-Room state after their last owner retires.
+    #[test]
+    fn dead_project_churn_is_compacted_without_reviving_process_capture() {
+        let mut d = Destinations::default();
+        for n in 0..1000 {
+            d.set(&format!("ws://host-{n}.example"), &granted(600), "room");
+            d.set(&format!("wss://p{n}.livekit.cloud"), &grantless(600), "room");
+            d.retain_owners(&Default::default(), &Default::default());
+        }
+        assert!(d.projects.is_empty(), "unowned recomputable dead projects must compact");
+        assert_eq!(d.projects.capacity(), 0);
+        assert!(d.rooms.is_empty() && d.sessions.is_empty());
+        assert_eq!((d.rooms.capacity(), d.sessions.capacity()), (0, 0));
+        assert_eq!(d.credentials(), 0);
+        assert!(d.latest.is_none(), "the last routing key must be released too");
+        assert_eq!(d.route(None, None), Route::Drop);
+        assert_eq!(d.route(None, Some("new-room")), Route::Wait);
+        let token = granted(700);
+        let host = d.set("wss://p0.livekit.cloud", &token, "new-room");
+        assert_eq!(send(d.route(host.as_deref(), Some("new-room"))).token, Some(token));
+        d.kill("p0.livekit.cloud", Dead::Disabled);
+        assert_eq!(d.route(None, None), Route::Drop, "previously alive is now dead");
+        d.retain_owners(&Default::default(), &Default::default());
+        assert_eq!(d.route(None, None), Route::Drop);
+        d.set("wss://p0.livekit.cloud", &granted(800), "late");
+        assert_eq!(d.route(None, Some("late")), Route::Drop, "Disabled stays authoritative");
+    }
+
+    /// Current and queued owners retain routing, including consent remembered after a 404.
+    #[test]
+    fn compaction_preserves_needed_dead_routes_and_late_grantless_reconnects() {
+        let mut d = Destinations::default();
+        let host = d.set("wss://p.livekit.cloud", &granted(600), "room").unwrap();
+        d.kill(&host, Dead::NotFound);
+        d.retain_owners(&Default::default(), &Default::default());
+        d.set("wss://p.livekit.cloud", &grantless(700), "late");
+        assert_eq!(d.route(Some(&host), Some("late")), Route::Wait, "consent is remembered");
+        let dead = d.set("wss://no.livekit.cloud", &grantless(600), "queued").unwrap();
+        let backlog = [(None, "queued".to_owned())].into();
+        d.retain_owners(&Default::default(), &backlog);
+        assert_eq!(d.first_project("queued"), Some(dead));
+        assert_eq!(d.route(None, Some("queued")), Route::Drop);
+        d.set("wss://alive.livekit.cloud", &granted(600), "alive");
+        assert!(matches!(d.route(None, None), Route::Send(_)));
+        d.retain_owners(&Default::default(), &Default::default());
+        // No live destination remains; only dead knowledge survives, never an historical-alive bit.
+        assert_eq!(d.route(None, None), Route::Drop);
+    }
+
     /// A past, negative, fractional-past or malformed `exp` is expired (a hard hold); only a
     /// missing one means no known expiry.
     #[tokio::test(start_paused = true)]
@@ -934,6 +1233,23 @@ pub(crate) mod tests {
         assert!(matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "fractional future");
         let host = d.set("wss://p.livekit.cloud", &token(serde_json::json!(1e300)), "s");
         assert!(matches!(d.route(host.as_deref(), Some("s")), Route::Send(_)), "extreme: clamped");
+    }
+
+    /// The wall clock is checked too: the monotonic clock stops while the device sleeps, so a
+    /// token whose `exp` passed during a long sleep is expired on resume.
+    #[test]
+    fn expiry_is_checked_on_the_wall_clock_too() {
+        let mut token = Token::from(granted(600).as_str());
+        assert!(!token.expired());
+        token.expires.as_mut().expect("exp").wall_secs = unix_now_secs() - 1.0;
+        assert!(token.expired(), "monotonic deadline ahead, wall-clock expiry passed");
+        let mut d = Destinations::default();
+        d.set("wss://p.livekit.cloud", &token.raw, "s");
+        d.sessions
+            .values_mut()
+            .chain(d.projects.values_mut().filter_map(|p| p.latest.as_mut()))
+            .for_each(|t| t.expires.as_mut().expect("exp").wall_secs = unix_now_secs() - 1.0);
+        assert_eq!(d.route(Some("p.livekit.cloud"), Some("s")), Route::Wait, "a hard hold");
     }
 
     #[test]

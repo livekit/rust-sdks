@@ -305,6 +305,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     encoded_image._encodedWidth = encoded_buffer->width();
     encoded_image._encodedHeight = encoded_buffer->height();
     encoded_image.SetRtpTimestamp(frame.rtp_timestamp());
+    encoded_image.SetPresentationTimestamp(frame.presentation_timestamp());
     encoded_image.SetSimulcastIndex(0);
     encoded_image.ntp_time_ms_ = frame.ntp_time_ms();
     encoded_image.capture_time_ms_ = frame.render_time_ms();

@@ -19,12 +19,14 @@
 //! here rather than redefined (a second `custom_type!` in the same crate would conflict).
 //! Participant identities cross as plain `String`.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use livekit_common as common;
 use livekit_data_stream::{api as ds_api, backend as ds};
 use livekit_protocol as proto;
 use prost::Message;
+
+use super::outgoing::StreamProgressDelegate;
 
 // MARK: - Enums
 
@@ -87,7 +89,7 @@ impl From<OperationType> for ds_api::OperationType {
     }
 }
 
-/// A capability a remote participant's client advertises, mirroring [`common::ClientCapability`].
+/// A capability a participant's client advertises, mirroring [`common::ClientCapability`].
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClientCapability {
     Unused,
@@ -187,9 +189,28 @@ impl From<ds_api::TextStreamInfo> for TextStreamInfo {
     }
 }
 
+// MARK: - Progress
+
+/// Progress of a data stream. FFI wrapper around [`ds_api::StreamProgress`].
+#[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamProgress {
+    /// Bytes received or sent so far, counted before compression.
+    pub bytes_processed: u64,
+    /// Total bytes expected, or `None` for a stream of unknown length.
+    pub bytes_total: Option<u64>,
+}
+
+impl From<ds_api::StreamProgress> for StreamProgress {
+    fn from(progress: ds_api::StreamProgress) -> Self {
+        Self { bytes_processed: progress.bytes_processed(), bytes_total: progress.bytes_total() }
+    }
+}
+
 // MARK: - Option records
 
-/// Options for sending a byte stream. FFI wrapper around [`ds_api::StreamByteOptions`].
+/// Converts to [`ds_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop
+/// `total_length`, and to [`ds_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`
+/// and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamByteOptions {
     pub topic: String,
@@ -208,29 +229,47 @@ pub struct StreamByteOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
+    /// Optional send progress delegate; ignored by incremental `stream_bytes`.
+    #[uniffi(default = None)]
+    pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
 
-impl From<StreamByteOptions> for ds_api::StreamByteOptions {
-    fn from(options: StreamByteOptions) -> Self {
-        Self {
-            topic: options.topic,
-            attributes: options.attributes,
-            destination_identities: options
-                .destination_identities
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            id: options.id,
-            mime_type: options.mime_type,
-            name: options.name,
-            total_length: options.total_length,
-            compress: options.compress,
-            sender_identity: options.sender_identity.map(Into::into),
-        }
+/// Converts to send options, keeping `compress`; the send derives the payload length.
+impl From<StreamByteOptions> for ds_api::SendByteOptions {
+    fn from(value: StreamByteOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.mime_type = value.mime_type;
+        options.name = value.name;
+        options.compress = value.compress;
+        options.on_progress = progress_callback(value.progress);
+        options
     }
 }
 
-/// Options for sending a text stream. FFI wrapper around [`ds_api::StreamTextOptions`].
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
+/// and `progress`.
+impl From<StreamByteOptions> for ds_api::StreamByteOptions {
+    fn from(value: StreamByteOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.mime_type = value.mime_type;
+        options.name = value.name;
+        options.total_length = value.total_length;
+        options
+    }
+}
+
+/// Converts to [`ds_api::SendTextOptions`] for `send_text`, which drops `total_length`, and to
+/// [`ds_api::StreamTextOptions`] for `stream_text`, which drops `compress` and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamTextOptions {
     pub topic: String,
@@ -253,27 +292,52 @@ pub struct StreamTextOptions {
     pub compress: Option<bool>,
     #[uniffi(default = None)]
     pub sender_identity: Option<String>,
+    /// Total byte length of the text, when known ahead of time. Used by `stream_text`;
+    /// `send_text` sets it from the text it sends.
+    #[uniffi(default = None)]
+    pub total_length: Option<u64>,
+    /// Optional send progress delegate; ignored by incremental `stream_text`.
+    #[uniffi(default = None)]
+    pub progress: Option<Arc<dyn StreamProgressDelegate>>,
 }
 
+/// Converts to send options, keeping `compress`; the send derives the payload length.
+impl From<StreamTextOptions> for ds_api::SendTextOptions {
+    fn from(value: StreamTextOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.operation_type = value.operation_type.map(Into::into);
+        options.version = value.version;
+        options.reply_to_stream_id = value.reply_to_stream_id;
+        options.attached_stream_ids = value.attached_stream_ids;
+        options.generated = value.generated;
+        options.compress = value.compress;
+        options.on_progress = progress_callback(value.progress);
+        options
+    }
+}
+
+/// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
+/// and `progress`.
 impl From<StreamTextOptions> for ds_api::StreamTextOptions {
-    fn from(options: StreamTextOptions) -> Self {
-        Self {
-            topic: options.topic,
-            attributes: options.attributes,
-            destination_identities: options
-                .destination_identities
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            id: options.id,
-            operation_type: options.operation_type.map(Into::into),
-            version: options.version,
-            reply_to_stream_id: options.reply_to_stream_id,
-            attached_stream_ids: options.attached_stream_ids,
-            generated: options.generated,
-            compress: options.compress,
-            sender_identity: options.sender_identity.map(Into::into),
-        }
+    fn from(value: StreamTextOptions) -> Self {
+        let mut options = Self::new_with_topic(value.topic);
+        options.attributes = value.attributes;
+        options.destination_identities =
+            value.destination_identities.into_iter().map(Into::into).collect();
+        options.id = value.id;
+        options.sender_identity = value.sender_identity.map(Into::into);
+        options.operation_type = value.operation_type.map(Into::into);
+        options.version = value.version;
+        options.reply_to_stream_id = value.reply_to_stream_id;
+        options.attached_stream_ids = value.attached_stream_ids;
+        options.generated = value.generated;
+        options.total_length = value.total_length;
+        options
     }
 }
 
@@ -415,4 +479,13 @@ pub(crate) fn decode_data_packet(
         _ => return None,
     };
     Some(ds::incoming::PacketReceived::new(ds_packet, identity))
+}
+
+/// Wraps the foreign progress delegate for the core's send options.
+fn progress_callback(
+    progress: Option<Arc<dyn StreamProgressDelegate>>,
+) -> Option<ds_api::StreamProgressCallback> {
+    progress.map(|progress| {
+        ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
+    })
 }

@@ -104,6 +104,34 @@ export declare enum CaptureExit {
 }
 
 /**
+ * Why a capture ended with an error.
+ *
+ * @generated from enum livekit.proto.CaptureErrorKind
+ */
+export declare enum CaptureErrorKind {
+  /**
+   * The capture source failed or violated its contract.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_SOURCE = 0;
+   */
+  SOURCE = 0,
+
+  /**
+   * The RTC video source rejected a frame.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_RTC = 1;
+   */
+  RTC = 1,
+
+  /**
+   * The pump thread panicked.
+   *
+   * @generated from enum value: CAPTURE_ERROR_KIND_PANICKED = 2;
+   */
+  PANICKED = 2,
+}
+
+/**
  * Binding from WebRTC rate-control targets to a GStreamer encoder property.
  *
  * @generated from message livekit.proto.GstreamerRateControl
@@ -532,9 +560,8 @@ export declare class StartCaptureResponse extends Message<StartCaptureResponse> 
 }
 
 /**
- * Signal a running capture to stop after the frame in flight. The terminal
- * CaptureSourceEvent follows shortly. Stopping an already-finished capture
- * is a no-op.
+ * Signal a running capture to stop after the frame in flight without waiting
+ * for its thread to exit. Stopping an already-finished capture is a no-op.
  *
  * @generated from message livekit.proto.StopCaptureRequest
  */
@@ -584,6 +611,62 @@ export declare class StopCaptureResponse extends Message<StopCaptureResponse> {
 }
 
 /**
+ * Consume a running capture and wait asynchronously for its pump thread to
+ * exit. This does not signal the capture to stop.
+ *
+ * @generated from message livekit.proto.JoinCaptureRequest
+ */
+export declare class JoinCaptureRequest extends Message<JoinCaptureRequest> {
+  /**
+   * @generated from field: required uint64 capture_handle = 1;
+   */
+  captureHandle?: bigint;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<JoinCaptureRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.JoinCaptureRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JoinCaptureRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JoinCaptureRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JoinCaptureRequest;
+
+  static equals(a: JoinCaptureRequest | PlainMessage<JoinCaptureRequest> | undefined, b: JoinCaptureRequest | PlainMessage<JoinCaptureRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.JoinCaptureResponse
+ */
+export declare class JoinCaptureResponse extends Message<JoinCaptureResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<JoinCaptureResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.JoinCaptureResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JoinCaptureResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JoinCaptureResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JoinCaptureResponse;
+
+  static equals(a: JoinCaptureResponse | PlainMessage<JoinCaptureResponse> | undefined, b: JoinCaptureResponse | PlainMessage<JoinCaptureResponse> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.CaptureFinished
  */
 export declare class CaptureFinished extends Message<CaptureFinished> {
@@ -621,6 +704,11 @@ export declare class CaptureError extends Message<CaptureError> {
    */
   error?: string;
 
+  /**
+   * @generated from field: required livekit.proto.CaptureErrorKind kind = 2;
+   */
+  kind?: CaptureErrorKind;
+
   constructor(data?: PartialMessage<CaptureError>);
 
   static readonly runtime: typeof proto2;
@@ -637,19 +725,18 @@ export declare class CaptureError extends Message<CaptureError> {
 }
 
 /**
- * Delivered exactly once when a started capture ends, regardless of why
- * (stop request, end of stream, or failure).
+ * Completes JoinCaptureRequest with the pump's terminal result.
  *
- * @generated from message livekit.proto.CaptureSourceEvent
+ * @generated from message livekit.proto.JoinCaptureCallback
  */
-export declare class CaptureSourceEvent extends Message<CaptureSourceEvent> {
+export declare class JoinCaptureCallback extends Message<JoinCaptureCallback> {
   /**
-   * @generated from field: required uint64 capture_handle = 1;
+   * @generated from field: required uint64 async_id = 1;
    */
-  captureHandle?: bigint;
+  asyncId?: bigint;
 
   /**
-   * @generated from oneof livekit.proto.CaptureSourceEvent.message
+   * @generated from oneof livekit.proto.JoinCaptureCallback.message
    */
   message: {
     /**
@@ -665,18 +752,18 @@ export declare class CaptureSourceEvent extends Message<CaptureSourceEvent> {
     case: "error";
   } | { case: undefined; value?: undefined };
 
-  constructor(data?: PartialMessage<CaptureSourceEvent>);
+  constructor(data?: PartialMessage<JoinCaptureCallback>);
 
   static readonly runtime: typeof proto2;
-  static readonly typeName = "livekit.proto.CaptureSourceEvent";
+  static readonly typeName = "livekit.proto.JoinCaptureCallback";
   static readonly fields: FieldList;
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureSourceEvent;
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JoinCaptureCallback;
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureSourceEvent;
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JoinCaptureCallback;
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureSourceEvent;
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JoinCaptureCallback;
 
-  static equals(a: CaptureSourceEvent | PlainMessage<CaptureSourceEvent> | undefined, b: CaptureSourceEvent | PlainMessage<CaptureSourceEvent> | undefined): boolean;
+  static equals(a: JoinCaptureCallback | PlainMessage<JoinCaptureCallback> | undefined, b: JoinCaptureCallback | PlainMessage<JoinCaptureCallback> | undefined): boolean;
 }
 

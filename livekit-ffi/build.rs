@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::env;
-
 fn main() {
-    if env::var("DOCS_RS").is_ok() {
-        return;
-    }
     // livekit-ffi/core-modules is pure Rust: no libwebrtc download, no linker
     // configuration (`configure_linker` panics on visionOS/tvOS/Mac Catalyst,
     // which the Swift package builds) and no protobuf generation.
@@ -28,7 +23,9 @@ fn main() {
     // feature, so under core-modules the paths that this code names do not
     // resolve at all.
     #[cfg(feature = "room-apis")]
-    room_apis::run_build_steps();
+    if std::env::var("DOCS_RS").is_err() {
+        room_apis::run_build_steps();
+    }
 }
 
 /// The build steps that only the room-apis surface needs.
