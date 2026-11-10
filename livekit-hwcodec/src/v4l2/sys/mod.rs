@@ -505,6 +505,11 @@ pub(crate) mod fault {
         time::Duration,
     };
 
+    pub(crate) use super::bindings::{
+        VIDIOC_QBUF, VIDIOC_QUERYBUF, VIDIOC_REQBUFS, VIDIOC_STREAMON, VIDIOC_S_FMT,
+        VIDIOC_S_SELECTION,
+    };
+
     #[derive(Clone, Copy)]
     pub(crate) enum Action {
         Fail(i32),

@@ -16,5 +16,6 @@
 #![allow(dead_code)]
 
 mod device;
+mod session;
 #[allow(unsafe_code)]
 mod sys;
