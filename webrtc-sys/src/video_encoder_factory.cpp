@@ -72,6 +72,10 @@
 #include "jetson/jetson_encoder_factory.h"
 #endif
 
+#if defined(USE_V4L2_VIDEO_CODEC)
+#include "livekit/rust_video_encoder.h"
+#endif
+
 namespace livekit_ffi {
 
 namespace {
@@ -301,6 +305,18 @@ void AddVaapiFactory(
 #endif
 }
 
+// After the vendor backends, which know their hardware better.
+void AddV4l2Factory(std::vector<VideoEncoderBackendFactory>& factories) {
+#if defined(USE_V4L2_VIDEO_CODEC)
+  if (auto factory = CreateV4l2VideoEncoderFactory()) {
+    AddBackendFactory(factories, VideoEncoderBackend::Hardware,
+                      std::move(factory), /*software_fallback=*/true);
+  }
+#else
+  (void)factories;
+#endif
+}
+
 }  // namespace
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -379,6 +395,12 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   }
 #endif
 
+#if defined(USE_V4L2_VIDEO_CODEC)
+  if (HasV4l2VideoEncoder()) {
+    has_hardware_backend = true;
+  }
+#endif
+
   if (has_hardware_backend && !hardware_backend_listed) {
     backends.push_back(VideoEncoderBackend::Hardware);
   }
@@ -417,6 +439,8 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
     AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
     AddVaapiFactory(factories_, false);
   }
+
+  AddV4l2Factory(factories_);
 }
 
 std::vector<webrtc::SdpVideoFormat>
