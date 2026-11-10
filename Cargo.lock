@@ -3839,6 +3839,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-app",
  "livekit",
+ "livekit-bitstream",
  "log",
  "pollster",
  "schemars",
