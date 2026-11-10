@@ -195,7 +195,7 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-exec cargo run -p bindgens --bin uniffi-bindgen -- generate \
+exec --fail-on-error cargo run -p bindgens --bin uniffi-bindgen -- generate \
     --language ${LANG} \
     --out-dir ${out_dir} \
     --library ${LIB_PATH}
@@ -650,7 +650,7 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-exec cargo run -p bindgens --features dart-bindgen --bin uniffi-bindgen-dart -- \
+exec --fail-on-error cargo run -p bindgens --features dart-bindgen --bin uniffi-bindgen-dart -- \
     --library ${LIB_PATH} \
     --out-dir ${out_dir}
 """
