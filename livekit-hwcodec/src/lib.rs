@@ -18,3 +18,7 @@
 //! Hardware video encoders. Only V4L2 on 64-bit Linux so far; empty elsewhere.
 
 #![deny(unsafe_code)]
+
+// 32-bit targets lay out `v4l2_buffer` differently.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+mod v4l2;
