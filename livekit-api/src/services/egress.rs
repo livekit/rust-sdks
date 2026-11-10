@@ -368,6 +368,7 @@ impl EgressClient {
                 SVC,
                 "UpdateStream",
                 proto::UpdateStreamRequest {
+                    add_destinations: Default::default(),
                     egress_id: egress_id.to_owned(),
                     add_output_urls,
                     remove_output_urls,
