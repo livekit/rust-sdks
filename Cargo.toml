@@ -15,6 +15,7 @@ members = [
     "livekit-token-source",
     "livekit-ffi-node-bindings",
     "livekit-capture",
+    "livekit-bitstream",
     "livekit-net",
     "livekit-signaling",
     "livekit-wakeword",
@@ -57,6 +58,7 @@ imgproc = { version = "0.3.20", path = "imgproc" }
 libwebrtc = { version = "0.4.0", path = "libwebrtc" }
 livekit = { version = "0.10.1", path = "livekit" }
 livekit-api = { version = "0.10.1", path = "livekit-api" }
+livekit-bitstream = { version = "0.1.0", path = "livekit-bitstream" }
 livekit-capture = { version = "0.1.9", path = "livekit-capture" }
 livekit-ffi = { version = "0.13.4", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.2.4", path = "livekit-datatrack" }
