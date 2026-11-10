@@ -1,0 +1,67 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: V4L2 encoder (vicodec)
+
+# Hosted runners have no hardware encoder, so test against the kernel's virtual one.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "livekit-hwcodec/**"
+      - "Cargo.lock"
+      - ".github/workflows/v4l2-vicodec.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pinned: where `vicodec` is packaged depends on the image's kernel.
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+          rustflags: ""
+
+      # .cargo/config.toml links aarch64 Linux with lld.
+      - name: Install lld
+        run: sudo apt-get update -q && sudo apt-get install -y -q lld
+
+      - name: Load vicodec
+        run: |
+          # Older kernels ship it in linux-modules-extra.
+          if ! modinfo vicodec >/dev/null 2>&1; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q "linux-modules-extra-$(uname -r)"
+          fi
+          sudo modprobe vicodec multiplanar=1
+          sudo udevadm settle
+          sudo chmod a+rw /dev/video*
+
+      - name: Test
+        run: cargo test -p livekit-hwcodec --features __lk-vicodec-test
