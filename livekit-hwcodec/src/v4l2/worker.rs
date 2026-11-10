@@ -15,7 +15,9 @@
 //! The thread that owns a [`Session`], so that only it waits on the driver.
 
 use std::{
+    any::Any,
     io,
+    panic::{self, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::Receiver,
@@ -136,8 +138,10 @@ impl<F: Frame, S: Sink> Worker<F, S> {
         if let Some(previous) = lock(&self.shared.previous).take() {
             let _ = previous.join();
         }
-        let Err(error) = self.encode() else {
-            return;
+        let error = match panic::catch_unwind(AssertUnwindSafe(|| self.encode())) {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => error.to_string(),
+            Err(panic) => format!("the encoder thread panicked: {}", panic_message(panic.as_ref())),
         };
         self.shared.failed.store(true, Ordering::Release);
         let device = &self.target.device;
@@ -277,5 +281,15 @@ impl<F: Frame, S: Sink> Worker<F, S> {
     fn drop_frame(&self, meta: &FrameMeta) {
         self.sink.dropped(meta);
         self.shared.in_flight.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn panic_message(panic: &(dyn Any + Send)) -> &str {
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        message
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message
+    } else {
+        "unknown"
     }
 }

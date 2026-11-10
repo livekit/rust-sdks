@@ -514,6 +514,7 @@ pub(crate) mod fault {
     pub(crate) enum Action {
         Fail(i32),
         Stall(Duration),
+        Panic,
     }
 
     struct Fault {
@@ -562,6 +563,7 @@ pub(crate) mod fault {
                 std::thread::sleep(duration);
                 Ok(())
             }
+            Action::Panic => panic!("injected fault"),
         }
     }
 }

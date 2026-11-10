@@ -524,6 +524,26 @@ mod tests {
 
     #[test]
     #[cfg(feature = "__lk-vicodec-test")]
+    fn panic_in_the_worker_is_contained() {
+        let _exclusive = exclusive();
+        let device = encoder().path;
+        let baseline = resources(&device);
+        let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
+        let reaper = Arc::default();
+        let mut encoder = vicodec_encoder(&reaper);
+        let events = start(&mut encoder, WIDTH, HEIGHT);
+        encode(&mut encoder, &events, &frame, 1, 2);
+
+        fault::inject(fault::VIDIOC_QBUF, 1, Action::Panic);
+        wait_until_failed(&mut encoder, &frame);
+
+        drop(encoder);
+        drop(reaper);
+        assert_eq!(resources(&device), baseline);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
     fn device_is_abandoned_after_repeated_failures() {
         let _exclusive = exclusive();
         let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
