@@ -1,0 +1,413 @@
+{
+  "status": "experimental; production GN build and capacity validation pending",
+  "host": "Intel Xeon Platinum 8573C, Linux x86-64",
+  "measurement": "All-thread process CPU; percent of one core per session",
+  "settings": {
+    "blocks": 5,
+    "seconds": 64,
+    "warmup_seconds": 8,
+    "sessions_per_variant_per_block": 3,
+    "variants_per_tested_core": 4,
+    "one_process_per_session": true,
+    "event_loop": "standard asyncio",
+    "recording": false,
+    "providers": "actual VAD/STT frontend; remote provider work replaced by PCM drain",
+    "network": "local test SFU; no injected loss",
+    "baseline": "matched GCC Opus rebuild, existing native receive/NSQ/log-filter patches",
+    "default_audio": "24 kHz input, 48 kb/s Opus cap, threaded native VAD",
+    "optimized_audio": "16 kHz input, 128 kb/s Opus cap, inline native VAD"
+  },
+  "comparisons": {
+    "nativescopedref->nativescoped": {
+      "blocks": 5,
+      "baseline_cpu": 6.602516250885285,
+      "candidate_cpu": 6.35705713490101,
+      "reduction": 0.037176601564799294,
+      "individual_reductions": [
+        0.03771001980189803,
+        0.015323091083359608,
+        0.022780667456194892,
+        0.02095854950317777,
+        0.08281171010052835
+      ],
+      "paired_block_bootstrap_95_interval": [
+        0.019124528932866758,
+        0.06165388198042632
+      ],
+      "cpu_only_capacity_projection": 0.03861206699506825,
+      "failures": {
+        "nativescopedref": {
+          "rx_gap": 5,
+          "loop_max": 5,
+          "playout": 9,
+          "interrupt_completion": 1
+        },
+        "nativescoped": {
+          "rx_gap": 5,
+          "loop_max": 5,
+          "playout": 9
+        }
+      }
+    },
+    "cfg16b128scopedref->cfg16b128scoped": {
+      "blocks": 5,
+      "baseline_cpu": 5.0331162824001145,
+      "candidate_cpu": 4.880845574964759,
+      "reduction": 0.030253763054872818,
+      "individual_reductions": [
+        -0.003603386630849359,
+        0.026090602968988463,
+        0.012741790400336739,
+        0.07296348972055156,
+        0.040793702609127847
+      ],
+      "paired_block_bootstrap_95_interval": [
+        0.008347782302072115,
+        0.05536702470864485
+      ],
+      "cpu_only_capacity_projection": 0.031197608098153085,
+      "failures": {
+        "cfg16b128scopedref": {
+          "rx_gap": 5,
+          "loop_max": 5,
+          "playout": 9,
+          "interrupt_completion": 1
+        },
+        "cfg16b128scoped": {
+          "rx_gap": 5,
+          "loop_max": 5,
+          "playout": 5,
+          "interrupt_completion": 1
+        }
+      }
+    }
+  },
+  "block_cpu": [
+    {
+      "name": "deep-scoped-density-01",
+      "cpu": {
+        "nativescopedref": 7.0335667593018,
+        "nativescoped": 6.768330817530557,
+        "cfg16b128scopedref": 5.237805811822715,
+        "cfg16b128scoped": 5.256679651260021
+      },
+      "failures": {
+        "nativescopedref": [
+          {
+            "room": "deep-scoped-density-01-nativescopedref-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-nativescopedref-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-nativescopedref-2",
+            "gates": [
+              "playout",
+              "interrupt_completion"
+            ]
+          }
+        ],
+        "nativescoped": [
+          {
+            "room": "deep-scoped-density-01-nativescoped-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-nativescoped-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-nativescoped-2",
+            "gates": [
+              "playout"
+            ]
+          }
+        ],
+        "cfg16b128scopedref": [
+          {
+            "room": "deep-scoped-density-01-cfg16b128scopedref-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-cfg16b128scopedref-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-cfg16b128scopedref-2",
+            "gates": [
+              "playout",
+              "interrupt_completion"
+            ]
+          }
+        ],
+        "cfg16b128scoped": [
+          {
+            "room": "deep-scoped-density-01-cfg16b128scoped-0",
+            "gates": [
+              "rx_gap",
+              "loop_max"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-cfg16b128scoped-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-01-cfg16b128scoped-2",
+            "gates": [
+              "playout",
+              "interrupt_completion"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "deep-scoped-density-02",
+      "cpu": {
+        "nativescopedref": 6.128776624500612,
+        "nativescoped": 6.034864822053824,
+        "cfg16b128scopedref": 4.717666142859262,
+        "cfg16b128scoped": 4.594579388585681
+      },
+      "failures": {
+        "nativescopedref": [],
+        "nativescoped": [],
+        "cfg16b128scopedref": [],
+        "cfg16b128scoped": []
+      }
+    },
+    {
+      "name": "deep-scoped-density-03",
+      "cpu": {
+        "nativescopedref": 6.202408004630507,
+        "nativescoped": 6.061113010449378,
+        "cfg16b128scopedref": 4.7213271940844175,
+        "cfg16b128scoped": 4.661169032565984
+      },
+      "failures": {
+        "nativescopedref": [],
+        "nativescoped": [],
+        "cfg16b128scopedref": [],
+        "cfg16b128scoped": []
+      }
+    },
+    {
+      "name": "deep-scoped-density-04",
+      "cpu": {
+        "nativescopedref": 6.521045730669496,
+        "nativescoped": 6.3843740709107735,
+        "cfg16b128scopedref": 5.256677511047367,
+        "cfg16b128scoped": 4.873131975505808
+      },
+      "failures": {
+        "nativescopedref": [
+          {
+            "room": "deep-scoped-density-04-nativescopedref-0",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-nativescopedref-1",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-nativescopedref-2",
+            "gates": [
+              "playout"
+            ]
+          }
+        ],
+        "nativescoped": [
+          {
+            "room": "deep-scoped-density-04-nativescoped-0",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-nativescoped-1",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-nativescoped-2",
+            "gates": [
+              "playout"
+            ]
+          }
+        ],
+        "cfg16b128scopedref": [
+          {
+            "room": "deep-scoped-density-04-cfg16b128scopedref-0",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-cfg16b128scopedref-1",
+            "gates": [
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-04-cfg16b128scopedref-2",
+            "gates": [
+              "playout"
+            ]
+          }
+        ],
+        "cfg16b128scoped": []
+      }
+    },
+    {
+      "name": "deep-scoped-density-05",
+      "cpu": {
+        "nativescopedref": 7.126784135324011,
+        "nativescoped": 6.536602953560514,
+        "cfg16b128scopedref": 5.232104752186815,
+        "cfg16b128scoped": 5.018667826906301
+      },
+      "failures": {
+        "nativescopedref": [
+          {
+            "room": "deep-scoped-density-05-nativescopedref-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-nativescopedref-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-nativescopedref-2",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          }
+        ],
+        "nativescoped": [
+          {
+            "room": "deep-scoped-density-05-nativescoped-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-nativescoped-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-nativescoped-2",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          }
+        ],
+        "cfg16b128scopedref": [
+          {
+            "room": "deep-scoped-density-05-cfg16b128scopedref-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-cfg16b128scopedref-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-cfg16b128scopedref-2",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          }
+        ],
+        "cfg16b128scoped": [
+          {
+            "room": "deep-scoped-density-05-cfg16b128scoped-0",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-cfg16b128scoped-1",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          },
+          {
+            "room": "deep-scoped-density-05-cfg16b128scoped-2",
+            "gates": [
+              "rx_gap",
+              "loop_max",
+              "playout"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
