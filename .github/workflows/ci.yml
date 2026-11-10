@@ -76,43 +76,43 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/uniffi-dart-test.yml'
 
+  # Label events rerun applicable validation so a new aggregate result cannot
+  # replace a failed result for the same commit without rechecking it.
   formatting:
     name: Formatting
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft) }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
     uses: ./.github/workflows/format.yml
 
   builds:
     name: Builds
     needs: changes
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' && (needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/builds.yml
 
   tests:
     name: Tests
     needs: changes
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' && (needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/tests.yml
 
   feature-combinations:
     name: Feature Combinations
     needs: changes
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' && (needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/feature-combinations-curated.yml
 
   uniffi-dart-test:
     name: UniFFI Dart Tests
     needs: changes
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' && (needs.changes.outputs.dart == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.changes.outputs.dart == 'true' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/uniffi-dart-test.yml
 
   test-api:
     name: Test API
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
     uses: ./.github/workflows/test-api.yml
 
   license-check:
     name: License Check
-    if: ${{ github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
     uses: ./.github/workflows/license-check.yml
 
   changeset:
