@@ -424,6 +424,8 @@ pub(crate) fn poll(device: &Device, wake: &EventFd, timeout: Duration) -> io::Re
 ///
 /// `request` must take a `T`, and any pointer in `arg` must be valid for it.
 unsafe fn ioctl<T>(fd: BorrowedFd<'_>, request: libc::c_ulong, arg: &mut T) -> io::Result<()> {
+    #[cfg(test)]
+    fault::before_ioctl(request)?;
     loop {
         // SAFETY: `fd` is open and the caller guarantees `arg` matches `request`.
         let result = unsafe { libc::ioctl(fd.as_raw_fd(), request as libc::Ioctl, arg as *mut T) };
@@ -491,4 +493,273 @@ fn string_from(bytes: &[u8]) -> String {
     CStr::from_bytes_until_nul(bytes)
         .map_or_else(|_| String::from_utf8_lossy(bytes), CStr::to_string_lossy)
         .into_owned()
+}
+
+/// Makes chosen ioctls fail, stall or panic, to reach error paths.
+#[cfg_attr(not(feature = "__lk-vicodec-test"), allow(dead_code, unused_imports))]
+#[cfg(test)]
+pub(crate) mod fault {
+    use std::{
+        io,
+        sync::{Mutex, PoisonError},
+        time::Duration,
+    };
+
+    #[derive(Clone, Copy)]
+    pub(crate) enum Action {
+        Fail(i32),
+        Stall(Duration),
+    }
+
+    struct Fault {
+        request: libc::c_ulong,
+        remaining: u32,
+        action: Action,
+    }
+
+    static FAULTS: Mutex<Vec<Fault>> = Mutex::new(Vec::new());
+
+    /// Applies `action` once, to the `nth` call (from 1) of `request` on any thread.
+    pub(crate) fn inject(request: libc::c_ulong, nth: u32, action: Action) {
+        let fault = Fault { request, remaining: nth, action };
+        FAULTS.lock().unwrap_or_else(PoisonError::into_inner).push(fault);
+    }
+
+    pub(crate) fn clear() {
+        FAULTS.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+
+    pub(super) fn before_ioctl(request: libc::c_ulong) -> io::Result<()> {
+        let action = {
+            let mut faults = FAULTS.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(index) = faults.iter().position(|fault| fault.request == request) else {
+                return Ok(());
+            };
+            faults[index].remaining -= 1;
+            if faults[index].remaining > 0 {
+                return Ok(());
+            }
+            faults.remove(index).action
+        };
+        match action {
+            Action::Fail(errno) => Err(io::Error::from_raw_os_error(errno)),
+            Action::Stall(duration) => {
+                std::thread::sleep(duration);
+                Ok(())
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(feature = "__lk-vicodec-test"), allow(dead_code, unused_imports))]
+#[cfg(test)]
+pub(crate) mod testing {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::{Mutex, MutexGuard, PoisonError},
+    };
+
+    use super::fault;
+
+    pub(crate) const FWHT: super::FourCc = super::FourCc::new(b"FWHT");
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    /// Serializes tests over process-wide state: faults and [`Resources`].
+    pub(crate) struct Exclusive {
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for Exclusive {
+        fn drop(&mut self) {
+            fault::clear();
+        }
+    }
+
+    pub(crate) fn exclusive() -> Exclusive {
+        Exclusive { _guard: LOCK.lock().unwrap_or_else(PoisonError::into_inner) }
+    }
+
+    /// Panics if `vicodec` isn't loaded: a device test must not pass unrun.
+    pub(crate) fn vicodec() -> PathBuf {
+        let entries = fs::read_dir("/sys/class/video4linux").expect("no V4L2 devices");
+        entries
+            .filter_map(Result::ok)
+            .find(|entry| {
+                let name = fs::read_to_string(entry.path().join("name")).unwrap_or_default();
+                name.trim() == "stateful-encoder"
+            })
+            .map(|entry| Path::new("/dev").join(entry.file_name()))
+            .expect("vicodec is not loaded: run `sudo modprobe vicodec multiplanar=1`")
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(crate) struct Resources {
+        pub device_fds: usize,
+        pub eventfds: usize,
+        pub mappings: usize,
+    }
+
+    pub(crate) fn resources(device: &Path) -> Resources {
+        let links: Vec<PathBuf> = fs::read_dir("/proc/self/fd")
+            .expect("no procfs")
+            .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+            .collect();
+        let maps = fs::read_to_string("/proc/self/maps").expect("no procfs");
+        let device_name = device.to_str().expect("device path is not UTF-8");
+        Resources {
+            device_fds: links.iter().filter(|link| *link == device).count(),
+            eventfds: links
+                .iter()
+                .filter(|link| link.as_os_str() == "anon_inode:[eventfd]")
+                .count(),
+            mappings: maps.lines().filter(|line| line.ends_with(device_name)).count(),
+        }
+    }
+}
+
+#[cfg_attr(not(feature = "__lk-vicodec-test"), allow(dead_code, unused_imports))]
+#[cfg(test)]
+mod tests {
+    use super::{
+        fault::{self, Action},
+        testing::{exclusive, resources, vicodec, FWHT},
+        *,
+    };
+
+    const WIDTH: u32 = 640;
+    const HEIGHT: u32 = 360;
+
+    fn format(fourcc: FourCc) -> Format {
+        Format { fourcc, width: WIDTH, height: HEIGHT, planes: vec![PlaneFormat::default()] }
+    }
+
+    #[test]
+    fn fourcc_displays_its_code() {
+        assert_eq!(FourCc::NV12.to_string(), "NV12");
+        assert_eq!(FourCc(0).to_string(), "????");
+    }
+
+    #[test]
+    fn fault_applies_once_to_the_nth_call() {
+        let _exclusive = exclusive();
+        fault::inject(VIDIOC_QBUF, 2, Action::Fail(libc::ENODEV));
+        assert!(fault::before_ioctl(VIDIOC_DQBUF).is_ok());
+        assert!(fault::before_ioctl(VIDIOC_QBUF).is_ok());
+        let error = fault::before_ioctl(VIDIOC_QBUF).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ENODEV));
+        assert!(fault::before_ioctl(VIDIOC_QBUF).is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn vicodec_is_a_multiplanar_encoder() {
+        let _exclusive = exclusive();
+        let device = Device::open(&vicodec()).unwrap();
+        let capability = device.capability().unwrap();
+        assert_eq!(capability.driver, "vicodec");
+        assert!(capability.m2m_mplane);
+        assert_eq!(device.formats(Queue::Capture).unwrap(), [FWHT]);
+        assert!(device.formats(Queue::Output).unwrap().contains(&FourCc::NV12));
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn injected_fault_fails_an_ioctl() {
+        let _exclusive = exclusive();
+        let device = Device::open(&vicodec()).unwrap();
+        fault::inject(VIDIOC_QUERYCAP, 1, Action::Fail(libc::ENODEV));
+        assert_eq!(device.capability().unwrap_err().raw_os_error(), Some(libc::ENODEV));
+        assert!(device.capability().is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn eventfd_wakes_poll() {
+        let _exclusive = exclusive();
+        let device = Device::open(&vicodec()).unwrap();
+        let wake = EventFd::new().unwrap();
+        assert!(!poll(&device, &wake, Duration::ZERO).unwrap().woken);
+        wake.signal();
+        wake.signal();
+        assert!(poll(&device, &wake, Duration::from_secs(5)).unwrap().woken);
+        wake.drain();
+        assert!(!poll(&device, &wake, Duration::ZERO).unwrap().woken);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn buffers_map_and_unmap() {
+        let _exclusive = exclusive();
+        let path = vicodec();
+        let baseline = resources(&path);
+        for _ in 0..20 {
+            let device = Device::open(&path).unwrap();
+            device.set_format(Queue::Capture, &format(FWHT)).unwrap();
+            let chosen = device.set_format(Queue::Output, &format(FourCc::NV12)).unwrap();
+            // vicodec rounds the height up to a multiple of 8.
+            assert!(chosen.width >= WIDTH && chosen.height >= HEIGHT);
+
+            let count = device.request_buffers(Queue::Output, 2).unwrap();
+            assert!(count >= 2);
+            let mut buffers: Vec<Vec<Mapping>> =
+                (0..count).map(|index| device.map_buffer(Queue::Output, index).unwrap()).collect();
+            assert_eq!(resources(&path).mappings, count as usize * chosen.planes.len());
+            for planes in &mut buffers {
+                assert_eq!(planes.len(), chosen.planes.len());
+                for (plane, plane_format) in planes.iter_mut().zip(&chosen.planes) {
+                    assert!(plane.as_slice().len() >= plane_format.size as usize);
+                    plane.as_mut_slice().fill(0x5a);
+                    assert!(plane.as_slice().iter().all(|byte| *byte == 0x5a));
+                }
+            }
+
+            drop(buffers);
+            assert_eq!(device.request_buffers(Queue::Output, 0).unwrap(), 0);
+        }
+        assert_eq!(resources(&path), baseline);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn encodes_a_frame() {
+        let _exclusive = exclusive();
+        let device = Device::open(&vicodec()).unwrap();
+        device.set_format(Queue::Capture, &format(FWHT)).unwrap();
+        let raw = device.set_format(Queue::Output, &format(FourCc::NV12)).unwrap();
+
+        let output_count = device.request_buffers(Queue::Output, 1).unwrap();
+        let capture_count = device.request_buffers(Queue::Capture, 1).unwrap();
+        let mut output: Vec<Vec<Mapping>> = (0..output_count)
+            .map(|index| device.map_buffer(Queue::Output, index).unwrap())
+            .collect();
+        let capture: Vec<Vec<Mapping>> = (0..capture_count)
+            .map(|index| device.map_buffer(Queue::Capture, index).unwrap())
+            .collect();
+        for index in 0..capture_count {
+            device.queue_buffer(Queue::Capture, index, 0, &[]).unwrap();
+        }
+        output[0][0].as_mut_slice().fill(0x80);
+        device.queue_buffer(Queue::Output, 0, 1_000_042, &[raw.planes[0].size]).unwrap();
+        device.stream_on(Queue::Output).unwrap();
+        device.stream_on(Queue::Capture).unwrap();
+
+        let wake = EventFd::new().unwrap();
+        let encoded = loop {
+            let ready = poll(&device, &wake, Duration::from_secs(5)).unwrap();
+            assert!(!ready.error && (ready.capture || ready.output), "encoder stalled: {ready:?}");
+            if let Some(encoded) = device.dequeue_buffer(Queue::Capture).unwrap() {
+                break encoded;
+            }
+        };
+        assert_eq!(encoded.timestamp, 1_000_042);
+        assert!(!encoded.error);
+        let payload = &capture[encoded.index as usize][0].as_slice()[encoded.payload];
+        assert!(!payload.is_empty());
+        assert_eq!(device.dequeue_buffer(Queue::Capture).unwrap(), None);
+
+        device.stream_off(Queue::Output).unwrap();
+        device.stream_off(Queue::Capture).unwrap();
+    }
 }
