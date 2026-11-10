@@ -17,6 +17,9 @@ livekit-bitstream = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+env_logger = { workspace = true }
+
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
 [package.metadata.feature-combinations]
