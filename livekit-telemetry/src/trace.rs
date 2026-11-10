@@ -36,7 +36,11 @@ use crate::{
 
 /// What triggered a reconnect cycle: the protocol's `ReconnectReason` values, plus the ones only
 /// a client knows.
+///
+/// Foreign bindings name it `TelemetryReconnectReason`, because livekit-ffi also exports the
+/// signaling `ReconnectReason`.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[cfg_attr(feature = "uniffi", uniffi(name = "TelemetryReconnectReason"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReconnectReason {
     /// The signaling socket closed (`RR_SIGNAL_DISCONNECTED`).
