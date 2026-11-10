@@ -98,6 +98,14 @@ Local end-to-end tests point everything at an OpenTelemetry collector of their o
 replaces that segment). It is not part of any platform API. With it, every batch goes there
 without Cloud rules or tokens.
 
+## Transport timing contract
+
+The exporter bounds each transport attempt by `export_timeout_ms`.
+This timeout is cooperative: transport futures must return promptly from each poll.
+The exporter clamps server-directed pauses from `Retry-After`, `RetryInfo.retry_delay` and
+`retry_after_ms` to 24 hours for the affected destination.
+The exporter enforces these limits. The transport interface alone does not.
+
 ## Events
 
 An event with no `body` is exported with its name as the body as well as in `event_name`: log

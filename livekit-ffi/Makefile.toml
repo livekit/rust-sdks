@@ -64,14 +64,18 @@ echo "PLATFORM: ${LK_PLATFORM}"
 # `set -e` matters: if the resolver fails, the assignment fails and the shell
 # stops. Without it the flags would be empty and cargo would quietly build the
 # default feature set, which is the wrong surface for most callers.
+#
+# `cargo rustc --crate-type cdylib`, not `cargo build`: livekit-ffi also lists
+# "lib" (for the Node bindings), and Cargo drops LTO for a build that emits an
+# rlib.
 if not ${TIER_3}
     # Ensure target is installed
     exec rustup target add ${TARGET}
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo rustc --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
     exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly rustc -Zbuild-std=std,panic_abort --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 end
 """
 
@@ -109,7 +113,8 @@ fi
 # Named here and not in env for the same reason as the profile switch above.
 FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" android)
 
-cargo ndk --target "${TARGET}" build ${FLAGS} ${release_flag}
+# `rustc --crate-type cdylib`, not `build`: see the comment on [tasks.build].
+cargo ndk --target "${TARGET}" rustc --lib --crate-type cdylib ${FLAGS} ${release_flag}
 """
 
 # MARK: - Build, specific platforms
@@ -355,8 +360,10 @@ echo
 # for "how much does this dep cost an end user". Universal/simulator slices
 # are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
 # the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
+# Baseline: 1926 KiB at 0.13.3 (signaling added ~443 KiB), plus 10% headroom
+# rounded up to 64 KiB.
 [tasks.swift-check-size.env]
-SPM_SIZE_LIMIT_BYTES = { value = "1638400", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+SPM_SIZE_LIMIT_BYTES = { value = "2228224", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
 
 [tasks.swift-check-size]
 private = true
@@ -405,7 +412,7 @@ echo "Rust${SPM_NAME}.xcframework.zip checksum: $(cat .checksum)"
 # canonical LiveKit one; override if forking. The condition makes these
 # defaults only — caller-set values from the environment take precedence.
 SPM_VERSION = { value = "0.0.0-dev", condition = { env_not_set = ["SPM_VERSION"] } }
-SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
+SPM_HOSTING_REPO = { value = "livekit/livekit-ffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
 
 [tasks.swift-generate-manifest]
 private = true
@@ -501,8 +508,10 @@ run_task = "swift-package-flow"
 # Measured on the stripped .so inside the release AAR (AGP strips debug symbols
 # during assemble; the raw target/ artifact is larger and not what ships).
 # Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
+# Baseline: 2145 KiB at 0.13.3 (signaling added ~554 KiB), plus 10% headroom
+# rounded up to 64 KiB.
 [tasks.android-check-size.env]
-ANDROID_SIZE_LIMIT_BYTES = { value = "1769472", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+ANDROID_SIZE_LIMIT_BYTES = { value = "2424832", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
 
 [tasks.android-check-size]
 extend = "android-shared"

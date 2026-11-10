@@ -417,6 +417,10 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
+
+    /// Run without a window: still subscribe, decode, and log stats, but render nothing
+    #[arg(long)]
+    headless: bool,
 }
 
 struct SharedYuv {
@@ -1817,6 +1821,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
     });
+
+    if args.headless {
+        info!("Headless mode: decoding without a window, press Ctrl-C to exit");
+        while !ctrl_c_received.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        return Ok(());
+    }
 
     let viewport = AspectConstrainedViewport::new(None);
     // Start UI
