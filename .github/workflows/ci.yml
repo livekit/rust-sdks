@@ -24,9 +24,20 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
-          # Match the existing build/test/feature-combination exclusions.
-          # Formatting, API, and license checks remain broad, as they are today.
+          # A named filter matches when any changed file matches an include
+          # pattern without also matching one of its `!` exclusion patterns.
           predicate-quantifier: some-with-excludes
+
+          # A note on the filters block below
+
+          # `core` groups builds, tests, and feature-combination
+          # checks because they currently share the same broad change scope.
+          # Split it into stage-specific filters if their inputs diverge.
+          # The leading `!` excludes paths matched by that pattern, so core
+          # runs if any files not excluded here are changed.
+
+          # For reference, the C++ SDK splits these into distinct build/test
+          # filters: https://github.com/livekit/client-sdk-cpp/blob/main/.github/workflows/ci.yml#L36
           filters: |
             core:
               - '**'
