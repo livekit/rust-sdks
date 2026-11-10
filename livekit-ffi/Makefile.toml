@@ -61,6 +61,9 @@ echo "TARGET: ${TARGET}"
 
 echo "PLATFORM: ${LK_PLATFORM}"
 
+# `--fail-on-error` matters: duckscript `exec` ignores a non-zero exit, so a
+# failed native build would leave an older library for bindgen and packaging.
+#
 # `set -e` matters: if the resolver fails, the assignment fails and the shell
 # stops. Without it the flags would be empty and cargo would quietly build the
 # default feature set, which is the wrong surface for most callers.
@@ -70,12 +73,12 @@ echo "PLATFORM: ${LK_PLATFORM}"
 # rlib.
 if not ${TIER_3}
     # Ensure target is installed
-    exec rustup target add ${TARGET}
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo rustc --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
+    exec --fail-on-error rustup target add ${TARGET}
+    exec --fail-on-error sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo rustc --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
-    exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly rustc -Zbuild-std=std,panic_abort --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
+    exec --fail-on-error rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+    exec --fail-on-error sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly rustc -Zbuild-std=std,panic_abort --lib --crate-type cdylib --release $FLAGS --target ${TARGET}"
 end
 """
 
