@@ -14,6 +14,7 @@ __lk-vicodec-test = []
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 log = { workspace = true }
+thiserror = { workspace = true }
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
