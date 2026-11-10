@@ -38,7 +38,13 @@ pub struct HttpResponse {
 pub enum TransportError {
     Timeout,
     Connection(String),
-    Http { status: u16 },
+    Http {
+        status: u16,
+    },
+    /// An opt-in decoded response limit was exceeded; headers remain available for retry hints.
+    ResponseTooLarge {
+        headers: Vec<Header>,
+    },
     Closed,
     Other(String),
 }
@@ -49,6 +55,9 @@ impl fmt::Display for TransportError {
             TransportError::Timeout => write!(f, "transport timed out"),
             TransportError::Connection(m) => write!(f, "transport connection error: {m}"),
             TransportError::Http { status } => write!(f, "transport http error: status {status}"),
+            TransportError::ResponseTooLarge { .. } => {
+                write!(f, "response body exceeds requested limit")
+            }
             TransportError::Closed => write!(f, "transport closed"),
             TransportError::Other(m) => write!(f, "transport error: {m}"),
         }

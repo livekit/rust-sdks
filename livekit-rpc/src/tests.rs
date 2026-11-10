@@ -24,7 +24,7 @@ use livekit_common::{
     CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
 };
 use livekit_data_stream::api::{
-    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
+    OperationType, SendTextOptions, StreamResult, TextStreamInfo, TextStreamReader,
 };
 use livekit_protocol as proto;
 use parking_lot::{Mutex as ParkingMutex, RwLock};
@@ -40,7 +40,7 @@ use tokio::sync::{mpsc, Notify};
 /// Captures all outgoing packets and text streams for assertion.
 struct MockTransport {
     sent_packets: Arc<ParkingMutex<Vec<proto::DataPacket>>>,
-    sent_texts: Arc<ParkingMutex<Vec<(String, StreamTextOptions)>>>,
+    sent_texts: Arc<ParkingMutex<Vec<(String, SendTextOptions)>>>,
     packet_sent: Arc<Notify>,
     text_sent: Arc<Notify>,
     remote_protocols: HashMap<String, i32>,
@@ -85,7 +85,7 @@ impl MockTransport {
     }
 
     /// Return all sent text streams as (body, options).
-    fn texts(&self) -> Vec<(String, StreamTextOptions)> {
+    fn texts(&self) -> Vec<(String, SendTextOptions)> {
         self.sent_texts.lock().clone()
     }
 
@@ -124,7 +124,7 @@ impl RpcTransport for MockTransport {
     async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         self.sent_texts.lock().push((text.to_string(), options.clone()));
         self.text_sent.notify_waiters();

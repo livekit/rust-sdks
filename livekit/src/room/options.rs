@@ -44,6 +44,19 @@ impl VideoCodec {
     }
 }
 
+impl From<VideoCodec> for libwebrtc::video_codec::VideoCodec {
+    /// Converts a publishing codec to its encoder capability counterpart.
+    fn from(codec: VideoCodec) -> Self {
+        match codec {
+            VideoCodec::VP8 => Self::VP8,
+            VideoCodec::H264 => Self::H264,
+            VideoCodec::VP9 => Self::VP9,
+            VideoCodec::AV1 => Self::AV1,
+            VideoCodec::H265 => Self::H265,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoResolution {
     pub width: u32,
@@ -403,6 +416,35 @@ pub(crate) fn video_quality_from_i32_or_default(quality: i32) -> proto::VideoQua
     proto::VideoQuality::try_from(quality).unwrap_or(DEFAULT_VIDEO_QUALITY)
 }
 
+/// Backend whose codecs a sender configured with `backend` can negotiate.
+///
+/// A pre-encoded sender can only forward its own frames, while any other sender
+/// falls back to whichever real encoder on the host produces the codec.
+pub(crate) fn codec_source_backend(backend: VideoEncoderBackend) -> VideoEncoderBackend {
+    if backend == VideoEncoderBackend::PreEncoded {
+        VideoEncoderBackend::PreEncoded
+    } else {
+        VideoEncoderBackend::Auto
+    }
+}
+
+/// Codec a video sender should negotiate for `requested`, given the SDP codec
+/// capabilities its [`codec_source_backend`] advertises.
+///
+/// A raw sender falls back to VP8, which every host encodes in software, rather
+/// than negotiate a codec it cannot encode. Returns `None` for a pre-encoded
+/// sender whose codec cannot be forwarded, since it cannot transcode.
+pub(crate) fn select_video_codec(
+    requested: VideoCodec,
+    backend: VideoEncoderBackend,
+    producible: &[libwebrtc::video_codec::VideoCodec],
+) -> Option<VideoCodec> {
+    if producible.contains(&requested.into()) {
+        return Some(requested);
+    }
+    (backend != VideoEncoderBackend::PreEncoded).then_some(VideoCodec::VP8)
+}
+
 pub fn video_layers_from_encodings(
     width: u32,
     height: u32,
@@ -555,15 +597,82 @@ pub mod screenshare {
 
 #[cfg(test)]
 mod tests {
+    use libwebrtc::video_codec::VideoCodec as EncoderCodec;
+
     use super::{
-        get_default_degradation_preference, DegradationPreference, TrackPublishOptions,
-        VideoEncoderBackend,
+        codec_source_backend, get_default_degradation_preference, select_video_codec,
+        DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoderBackend,
     };
     use crate::prelude::TrackSource;
 
     #[test]
     fn track_publish_options_default_encoder_is_auto() {
         assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn only_pre_encoded_senders_negotiate_pass_through_codecs() {
+        assert_eq!(
+            codec_source_backend(VideoEncoderBackend::PreEncoded),
+            VideoEncoderBackend::PreEncoded
+        );
+        for backend in [
+            VideoEncoderBackend::Auto,
+            VideoEncoderBackend::Software,
+            VideoEncoderBackend::Hardware,
+            VideoEncoderBackend::Nvenc,
+        ] {
+            assert_eq!(codec_source_backend(backend), VideoEncoderBackend::Auto);
+        }
+    }
+
+    #[test]
+    fn producible_codec_is_kept() {
+        let host = [EncoderCodec::VP8, EncoderCodec::H264, EncoderCodec::H265];
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
+            Some(VideoCodec::H265)
+        );
+        assert_eq!(
+            select_video_codec(VideoCodec::H264, VideoEncoderBackend::Auto, &[EncoderCodec::H264]),
+            Some(VideoCodec::H264)
+        );
+    }
+
+    #[test]
+    fn raw_sender_falls_back_to_vp8_without_an_encoder() {
+        let host = [EncoderCodec::VP8, EncoderCodec::VP9, EncoderCodec::AV1];
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Auto, &host),
+            Some(VideoCodec::VP8)
+        );
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::Hardware, &host),
+            Some(VideoCodec::VP8)
+        );
+    }
+
+    #[test]
+    fn pre_encoded_sender_never_switches_codec() {
+        let pass_through = [
+            EncoderCodec::VP8,
+            EncoderCodec::VP9,
+            EncoderCodec::AV1,
+            EncoderCodec::H264,
+            EncoderCodec::H265,
+        ];
+        assert_eq!(
+            select_video_codec(VideoCodec::H265, VideoEncoderBackend::PreEncoded, &pass_through),
+            Some(VideoCodec::H265)
+        );
+        assert_eq!(
+            select_video_codec(
+                VideoCodec::H265,
+                VideoEncoderBackend::PreEncoded,
+                &[EncoderCodec::VP8]
+            ),
+            None
+        );
     }
 
     #[test]

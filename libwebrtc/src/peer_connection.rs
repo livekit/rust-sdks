@@ -68,11 +68,27 @@ pub enum SignalingState {
     Closed,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OfferOptions {
     pub ice_restart: bool,
-    pub offer_to_receive_audio: bool,
-    pub offer_to_receive_video: bool,
+    /// libwebrtc's legacy `offerToReceiveAudio`. `None` leaves it unset, so audio transceivers
+    /// keep their directions. `Some(false)` makes every receiving audio transceiver stop
+    /// receiving, turning receive-only ones inactive. Defaults to `Some(false)`.
+    pub offer_to_receive_audio: Option<bool>,
+    /// libwebrtc's legacy `offerToReceiveVideo`. `None` leaves it unset, so video transceivers
+    /// keep their directions. `Some(false)` makes every receiving video transceiver stop
+    /// receiving, turning receive-only ones inactive. Defaults to `Some(false)`.
+    pub offer_to_receive_video: Option<bool>,
+}
+
+impl Default for OfferOptions {
+    fn default() -> Self {
+        Self {
+            ice_restart: false,
+            offer_to_receive_audio: Some(false),
+            offer_to_receive_video: Some(false),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
