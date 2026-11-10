@@ -2,9 +2,9 @@
 Pod::Spec.new do |spec|
   spec.name = "{{ SPM_NAME }}"
   spec.version = "{{ SPM_VERSION }}"
-  spec.summary = "LiveKit UniFFI bindings"
+  spec.summary = "LiveKit FFI bindings"
   spec.description = <<-DESC
-    LiveKit UniFFI XCFramework with Swift bindings
+    LiveKit FFI XCFramework with Swift bindings
   DESC
 
   spec.homepage = "https://github.com/{{ SPM_HOSTING_REPO }}"
@@ -12,6 +12,7 @@ Pod::Spec.new do |spec|
 
   spec.ios.deployment_target = "13.0"
   spec.osx.deployment_target = "10.15"
+  spec.swift_versions = ['5.0']
 
   spec.source = {
     :git => "https://github.com/{{ SPM_HOSTING_REPO }}.git",

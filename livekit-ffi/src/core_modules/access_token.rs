@@ -60,6 +60,52 @@ pub struct SIPGrants {
     pub call: bool,
 }
 
+/// Inference grants
+///
+/// Maps to the JWT's `inference` field.
+///
+#[derive(uniffi::Record)]
+pub struct InferenceGrants {
+    pub perform: bool,
+}
+
+impl From<livekit_token::InferenceGrants> for InferenceGrants {
+    fn from(grants: livekit_token::InferenceGrants) -> Self {
+        Self { perform: grants.perform }
+    }
+}
+
+impl From<InferenceGrants> for livekit_token::InferenceGrants {
+    fn from(grants: InferenceGrants) -> Self {
+        let mut out = Self::default();
+        out.perform = grants.perform;
+        out
+    }
+}
+
+/// Observability grants
+///
+/// Maps to the JWT's `observability` field.
+///
+#[derive(uniffi::Record)]
+pub struct ObservabilityGrants {
+    pub write: bool,
+}
+
+impl From<livekit_token::ObservabilityGrants> for ObservabilityGrants {
+    fn from(grants: livekit_token::ObservabilityGrants) -> Self {
+        Self { write: grants.write }
+    }
+}
+
+impl From<ObservabilityGrants> for livekit_token::ObservabilityGrants {
+    fn from(grants: ObservabilityGrants) -> Self {
+        let mut out = Self::default();
+        out.write = grants.write;
+        out
+    }
+}
+
 /// Agent dispatch configuration
 ///
 /// Defines which agents should be dispatched to a room.
@@ -117,6 +163,8 @@ pub struct Claims {
     pub kind: String,
     pub video: VideoGrants,
     pub sip: SIPGrants,
+    pub inference: InferenceGrants,
+    pub observability: ObservabilityGrants,
     pub sha256: String,
     pub metadata: String,
     pub attributes: HashMap<String, String>,
@@ -134,6 +182,8 @@ impl From<livekit_token::Claims> for Claims {
             kind: claims.kind,
             video: claims.video,
             sip: claims.sip,
+            inference: claims.inference.into(),
+            observability: claims.observability.into(),
             sha256: claims.sha256,
             metadata: claims.metadata,
             attributes: claims.attributes,
@@ -161,6 +211,10 @@ pub struct TokenOptions {
     video_grants: Option<VideoGrants>,
     #[uniffi(default)]
     sip_grants: Option<SIPGrants>,
+    #[uniffi(default)]
+    inference_grants: Option<InferenceGrants>,
+    #[uniffi(default)]
+    observability_grants: Option<ObservabilityGrants>,
     #[uniffi(default)]
     identity: Option<String>,
     #[uniffi(default)]
@@ -201,6 +255,12 @@ pub fn token_generate(
     }
     if let Some(sip_grants) = options.sip_grants {
         token = token.with_sip_grants(sip_grants);
+    }
+    if let Some(inference_grants) = options.inference_grants {
+        token = token.with_inference_grants(inference_grants.into());
+    }
+    if let Some(observability_grants) = options.observability_grants {
+        token = token.with_observability_grants(observability_grants.into());
     }
     if let Some(identity) = options.identity {
         token = token.with_identity(&identity);
