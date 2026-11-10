@@ -28,8 +28,8 @@ use super::{
 };
 use crate::{
     data_stream::api::{
-        ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
-        TextStreamInfo, TextStreamWriter,
+        ByteStreamInfo, ByteStreamWriter, SendByteOptions, SendTextOptions, StreamByteOptions,
+        StreamResult, StreamTextOptions, TextStreamInfo, TextStreamWriter,
     },
     data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
@@ -62,6 +62,29 @@ fn needs_video_sender_transformer(
     has_publish_timing_subscribers: bool,
 ) -> bool {
     !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
+}
+
+/// Codec a video track published with `options` can actually produce on this host.
+fn negotiable_video_codec(options: &TrackPublishOptions) -> RoomResult<options::VideoCodec> {
+    let requested = options.video_codec;
+    let producible = LkRuntime::instance()
+        .pc_factory()
+        .video_encoder_codecs(options::codec_source_backend(options.video_encoder));
+    let Some(codec) = options::select_video_codec(requested, options.video_encoder, &producible)
+    else {
+        return Err(RoomError::Internal(format!(
+            "pre-encoded video publishing cannot forward codec {}",
+            requested.as_str()
+        )));
+    };
+    if codec != requested {
+        log::warn!(
+            "no video encoder on this host can produce {}; publishing {} instead",
+            requested.as_str(),
+            codec.as_str()
+        );
+    }
+    Ok(codec)
 }
 
 #[derive(Default)]
@@ -376,9 +399,16 @@ impl LocalParticipant {
     async fn publish_track_with_video_send_encodings(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
         video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
+        if let LocalTrack::Video(_) = &track {
+            // Settle the codec before announcing the track, so the server,
+            // the encodings, and a later republish all use the codec this
+            // sender will actually produce.
+            options.video_codec = negotiable_video_codec(&options)?;
+        }
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
@@ -949,7 +979,7 @@ impl LocalParticipant {
     ///
     /// This method sends a complete text string to participants in the room as a text stream.
     /// The text is sent in a single operation, and the method returns information about the
-    /// stream used to send the text.
+    /// stream used to send the text. `options.on_progress` reports once on completion.
     ///
     /// # Arguments
     ///
@@ -960,7 +990,7 @@ impl LocalParticipant {
     pub async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_text(text, options, session.as_ref()).await
@@ -970,7 +1000,9 @@ impl LocalParticipant {
     ///
     /// This method reads a file from the specified path and sends its contents
     /// to participants in the room as a byte stream, and the method returns information
-    /// the stream used to send the file.
+    /// about the stream used to send the file.
+    ///
+    /// `options.on_progress` reports progress as described by [`SendByteOptions::on_progress`].
     ///
     /// # Arguments
     ///
@@ -981,7 +1013,7 @@ impl LocalParticipant {
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,
-        options: StreamByteOptions,
+        options: SendByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_file(path, options, session.as_ref()).await
@@ -989,7 +1021,8 @@ impl LocalParticipant {
 
     /// Send an in-memory blob of bytes to participants in the room.
     ///
-    /// This method sends a provided byte slice as a byte stream.
+    /// This method sends a provided byte slice as a byte stream. `options.on_progress` reports
+    /// once on completion.
     ///
     /// # Arguments
     ///
@@ -999,7 +1032,7 @@ impl LocalParticipant {
     pub async fn send_bytes(
         &self,
         data: impl AsRef<[u8]>,
-        options: StreamByteOptions,
+        options: SendByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
         let session = self.session().unwrap();
         session.outgoing_stream_manager.send_bytes(data, options, session.as_ref()).await

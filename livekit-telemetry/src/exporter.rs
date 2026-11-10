@@ -151,7 +151,6 @@ enum Outcome {
 /// served while it is out.
 struct InFlight {
     id: String,
-    signal: Signal,
     /// Which destination's pause the answer drives.
     key: String,
     target: Target,
@@ -239,6 +238,8 @@ pub struct Exporter {
     /// When this launch wrote each cached batch, on the monotonic clock (see
     /// [`Exporter::expired`]).
     born: HashMap<String, Instant>,
+    /// Unsplittable OTLP waits by cache-owned id, without blocking its project's other batches.
+    deferred_splits: HashMap<String, Instant>,
     /// Policy transitions are logged once, not per tick: the hold reason last logged and the
     /// cadence factor last logged.
     hold_logged: Option<&'static str>,
@@ -278,6 +279,7 @@ impl Exporter {
             flushing: false,
             allowance: 0,
             born: HashMap::new(),
+            deferred_splits: HashMap::new(),
             hold_logged: None,
             cadence_logged: 1,
             seq: 0,
@@ -663,11 +665,9 @@ impl Exporter {
     fn push_batch(&mut self, signal: Signal, owner: &Owner, count: u64, body: &[u8]) {
         let limit = usize::try_from(self.shared.config.max_batch_bytes).unwrap_or(usize::MAX);
         if body.len() > limit {
-            let halves = match signal {
-                Signal::Logs => otlp::split_logs(body),
-                Signal::Traces => otlp::split_spans(body),
-            };
-            if let Some([(first, first_count), (second, second_count)]) = halves {
+            // Logs and spans share one envelope shape; anything else cannot be split here.
+            if let Ok([(first, first_count), (second, second_count)]) = crate::split::encoded(body)
+            {
                 self.push_batch(signal, owner, first_count, &first);
                 self.push_batch(signal, owner, second_count, &second);
             } else {
@@ -707,6 +707,12 @@ impl Exporter {
         let now = Instant::now();
         let counters = self.shared.counters.clone();
         for id in evicted {
+            self.deferred_splits.remove(id);
+            // Discarded and counted already, its delete pending: the eviction did the delete.
+            if self.undeletable.remove(id) {
+                self.born.remove(id);
+                continue;
+            }
             // `throttled` only when the evicted batch's own destination is under a server pause —
             // for a host-less batch (process-level, pre-connect), the project it routes to.
             let batch = BatchId::parse(id);
@@ -835,7 +841,12 @@ impl Exporter {
     /// When the loop must wake to upload without a tick: the earliest pause to run out, or a
     /// soft hold reaching its cap while batches wait.
     fn retry_deadline(&self) -> Option<Instant> {
-        let pause = self.pauses.values().filter_map(|p| p.until).min();
+        let pause = self
+            .pauses
+            .values()
+            .filter_map(|p| p.until)
+            .chain(self.deferred_splits.values().copied())
+            .min();
         // A hard hold suppresses the soft hold's cap: waking for it could send nothing. It comes
         // back when the hard hold lifts (a device change wakes the loop).
         let hold = self
@@ -848,6 +859,7 @@ impl Exporter {
 
     fn clear_expired_pauses(&mut self) {
         let now = Instant::now();
+        self.deferred_splits.retain(|_, until| now < *until);
         for pause in self.pauses.values_mut() {
             pause.until = pause.until.filter(|t| now < *t);
             pause.server_until = pause.server_until.filter(|t| now < *t);
@@ -894,12 +906,18 @@ impl Exporter {
             }
         }
         self.retire_credentials();
+        self.retire_pauses();
         if self.nobody_listens() {
             self.purge_dead();
             self.set_status(TelemetryStatus::Off);
             return self.answer_flushes();
         }
         let pending = self.shared.cache.pending();
+        let now = Instant::now();
+        if !self.deferred_splits.is_empty() {
+            let owned: std::collections::HashSet<_> = pending.iter().collect();
+            self.deferred_splits.retain(|id, until| now < *until && owned.contains(id));
+        }
         if pending.is_empty() {
             self.held_since = None;
             // A hold that lifted while nothing waited ends its episode too: the next one warns.
@@ -943,6 +961,10 @@ impl Exporter {
             };
             let Some(id) = next else { return self.finish_pass() };
             if self.undeletable.contains(&id) {
+                continue;
+            }
+            if self.deferred_splits.get(&id).is_some_and(|until| Instant::now() < *until) {
+                self.mark(|pass| pass.waiting = true);
                 continue;
             }
             if !self.may_send() {
@@ -995,7 +1017,7 @@ impl Exporter {
                 self.allowance = self.allowance.saturating_sub(1);
             }
             let request = self.request(&body, signal, &target);
-            self.inflight = Some(InFlight { id, signal, key, target, body, request });
+            self.inflight = Some(InFlight { id, key, target, body, request });
             return;
         }
     }
@@ -1018,7 +1040,7 @@ impl Exporter {
         };
         let status = if paused(true) {
             TelemetryStatus::Throttled
-        } else if paused(false) {
+        } else if paused(false) || !self.deferred_splits.is_empty() {
             TelemetryStatus::Paused
         } else if pass.held {
             TelemetryStatus::Held
@@ -1042,7 +1064,7 @@ impl Exporter {
 
     /// What the collector answered to the request on the wire, acted on; then the pass goes on.
     fn on_answer(&mut self, outcome: Outcome) {
-        let Some(InFlight { id, signal, key, target, body, .. }) = self.inflight.take() else {
+        let Some(InFlight { id, key, target, body, .. }) = self.inflight.take() else {
             return;
         };
         // The app opted out while the request was out: whatever came back, nothing is written,
@@ -1068,7 +1090,7 @@ impl Exporter {
             Outcome::Answered(Verdict::TooLarge) => {
                 // Split in two; the halves go at once, down to single records — each one a
                 // request of its own against this pass's budget.
-                match self.split(&id, &body, signal) {
+                match self.split(&id, &body) {
                     Ok(halves) if halves.is_empty() => {
                         log::warn!("a single record is larger than the collector accepts; dropped");
                         self.forget(&id, Some(&counters.oversized));
@@ -1080,8 +1102,28 @@ impl Exporter {
                             }
                         }
                     }
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        // Normal eviction/removal won the race; there is no retained parent to
+                        // retry or count lost again, and other batches may proceed.
+                        log::debug!("split parent {id} was removed before replacement");
+                    }
+                    Err(err)
+                        if err
+                            .get_ref()
+                            .is_some_and(|cause| cause.is::<crate::split::Failure>()) =>
+                    {
+                        // Not a single record and never a drop. Retry no faster than the existing
+                        // retry cap; deferring this id must not stall other batches of its project.
+                        if !self.shared.revoked() {
+                            self.deferred_splits.insert(id.clone(), Instant::now() + RETRY_CAP);
+                            log::warn!(
+                                "cannot split cached batch {id}: {err}; retained for later retry"
+                            );
+                        }
+                    }
                     Err(err) => {
-                        // The batch stays whole where it was; try the split again later.
+                        // Storage errors preserve an existing parent. NotFound means it was
+                        // already evicted/removed; never resurrect or count that loss twice.
                         self.back_off(&key, None, &format!("cannot store the split batch: {err}"));
                     }
                 }
@@ -1103,7 +1145,7 @@ impl Exporter {
                 log::debug!("upload unauthorized: {reason}");
                 Counters::add(&counters.auth_denied, 1);
                 if let Some(token) = &target.token {
-                    self.destinations().refuse(token);
+                    crate::cache::logged_after(|| self.destinations().refuse(token));
                 }
                 if let Some(pass) = self.pass.as_mut() {
                     pass.waiting = true;
@@ -1136,28 +1178,41 @@ impl Exporter {
     /// 413: re-encode the batch as two halves and replace it in the cache transactionally —
     /// both halves committed where the batch was (on disk stays on disk) before it goes, nothing
     /// evicted in between. `Ok` holds the halves' ids, oldest first, or none for a single record
-    /// (it cannot shrink); `Err` means the cache could not take the halves and the batch is
-    /// still there, whole.
-    fn split(&mut self, id: &str, body: &[u8], signal: Signal) -> std::io::Result<Vec<String>> {
-        let Some(encoded) = gunzip(body) else { return Ok(Vec::new()) };
-        let halves = match signal {
-            Signal::Logs => otlp::split_logs(&encoded),
-            Signal::Traces => otlp::split_spans(&encoded),
-        };
-        let Some([(first, first_count), (second, second_count)]) = halves else {
-            return Ok(Vec::new());
-        };
+    /// (it cannot shrink). Other errors retain an existing parent; NotFound means it was
+    /// already evicted/removed and must not be resurrected or counted lost again. Unsupported
+    /// or malformed OTLP is retained for a delayed per-batch retry, never called a single record.
+    fn split(&mut self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
+        let [(first, first_count), (second, second_count)] =
+            match crate::split::recover(body, || self.shared.revoked()) {
+                Ok(halves) => halves,
+                Err(crate::split::Failure::SingleRecord) => return Ok(Vec::new()),
+                Err(failure) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, failure))
+                }
+            };
         let new = [
-            (BatchId::half(id, 'a', first_count), gzip(&first)),
-            (BatchId::half(id, 'b', second_count), gzip(&second)),
+            (BatchId::half(id, 'a', first_count), first),
+            (BatchId::half(id, 'b', second_count), second),
         ];
-        let evicted = self.shared.cache.replace(id, &new)?;
-        self.count_evicted(&evicted);
-        self.born.remove(id);
-        let now = Instant::now();
-        for (half, _) in &new {
-            self.born.insert(half.clone(), now);
+        let evicted = match self.shared.cache.replace(id, &new) {
+            Ok(evicted) => evicted,
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    self.born.remove(id);
+                    self.deferred_splits.remove(id);
+                }
+                return Err(error);
+            }
+        };
+        // The halves are as old as the batch was: a split changes its size, not its age. A batch
+        // from an earlier launch has no birth on this launch's clock, and neither do its halves.
+        // Their births are in place before the evictions are counted, which may take one back.
+        if let Some(born) = self.born.remove(id) {
+            for (half, _) in &new {
+                self.born.insert(half.clone(), born);
+            }
         }
+        self.count_evicted(&evicted);
         log::debug!(
             "413: split a batch of {} into {first_count} + {second_count}",
             first_count + second_count
@@ -1193,14 +1248,8 @@ impl Exporter {
 
     /// Keep credentials only for Rooms still alive or with batches still cached.
     fn retire_credentials(&self) {
-        let live: HashMap<String, Option<String>> = {
-            let scopes = self.shared.scopes.lock().unwrap_or_else(|e| e.into_inner());
-            scopes
-                .iter()
-                .filter_map(|s| s.upgrade())
-                .map(|s| (s.hex().to_owned(), s.route()))
-                .collect()
-        };
+        // Listed before the registry is locked, as a cache may read storage. Only this task adds
+        // batches, so none appears between this listing and the prune.
         let backlog = self
             .shared
             .cache
@@ -1211,7 +1260,34 @@ impl Exporter {
                 Some((batch.host.map(str::to_owned), batch.owner?.to_owned()))
             })
             .collect();
+        // Locked through the prune, scopes before destinations: a Room that registered after the
+        // snapshot would set its token before the prune and lose it, though alive.
+        let scopes = self.shared.scopes.lock().unwrap_or_else(|e| e.into_inner());
+        let live: HashMap<String, Option<String>> = scopes
+            .iter()
+            .filter_map(|s| s.upgrade())
+            .map(|s| (s.hex().to_owned(), s.route()))
+            .collect();
+        #[cfg(test)]
+        {
+            let hook = self.shared.retiring.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
         self.destinations().retain_owners(&live, &backlog);
+        drop(scopes);
+    }
+
+    /// Drop the pause of a destination nothing uses any more (no live session routed to it, no
+    /// batch cached for it: the credentials just retired decide). One still in use keeps its
+    /// failure history, so its backoff does not start over.
+    fn retire_pauses(&mut self) {
+        if self.pauses.is_empty() || self.has_override() {
+            return;
+        }
+        let destinations = self.shared.destinations.lock().unwrap_or_else(|e| e.into_inner());
+        self.pauses.retain(|host, _| destinations.in_use(host));
     }
 
     fn destinations(&self) -> std::sync::MutexGuard<'_, crate::destination::Destinations> {
@@ -1230,7 +1306,7 @@ impl Exporter {
     /// The project on `host` receives nothing more: its cached batches go now.
     fn kill(&mut self, host: Option<&str>, why: Dead) {
         if let Some(host) = host {
-            self.destinations().kill(host, why);
+            crate::cache::logged_after(|| self.destinations().kill(host, why));
         }
         self.purge_dead();
     }
@@ -1250,6 +1326,14 @@ impl Exporter {
     /// delete that fails leaves the batch pending deletion: never uploaded again, deleted as soon
     /// as the storage lets us (a restart before then may send it once more).
     fn forget(&mut self, id: &str, lost: Option<&AtomicU64>) {
+        self.deferred_splits.remove(id);
+        // Already done with and counted: this is another try at the delete, nothing more.
+        if self.undeletable.contains(id) {
+            if self.shared.cache.remove(id).is_ok() {
+                self.undeletable.remove(id);
+            }
+            return;
+        }
         if let Err(err) = self.shared.cache.remove(id) {
             log::warn!("cannot delete cached batch {id} ({err}); it will not be sent again");
             self.undeletable.insert(id.to_owned());
@@ -1304,7 +1388,9 @@ impl Exporter {
     }
 
     /// One request, bounded by `export_timeout_ms`, as a future the loop polls. Never retried
-    /// here: the answer decides.
+    /// here: the answer decides. The transport's future must return promptly from every poll:
+    /// its first poll runs under the opt-out's admission barrier, so synchronous work there
+    /// delays `revoke`, and the timeout cannot cut a poll short, only the wait between polls.
     fn request(
         &self,
         body: &[u8],
@@ -1399,11 +1485,15 @@ fn jitter() -> f64 {
 }
 
 /// A cached batch is intact when it is one complete gzip member (RFC 1952) whose CRC checks
-/// out: a truncated or bit-flipped file is caught here, never sent.
+/// out: a truncated or bit-flipped file is caught here, never sent. Streamed through a fixed
+/// buffer: nothing of the decoded body is kept.
 fn intact(body: &[u8]) -> bool {
-    body.starts_with(&[0x1f, 0x8b]) && gunzip(body).is_some()
+    body.starts_with(&[0x1f, 0x8b])
+        && std::io::copy(&mut flate2::read::GzDecoder::new(body), &mut std::io::sink()).is_ok()
 }
 
+/// Decode test fixtures; production cached recovery uses bounded/streaming splitting.
+#[cfg(test)]
 fn gunzip(body: &[u8]) -> Option<Vec<u8>> {
     use std::io::Read;
     let mut out = Vec::with_capacity(body.len() * GZIP_RATIO);
@@ -1420,6 +1510,14 @@ fn gzip(body: &[u8]) -> Vec<u8> {
     let _ = encoder.write_all(body);
     encoder.finish().unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "vote_controls.rs"]
+mod vote_controls;
+
+#[cfg(test)]
+#[path = "split_controls.rs"]
+mod split_controls;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -1464,6 +1562,236 @@ pub(crate) mod tests {
             self.permits.acquire().await.expect("open").forget();
             Ok(ExportResponse::accepted())
         }
+    }
+
+    /// A transport that answers a script of statuses, one per request, and records at each send
+    /// what the cache held then (through a weak reference: the test owns nothing the pipeline
+    /// owns).
+    struct Scripted {
+        statuses: Mutex<std::collections::VecDeque<u16>>,
+        cache: std::sync::Weak<dyn crate::BatchCache>,
+        sends: Mutex<Vec<(u16, Vec<String>)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Scripted {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            let status = self.statuses.lock().expect("lock").pop_front().unwrap_or(200);
+            let pending = self.cache.upgrade().map(|cache| cache.pending()).unwrap_or_default();
+            self.sends.lock().expect("lock").push((status, pending));
+            Ok(ExportResponse { status, ..Default::default() })
+        }
+    }
+
+    /// What the 413 replay observed, captured before anything is asserted.
+    #[derive(Debug)]
+    struct SplitVerdict {
+        sends: Vec<(u16, Vec<String>)>,
+        left: Vec<String>,
+        uploads_sent: u64,
+        oversized: u64,
+        exporter_done: bool,
+        pipeline_freed: bool,
+        cache_freed: bool,
+    }
+
+    /// A batch cached under a larger `max_batch_bytes` (an earlier launch, an earlier configure)
+    /// is still split on 413 and both halves are sent: the bound limits what this launch
+    /// encodes, not what it replays. The exporter runs as a task against a transport that
+    /// answers 413, 200, 200; the cache is observed at each send (the parent at the first, the
+    /// halves retained after the 413, each half deleted only on its acknowledgement), and the
+    /// task is shut down, awaited and the pipeline observed destroyed before anything is
+    /// asserted.
+    #[tokio::test]
+    async fn a_larger_cached_batch_is_still_split_and_sent_on_413() {
+        let cache: Arc<dyn crate::BatchCache> = Arc::new(crate::MemoryCache::new(1 << 20));
+        let transport = Arc::new(Scripted {
+            statuses: Mutex::new([413, 200, 200].into()),
+            cache: Arc::downgrade(&cache),
+            sends: Mutex::new(Vec::new()),
+        });
+        let config = TelemetryConfig { max_batch_bytes: 600, ..TelemetryConfig::default() };
+        let (telemetry, exporter) = Telemetry::with_cache(config, transport.clone(), cache);
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(None);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &crate::destination::tests::granted(600));
+        // Two 400-character records: over the current bound once decoded, each half fits.
+        let session = ScopeState::new();
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|name| {
+                let event = TelemetryEvent::new(name).with_body("x".repeat(400));
+                QueuedEvent::new(event, session.clone())
+            })
+            .collect();
+        let body = gzip(&otlp::encode_logs(&[], &[], records));
+        assert!(body.len() < 600 && gunzip(&body).expect("gzip").len() > 600);
+        let parent =
+            format!("{:020}-000001-2-l-{}-a.livekit.cloud", now_unix_nanos(), room.state.hex());
+        telemetry.shared.cache.push(&parent, &body).expect("cached");
+        let running = tokio::spawn(exporter.run());
+        telemetry.flush().await;
+        let left = telemetry.shared.cache.pending();
+        let counters = telemetry.shared.counters.snapshot();
+        telemetry.shutdown().await;
+        let exporter_done = running.await.is_ok();
+        let shared = Arc::downgrade(&telemetry.shared);
+        let sends = std::mem::take(&mut *transport.sends.lock().expect("lock"));
+        let cache_weak = transport.cache.clone();
+        drop((room, telemetry, transport));
+        let verdict = SplitVerdict {
+            sends,
+            left,
+            uploads_sent: counters.uploads_sent,
+            oversized: counters.oversized,
+            exporter_done,
+            pipeline_freed: shared.upgrade().is_none(),
+            cache_freed: cache_weak.upgrade().is_none(),
+        };
+        assert!(
+            verdict.exporter_done && verdict.pipeline_freed && verdict.cache_freed,
+            "{verdict:?}"
+        );
+        let halves = [BatchId::half(&parent, 'a', 1), BatchId::half(&parent, 'b', 1)];
+        let expected =
+            [(413, vec![parent.clone()]), (200, halves.to_vec()), (200, vec![halves[1].clone()])];
+        // The shutdown drains a process-level batch (the pipeline's own report) after these.
+        assert_eq!(
+            verdict.sends.get(..3),
+            Some(&expected[..]),
+            "the cache at each send: {verdict:?}"
+        );
+        assert!(verdict.left.is_empty(), "both halves acknowledged: {verdict:?}");
+        assert_eq!((verdict.uploads_sent, verdict.oversized), (2, 0), "{verdict:?}");
+    }
+
+    /// What one run of the retirement race observed, captured before anything is asserted.
+    #[derive(Debug)]
+    struct RetirementVerdict {
+        registrar_started: Option<bool>,
+        hook_timed_out: bool,
+        route_sends: bool,
+        sent: usize,
+        held_after: usize,
+        exporter_done: bool,
+        pipeline_freed: bool,
+    }
+
+    /// Run the retirement race once. With `withhold_resume` the hook observes its timeout
+    /// before it signals the registrar, so the registrar cannot have resumed it yet: the
+    /// timeout path is forced, not raced. Nothing asserts here: the hook is cleared, the
+    /// registrar joined, the exporter shut down and awaited, and the pipeline's destruction
+    /// observed, on every path, before the verdict goes back to the test.
+    async fn retirement_race(withhold_resume: bool) -> RetirementVerdict {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let collector = Arc::new(Collector::default());
+        let (telemetry, exporter) = Telemetry::new(TelemetryConfig::default(), collector.clone());
+        // Routing must come from the token, never from an endpoint override in the environment.
+        *telemetry.shared.destinations.lock().expect("lock") =
+            crate::destination::Destinations::new(None);
+        let (snapshot_taken, snapshot) = std::sync::mpsc::channel();
+        let (resume, resumed) = std::sync::mpsc::channel();
+        let resumed = Mutex::new(resumed);
+        let hook_timed_out = Arc::new(AtomicBool::new(false));
+        *telemetry.shared.retiring.lock().expect("lock") = Some(Arc::new({
+            let hook_timed_out = hook_timed_out.clone();
+            move || {
+                let resumed = resumed.lock().unwrap_or_else(|e| e.into_inner());
+                if withhold_resume {
+                    // The registrar sends its resume only after the signal below, so this
+                    // wait can only time out.
+                    if resumed.recv_timeout(Duration::ZERO).is_err() {
+                        hook_timed_out.store(true, Ordering::SeqCst);
+                    }
+                    let _ = snapshot_taken.send(());
+                    return;
+                }
+                let _ = snapshot_taken.send(());
+                if resumed.recv_timeout(Duration::from_secs(10)).is_err() {
+                    hook_timed_out.store(true, Ordering::SeqCst);
+                }
+            }
+        }));
+        let registrar = {
+            let telemetry = telemetry.clone();
+            std::thread::spawn(move || {
+                let started = snapshot.recv_timeout(Duration::from_secs(10)).is_ok();
+                // Registry held: the Room can register only after the prune. Free: it registers
+                // and receives its token inside retirement's window.
+                let held = telemetry.shared.scopes.try_lock().is_err();
+                if held {
+                    let _ = resume.send(());
+                }
+                let room = telemetry.begin_scope();
+                room.set_server("wss://p.livekit.cloud", &crate::destination::tests::granted(600));
+                if !held {
+                    let _ = resume.send(());
+                }
+                (started, room)
+            })
+        };
+        exporter.retire_credentials();
+        let registrar = registrar.join();
+        *telemetry.shared.retiring.lock().expect("lock") = None;
+        let (registrar_started, room) = match registrar {
+            Ok((started, room)) => (Some(started), Some(room)),
+            Err(_) => (None, None),
+        };
+        let route_sends = room.as_ref().is_some_and(|room| {
+            let host = room.state.route();
+            let destinations = telemetry.shared.destinations.lock().expect("lock");
+            matches!(destinations.route(host.as_deref(), Some(room.state.hex())), Route::Send(_))
+        });
+        let running = tokio::spawn(exporter.run());
+        if let Some(room) = &room {
+            room.emit_custom("ping", Vec::new());
+        }
+        telemetry.flush().await;
+        let sent = collector.count();
+        drop(room);
+        telemetry.flush().await;
+        let held_after = telemetry.shared.destinations.lock().expect("lock").credentials();
+        telemetry.shutdown().await;
+        let exporter_done = running.await.is_ok();
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop(telemetry);
+        RetirementVerdict {
+            registrar_started,
+            hook_timed_out: hook_timed_out.load(Ordering::SeqCst),
+            route_sends,
+            sent,
+            held_after,
+            exporter_done,
+            pipeline_freed: shared.upgrade().is_none(),
+        }
+    }
+
+    /// A Room that registers and receives its token while credential retirement sits between
+    /// its snapshot of the live sessions and its prune keeps that token, so its flush uploads;
+    /// once the Room is gone with nothing cached, the token is freed.
+    #[tokio::test]
+    async fn a_room_registered_during_retirement_keeps_its_token() {
+        let verdict = retirement_race(false).await;
+        assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
+        assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
+        assert!(!verdict.hook_timed_out, "{verdict:?}");
+        assert!(
+            verdict.route_sends && verdict.sent == 1,
+            "the live Room kept its token and its flush uploaded: {verdict:?}"
+        );
+        assert_eq!(verdict.held_after, 0, "a Room gone with nothing cached frees its token");
+    }
+
+    /// The forced failure: the hook's wait times out before the registrar can resume it. The
+    /// teardown still runs (the exporter task completes, the pipeline is destroyed) and the
+    /// timeout is reported as a verdict, not as a panic that detaches the task.
+    #[tokio::test]
+    async fn the_retirement_race_harness_tears_down_on_a_forced_timeout() {
+        let verdict = retirement_race(true).await;
+        assert!(verdict.hook_timed_out, "the control forces the timeout: {verdict:?}");
+        assert!(verdict.exporter_done && verdict.pipeline_freed, "teardown: {verdict:?}");
+        assert_eq!(verdict.registrar_started, Some(true), "{verdict:?}");
     }
 
     /// A running pipeline whose uploads wait at a [`Gate`].
@@ -1863,6 +2191,143 @@ pub(crate) mod tests {
         run.await.expect("the exporter returns");
         assert!(shared.upgrade().is_none());
         held.end(SpanOutcome::Ok, None);
+    }
+
+    /// Two records, gzipped as a cached logs batch whose id stamps it `age` ago on the wall clock.
+    fn aged_batch(age: Duration, owner: &str) -> (String, Vec<u8>) {
+        let stamp = now_unix_nanos().saturating_sub(age.as_nanos() as u64);
+        let id = format!("{stamp:020}-000001-2-l-{owner}-proj");
+        let session = ScopeState::new();
+        let records = ["a", "b"]
+            .into_iter()
+            .map(|name| QueuedEvent::new(TelemetryEvent::new(name), session.clone()))
+            .collect();
+        (id, gzip(&otlp::encode_logs(&[], &[], records)))
+    }
+
+    /// A 413 split changes a batch's size, not its age: the halves of a batch this launch wrote
+    /// 23 h ago expire 1 h later, as the batch would have.
+    #[tokio::test(start_paused = true)]
+    async fn split_halves_inherit_the_parents_birth() {
+        let (telemetry, mut exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.born.insert(id.clone(), Instant::now());
+        assert!(!exporter.expired(&id), "fresh on the monotonic clock");
+        tokio::time::advance(Duration::from_secs(23 * 60 * 60)).await;
+        let halves = exporter.split(&id, &body).expect("split");
+        assert_eq!(halves.len(), 2);
+        tokio::time::advance(Duration::from_secs(2 * 60 * 60)).await;
+        assert!(halves.iter().all(|half| exporter.expired(half)), "as old as the parent");
+    }
+
+    /// A half the cache evicts at once to keep its bound (the newest stays) leaves no birth entry
+    /// behind: the metadata follows the batches that exist.
+    #[tokio::test(start_paused = true)]
+    async fn an_evicted_half_keeps_no_birth_entry() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(crate::MemoryCache::new(1)),
+        );
+        let (id, body) = aged_batch(Duration::from_secs(60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.born.insert(id.clone(), Instant::now());
+        let halves = exporter.split(&id, &body).expect("split");
+        let pending = telemetry.shared.cache.pending();
+        assert_eq!(pending, [halves[1].clone()], "the older half went to keep the bound");
+        assert_eq!(exporter.born.keys().collect::<Vec<_>>(), [&halves[1]]);
+    }
+
+    /// A cache whose deletes are refused (file protection, a permission).
+    struct Undeletable(crate::MemoryCache);
+
+    impl crate::BatchCache for Undeletable {
+        fn push(&self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
+            crate::BatchCache::push(&self.0, id, body)
+        }
+        fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> std::io::Result<Vec<String>> {
+            crate::BatchCache::replace(&self.0, old, new)
+        }
+        fn pending(&self) -> Vec<String> {
+            crate::BatchCache::pending(&self.0)
+        }
+        fn read(&self, id: &str) -> std::io::Result<Vec<u8>> {
+            crate::BatchCache::read(&self.0, id)
+        }
+        fn remove(&self, _: &str) -> std::io::Result<()> {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        }
+        fn clear(&self) -> std::io::Result<()> {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        }
+    }
+
+    /// An expired batch the storage will not delete is counted lost once: the passes that keep
+    /// finding it in the cache retry the delete without counting it again.
+    #[tokio::test(start_paused = true)]
+    async fn a_batch_whose_delete_fails_is_counted_lost_once() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(Undeletable(crate::MemoryCache::new(1 << 20))),
+        );
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        for _ in 0..4 {
+            exporter.begin_pass();
+        }
+        assert_eq!(telemetry.shared.counters.snapshot().expired, 2, "two records, lost once");
+    }
+
+    /// A destination's pause outlives neither its last live session nor its last cached batch:
+    /// the failure history stays while something may still be sent there.
+    #[tokio::test(start_paused = true)]
+    async fn a_pause_is_retired_with_its_destination() {
+        let (telemetry, mut exporter) =
+            Telemetry::new(TelemetryConfig::default(), Arc::new(Collector::default()));
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        room.emit_custom("ping", Vec::new());
+        exporter.flushing = true;
+        exporter.export_pending();
+        assert!(exporter.inflight.is_some(), "the batch is on the wire");
+        exporter.on_answer(Outcome::NoAnswer { timed_out: false, reason: "offline".to_owned() });
+        assert!(exporter.pauses.contains_key("a.livekit.cloud"), "paused after the failure");
+        drop(room);
+        exporter.begin_pass();
+        assert!(exporter.pauses.contains_key("a.livekit.cloud"), "its batch is still cached");
+        for id in telemetry.shared.cache.pending() {
+            telemetry.shared.cache.remove(&id).expect("removed");
+        }
+        exporter.begin_pass();
+        assert!(exporter.pauses.is_empty(), "nothing is left for it: {:?}", exporter.pauses);
+    }
+
+    /// A batch discarded and counted whose delete failed stays in the cache until a write evicts
+    /// it: that eviction retires its marker and is not a second loss.
+    #[tokio::test(start_paused = true)]
+    async fn an_evicted_batch_already_discarded_is_not_counted_again() {
+        let (telemetry, mut exporter) = Telemetry::with_cache(
+            TelemetryConfig::default(),
+            Arc::new(Collector::default()),
+            Arc::new(Undeletable(crate::MemoryCache::new(1))),
+        );
+        let counters = telemetry.shared.counters.clone();
+        let (id, body) = aged_batch(Duration::from_secs(25 * 60 * 60), "abc");
+        telemetry.shared.cache.push(&id, &body).expect("cached");
+        exporter.forget(&id, Some(&counters.expired));
+        assert_eq!(counters.snapshot().expired, 2);
+        assert!(exporter.undeletable.contains(&id), "its delete failed");
+        // A newer batch: the cache evicts the old one to keep its bound.
+        let (newer, body) = aged_batch(Duration::ZERO, "abc");
+        exporter.store_batch(newer.clone(), &body);
+        assert_eq!(telemetry.shared.cache.pending(), [newer]);
+        let lost = counters.snapshot();
+        assert_eq!((lost.expired, lost.cache_full, lost.throttled), (2, 0, 0), "lost once");
+        assert!(exporter.undeletable.is_empty(), "gone: nothing left to delete");
     }
 
     #[test]

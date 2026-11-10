@@ -75,8 +75,10 @@ minutes). The call is cheap and idempotent. There is no client-side endpoint, he
   it. A token the collector refused is recorded by identity (a hash) and never sent again from
   any slot, until it expires (a token without `exp` stays refused for the process). A past,
   negative or non-numeric `exp` counts as expired. A project's entry goes once no live session
-  and no cached batch needs it. An entry known to receive nothing (not Cloud, no grant, 404,
-  disabled) stays for the process.
+  and no cached batch needs it. Unowned entries that are not Cloud or never had a grant are
+  compacted once no live session or cached batch needs them; their all-dead routing knowledge
+  remains. Disabled projects and consent remembered across a 404 stay for the process. A new
+  Room still waits for its own server/token; a granted token can opt a compacted project in.
 - **Routing key:** a Cloud project is keyed by its host, which must be a DNS hostname (letters,
   digits, `-` and `.`). Any other URL is keyed by its scheme, host and port, so a plaintext or
   userinfo URL on a Cloud host can neither feed that project a token nor silence it. Its host and
@@ -89,6 +91,14 @@ Local end-to-end tests point everything at an OpenTelemetry collector of their o
 `/v1/logs` and `/v1/traces`; a URL with a `logs` path segment is used as is, and its traces URL
 replaces that segment). It is not part of any platform API. With it, every batch goes there
 without Cloud rules or tokens.
+
+## Transport timing contract
+
+The exporter bounds each transport attempt by `export_timeout_ms`.
+This timeout is cooperative: transport futures must return promptly from each poll.
+The exporter clamps server-directed pauses from `Retry-After`, `RetryInfo.retry_delay` and
+`retry_after_ms` to 24 hours for the affected destination.
+The exporter enforces these limits. The transport interface alone does not.
 
 ## Events
 

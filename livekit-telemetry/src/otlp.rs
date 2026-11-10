@@ -90,38 +90,6 @@ pub(crate) fn encode_spans(
     .encode_to_vec()
 }
 
-/// An encoded batch cut in two halves (a 413 answer), each with its record count; `None` when it
-/// holds a single record or is not the one-resource, one-scope shape this crate encodes.
-pub(crate) type Halves = Option<[(Vec<u8>, u64); 2]>;
-
-pub(crate) fn split_logs(encoded: &[u8]) -> Halves {
-    let mut request = ExportLogsServiceRequest::decode(encoded).ok()?;
-    let [resource] = &mut request.resource_logs[..] else { return None };
-    let [scope] = &mut resource.scope_logs[..] else { return None };
-    let n = scope.log_records.len();
-    if n < 2 {
-        return None;
-    }
-    let second = scope.log_records.split_off(n / 2);
-    let first = request.encode_to_vec();
-    request.resource_logs[0].scope_logs[0].log_records = second;
-    Some([(first, (n / 2) as u64), (request.encode_to_vec(), (n - n / 2) as u64)])
-}
-
-pub(crate) fn split_spans(encoded: &[u8]) -> Halves {
-    let mut request = ExportTraceServiceRequest::decode(encoded).ok()?;
-    let [resource] = &mut request.resource_spans[..] else { return None };
-    let [scope] = &mut resource.scope_spans[..] else { return None };
-    let n = scope.spans.len();
-    if n < 2 {
-        return None;
-    }
-    let second = scope.spans.split_off(n / 2);
-    let first = request.encode_to_vec();
-    request.resource_spans[0].scope_spans[0].spans = second;
-    Some([(first, (n / 2) as u64), (request.encode_to_vec(), (n - n / 2) as u64)])
-}
-
 fn log_record(
     QueuedEvent { mut event, session, .. }: QueuedEvent,
     global: &[Attribute],
@@ -161,6 +129,7 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     fill_in_global(&mut record.attributes, global);
     // The outcome is the core's, as `session.id` is: a span's own copies never ship.
     record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
+    last_value_wins(&mut record.attributes);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
@@ -278,7 +247,7 @@ mod tests {
     }
 
     /// OTLP keys are unique: of a caller's repeated keys the last value ships, and a session key
-    /// the caller repeats still ships the session's value.
+    /// the caller repeats still ships the session's value — on log records and spans alike.
     #[test]
     fn repeated_caller_keys_ship_once_with_the_last_value() {
         let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
@@ -305,12 +274,31 @@ mod tests {
         let session_id = any_value::Value::StringValue("07".repeat(16));
         assert_eq!(values(&records[1], "session.id"), [session_id]);
         for record in records {
-            let mut keys: Vec<_> = record.attributes.iter().map(|kv| &kv.key).collect();
-            let count = keys.len();
-            keys.sort_unstable();
-            keys.dedup();
-            assert_eq!(keys.len(), count, "unique keys: {:?}", record.attributes);
+            assert_unique_keys(&record.attributes);
         }
+
+        let mut spans = crate::span::Spans::new(1);
+        let span = spans.begin("checkout", SpanKind::Internal, None);
+        let own = vec![Attribute::new("app.step", "first"), Attribute::new("app.step", "second")];
+        spans.end(span, SpanOutcome::Ok, None, own);
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX, 0));
+        let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let [span] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
+            panic!("one span")
+        };
+        assert_eq!(
+            self::values(&span.attributes, "app.step"),
+            [any_value::Value::StringValue("second".into())]
+        );
+        assert_unique_keys(&span.attributes);
+    }
+
+    fn assert_unique_keys(attributes: &[KeyValue]) {
+        let mut keys: Vec<_> = attributes.iter().map(|kv| &kv.key).collect();
+        let count = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "unique keys: {attributes:?}");
     }
 
     #[test]
