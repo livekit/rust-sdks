@@ -410,14 +410,6 @@ impl RemoteParticipant {
         super::set_connection_quality(&self.inner, &Participant::Remote(self.clone()), quality);
     }
 
-    pub(crate) fn add_publication(&self, publication: TrackPublication) {
-        let closed = self.remote.closed.lock();
-        if *closed {
-            return;
-        }
-        self.add_publication_inner(publication);
-    }
-
     /// Installs callbacks while the caller holds the publication mutation lock.
     fn add_publication_inner(&self, publication: TrackPublication) {
         super::add_publication(
@@ -551,14 +543,6 @@ impl RemoteParticipant {
                 });
             }
         });
-    }
-
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
-        let closed = self.remote.closed.lock();
-        if *closed {
-            return None;
-        }
-        self.remove_publication_inner(sid)
     }
 
     /// Removes callbacks while the caller holds the publication mutation lock.

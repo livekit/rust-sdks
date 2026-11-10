@@ -2202,6 +2202,7 @@ impl RoomSession {
     ) -> Option<RemoteParticipant> {
         let mut participants = self.remote_participants.write();
         if self.closing.load(Ordering::Relaxed) {
+            log::debug!("ignoring participant {identity}: room is closing");
             return None;
         }
         let participant = RemoteParticipant::new(
