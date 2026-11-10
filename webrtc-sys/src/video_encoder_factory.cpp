@@ -655,8 +655,13 @@ VideoEncoderFactory::InternalFactory::Create(
     }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
-      if (supported_format.IsSameCodec(stripped_format))
-        return backend_factory.factory->Create(env, stripped_format);
+      if (!supported_format.IsSameCodec(stripped_format)) {
+        continue;
+      }
+      auto encoder = backend_factory.factory->Create(env, stripped_format);
+      if (encoder) {
+        return encoder;
+      }
     }
   }
 
