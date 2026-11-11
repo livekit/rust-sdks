@@ -23,7 +23,7 @@ mod generated;
 use std::time::Duration;
 
 pub(crate) use generated::{types, Client};
-use livekit_token::{AccessToken, AgentGrants, AgentThreadGrants};
+use livekit_token::{AccessToken, AgentDatabaseGrants, AgentThreadGrants};
 use progenitor_client::{ClientHooks, OperationInfo};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
@@ -70,7 +70,10 @@ impl Credentials {
             ServiceBase::ApiKeySecret { api_key, api_secret } => {
                 AccessToken::with_api_key(api_key, api_secret)
                     .with_ttl(TOKEN_TTL)
-                    .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
+                    .with_agent_database_grants(AgentDatabaseGrants {
+                        admin: true,
+                        ..Default::default()
+                    })
                     .with_agent_thread_grants(AgentThreadGrants {
                         all: true,
                         list: true,

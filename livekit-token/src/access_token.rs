@@ -143,9 +143,6 @@ pub struct AgentGrants {
     // manage simulations and scenarios
     #[serde(skip_serializing_if = "is_default")]
     pub simulation_admin: bool,
-    // access the project's agent databases
-    #[serde(skip_serializing_if = "is_default")]
-    pub database_admin: bool,
     // manage the project's agent dispatch queue
     #[serde(skip_serializing_if = "is_default")]
     pub dispatch_admin: bool,
@@ -192,6 +189,9 @@ pub struct AgentThreadGrants {
     pub read: bool,
     #[serde(skip_serializing_if = "is_default")]
     pub delete: bool,
+    // open a covered thread's database, whose id is the thread's
+    #[serde(skip_serializing_if = "is_default")]
+    pub sql: bool,
 }
 
 impl AgentThreadGrants {
@@ -219,12 +219,45 @@ impl AgentThreadGrants {
         self.delete && self.includes(thread_id)
     }
 
+    pub fn can_sql(&self, thread_id: &str) -> bool {
+        self.sql && self.includes(thread_id)
+    }
+
     fn in_scope(&self, scope: &str) -> bool {
         self.all || (!self.scope.is_empty() && self.scope == scope)
     }
 
     fn includes(&self, thread_id: &str) -> bool {
         !thread_id.is_empty() && (self.all || self.thread_ids.iter().any(|id| id == thread_id))
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentDatabaseGrants {
+    // standalone databases ("DB_...") this token may read or write
+    #[serde(skip_serializing_if = "is_default")]
+    pub database_ids: Vec<String>,
+    #[serde(skip_serializing_if = "is_default")]
+    pub read: bool,
+    #[serde(skip_serializing_if = "is_default")]
+    pub write: bool,
+    // read and write every database of the project, threads' included
+    #[serde(skip_serializing_if = "is_default")]
+    pub admin: bool,
+}
+
+impl AgentDatabaseGrants {
+    pub fn can_read(&self, database_id: &str) -> bool {
+        self.admin || (self.read && self.includes(database_id))
+    }
+
+    pub fn can_write(&self, database_id: &str) -> bool {
+        self.admin || (self.write && self.includes(database_id))
+    }
+
+    fn includes(&self, database_id: &str) -> bool {
+        !database_id.is_empty() && self.database_ids.iter().any(|id| id == database_id)
     }
 }
 
@@ -289,6 +322,8 @@ pub struct Claims {
     #[serde(skip_serializing_if = "is_default")]
     pub agent_thread: AgentThreadGrants,
     #[serde(skip_serializing_if = "is_default")]
+    pub agent_database: AgentDatabaseGrants,
+    #[serde(skip_serializing_if = "is_default")]
     pub inference: InferenceGrants,
     #[serde(skip_serializing_if = "is_default")]
     pub observability: ObservabilityGrants,
@@ -345,6 +380,7 @@ impl AccessToken {
                 agent: AgentGrants::default(),
                 agent_endpoint: AgentEndpointGrants::default(),
                 agent_thread: AgentThreadGrants::default(),
+                agent_database: AgentDatabaseGrants::default(),
                 inference: InferenceGrants::default(),
                 observability: ObservabilityGrants::default(),
                 sha256: Default::default(),
@@ -394,6 +430,11 @@ impl AccessToken {
 
     pub fn with_agent_thread_grants(mut self, grants: AgentThreadGrants) -> Self {
         self.claims.agent_thread = grants;
+        self
+    }
+
+    pub fn with_agent_database_grants(mut self, grants: AgentDatabaseGrants) -> Self {
+        self.claims.agent_database = grants;
         self
     }
 
@@ -515,8 +556,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        AccessToken, AgentEndpointGrants, AgentGrants, AgentThreadGrants, Claims, InferenceGrants,
-        ObservabilityGrants, SIPGrants, TokenVerifier, VideoGrants,
+        AccessToken, AgentDatabaseGrants, AgentEndpointGrants, AgentGrants, AgentThreadGrants,
+        Claims, InferenceGrants, ObservabilityGrants, SIPGrants, TokenVerifier, VideoGrants,
     };
 
     const TEST_API_KEY: &str = "myapikey";
@@ -714,7 +755,7 @@ mod tests {
     #[test]
     fn test_agent_grants_claim_names() {
         let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
-            .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
+            .with_agent_grants(AgentGrants { dispatch_admin: true, ..Default::default() })
             .with_agent_endpoint_grants(AgentEndpointGrants {
                 call: true,
                 agent_name: "a".into(),
@@ -725,22 +766,39 @@ mod tests {
                 thread_ids: vec!["t".into()],
                 list: true,
                 read: true,
+                sql: true,
+                ..Default::default()
+            })
+            .with_agent_database_grants(AgentDatabaseGrants {
+                database_ids: vec!["DB_a".into()],
+                read: true,
                 ..Default::default()
             })
             .to_jwt()
             .unwrap();
         let p =
             jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(&token).unwrap().claims;
-        assert_eq!(p["agent"], serde_json::json!({"databaseAdmin": true}));
+        assert_eq!(p["agent"], serde_json::json!({"dispatchAdmin": true}));
         assert_eq!(p["agentEndpoint"], serde_json::json!({"call": true, "agentName": "a"}));
         assert_eq!(
             p["agentThread"],
-            serde_json::json!({"scope": "s", "threadIds": ["t"], "list": true, "read": true})
+            serde_json::json!({
+                "scope": "s", "threadIds": ["t"], "list": true, "read": true, "sql": true
+            })
         );
+        assert_eq!(p["agentDatabase"], serde_json::json!({"databaseIds": ["DB_a"], "read": true}));
         let claims = Claims::from_unverified(&token).unwrap();
         assert!(claims.agent_thread.can_list("s") && claims.agent_thread.can_read("t"));
         assert!(!claims.agent_thread.can_read("u") && !claims.agent_thread.can_create("s"));
+        assert!(claims.agent_thread.can_sql("t") && !claims.agent_thread.can_sql("u"));
+        assert!(claims.agent_database.can_read("DB_a") && !claims.agent_database.can_write("DB_a"));
+        assert!(!claims.agent_database.can_read("DB_b") && !claims.agent_database.can_read(""));
         assert!(claims.agent_endpoint.allows("a", "default"));
+
+        let admin = AgentDatabaseGrants { admin: true, ..Default::default() };
+        assert!(admin.can_read("DB_b") && admin.can_write("AT_t"));
+        let all = AgentThreadGrants { all: true, sql: true, ..Default::default() };
+        assert!(all.can_sql("AT_t") && !all.can_sql(""));
     }
 
     #[test]
