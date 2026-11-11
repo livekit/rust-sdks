@@ -105,44 +105,43 @@ impl FfiAudioSource {
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
         let buffer = capture.buffer;
 
-        let source = self.source.clone();
         let async_id = server.resolve_async_id(capture.request_async_id);
+        let send_callback = move |res: Result<(), _>| {
+            if let Err(e) = server.send_event(
+                proto::CaptureAudioFrameCallback {
+                    async_id,
+                    error: res.err().map(|e: livekit::webrtc::RtcError| e.to_string()),
+                }
+                .into(),
+            ) {
+                log::error!("[AUDIO_CAPTURE] Failed to send callback async_id={}: {}", async_id, e);
+            }
+        };
 
-        let data = unsafe {
-            let len = buffer.num_channels * buffer.samples_per_channel;
-            slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
-        }
-        .to_vec();
+        // Captured here rather than in the task, so a clear_buffer request that arrives before the
+        // task first runs still cuts this frame.
+        let capture = match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(ref source) => {
+                let data = unsafe {
+                    let len = buffer.num_channels * buffer.samples_per_channel;
+                    slice::from_raw_parts(buffer.data_ptr as *const i16, len as usize)
+                };
+                let audio_frame = AudioFrame {
+                    data: Cow::Borrowed(data),
+                    sample_rate: buffer.sample_rate,
+                    num_channels: buffer.num_channels,
+                    samples_per_channel: buffer.samples_per_channel,
+                };
+                Some(source.capture_frame(&audio_frame))
+            }
+            _ => None,
+        };
 
         // Use dedicated audio_runtime for audio capture
         let handle = server.audio_runtime.spawn(async move {
-            // The data must be available as long as the client receive the callback.
-            match source {
-                #[cfg(not(target_arch = "wasm32"))]
-                RtcAudioSource::Native(ref source) => {
-                    let audio_frame = AudioFrame {
-                        data: Cow::Owned(data),
-                        sample_rate: buffer.sample_rate,
-                        num_channels: buffer.num_channels,
-                        samples_per_channel: buffer.samples_per_channel,
-                    };
-
-                    let res = source.capture_frame(&audio_frame).await;
-                    if let Err(e) = server.send_event(
-                        proto::CaptureAudioFrameCallback {
-                            async_id,
-                            error: res.err().map(|e| e.to_string()),
-                        }
-                        .into(),
-                    ) {
-                        log::error!(
-                            "[AUDIO_CAPTURE] Failed to send callback async_id={}: {}",
-                            async_id,
-                            e
-                        );
-                    }
-                }
-                _ => {}
+            if let Some(capture) = capture {
+                send_callback(capture.await);
             }
         });
         server.watch_panic(handle);
