@@ -231,6 +231,13 @@ bool AudioTrackSource::InternalSource::capture_frame(
 void AudioTrackSource::InternalSource::clear_buffer() {
   webrtc::MutexLock lock(&mutex_);
   buffer_.clear();
+  // Complete the capture waiting for room now, so the next one is not refused
+  // until the following tick.
+  if (on_complete_) {
+    on_complete_(capture_userdata_);
+    on_complete_ = nullptr;
+    capture_userdata_ = nullptr;
+  }
 }
 
 webrtc::MediaSourceInterface::SourceState

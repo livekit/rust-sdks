@@ -187,21 +187,29 @@ pub mod native {
             Self { handle: ImpAudioSource::new(options, sample_rate, num_channels, queue_size_ms) }
         }
 
-        /// Discards the queued audio, and the rest of every capture made before this call.
+        /// Drops the queued audio and the rest of every capture started before this call.
         pub fn clear_buffer(&self) {
             self.handle.clear_buffer()
         }
 
-        /// Queues `frame`, resolving once the queue has room for more. A [`clear_buffer`] called
-        /// after this method, even before the future is first polled, drops what of `frame`
-        /// is not queued yet.
-        ///
-        /// [`clear_buffer`]: Self::clear_buffer
-        pub fn capture_frame(
+        /// Queues `frame`. A frame longer than the queue is fed one queue-sized chunk at a
+        /// time; a [`clear_buffer`](Self::clear_buffer) after this call drops the chunks not
+        /// queued yet.
+        pub fn capture_frame<'a>(
             &self,
-            frame: &AudioFrame<'_>,
-        ) -> impl std::future::Future<Output = Result<(), RtcError>> + Send + 'static {
+            frame: &'a AudioFrame<'a>,
+        ) -> impl std::future::Future<Output = Result<(), RtcError>> + Send + 'a {
             self.handle.capture_frame(frame)
+        }
+
+        /// [`capture_frame`](Self::capture_frame) with an owned frame, so the future can be
+        /// spawned (the FFI's capture requests).
+        #[doc(hidden)]
+        pub fn capture_owned_frame(
+            &self,
+            frame: AudioFrame<'static>,
+        ) -> impl std::future::Future<Output = Result<(), RtcError>> + Send + 'static {
+            self.handle.capture_owned_frame(frame)
         }
 
         pub fn set_audio_options(&self, options: AudioSourceOptions) {
@@ -256,12 +264,19 @@ mod tests {
             num_channels: 1,
             samples_per_channel: samples as u32,
         };
-        let capturing = source.clone();
-        let capture = tokio::spawn(async move { capturing.capture_frame(&frame).await });
+        let capture = tokio::spawn(source.capture_owned_frame(frame));
 
         tokio::time::sleep(Duration::from_millis(25)).await;
         let cleared = Instant::now();
         source.clear_buffer();
+        // The next reply starts at once: the source takes it while the cut capture winds down.
+        let next = AudioFrame {
+            data: Cow::Owned(vec![0i16; SAMPLE_RATE as usize / 100]),
+            sample_rate: SAMPLE_RATE,
+            num_channels: 1,
+            samples_per_channel: SAMPLE_RATE / 100,
+        };
+        source.capture_frame(&next).await.expect("a capture right after a clear is taken");
         tokio::time::timeout(Duration::from_millis(100), capture)
             .await
             .expect("a cleared capture resolves")
