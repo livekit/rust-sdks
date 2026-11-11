@@ -46,29 +46,45 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            ffi_platform: ffi-desktop
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            ffi_platform: ffi-windows-arm64
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
           - os: macos-latest
             target: x86_64-apple-darwin
+            ffi_platform: ffi-desktop
           - os: macos-latest
             target: aarch64-apple-darwin
+            ffi_platform: ffi-desktop
           - os: macos-latest
             target: aarch64-apple-ios
+            ffi_platform: ffi-ios
+            # Measured: the swift row has no crate-type (cargo-swift picks it), so
+            # the static archive is measured as the proxy for the framework.
+            core_platform: swift
+            core_crate_type: staticlib
           - os: macos-latest
             target: aarch64-apple-ios-sim
+            ffi_platform: ffi-ios
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            ffi_platform: ffi-desktop
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            ffi_platform: ffi-desktop
           - os: ubuntu-latest
             target: aarch64-linux-android
+            ffi_platform: ffi-android
+            core_platform: android
             ndk_arch: aarch64-unknown-linux-musl
           - os: ubuntu-latest
             target: armv7-linux-androideabi
+            ffi_platform: ffi-android
             ndk_arch: arm-unknown-linux-musleabihf
           - os: ubuntu-latest
             target: x86_64-linux-android
+            ffi_platform: ffi-android
             ndk_arch: x86_64-unknown-linux-musl
 
     name: Build (${{ matrix.target }})
@@ -173,29 +189,146 @@ jobs:
           # FIXME: wgpu_room does not link on aarch64
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
 
-      # `--workspace` above builds livekit-ffi with its default features, which
-      # select livekit-ffi/room-apis. core-modules is mutually exclusive with
-      # it, so it needs its own invocation or nothing would compile the
-      # core-modules code per-commit across this matrix. (Before the
-      # livekit-uniffi merge that coverage came free from the separate crate.)
-      - name: Build (Cargo, livekit-ffi core-modules)
-        if: ${{ !contains(matrix.target, 'android') }}
+      # The workspace build above compiles livekit-ffi, but not as anything
+      # ships it: it uses the default features, and emits every crate type in
+      # livekit-ffi's [lib], whose rlib makes cargo drop LTO. Build it again
+      # the way this target's release build does, from the same
+      # [package.metadata.platform-features] row ffi-builds.yml uses. That
+      # checks the shipped configuration on every commit, and gives a size
+      # worth recording.
+      - name: Resolve livekit-ffi platform flags
         shell: bash
         run: |
-          # Not a platform build: this gate only checks that the
-          # core-modules surface still compiles. Platform builds take their
-          # flags from [package.metadata.platform-features] in
-          # livekit-ffi/Cargo.toml.
+          set -euo pipefail
+          # Windows runners may have only `python`, and `python3` there can be
+          # the Microsoft Store stub, so probe by running it.
+          for py in python3 python; do
+            if "$py" --version >/dev/null 2>&1; then break; fi
+          done
+          echo "PYTHON=$py" >> "$GITHUB_ENV"
+
+          echo "FFI_FLAGS=$("$py" .github/scripts/ffi_features.py ${{ matrix.ffi_platform }})" >> "$GITHUB_ENV"
+
+          if [ -n "${{ matrix.core_platform }}" ]; then
+            core=$("$py" .github/scripts/ffi_features.py ${{ matrix.core_platform }})
+            if [ -n "${{ matrix.core_crate_type }}" ]; then
+              core="--lib --crate-type ${{ matrix.core_crate_type }} $core"
+            fi
+            echo "CORE_FLAGS=$core" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build livekit-ffi (room-apis, as shipped)
+        if: ${{ !contains(matrix.target, 'android') }}
+        shell: bash
+        run: cargo rustc -p livekit-ffi $FFI_FLAGS --release --target ${{ matrix.target }}
+
+      - name: Build livekit-ffi (room-apis, as shipped, Android)
+        if: ${{ contains(matrix.target, 'android') }}
+        shell: bash
+        run: cargo ndk --target ${{ matrix.target }} rustc -p livekit-ffi $FFI_FLAGS --release
+
+      # As ffi-builds.yml does before packaging the archive.
+      - name: Strip livekit-ffi static archive (room-apis, iOS)
+        if: ${{ contains(matrix.target, 'apple-ios') }}
+        run: |
+          xcrun strip -S target/${{ matrix.target }}/release/liblivekit_ffi.a
+          xcrun ranlib target/${{ matrix.target }}/release/liblivekit_ffi.a
+
+      - name: Measure livekit-ffi (room-apis)
+        shell: bash
+        run: |
+          "$PYTHON" .github/scripts/ffi_size.py measure --row room-apis \
+            --target ${{ matrix.target }} --flags "$FFI_FLAGS" \
+            --out sizes/room-apis-${{ matrix.target }}.json
+
+      # core-modules is mutually exclusive with room-apis, so it needs its own
+      # build or nothing would compile it per-commit across this matrix. Most
+      # targets only check that it compiles; the targets with a
+      # `core_platform` build and measure what the Swift and Android packages
+      # ship, which is what the size budgets in livekit-ffi/Makefile.toml gate.
+      - name: Build (Cargo, livekit-ffi core-modules)
+        if: ${{ !contains(matrix.target, 'android') && !matrix.core_platform }}
+        shell: bash
+        run: |
           cargo build --release -p livekit-ffi --target ${{ matrix.target }} \
             --no-default-features --features core-modules
 
       - name: Build (Android, livekit-ffi core-modules)
-        if: ${{ contains(matrix.target, 'android') }}
+        if: ${{ contains(matrix.target, 'android') && !matrix.core_platform }}
         shell: bash
         run: |
-          # Not a platform build: this gate only checks that the
-          # core-modules surface still compiles. Platform builds take their
-          # flags from [package.metadata.platform-features] in
-          # livekit-ffi/Cargo.toml.
           cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi \
             --no-default-features --features core-modules
+
+      # Overwrites the room-apis archive measured above.
+      - name: Build livekit-ffi (core-modules, as shipped, iOS)
+        if: ${{ contains(matrix.target, 'apple-ios') && matrix.core_platform }}
+        shell: bash
+        run: |
+          cargo rustc -p livekit-ffi $CORE_FLAGS --release --target ${{ matrix.target }}
+          xcrun strip -S target/${{ matrix.target }}/release/liblivekit_ffi.a
+          xcrun ranlib target/${{ matrix.target }}/release/liblivekit_ffi.a
+
+      # The Android package build sets these RUSTFLAGS (livekit-ffi/Makefile.toml).
+      # Changing RUSTFLAGS invalidates every crate, so build in a target dir of
+      # its own rather than evicting the workspace build's artifacts.
+      - name: Build livekit-ffi (core-modules, as shipped, Android)
+        if: ${{ contains(matrix.target, 'android') && matrix.core_platform }}
+        shell: bash
+        env:
+          RUSTFLAGS: -C force-unwind-tables=no
+          CARGO_TARGET_DIR: target/core-modules
+        run: cargo ndk --target ${{ matrix.target }} rustc -p livekit-ffi $CORE_FLAGS --release
+
+      - name: Measure livekit-ffi (core-modules)
+        if: ${{ matrix.core_platform }}
+        shell: bash
+        run: |
+          target_dir=target
+          if [[ "${{ matrix.target }}" == *android* ]]; then target_dir=target/core-modules; fi
+          "$PYTHON" .github/scripts/ffi_size.py measure --row core-modules \
+            --target ${{ matrix.target }} --flags "$CORE_FLAGS" --target-dir "$target_dir" \
+            --out sizes/core-modules-${{ matrix.target }}.json
+
+      - name: Upload livekit-ffi sizes
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffi-size-${{ matrix.target }}
+          path: sizes/
+          if-no-files-found: ignore
+
+  # Merges the per-target sizes into one table on the run summary, and keeps
+  # them as the `ffi-size-summary` artifact so later runs can compare against
+  # the build on main.
+  ffi-size:
+    name: livekit-ffi sizes
+    needs: build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download sizes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ffi-size-*
+          merge-multiple: true
+          path: sizes
+
+      - name: Summarize
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p sizes
+          python3 .github/scripts/ffi_size.py summary sizes --sha "$SHA" \
+            --json size-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffi-size-summary
+          path: size-summary.json
+          retention-days: 90
