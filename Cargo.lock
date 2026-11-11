@@ -3944,6 +3944,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "bytes",
+ "flate2",
  "futures-util",
  "http 1.4.2",
  "log",
@@ -4019,11 +4020,19 @@ dependencies = [
 name = "livekit-telemetry"
 version = "0.1.1"
 dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "livekit-net",
  "log",
  "opentelemetry-proto",
  "prost 0.14.4",
+ "prost-types 0.14.4",
  "rand 0.9.5",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
  "uniffi",
+ "url",
 ]
 
 [[package]]

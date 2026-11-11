@@ -50,7 +50,8 @@ macro_rules! counters {
 }
 
 counters! {
-    /// Records evicted from the in-memory queue (`max_queue_size`).
+    /// Records evicted from the in-memory queue (`max_queue_size`), and spans dropped from a full
+    /// span buffer (open spans abandoned, finished ones past its capacity).
     queue_full,
     /// Records lost because no cache, not even memory, could take their batch.
     cache_error,
@@ -101,18 +102,13 @@ impl Counters {
 impl Snapshot {
     /// Everything that was lost, by any reason.
     pub fn dropped(&self) -> u64 {
-        self.queue_full
-            + self.cache_error
-            + self.cache_full
-            + self.expired
-            + self.corrupt
-            + self.invalid
-            + self.rejected
-            + self.oversized
-            + self.throttled
-            + self.disabled
-            + self.rate_limited
-            + self.purged
+        self.problem_drops() + self.disabled + self.purged
+    }
+
+    /// Upload attempts that did not get through: failures and timeouts together, the "failed"
+    /// of the report's body (the `lk.telemetry.uploads.failed` attribute counts failures only).
+    pub fn failed_attempts(&self) -> u64 {
+        self.upload_failures + self.upload_timeouts
     }
 
     /// Records lost other than by policy (a project that receives nothing, an opt-out).
@@ -150,14 +146,14 @@ impl Snapshot {
                 "telemetry: {} batches sent ({} B), {} failed, {} dropped, {} cached",
                 self.uploads_sent,
                 self.upload_bytes,
-                self.upload_failures + self.upload_timeouts,
+                self.failed_attempts(),
                 self.problem_drops(),
                 cached_batches
             ))
-            .with_attribute("lk.telemetry.uploads.sent", self.uploads_sent as i64)
-            .with_attribute("lk.telemetry.uploads.bytes", self.upload_bytes as i64)
-            .with_attribute("lk.telemetry.uploads.failed", self.upload_failures as i64)
-            .with_attribute("lk.telemetry.cache.batches", cached_batches as i64);
+            .with_attribute("lk.telemetry.uploads.sent", int(self.uploads_sent))
+            .with_attribute("lk.telemetry.uploads.bytes", int(self.upload_bytes))
+            .with_attribute("lk.telemetry.uploads.failed", int(self.upload_failures))
+            .with_attribute("lk.telemetry.cache.batches", int(cached_batches));
         for (key, value) in [
             ("lk.telemetry.uploads.timeouts", self.upload_timeouts),
             ("lk.telemetry.uploads.unauthorized", self.auth_denied),
@@ -175,11 +171,16 @@ impl Snapshot {
             ("lk.telemetry.dropped.rate_limited", self.rate_limited),
         ] {
             if value > 0 {
-                event = event.with_attribute(key, value as i64);
+                event = event.with_attribute(key, int(value));
             }
         }
         event
     }
+}
+
+/// A count as an OTLP integer: past `i64::MAX` it saturates rather than wraps negative.
+fn int(count: u64) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
 }
 
 /// What the upload policy is doing right now.
@@ -224,17 +225,29 @@ pub struct TelemetryStats {
     pub status: TelemetryStatus,
     /// Records lost for any reason (sum of the `dropped_*` fields).
     pub dropped: u64,
+    /// Records evicted from the in-memory queue, and spans dropped from a full span buffer.
     pub dropped_queue_full: u64,
+    /// Records lost because no cache, not even memory, could take their batch.
     pub dropped_cache_error: u64,
+    /// Records evicted from the cache by its size or file-count bound.
     pub dropped_cache_full: u64,
+    /// Records in cached batches past the 24 h age limit.
     pub dropped_expired: u64,
+    /// Records in cached batches that failed their integrity check.
     pub dropped_corrupt: u64,
+    /// Custom events and attributes refused at the door, over the limits.
     pub dropped_invalid: u64,
+    /// Records the collector rejected (a final 4xx/5xx, or a partial success).
     pub dropped_rejected: u64,
+    /// Single records larger than the collector accepts.
     pub dropped_oversized: u64,
+    /// Records evicted from the cache while the collector held uploads off.
     pub dropped_throttled: u64,
+    /// Records for a project that receives nothing (self-hosted, no grant, disabled, 404).
     pub dropped_disabled: u64,
+    /// Discrete events dropped by the flood guard.
     pub dropped_rate_limited: u64,
+    /// Records deleted by the opt-out.
     pub dropped_purged: u64,
     /// Batches the collector accepted.
     pub uploads_sent: u64,
@@ -254,8 +267,9 @@ pub struct TelemetryStats {
     pub cached_batches: u64,
 }
 
-/// One line for a debug console: status, throughput, one backlog number, one loss number, then
-/// the loss breakdown.
+/// One line for a debug console: status, throughput, one backlog number, "failed" (failures and
+/// timeouts together, [`TelemetryStats::failed_attempts`]), one loss number, then the loss
+/// breakdown.
 impl std::fmt::Display for TelemetryStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -267,7 +281,7 @@ impl std::fmt::Display for TelemetryStats {
             self.uploads_sent,
             self.upload_bytes,
             self.cached_batches,
-            self.upload_failures + self.upload_timeouts,
+            self.failed_attempts(),
             self.dropped,
             self.dropped_queue_full,
             self.dropped_cache_full + self.dropped_cache_error,
@@ -288,6 +302,12 @@ impl std::fmt::Display for TelemetryStats {
 }
 
 impl TelemetryStats {
+    /// Upload attempts that did not get through: `upload_failures` and `upload_timeouts`
+    /// together, the "failed" of the `Display` line and of the report's body.
+    pub fn failed_attempts(&self) -> u64 {
+        self.upload_failures + self.upload_timeouts
+    }
+
     pub(crate) fn new(snapshot: Snapshot, cached_batches: u64, status: TelemetryStatus) -> Self {
         Self {
             status,
@@ -313,5 +333,22 @@ impl TelemetryStats {
             cache_write_errors: snapshot.cache_write_errors,
             cached_batches,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AttributeValue;
+
+    /// A count past `i64::MAX` reaches the report as `i64::MAX`, never as a negative number.
+    #[test]
+    fn report_counts_saturate_instead_of_wrapping() {
+        let snapshot = Snapshot { upload_failures: u64::MAX, ..Snapshot::default() };
+        let report = snapshot.report(u64::MAX);
+        let value =
+            |key: &str| report.attributes.iter().find(|a| a.key == key).map(|a| a.value.clone());
+        assert_eq!(value("lk.telemetry.uploads.failed"), Some(AttributeValue::Int(i64::MAX)));
+        assert_eq!(value("lk.telemetry.cache.batches"), Some(AttributeValue::Int(i64::MAX)));
     }
 }
