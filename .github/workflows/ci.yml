@@ -8,6 +8,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   pull-requests: read
@@ -86,25 +90,25 @@ jobs:
   builds:
     name: Builds
     needs: changes
-    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/builds.yml
 
   tests:
     name: Tests
     needs: changes
-    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/tests.yml
 
   feature-combinations:
     name: Feature Combinations
     needs: changes
-    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/feature-combinations-curated.yml
 
   uniffi-dart-test:
     name: UniFFI Dart Tests
     needs: changes
-    if: ${{ needs.changes.outputs.dart == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.changes.outputs.dart == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/uniffi-dart-test.yml
 
   test-api:
@@ -118,13 +122,14 @@ jobs:
   changeset:
     name: Changeset Check
     if: ${{ github.event_name == 'pull_request' }}
+    # Reusable workflows cannot elevate the caller's token permissions.
     permissions:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/changeset-check.yml
 
-  # Repository rulesets should require only this job. It succeeds when a
-  # conditionally skipped workflow is not relevant to the change.
+  # After this workflow has produced a check, configure repository rulesets to
+  # require only this job. Intentional path-based skips are accepted.
   ci:
     name: CI
     runs-on: ubuntu-latest
@@ -140,6 +145,13 @@ jobs:
       - changeset
     if: always()
     steps:
+      - name: Reject incomplete validation
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            <<< "$NEEDS_JSON"
+
       - name: Verify required CI jobs
         uses: suzuki-shunsuke/required-status-check-action@2b5a46064846b09381852c2c4217e898f639e768 # v0.1.3
         with:

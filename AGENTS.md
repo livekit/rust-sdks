@@ -99,7 +99,7 @@ Several crates export items to Swift/Kotlin/Python through UniFFI — `livekit-f
 
 - Keep build and test implementation details in their reusable workflows. The aggregator owns event handling, path filters, and the final dependency list.
 - Manual runs intentionally execute every aggregated stage, including stages skipped by normal path filters.
-- The `core` filter gates builds, tests, and feature-combination checks. The `dart` filter preserves the narrower paths used by the UniFFI Dart tests.
+- Pull requests use path filters, while every `main` push runs builds, tests, feature-combination checks, and Dart tests.
 - Formatting, API tests, and license checks retain their broad existing coverage. The changeset check runs only for pull requests and responds to label changes.
 - The protobuf generation workflows remain standalone because they write generated changes back to pull request branches. Release and package-publishing workflows are also outside the review aggregate.
 - When adding or renaming files that affect a filtered stage, update the corresponding filter in `ci.yml` in the same change.
