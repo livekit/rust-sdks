@@ -700,6 +700,11 @@ export declare class NewApmRequest extends Message<NewApmRequest> {
    */
   noiseSuppressionEnabled?: boolean;
 
+  /**
+   * @generated from field: optional float gain_controller_initial_gain_db = 5;
+   */
+  gainControllerInitialGainDb?: number;
+
   constructor(data?: PartialMessage<NewApmRequest>);
 
   static readonly runtime: typeof proto2;
