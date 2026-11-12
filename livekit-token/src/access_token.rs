@@ -235,25 +235,42 @@ impl AgentThreadGrants {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AgentDatabaseGrants {
-    // standalone databases ("DB_...") this token may read or write
+    // databases this token may read, write or delete
     #[serde(skip_serializing_if = "is_default")]
     pub database_ids: Vec<String>,
     #[serde(skip_serializing_if = "is_default")]
     pub read: bool,
     #[serde(skip_serializing_if = "is_default")]
     pub write: bool,
-    // read and write every database of the project, threads' included
     #[serde(skip_serializing_if = "is_default")]
-    pub admin: bool,
+    pub delete: bool,
+    // create databases in the project
+    #[serde(skip_serializing_if = "is_default")]
+    pub create: bool,
+    // list the project's databases
+    #[serde(skip_serializing_if = "is_default")]
+    pub list: bool,
 }
 
 impl AgentDatabaseGrants {
     pub fn can_read(&self, database_id: &str) -> bool {
-        self.admin || (self.read && self.includes(database_id))
+        self.read && self.includes(database_id)
     }
 
     pub fn can_write(&self, database_id: &str) -> bool {
-        self.admin || (self.write && self.includes(database_id))
+        self.write && self.includes(database_id)
+    }
+
+    pub fn can_delete(&self, database_id: &str) -> bool {
+        self.delete && self.includes(database_id)
+    }
+
+    pub fn can_create(&self) -> bool {
+        self.create
+    }
+
+    pub fn can_list(&self) -> bool {
+        self.list
     }
 
     fn includes(&self, database_id: &str) -> bool {
@@ -795,8 +812,22 @@ mod tests {
         assert!(!claims.agent_database.can_read("DB_b") && !claims.agent_database.can_read(""));
         assert!(claims.agent_endpoint.allows("a", "default"));
 
-        let admin = AgentDatabaseGrants { admin: true, ..Default::default() };
-        assert!(admin.can_read("DB_b") && admin.can_write("AT_t"));
+        let db = AgentDatabaseGrants {
+            database_ids: vec!["DB_a".into()],
+            delete: true,
+            create: true,
+            list: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&db).unwrap(),
+            serde_json::json!({
+                "databaseIds": ["DB_a"], "delete": true, "create": true, "list": true
+            })
+        );
+        assert!(db.can_delete("DB_a") && !db.can_delete("DB_b") && !db.can_read("DB_a"));
+        assert!(db.can_create() && db.can_list());
+        assert!(!AgentDatabaseGrants::default().can_create());
         let all = AgentThreadGrants { all: true, sql: true, ..Default::default() };
         assert!(all.can_sql("AT_t") && !all.can_sql(""));
     }

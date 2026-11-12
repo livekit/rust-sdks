@@ -64,40 +64,83 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    fn bearer(&self) -> Result<String, livekit_token::AccessTokenError> {
+    fn bearer(
+        &self,
+        info: &OperationInfo,
+        url: &reqwest::Url,
+    ) -> Result<String, livekit_token::AccessTokenError> {
         let token = match &self.base {
             ServiceBase::Token(token) => token.clone(),
             ServiceBase::ApiKeySecret { api_key, api_secret } => {
-                AccessToken::with_api_key(api_key, api_secret)
-                    .with_ttl(TOKEN_TTL)
-                    .with_agent_database_grants(AgentDatabaseGrants {
-                        admin: true,
-                        ..Default::default()
-                    })
-                    .with_agent_thread_grants(AgentThreadGrants {
-                        all: true,
-                        list: true,
-                        create: true,
-                        write: true,
-                        read: true,
-                        delete: true,
-                        ..Default::default()
-                    })
-                    .to_jwt()?
+                let token = AccessToken::with_api_key(api_key, api_secret).with_ttl(TOKEN_TTL);
+                scoped(token, info.operation_id, url).to_jwt()?
             }
         };
         Ok(format!("Bearer {token}"))
     }
 }
 
+/// Grants only what the call needs: a database call reaches only the database it names.
+fn scoped(token: AccessToken, operation_id: &str, url: &reqwest::Url) -> AccessToken {
+    let database = |grants: AgentDatabaseGrants| AgentDatabaseGrants {
+        database_ids: vec![database_id(url)],
+        ..grants
+    };
+    match operation_id {
+        "database_service_create_database" => token
+            .with_agent_database_grants(AgentDatabaseGrants { create: true, ..Default::default() }),
+        "database_service_list_databases" => token
+            .with_agent_database_grants(AgentDatabaseGrants { list: true, ..Default::default() }),
+        "database_service_delete_database" => {
+            token.with_agent_database_grants(database(AgentDatabaseGrants {
+                delete: true,
+                ..Default::default()
+            }))
+        }
+        "database_service_get_database" | "database_service_export_database" => {
+            let id = database_id(url);
+            if id.starts_with("AT_") {
+                // a thread's database is read through its thread
+                token.with_agent_thread_grants(AgentThreadGrants {
+                    thread_ids: vec![id],
+                    sql: true,
+                    ..Default::default()
+                })
+            } else {
+                token.with_agent_database_grants(database(AgentDatabaseGrants {
+                    read: true,
+                    ..Default::default()
+                }))
+            }
+        }
+        _ => token.with_agent_thread_grants(AgentThreadGrants {
+            all: true,
+            list: true,
+            create: true,
+            write: true,
+            read: true,
+            delete: true,
+            ..Default::default()
+        }),
+    }
+}
+
+/// The database a `/databases/{id}` or `/databases/{id}:export` request names.
+fn database_id(url: &reqwest::Url) -> String {
+    let last = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or_default();
+    last.split(':').next().unwrap_or_default().to_owned()
+}
+
 impl ClientHooks<Credentials> for Client {
     async fn pre<E>(
         &self,
         request: &mut reqwest::Request,
-        _: &OperationInfo,
+        info: &OperationInfo,
     ) -> Result<(), progenitor_client::Error<E>> {
-        let bearer =
-            self.inner.bearer().map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
+        let bearer = self
+            .inner
+            .bearer(info, request.url())
+            .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
         let value = HeaderValue::from_str(&bearer)
             .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
         request.headers_mut().insert(AUTHORIZATION, value);
@@ -186,7 +229,33 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use super::public_api_url;
+    use livekit_token::{AccessToken, Claims};
+
+    use super::{public_api_url, scoped};
+
+    fn claims(operation_id: &str, path: &str) -> Claims {
+        let url = reqwest::Url::parse(&format!("https://x/v0/projects/p_/{path}")).unwrap();
+        let token = scoped(AccessToken::with_api_key("k", "s"), operation_id, &url);
+        Claims::from_unverified(&token.to_jwt().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn database_calls_carry_only_their_grant() {
+        let c = claims("database_service_create_database", "databases");
+        assert!(c.agent_database.can_create() && !c.agent_database.can_list());
+        assert!(!c.agent_thread.can_list(""));
+        let c = claims("database_service_list_databases", "databases");
+        assert!(c.agent_database.can_list() && !c.agent_database.can_create());
+        let c = claims("database_service_get_database", "databases/DB_a");
+        assert!(c.agent_database.can_read("DB_a") && !c.agent_database.can_read("DB_b"));
+        let c = claims("database_service_export_database", "databases/AT_t:export");
+        assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
+        assert!(!c.agent_database.can_read("AT_t"));
+        let c = claims("database_service_delete_database", "databases/DB_a");
+        assert!(c.agent_database.can_delete("DB_a") && !c.agent_database.can_read("DB_a"));
+        let c = claims("thread_service_get_thread", "threads/AT_t");
+        assert!(c.agent_thread.can_read("AT_t") && !c.agent_database.can_list());
+    }
 
     #[test]
     fn public_api_url_from_project_url() {
