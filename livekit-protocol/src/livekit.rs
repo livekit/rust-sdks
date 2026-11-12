@@ -4959,7 +4959,7 @@ pub struct JobState {
 /// from Worker to Server
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof = "worker_message::Message", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "worker_message::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4984,12 +4984,15 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag = "7")]
         MigrateJob(super::MigrateJobRequest),
+        /// a running job asks the server to sign an access token for it
+        #[prost(message, tag = "8")]
+        CreateJobToken(super::CreateJobTokenRequest),
     }
 }
 /// from Server to Worker
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4, 6")]
+    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4, 6, 7")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -5012,6 +5015,8 @@ pub mod server_message {
         /// in-flight agent HTTP streams run to completion
         #[prost(message, tag = "6")]
         GoAway(super::agent_http::GoAway),
+        #[prost(message, tag = "7")]
+        CreateJobToken(super::CreateJobTokenResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5185,6 +5190,31 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag = "1")]
     pub job_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateJobTokenRequest {
+    /// echoed in the response
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub job_id: ::prost::alloc::string::String,
+    /// The claims of the token the job wants, as JSON, in the same shape as an
+    /// access token's payload: identity, name, attributes, video, sip, and so on.
+    #[prost(string, tag = "3")]
+    pub claims: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateJobTokenResponse {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
+    /// Unix seconds
+    #[prost(int64, tag = "3")]
+    pub expires_at: i64,
+    /// empty on success; otherwise why the token was refused, naming any refused claim
+    #[prost(string, tag = "4")]
+    pub error: ::prost::alloc::string::String,
 }
 /// ----- agent HTTP endpoints data plane -----
 ///
