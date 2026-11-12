@@ -116,4 +116,8 @@ impl AudioProcessingModule {
             })
         }
     }
+
+    pub fn set_gain_controller_initial_gain_db(&mut self, gain_db: f32) {
+        self.sys_handle.pin_mut().set_gain_controller_initial_gain_db(gain_db);
+    }
 }

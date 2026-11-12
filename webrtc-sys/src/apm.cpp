@@ -57,6 +57,12 @@ int AudioProcessingModule::set_stream_delay_ms(int delay_ms) {
   return apm_->set_stream_delay_ms(delay_ms);
 }
 
+void AudioProcessingModule::set_gain_controller_initial_gain_db(float gain_db) {
+  webrtc::AudioProcessing::Config config = apm_->GetConfig();
+  config.gain_controller2.adaptive_digital.initial_gain_db = gain_db;
+  apm_->ApplyConfig(config);
+}
+
 std::unique_ptr<AudioProcessingModule> create_apm(
     bool echo_canceller_enabled,
     bool gain_controller_enabled,

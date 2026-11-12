@@ -63,6 +63,8 @@ class AudioProcessingModule {
 
   int set_stream_delay_ms(int delay_ms);
 
+  void set_gain_controller_initial_gain_db(float gain_db);
+
  private:
   webrtc::scoped_refptr<webrtc::AudioProcessing> apm_;
 };
