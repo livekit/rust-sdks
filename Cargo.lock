@@ -3946,6 +3946,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-hwcodec"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+]
+
+[[package]]
 name = "livekit-net"
 version = "0.1.4"
 dependencies = [

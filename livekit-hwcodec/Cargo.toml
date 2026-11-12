@@ -1,0 +1,21 @@
+[package]
+name = "livekit-hwcodec"
+version = "0.1.0"
+license.workspace = true
+description = "Internal LiveKit hardware video codecs; no stability guarantees"
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+# Tests that need `modprobe vicodec multiplanar=1`.
+__lk-vicodec-test = []
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+log = { workspace = true }
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
