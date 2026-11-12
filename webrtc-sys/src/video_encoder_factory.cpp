@@ -30,6 +30,7 @@
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
+#include "api/video_codecs/video_encoder_software_fallback_wrapper.h"
 #include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/objc_video_factory.h"
 #include "livekit/passthrough_video_encoder.h"
@@ -40,6 +41,11 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
+
+#ifdef LIVEKIT_TEST
+#include "api/video/i420_buffer.h"
+#include "modules/video_coding/include/video_codec_interface.h"
+#endif
 
 #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
@@ -217,8 +223,10 @@ bool FormatSupportedByBackendFactory(VideoEncoderBackend backend,
 void AddBackendFactory(
     std::vector<VideoEncoderBackendFactory>& factories,
     VideoEncoderBackend backend,
-    std::unique_ptr<webrtc::VideoEncoderFactory> factory) {
-  factories.push_back(VideoEncoderBackendFactory{backend, std::move(factory)});
+    std::unique_ptr<webrtc::VideoEncoderFactory> factory,
+    bool software_fallback = false) {
+  factories.push_back(VideoEncoderBackendFactory{backend, std::move(factory),
+                                                 software_fallback});
 }
 
 void AddJetsonFactory(
@@ -228,7 +236,8 @@ void AddJetsonFactory(
     AddBackendFactory(
         factories,
         VideoEncoderBackend::Hardware,
-        std::make_unique<webrtc::JetsonVideoEncoderFactory>());
+        std::make_unique<webrtc::JetsonVideoEncoderFactory>(),
+        /*software_fallback=*/true);
     return;
   }
 #else
@@ -244,7 +253,8 @@ void AddNvencFactory(
     AddBackendFactory(
         factories,
         VideoEncoderBackend::Nvenc,
-        std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+        std::make_unique<webrtc::NvidiaVideoEncoderFactory>(),
+        /*software_fallback=*/true);
     return;
   }
 
@@ -271,7 +281,8 @@ void AddVaapiFactory(
     AddBackendFactory(
         factories,
         VideoEncoderBackend::Vaapi,
-        std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+        std::make_unique<webrtc::VAAPIVideoEncoderFactory>(),
+        /*software_fallback=*/true);
     return;
   }
 
@@ -301,6 +312,32 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibaomAv1EncoderTemplateAdapter,
 #endif
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
+
+namespace {
+
+// Without the wrapper, libwebrtc only logs WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE
+// and the track stops.
+std::unique_ptr<webrtc::VideoEncoder> CreateBackendEncoder(
+    const VideoEncoderBackendFactory& backend_factory,
+    const webrtc::Environment& env,
+    const webrtc::SdpVideoFormat& format) {
+  auto encoder = backend_factory.factory->Create(env, format);
+  if (!encoder || !backend_factory.software_fallback) {
+    return encoder;
+  }
+  auto software_format = webrtc::FuzzyMatchSdpVideoFormat(
+      Factory().GetSupportedFormats(), format);
+  auto software_encoder =
+      software_format ? Factory().Create(env, *software_format) : nullptr;
+  if (!software_encoder) {
+    return encoder;
+  }
+  return webrtc::CreateVideoEncoderSoftwareFallbackWrapper(
+      env, std::move(software_encoder), std::move(encoder),
+      /*prefer_temporal_support=*/false);
+}
+
+}  // namespace
 
 rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   rust::Vec<VideoEncoderBackend> backends;
@@ -620,7 +657,8 @@ VideoEncoderFactory::InternalFactory::Create(
         if (FormatSupportedByBackendFactory(backend_factory.backend,
                                             supported_format,
                                             stripped_format)) {
-          auto encoder = backend_factory.factory->Create(env, stripped_format);
+          auto encoder = CreateBackendEncoder(backend_factory, env,
+                                              stripped_format);
           if (encoder) {
             return encoder;
           }
@@ -655,8 +693,14 @@ VideoEncoderFactory::InternalFactory::Create(
     }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
-      if (supported_format.IsSameCodec(stripped_format))
-        return backend_factory.factory->Create(env, stripped_format);
+      if (!supported_format.IsSameCodec(stripped_format)) {
+        continue;
+      }
+      auto encoder = CreateBackendEncoder(backend_factory, env,
+                                          stripped_format);
+      if (encoder) {
+        return encoder;
+      }
     }
   }
 
@@ -838,5 +882,148 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
 
   return encoder;
 }
+
+#ifdef LIVEKIT_TEST
+void VideoEncoderFactory::AddBackendForTest(
+    VideoEncoderBackendFactory backend) {
+  internal_factory_->AddBackendForTest(std::move(backend));
+}
+
+namespace {
+
+class FailingEncoder final : public webrtc::VideoEncoder {
+ public:
+  explicit FailingEncoder(bool fail_init) : fail_init_(fail_init) {}
+
+  int InitEncode(const webrtc::VideoCodec* /* codec_settings */,
+                 const Settings& /* settings */) override {
+    return fail_init_ ? WEBRTC_VIDEO_CODEC_ERROR : WEBRTC_VIDEO_CODEC_OK;
+  }
+
+  int32_t RegisterEncodeCompleteCallback(
+      webrtc::EncodedImageCallback* callback) override {
+    callback_ = callback;
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+
+  int32_t Release() override { return WEBRTC_VIDEO_CODEC_OK; }
+
+  int32_t Encode(
+      const webrtc::VideoFrame& frame,
+      const std::vector<webrtc::VideoFrameType>* /* frame_types */) override {
+    if (encoded_) {
+      return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
+    }
+    encoded_ = true;
+    const uint8_t payload[] = {0};
+    webrtc::EncodedImage image;
+    image.SetEncodedData(
+        webrtc::EncodedImageBuffer::Create(payload, sizeof(payload)));
+    image.SetRtpTimestamp(frame.rtp_timestamp());
+    webrtc::CodecSpecificInfo info;
+    info.codecType = webrtc::kVideoCodecVP8;
+    callback_->OnEncodedImage(image, &info);
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+
+  void SetRates(const RateControlParameters& /* parameters */) override {}
+
+  EncoderInfo GetEncoderInfo() const override {
+    EncoderInfo info;
+    info.implementation_name = "stub";
+    info.is_hardware_accelerated = true;
+    return info;
+  }
+
+ private:
+  const bool fail_init_;
+  bool encoded_ = false;
+  webrtc::EncodedImageCallback* callback_ = nullptr;
+};
+
+class FailingEncoderFactory final : public webrtc::VideoEncoderFactory {
+ public:
+  explicit FailingEncoderFactory(uint8_t failure) : failure_(failure) {}
+
+  std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
+    return {webrtc::SdpVideoFormat("VP8")};
+  }
+
+  std::unique_ptr<webrtc::VideoEncoder> Create(
+      const webrtc::Environment& /* env */,
+      const webrtc::SdpVideoFormat& /* format */) override {
+    if (failure_ == kFallbackTestFailCreate) {
+      return nullptr;
+    }
+    return std::make_unique<FailingEncoder>(failure_ == kFallbackTestFailInit);
+  }
+
+ private:
+  const uint8_t failure_;
+};
+
+class CountingCallback final : public webrtc::EncodedImageCallback {
+ public:
+  Result OnEncodedImage(const webrtc::EncodedImage& /* image */,
+                        const webrtc::CodecSpecificInfo* /* info */) override {
+    ++sent;
+    return Result(Result::OK);
+  }
+  void OnFrameDropped(uint32_t /* rtp_timestamp */,
+                      int /* spatial_id */,
+                      bool /* is_end_of_temporal_unit */) override {}
+  int sent = 0;
+};
+
+}  // namespace
+
+rust::Vec<rust::String> software_fallback_for_test(uint8_t failure) {
+  VideoEncoderFactory factory;
+  factory.AddBackendForTest(VideoEncoderBackendFactory{
+      VideoEncoderBackend::Hardware,
+      std::make_unique<FailingEncoderFactory>(failure),
+      /*software_fallback=*/true});
+  auto encoder = factory.Create(webrtc::CreateEnvironment(),
+                                webrtc::SdpVideoFormat("VP8"));
+
+  webrtc::VideoCodec codec;
+  codec.codecType = webrtc::kVideoCodecVP8;
+  codec.width = 64;
+  codec.height = 64;
+  codec.maxFramerate = 30;
+  codec.startBitrate = 100;
+  codec.maxBitrate = 200;
+  codec.qpMax = 56;
+  *codec.VP8() = webrtc::VideoEncoder::GetDefaultVp8Settings();
+  encoder->InitEncode(
+      &codec, webrtc::VideoEncoder::Settings(
+                  webrtc::VideoEncoder::Capabilities(false), 1, 1200));
+  CountingCallback callback;
+  encoder->RegisterEncodeCompleteCallback(&callback);
+  webrtc::VideoBitrateAllocation allocation;
+  allocation.SetBitrate(0, 0, 100'000);
+  encoder->SetRates(
+      webrtc::VideoEncoder::RateControlParameters(allocation, 30.0));
+
+  auto buffer = webrtc::I420Buffer::Create(64, 64);
+  webrtc::I420Buffer::SetBlack(buffer.get());
+  const std::vector<webrtc::VideoFrameType> frame_types{
+      webrtc::VideoFrameType::kVideoFrameDelta};
+  rust::Vec<rust::String> implementations;
+  for (uint32_t i = 1; i <= 3; ++i) {
+    webrtc::VideoFrame frame = webrtc::VideoFrame::Builder()
+                                   .set_video_frame_buffer(buffer)
+                                   .set_rtp_timestamp(i * 3000)
+                                   .build();
+    const int sent_before = callback.sent;
+    encoder->Encode(frame, &frame_types);
+    if (callback.sent > sent_before) {
+      implementations.push_back(encoder->GetEncoderInfo().implementation_name);
+    }
+  }
+  encoder->Release();
+  return implementations;
+}
+#endif
 
 }  // namespace livekit_ffi

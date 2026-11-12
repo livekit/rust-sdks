@@ -25,12 +25,18 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
+#ifdef LIVEKIT_TEST
+#include "rust/cxx.h"
+#endif
+
 namespace livekit_ffi {
 enum class VideoEncoderBackend : std::int32_t;
 
 struct VideoEncoderBackendFactory {
   VideoEncoderBackend backend;
   std::unique_ptr<webrtc::VideoEncoderFactory> factory;
+  // False for the pass-through and for platform factories with their own.
+  bool software_fallback = false;
 };
 
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
@@ -50,6 +56,12 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
         const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
 
     std::vector<std::string> BackendCodecs(VideoEncoderBackend backend) const;
+
+#ifdef LIVEKIT_TEST
+    void AddBackendForTest(VideoEncoderBackendFactory backend) {
+      factories_.insert(factories_.begin(), std::move(backend));
+    }
+#endif
 
    private:
     std::vector<VideoEncoderBackendFactory> factories_;
@@ -75,7 +87,21 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
   // PreEncoded lists the codecs the pass-through can forward.
   std::vector<std::string> BackendCodecs(VideoEncoderBackend backend) const;
 
+#ifdef LIVEKIT_TEST
+  void AddBackendForTest(VideoEncoderBackendFactory backend);
+#endif
+
  private:
   std::unique_ptr<InternalFactory> internal_factory_;
 };
+
+#ifdef LIVEKIT_TEST
+constexpr uint8_t kFallbackTestFailCreate = 0;
+constexpr uint8_t kFallbackTestFailInit = 1;
+// After one frame.
+constexpr uint8_t kFallbackTestFailEncode = 2;
+
+// Returns the implementation that produced each of three frames.
+rust::Vec<rust::String> software_fallback_for_test(uint8_t failure);
+#endif
 }  // namespace livekit_ffi

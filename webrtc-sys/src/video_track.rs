@@ -195,6 +195,10 @@ mod tests {
             include!("livekit/video_track.h");
 
             fn encoded_capture_order_for_test(threads: u32, frames_per_thread: u32) -> Vec<u64>;
+
+            include!("livekit/video_encoder_factory.h");
+
+            fn software_fallback_for_test(failure: u8) -> Vec<String>;
         }
     }
 
@@ -228,5 +232,29 @@ mod tests {
     fn concurrent_encoded_captures_are_numbered_in_delivery_order() {
         let order = ffi_tests::encoded_capture_order_for_test(8, 500);
         assert_eq!(order, (0..4000).collect::<Vec<u64>>());
+    }
+
+    // Mirrored from video_encoder_factory.h.
+    const FAIL_CREATE: u8 = 0;
+    const FAIL_INIT: u8 = 1;
+    const FAIL_ENCODE: u8 = 2;
+
+    #[test]
+    fn hardware_create_failure_falls_back_to_software() {
+        let implementations = ffi_tests::software_fallback_for_test(FAIL_CREATE);
+        assert_eq!(implementations, ["libvpx", "libvpx", "libvpx"]);
+    }
+
+    #[test]
+    fn hardware_init_failure_falls_back_to_software() {
+        let implementations = ffi_tests::software_fallback_for_test(FAIL_INIT);
+        assert_eq!(implementations, ["libvpx", "libvpx", "libvpx"]);
+    }
+
+    /// The software encoder takes over with the frame that failed.
+    #[test]
+    fn hardware_encode_failure_falls_back_to_software() {
+        let implementations = ffi_tests::software_fallback_for_test(FAIL_ENCODE);
+        assert_eq!(implementations, ["stub", "libvpx", "libvpx"]);
     }
 }
