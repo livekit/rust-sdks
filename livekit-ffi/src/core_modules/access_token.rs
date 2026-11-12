@@ -117,6 +117,7 @@ pub struct RoomAgentDispatch {
     pub restart_policy: i32,
     pub deployment: String,
     pub attributes: HashMap<String, String>,
+    pub thread_id: String,
 }
 
 /// Room configuration
