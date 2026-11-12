@@ -62,6 +62,13 @@ fn main() {
         rust_files.push("src/desktop_capturer.rs");
     }
 
+    // Needs only kernel interfaces; devices are found at runtime.
+    let has_v4l2_encoder =
+        target_os == "linux" && env::var("CARGO_CFG_TARGET_POINTER_WIDTH").as_deref() == Ok("64");
+    if has_v4l2_encoder {
+        rust_files.push("src/rust_video_encoder.rs");
+    }
+
     let mut builder = cxx_build::bridges(rust_files);
 
     builder.files(&[
@@ -103,6 +110,10 @@ fn main() {
 
     if is_desktop {
         builder.file("src/desktop_capturer.cpp");
+    }
+
+    if has_v4l2_encoder {
+        builder.file("src/rust_video_encoder.cpp").define("USE_V4L2_VIDEO_CODEC", "1");
     }
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();

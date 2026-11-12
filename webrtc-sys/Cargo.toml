@@ -19,6 +19,9 @@ mode = "powerset"
 cxx = "1.0"
 log = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+livekit-hwcodec = { workspace = true }
+
 [build-dependencies]
 webrtc-sys-build = { workspace = true }
 cxx-build = "1.0"

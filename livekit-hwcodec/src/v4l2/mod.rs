@@ -23,6 +23,7 @@ mod worker;
 
 use std::{
     mem,
+    path::Path,
     sync::{
         atomic::{AtomicU32, Ordering},
         mpsc::{self, SyncSender, TrySendError},
@@ -79,6 +80,17 @@ impl V4l2EncoderFactory {
         }
     }
 
+    /// Uses `path` as the H.264 encoder without probing it.
+    pub fn with_device(path: &Path) -> Self {
+        let device = EncoderDevice {
+            path: path.to_owned(),
+            driver: "unknown".into(),
+            card: "unknown".into(),
+            kernel: 0,
+        };
+        Self { h264: Some(Target::new(device, FourCc::H264, true)), reaper: Arc::default() }
+    }
+
     /// The codecs a device was found for.
     pub fn codecs(&self) -> Vec<Codec> {
         self.h264.iter().map(|_| Codec::H264).collect()
@@ -113,6 +125,11 @@ struct WorkerHandle<F> {
 impl<F: Frame> V4l2Encoder<F> {
     fn new(target: Target, reaper: Arc<Reaper>) -> Self {
         Self { target, reaper, worker: None, retired: None }
+    }
+
+    /// The kernel driver's name.
+    pub fn driver(&self) -> &str {
+        &self.target.device.driver
     }
 
     /// Starts a session that delivers to `sink`, ending the current one.
@@ -248,7 +265,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::{
-        path::PathBuf,
         sync::mpsc::{Receiver, Sender},
         time::{Duration, Instant},
     };
@@ -564,15 +580,10 @@ mod tests {
     #[test]
     fn missing_device_makes_encode_fail() {
         let _exclusive = exclusive();
-        let device = EncoderDevice {
-            path: PathBuf::from("/nonexistent/video0"),
-            driver: String::new(),
-            card: String::new(),
-            kernel: 0,
-        };
-        let target = Target::new(device, FourCc::H264, true);
+        let factory = V4l2EncoderFactory::with_device(Path::new("/nonexistent/video0"));
         let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
-        let mut encoder: TestEncoder = V4l2Encoder::new(target, Arc::default());
+        let mut encoder: TestEncoder = factory.create(Codec::H264).unwrap();
+        assert_eq!(encoder.driver(), "unknown");
 
         assert_eq!(encoder.encode(frame.clone(), meta(0), false), EncodeStatus::Failed);
         let _events = start(&mut encoder, WIDTH, HEIGHT);
