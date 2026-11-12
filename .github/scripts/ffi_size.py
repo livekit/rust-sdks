@@ -27,6 +27,10 @@ The report job merges every row into one file, which is kept as the
 
     $ ffi_size.py summary sizes/ --json size-summary.json --sha "$GITHUB_SHA"
 
+On a pull request, $GITHUB_SHA is the merge commit that was checked out and
+measured, not the PR head; pass the head as --pr-head-sha so the summary can
+name both.
+
 Only the standard library is used, so this runs on every CI runner as is.
 """
 
@@ -117,11 +121,19 @@ def human(n):
         n /= 1024
 
 
+def describe_commit(summary):
+    sha = summary.get("sha", "")[:7]
+    head = summary.get("pr_head_sha", "")[:7]
+    if sha and head:
+        return f"Merge commit `{sha}` of PR head `{head}`"
+    return f"Commit `{sha}`" if sha else ""
+
+
 def render(summary):
     lines = [
         "## livekit-ffi build sizes",
         "",
-        f"Commit `{summary['sha'][:7]}`" if summary.get("sha") else "",
+        describe_commit(summary),
         "",
         "| Build | Target | Type | Size | gzip |",
         "|---|---|---|---:|---:|",
@@ -137,7 +149,10 @@ def render(summary):
 
 
 def summary(args):
-    result = {"sha": args.sha, "rows": load_rows(args.directory)}
+    result = {"sha": args.sha}
+    if args.pr_head_sha:
+        result["pr_head_sha"] = args.pr_head_sha
+    result["rows"] = load_rows(args.directory)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(result, f, indent=2)
@@ -165,7 +180,8 @@ def main(argv=None):
 
     s = sub.add_parser("summary", help="merge measured rows and render markdown")
     s.add_argument("directory")
-    s.add_argument("--sha", default="")
+    s.add_argument("--sha", default="", help="the commit that was checked out and measured")
+    s.add_argument("--pr-head-sha", default="", help="on a pull request, the head merged into --sha")
     s.add_argument("--json", help="write the merged rows here")
     s.add_argument("--markdown", help="append the markdown here instead of printing it")
     s.set_defaults(func=summary)
