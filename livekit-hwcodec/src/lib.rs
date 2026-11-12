@@ -19,6 +19,23 @@
 
 #![deny(unsafe_code)]
 
+/// One plane of an [`I420`] frame.
+#[derive(Clone, Copy, Debug)]
+pub struct Plane<'a> {
+    pub data: &'a [u8],
+    pub stride: usize,
+}
+
+/// A borrowed I420 frame.
+#[derive(Clone, Copy, Debug)]
+pub struct I420<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub y: Plane<'a>,
+    pub u: Plane<'a>,
+    pub v: Plane<'a>,
+}
+
 // 32-bit targets lay out `v4l2_buffer` differently.
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod v4l2;

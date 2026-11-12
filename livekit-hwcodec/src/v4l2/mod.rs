@@ -13,6 +13,9 @@
 // limitations under the License.
 
 // Not used yet.
-#[allow(dead_code)]
+#![allow(dead_code)]
+
+mod device;
+mod session;
 #[allow(unsafe_code)]
 mod sys;
