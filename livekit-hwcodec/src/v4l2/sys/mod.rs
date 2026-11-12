@@ -604,6 +604,7 @@ pub(crate) mod testing {
         pub device_fds: usize,
         pub eventfds: usize,
         pub mappings: usize,
+        pub threads: usize,
     }
 
     pub(crate) fn resources(device: &Path) -> Resources {
@@ -613,6 +614,11 @@ pub(crate) mod testing {
             .collect();
         let maps = fs::read_to_string("/proc/self/maps").expect("no procfs");
         let device_name = device.to_str().expect("device path is not UTF-8");
+        let threads = fs::read_dir("/proc/self/task")
+            .expect("no procfs")
+            .filter_map(|entry| fs::read_to_string(entry.ok()?.path().join("comm")).ok())
+            .filter(|name| name.trim() == super::super::THREAD_NAME)
+            .count();
         Resources {
             device_fds: links.iter().filter(|link| *link == device).count(),
             eventfds: links
@@ -620,6 +626,7 @@ pub(crate) mod testing {
                 .filter(|link| link.as_os_str() == "anon_inode:[eventfd]")
                 .count(),
             mappings: maps.lines().filter(|line| line.ends_with(device_name)).count(),
+            threads,
         }
     }
 }
