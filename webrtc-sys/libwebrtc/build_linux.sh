@@ -79,6 +79,7 @@ apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
 apply_patch "$COMMAND_DIR/patches/add_deps.patch"
 apply_patch "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch"
 apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/silence_encoder_scheduling.patch"
 apply_patch "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch"
 
 # Disable CREL (compact relocations). Chromium's build enables experimental

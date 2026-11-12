@@ -53,7 +53,7 @@ cd src
 rem Skip a patch that is already applied so the build can be rerun on the same
 rem checkout. Stop when a patch neither applies nor is already applied, since
 rem carrying on would build a libwebrtc that silently lacks the change.
-for %%p in (add_licenses add_deps ssl_verify_callback_with_native_handle external_audio_source) do (
+for %%p in (add_licenses add_deps ssl_verify_callback_with_native_handle external_audio_source silence_encoder_scheduling) do (
   call git apply --reverse --check --ignore-space-change --ignore-whitespace "%COMMAND_DIR%/patches/%%p.patch" >nul 2>&1
   if errorlevel 1 (
     echo Applying patch: %%p.patch
