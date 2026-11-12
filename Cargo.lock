@@ -3824,6 +3824,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-bitstream"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "livekit-capture"
 version = "0.1.9"
 dependencies = [
@@ -3832,6 +3839,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-app",
  "livekit",
+ "livekit-bitstream",
  "log",
  "pollster",
  "schemars",

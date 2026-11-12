@@ -1,0 +1,16 @@
+[package]
+name = "livekit-bitstream"
+version = "0.1.0"
+license.workspace = true
+description = "LiveKit video bitstream utilities"
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+thiserror = { workspace = true }
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"

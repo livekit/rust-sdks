@@ -20,6 +20,7 @@ use crate::{
     primitive::VideoResolution,
 };
 use bytes::Bytes;
+use livekit_bitstream::{annex_b_nalus, find_start_code, h264_nal_type, h265_nal_type, NalError};
 use std::ops::Range;
 use thiserror::Error;
 
@@ -38,6 +39,15 @@ pub enum H26xParseError {
     /// Encoded payload or transport data is malformed.
     #[error("invalid encoded data: {0}")]
     InvalidEncodedData(&'static str),
+}
+
+impl From<NalError> for H26xParseError {
+    fn from(err: NalError) -> Self {
+        match err {
+            NalError::Empty => Self::EmptyPayload,
+            NalError::H265TooShort => Self::H265NalTooShort,
+        }
+    }
 }
 
 /// Start code prepended to each NAL unit when assembling Annex-B payloads.
@@ -364,41 +374,6 @@ impl AccessUnitParser for AvcAccessUnitParser {
     }
 }
 
-/// Returns NAL-unit byte ranges for an Annex-B access unit or stream chunk.
-pub(crate) fn annex_b_nal_ranges(bytes: &[u8]) -> Vec<Range<usize>> {
-    let mut ranges = Vec::new();
-    let mut cursor = 0;
-    let mut current_start = None;
-
-    while let Some((prefix_start, prefix_len)) = find_start_code(&bytes[cursor..]) {
-        let prefix_start = cursor + prefix_start;
-        let nal_start = prefix_start + prefix_len;
-        if let Some(start) = current_start.replace(nal_start) {
-            if start < prefix_start {
-                ranges.push(start..prefix_start);
-            }
-        }
-        cursor = nal_start;
-    }
-
-    if let Some(start) = current_start {
-        if start < bytes.len() {
-            ranges.push(start..bytes.len());
-        }
-    }
-
-    ranges
-}
-
-/// Returns borrowed NAL units from an Annex-B buffer.
-pub(crate) fn annex_b_nalus(bytes: &[u8]) -> Vec<&[u8]> {
-    annex_b_nal_ranges(bytes)
-        .into_iter()
-        .map(|range| &bytes[range])
-        .filter(|nal| !nal.is_empty())
-        .collect()
-}
-
 /// Creates an Annex-B access unit from H.264/AVC length-prefixed NAL units.
 pub fn access_unit_from_h264_avc(
     payload: &[u8],
@@ -454,46 +429,12 @@ fn is_keyframe_nalus(
     nal_units: &[&[u8]],
 ) -> Result<bool, H26xParseError> {
     match codec {
-        EncodedVideoCodec::H264 => {
-            nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
-        }
-        EncodedVideoCodec::H265 => {
-            let mut has_vps = false;
-            let mut has_sps = false;
-            let mut has_pps = false;
-            let mut has_idr = false;
-
-            for nal in nal_units {
-                match h265_nal_type(nal)? {
-                    32 => has_vps = true,
-                    33 => has_sps = true,
-                    34 => has_pps = true,
-                    19 | 20 => has_idr = true,
-                    _ => {}
-                }
-            }
-
-            Ok(has_vps && has_sps && has_pps && has_idr)
-        }
+        EncodedVideoCodec::H264 => Ok(livekit_bitstream::h264_is_keyframe(nal_units)?),
+        EncodedVideoCodec::H265 => Ok(livekit_bitstream::h265_is_keyframe(nal_units)?),
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
             Err(H26xParseError::UnsupportedCodec(codec))
         }
     }
-}
-
-fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
-    let header = nal.first().ok_or(H26xParseError::EmptyPayload)?;
-    Ok(header & 0x1f)
-}
-
-fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
-    if nal.is_empty() {
-        return Err(H26xParseError::EmptyPayload);
-    }
-    if nal.len() < 2 {
-        return Err(H26xParseError::H265NalTooShort);
-    }
-    Ok((nal[0] >> 1) & 0x3f)
 }
 
 fn annex_b_payload(nal_units: &[&[u8]]) -> Result<Vec<u8>, H26xParseError> {
@@ -621,20 +562,6 @@ fn is_vcl_nal(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, H26xParseErr
     })
 }
 
-fn find_start_code(bytes: &[u8]) -> Option<(usize, usize)> {
-    let mut idx = 0;
-    while idx + 3 <= bytes.len() {
-        if bytes[idx..].starts_with(&[0, 0, 1]) {
-            return Some((idx, 3));
-        }
-        if idx + 4 <= bytes.len() && bytes[idx..].starts_with(&[0, 0, 0, 1]) {
-            return Some((idx, 4));
-        }
-        idx += 1;
-    }
-    None
-}
-
 fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
     let ranges = avc_nal_ranges(payload, nal_length_size, true)?;
     if ranges.is_empty() {
@@ -700,31 +627,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn h264_keyframe_requires_idr_nal() {
-        let sps = [0x67, 1, 2, 3];
-        let idr = [0x65, 4, 5, 6];
-        let non_idr = [0x61, 1, 2];
-
-        assert!(is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &idr]).unwrap());
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &non_idr]).unwrap());
-    }
-
-    #[test]
-    fn h265_keyframe_requires_parameter_sets_and_idr() {
-        let vps = [0x40, 1, 2];
-        let sps = [0x42, 1, 2];
-        let pps = [0x44, 1, 2];
-        let idr_w_radl = [19 << 1, 1, 3];
-        let cra = [21 << 1, 1, 3];
-
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &idr_w_radl]).unwrap());
-        assert!(
-            is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &idr_w_radl]).unwrap()
-        );
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &cra]).unwrap());
-    }
-
-    #[test]
     fn h265_rejects_too_short_nal_header() {
         let err = is_keyframe_nalus(EncodedVideoCodec::H265, &[&[0x26]]).unwrap_err();
         assert_eq!(err, H26xParseError::H265NalTooShort);
@@ -740,13 +642,6 @@ mod tests {
     fn annex_b_payload_rejects_empty_input() {
         assert_eq!(annex_b_payload(&[]).unwrap_err(), H26xParseError::EmptyPayload);
         assert_eq!(annex_b_payload(&[&[]]).unwrap_err(), H26xParseError::EmptyPayload);
-    }
-
-    #[test]
-    fn splits_annex_b_nals_with_three_and_four_byte_prefixes() {
-        let bytes = [0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x65, 2, 3];
-        let nals = annex_b_nalus(&bytes);
-        assert_eq!(nals, vec![&[0x67, 1][..], &[0x65, 2, 3][..]]);
     }
 
     #[test]

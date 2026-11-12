@@ -14,6 +14,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"], opti
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
+livekit-bitstream = { workspace = true }
 log = { workspace = true }
 pollster = { version = "0.4", optional = true }
 schemars = { workspace = true, optional = true }
