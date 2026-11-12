@@ -16,6 +16,9 @@
 
 #include "livekit/rtp_transceiver.h"
 
+#include <optional>
+#include <stdexcept>
+
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 
@@ -88,13 +91,27 @@ void RtpTransceiver::set_direction(RtpTransceiverDirection direction) const {
 }
 
 RtpTransceiverDirection RtpTransceiver::current_direction() const {
-  return static_cast<RtpTransceiverDirection>(
-      transceiver_->current_direction().value());
+  // Empty until the transceiver has been negotiated. value() on an empty
+  // optional aborts the process (libc++ is built without exceptions); the Rust
+  // side takes a C++ exception as an Err.
+  const std::optional<webrtc::RtpTransceiverDirection> direction =
+      transceiver_->current_direction();
+  if (!direction.has_value()) {
+    throw std::runtime_error("current direction not set: not negotiated yet");
+  }
+  return static_cast<RtpTransceiverDirection>(*direction);
 }
 
 RtpTransceiverDirection RtpTransceiver::fired_direction() const {
-  return static_cast<RtpTransceiverDirection>(
-      transceiver_->fired_direction().value());
+  // Empty until the transceiver has been negotiated. value() on an empty
+  // optional aborts the process (libc++ is built without exceptions); the Rust
+  // side takes a C++ exception as an Err.
+  const std::optional<webrtc::RtpTransceiverDirection> direction =
+      transceiver_->fired_direction();
+  if (!direction.has_value()) {
+    throw std::runtime_error("fired direction not set: not negotiated yet");
+  }
+  return static_cast<RtpTransceiverDirection>(*direction);
 }
 
 void RtpTransceiver::stop_standard() const {
