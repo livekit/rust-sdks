@@ -156,6 +156,7 @@ pub enum RpcErrorCode {
     RecipientDisconnected = 1503,
     ResponsePayloadTooLarge = 1504,
     SendFailed = 1505,
+    ConnectionClosed = 1506,
 
     UnsupportedMethod = 1400,
     RecipientNotFound = 1401,
@@ -173,6 +174,7 @@ impl RpcErrorCode {
             Self::RecipientDisconnected => "Recipient disconnected",
             Self::ResponsePayloadTooLarge => "Response payload too large",
             Self::SendFailed => "Failed to send",
+            Self::ConnectionClosed => "Connection closed",
 
             Self::UnsupportedMethod => "Method not supported at destination",
             Self::RecipientNotFound => "Recipient not found",
