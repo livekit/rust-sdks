@@ -15,8 +15,9 @@
 //! The thread that owns a [`Session`], so that only it waits on the driver.
 
 use std::{
-    collections::VecDeque,
+    any::Any,
     io,
+    panic::{self, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::Receiver,
@@ -26,14 +27,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use livekit_bitstream::{annex_b_nalus, h264_is_keyframe};
 use thiserror::Error;
 
 use super::{
     lock,
+    output::{OutputError, Tracker},
     session::{Encoded, Session, SessionConfig, SessionError, SetupError},
-    sys::{EventFd, FourCc},
-    Target,
+    sys::EventFd,
+    Target, BROKEN_AFTER,
 };
 use crate::{EncoderConfig, Frame, FrameMeta, Sink};
 
@@ -92,11 +93,10 @@ enum WorkerError {
     Poll(#[source] io::Error),
     #[error("the device reported an error condition")]
     Device,
-}
-
-struct Pending {
-    timestamp: u64,
-    meta: FrameMeta,
+    #[error("{0} failed: {1}")]
+    Control(&'static str, #[source] io::Error),
+    #[error("unusable output: {0}")]
+    Output(#[from] OutputError),
 }
 
 pub(super) struct Worker<F, S> {
@@ -105,9 +105,10 @@ pub(super) struct Worker<F, S> {
     sink: S,
     target: Target,
     config: EncoderConfig,
-    pending: VecDeque<Pending>,
+    tracker: Tracker,
     started: Instant,
     last_timestamp: u64,
+    bad_outputs: u64,
 }
 
 impl<F: Frame, S: Sink> Worker<F, S> {
@@ -118,26 +119,44 @@ impl<F: Frame, S: Sink> Worker<F, S> {
         target: Target,
         config: EncoderConfig,
     ) -> Self {
+        let started = Instant::now();
         Self {
             jobs,
             shared,
             sink,
+            tracker: Tracker::new(target.coded, started),
             target,
             config,
-            pending: VecDeque::new(),
-            started: Instant::now(),
+            started,
             last_timestamp: 0,
+            bad_outputs: 0,
         }
     }
 
-    /// The one place a failure is flagged and reported.
+    /// The one place a failure is flagged, reported and counted against the device.
     pub(super) fn run(mut self) {
         if let Some(previous) = lock(&self.shared.previous).take() {
             let _ = previous.join();
         }
-        if let Err(error) = self.encode() {
-            log::error!("V4L2 {}: encoder stopped: {error}", self.target.device);
-            self.shared.failed.store(true, Ordering::Release);
+        let error = match panic::catch_unwind(AssertUnwindSafe(|| self.encode())) {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => error.to_string(),
+            Err(panic) => format!("the encoder thread panicked: {}", panic_message(panic.as_ref())),
+        };
+        self.shared.failed.store(true, Ordering::Release);
+        let device = &self.target.device;
+        log::error!(
+            "V4L2 {device}: {} {}x{} encoder failed: {error} ({})",
+            self.target.coded,
+            self.config.width,
+            self.config.height,
+            self.tracker.stats()
+        );
+        if self.target.failures.fetch_add(1, Ordering::AcqRel) + 1 == BROKEN_AFTER {
+            log::error!(
+                "V4L2 {device}: {BROKEN_AFTER} sessions have failed; \
+                 not using this encoder again in this process"
+            );
         }
     }
 
@@ -154,12 +173,19 @@ impl<F: Frame, S: Sink> Worker<F, S> {
             },
         )?;
         while !self.shared.shutdown.load(Ordering::Acquire) {
-            self.apply_rates(&session);
+            self.apply_rates(&session)?;
             session.reclaim()?;
             self.queue_frames(&mut session)?;
-            while session.dequeue(|encoded| self.deliver(encoded))?.is_some() {}
+            while let Some(delivered) = session.dequeue(|encoded| self.deliver(encoded))? {
+                delivered?;
+            }
 
-            let ready = session.wait(&self.shared.wake, IDLE_WAIT).map_err(WorkerError::Poll)?;
+            let now = Instant::now();
+            self.tracker.check(now)?;
+            let timeout = self.tracker.deadline().map_or(IDLE_WAIT, |deadline| {
+                deadline.saturating_duration_since(now) + Duration::from_millis(1)
+            });
+            let ready = session.wait(&self.shared.wake, timeout).map_err(WorkerError::Poll)?;
             if ready.error {
                 return Err(WorkerError::Device);
             }
@@ -170,19 +196,26 @@ impl<F: Frame, S: Sink> Worker<F, S> {
         Ok(())
     }
 
-    fn apply_rates(&self, session: &Session) {
+    fn apply_rates(&self, session: &Session) -> Result<(), WorkerError> {
         let Some(rates) = lock(&self.shared.rates).take() else {
-            return;
+            return Ok(());
         };
         // Zero means paused; no frames will come.
         if rates.bitrate_bps > 0 {
-            if let Err(error) = session.set_bitrate(rates.bitrate_bps) {
-                log::warn!("V4L2: setting bitrate to {} failed: {error}", rates.bitrate_bps);
-            }
+            self.required("setting the bitrate", session.set_bitrate(rates.bitrate_bps))?;
         }
         if rates.framerate > 0 {
             // Optional; setup already logged whether the driver supports it.
             let _ = session.set_framerate(rates.framerate);
+        }
+        Ok(())
+    }
+
+    /// Only strict sessions require these controls.
+    fn required(&self, name: &'static str, result: io::Result<()>) -> Result<(), WorkerError> {
+        match result {
+            Err(error) if self.target.strict => Err(WorkerError::Control(name, error)),
+            _ => Ok(()),
         }
     }
 
@@ -193,13 +226,12 @@ impl<F: Frame, S: Sink> Worker<F, S> {
                 break;
             };
             if self.shared.keyframe.swap(false, Ordering::AcqRel) {
-                if let Err(error) = session.force_keyframe() {
-                    log::warn!("V4L2: forcing a keyframe failed: {error}");
-                }
+                self.required("forcing a keyframe", session.force_keyframe())?;
+                self.tracker.keyframe_requested();
             }
             let timestamp = self.next_timestamp();
             match job.frame.with_i420(|frame| session.queue_frame(&frame, timestamp)) {
-                Some(Ok(true)) => self.pending.push_back(Pending { timestamp, meta: job.meta }),
+                Some(Ok(true)) => self.tracker.queued(timestamp, job.meta, Instant::now()),
                 Some(Err(error @ SessionError::Os { .. })) => return Err(error.into()),
                 unusable => {
                     if let Some(Err(error)) = unusable {
@@ -220,28 +252,30 @@ impl<F: Frame, S: Sink> Worker<F, S> {
         self.last_timestamp
     }
 
-    fn deliver(&mut self, encoded: Encoded<'_>) {
-        let position = self.pending.iter().position(|frame| frame.timestamp == encoded.timestamp);
-        let Some(position) = position else {
-            log::warn!("V4L2: output with timestamp {} matches no frame", encoded.timestamp);
-            return;
-        };
-        // The encoder skipped the frames before this one.
-        for _ in 0..position {
-            if let Some(skipped) = self.pending.pop_front() {
-                self.drop_frame(&skipped.meta);
+    fn deliver(&mut self, encoded: Encoded<'_>) -> Result<(), OutputError> {
+        let verdict = self.tracker.output(&encoded, Instant::now())?;
+        for meta in &verdict.dropped {
+            self.drop_frame(meta);
+        }
+        if let Some(bad) = verdict.bad {
+            self.bad_outputs += 1;
+            if self.bad_outputs.is_power_of_two() {
+                log::warn!("V4L2: unusable output ({bad}); {} so far", self.bad_outputs);
             }
+            // The stream now has a gap.
+            self.shared.keyframe.store(true, Ordering::Release);
         }
-        let Some(frame) = self.pending.pop_front() else {
-            return;
-        };
-        if encoded.corrupt {
-            self.drop_frame(&frame.meta);
-            return;
+        if let Some(delivery) = verdict.deliver {
+            match delivery.headers {
+                Some(headers) => {
+                    let joined = [&headers[..], encoded.data].concat();
+                    self.sink.deliver(&joined, &delivery.meta, delivery.keyframe);
+                }
+                None => self.sink.deliver(encoded.data, &delivery.meta, delivery.keyframe),
+            }
+            self.shared.in_flight.fetch_sub(1, Ordering::AcqRel);
         }
-        let keyframe = is_keyframe(self.target.coded, &encoded);
-        self.sink.deliver(encoded.data, &frame.meta, keyframe);
-        self.shared.in_flight.fetch_sub(1, Ordering::AcqRel);
+        Ok(())
     }
 
     fn drop_frame(&self, meta: &FrameMeta) {
@@ -250,11 +284,12 @@ impl<F: Frame, S: Sink> Worker<F, S> {
     }
 }
 
-/// The driver's flag is used only for bitstreams this crate can't parse.
-fn is_keyframe(coded: FourCc, encoded: &Encoded<'_>) -> bool {
-    if coded == FourCc::H264 {
-        h264_is_keyframe(&annex_b_nalus(encoded.data)).unwrap_or(false)
+fn panic_message(panic: &(dyn Any + Send)) -> &str {
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        message
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message
     } else {
-        encoded.keyframe
+        "unknown"
     }
 }

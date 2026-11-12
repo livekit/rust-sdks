@@ -15,6 +15,7 @@
 //! Hardware encoding through V4L2 stateful encoders.
 
 mod device;
+mod output;
 mod session;
 #[allow(unsafe_code)]
 mod sys;
@@ -23,7 +24,7 @@ mod worker;
 use std::{
     mem,
     sync::{
-        atomic::Ordering,
+        atomic::{AtomicU32, Ordering},
         mpsc::{self, SyncSender, TrySendError},
         Arc, Mutex, MutexGuard, PoisonError,
     },
@@ -39,12 +40,27 @@ use crate::{Codec, EncodeStatus, EncoderConfig, Frame, FrameMeta, Sink};
 // Linux truncates thread names past 15 bytes.
 const THREAD_NAME: &str = "lk-v4l2-encoder";
 
+/// Failed sessions after which a device is no longer used.
+const BROKEN_AFTER: u32 = 3;
+
 #[derive(Clone)]
 struct Target {
     device: EncoderDevice,
     coded: FourCc,
     /// See [`session::SessionConfig::strict`].
     strict: bool,
+    /// Shared by every encoder on the device.
+    failures: Arc<AtomicU32>,
+}
+
+impl Target {
+    fn new(device: EncoderDevice, coded: FourCc, strict: bool) -> Self {
+        Self { device, coded, strict, failures: Arc::default() }
+    }
+
+    fn is_broken(&self) -> bool {
+        self.failures.load(Ordering::Acquire) >= BROKEN_AFTER
+    }
 }
 
 /// Creates [`V4l2Encoder`]s for the system's V4L2 encoders.
@@ -58,7 +74,7 @@ impl V4l2EncoderFactory {
     pub fn probe() -> Self {
         let h264 = device::discover(FourCc::H264).into_iter().next();
         Self {
-            h264: h264.map(|device| Target { device, coded: FourCc::H264, strict: true }),
+            h264: h264.map(|device| Target::new(device, FourCc::H264, true)),
             reaper: Arc::default(),
         }
     }
@@ -68,12 +84,13 @@ impl V4l2EncoderFactory {
         self.h264.iter().map(|_| Codec::H264).collect()
     }
 
-    /// Returns `None` if no device encodes `codec`.
+    /// Returns `None` if no device encodes `codec`, or if it has failed too
+    /// often to be tried again.
     pub fn create<F: Frame>(&self, codec: Codec) -> Option<V4l2Encoder<F>> {
         let target = match codec {
             Codec::H264 => self.h264.clone()?,
         };
-        Some(V4l2Encoder::new(target, self.reaper.clone()))
+        (!target.is_broken()).then(|| V4l2Encoder::new(target, self.reaper.clone()))
     }
 }
 
@@ -285,8 +302,7 @@ mod tests {
     }
 
     fn vicodec_encoder(reaper: &Arc<Reaper>) -> TestEncoder {
-        let target = Target { device: encoder(), coded: FWHT, strict: false };
-        V4l2Encoder::new(target, reaper.clone())
+        V4l2Encoder::new(Target::new(encoder(), FWHT, false), reaper.clone())
     }
 
     fn start(encoder: &mut TestEncoder, width: u32, height: u32) -> Receiver<Event> {
@@ -466,6 +482,86 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn stalled_encoder_trips_the_watchdog() {
+        let _exclusive = exclusive();
+        let device = encoder().path;
+        let baseline = resources(&device);
+        let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
+        let reaper = Arc::default();
+        let mut encoder = vicodec_encoder(&reaper);
+
+        fault::inject_always(fault::VIDIOC_DQBUF, Action::Fail(libc::EAGAIN));
+        let started = Instant::now();
+        let _events = start(&mut encoder, WIDTH, HEIGHT);
+        wait_until_failed(&mut encoder, &frame);
+        assert!(started.elapsed() >= output::WATCHDOG);
+
+        drop(encoder);
+        drop(reaper);
+        assert_eq!(resources(&device), baseline);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn device_error_mid_stream_fails_the_encoder() {
+        let _exclusive = exclusive();
+        let device = encoder().path;
+        let baseline = resources(&device);
+        let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
+        let reaper = Arc::default();
+        let mut encoder = vicodec_encoder(&reaper);
+        let events = start(&mut encoder, WIDTH, HEIGHT);
+        encode(&mut encoder, &events, &frame, 1, 2);
+
+        fault::inject(fault::VIDIOC_DQBUF, 1, Action::Fail(libc::ENODEV));
+        wait_until_failed(&mut encoder, &frame);
+
+        drop(encoder);
+        drop(reaper);
+        assert_eq!(resources(&device), baseline);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn panic_in_the_worker_is_contained() {
+        let _exclusive = exclusive();
+        let device = encoder().path;
+        let baseline = resources(&device);
+        let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
+        let reaper = Arc::default();
+        let mut encoder = vicodec_encoder(&reaper);
+        let events = start(&mut encoder, WIDTH, HEIGHT);
+        encode(&mut encoder, &events, &frame, 1, 2);
+
+        fault::inject(fault::VIDIOC_QBUF, 1, Action::Panic);
+        wait_until_failed(&mut encoder, &frame);
+
+        drop(encoder);
+        drop(reaper);
+        assert_eq!(resources(&device), baseline);
+    }
+
+    #[test]
+    #[cfg(feature = "__lk-vicodec-test")]
+    fn device_is_abandoned_after_repeated_failures() {
+        let _exclusive = exclusive();
+        let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
+        let factory = V4l2EncoderFactory {
+            h264: Some(Target::new(encoder(), FWHT, false)),
+            reaper: Arc::default(),
+        };
+        for _ in 0..BROKEN_AFTER {
+            let mut encoder: TestEncoder = factory.create(Codec::H264).unwrap();
+            fault::inject(fault::VIDIOC_S_FMT, 1, Action::Fail(libc::EIO));
+            let _events = start(&mut encoder, WIDTH, HEIGHT);
+            wait_until_failed(&mut encoder, &frame);
+        }
+        assert!(factory.create::<Arc<TestFrame>>(Codec::H264).is_none());
+        assert_eq!(factory.codecs(), [Codec::H264]);
+    }
+
+    #[test]
     fn missing_device_makes_encode_fail() {
         let _exclusive = exclusive();
         let device = EncoderDevice {
@@ -474,7 +570,7 @@ mod tests {
             card: String::new(),
             kernel: 0,
         };
-        let target = Target { device, coded: FourCc::H264, strict: true };
+        let target = Target::new(device, FourCc::H264, true);
         let frame = Arc::new(TestFrame::new(WIDTH, HEIGHT));
         let mut encoder: TestEncoder = V4l2Encoder::new(target, Arc::default());
 
