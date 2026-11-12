@@ -284,6 +284,7 @@ jobs:
           # no metadata, so assert on the output instead of the exit code.
           test -s python-bindings/livekit_ffi.py
           grep -q 'def build_version' python-bindings/livekit_ffi.py
+          grep -q 'class LocalDataTrack' python-bindings/livekit_ffi.py
 
       - name: Zip Python bindings
         if: ${{ matrix.name == 'ffi-macos-arm64' }}
