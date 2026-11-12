@@ -27107,6 +27107,83 @@ impl<'de> serde::Deserialize<'de> for ExportReplayRequest {
         deserializer.deserialize_struct("livekit.ExportReplayRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for FecProtection {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::FecNone => "FEC_NONE",
+            Self::FecLow => "FEC_LOW",
+            Self::FecMedium => "FEC_MEDIUM",
+            Self::FecHigh => "FEC_HIGH",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for FecProtection {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "FEC_NONE",
+            "FEC_LOW",
+            "FEC_MEDIUM",
+            "FEC_HIGH",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = FecProtection;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "FEC_NONE" => Ok(FecProtection::FecNone),
+                    "FEC_LOW" => Ok(FecProtection::FecLow),
+                    "FEC_MEDIUM" => Ok(FecProtection::FecMedium),
+                    "FEC_HIGH" => Ok(FecProtection::FecHigh),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for FeatureUsageInfo {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -80679,6 +80756,9 @@ impl serde::Serialize for UpdateTrackSettings {
         if self.priority != 0 {
             len += 1;
         }
+        if self.fec.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.UpdateTrackSettings", len)?;
         if !self.track_sids.is_empty() {
             struct_ser.serialize_field("trackSids", &self.track_sids)?;
@@ -80703,6 +80783,11 @@ impl serde::Serialize for UpdateTrackSettings {
         if self.priority != 0 {
             struct_ser.serialize_field("priority", &self.priority)?;
         }
+        if let Some(v) = self.fec.as_ref() {
+            let v = FecProtection::try_from(*v)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+            struct_ser.serialize_field("fec", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -80721,6 +80806,7 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
             "height",
             "fps",
             "priority",
+            "fec",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -80732,6 +80818,7 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
             Height,
             Fps,
             Priority,
+            Fec,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -80761,6 +80848,7 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
                             "height" => Ok(GeneratedField::Height),
                             "fps" => Ok(GeneratedField::Fps),
                             "priority" => Ok(GeneratedField::Priority),
+                            "fec" => Ok(GeneratedField::Fec),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -80787,6 +80875,7 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
                 let mut height__ = None;
                 let mut fps__ = None;
                 let mut priority__ = None;
+                let mut fec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TrackSids => {
@@ -80839,6 +80928,12 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Fec => {
+                            if fec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("fec"));
+                            }
+                            fec__ = map_.next_value::<::std::option::Option<FecProtection>>()?.map(|x| x as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -80852,6 +80947,7 @@ impl<'de> serde::Deserialize<'de> for UpdateTrackSettings {
                     height: height__.unwrap_or_default(),
                     fps: fps__.unwrap_or_default(),
                     priority: priority__.unwrap_or_default(),
+                    fec: fec__,
                 })
             }
         }

@@ -121,6 +121,9 @@ impl AudioPreset {
 /// cap: repair packets are rounded up to whole packets per frame, so frames that span only a few
 /// packets get proportionally more overhead. libwebrtc does not send FlexFEC for simulcast
 /// senders, so disable simulcast on tracks that need protection.
+///
+/// The same levels select the repairs the SFU sends for a subscribed track, see
+/// [`RemoteTrackPublication::set_fec_protection`](crate::prelude::RemoteTrackPublication::set_fec_protection).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FecProtection {
@@ -157,6 +160,17 @@ impl From<FecProtection> for RtpFecProtection {
             _ => FecProtectionMode::Fixed,
         };
         Self { mode, protection_factor: value.protection_factor(), ..Default::default() }
+    }
+}
+
+impl From<FecProtection> for proto::FecProtection {
+    fn from(protection: FecProtection) -> Self {
+        match protection {
+            FecProtection::Disabled => Self::FecNone,
+            FecProtection::Low => Self::FecLow,
+            FecProtection::Medium => Self::FecMedium,
+            FecProtection::High => Self::FecHigh,
+        }
     }
 }
 
@@ -251,6 +265,16 @@ mod fec_tests {
     #[test]
     fn fec_is_disabled_by_default() {
         assert_eq!(TrackPublishOptions::default().fec, FecProtection::Disabled);
+    }
+
+    #[test]
+    fn fec_protection_maps_to_subscription_presets() {
+        use livekit_protocol::FecProtection as Proto;
+
+        assert_eq!(Proto::from(FecProtection::Disabled), Proto::FecNone);
+        assert_eq!(Proto::from(FecProtection::Low), Proto::FecLow);
+        assert_eq!(Proto::from(FecProtection::Medium), Proto::FecMedium);
+        assert_eq!(Proto::from(FecProtection::High), Proto::FecHigh);
     }
 }
 

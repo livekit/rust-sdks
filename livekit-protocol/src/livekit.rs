@@ -4182,6 +4182,12 @@ pub struct UpdateTrackSettings {
     ///     higher priority tracks first. lowest priority tracks can be paused
     #[prost(uint32, tag = "8")]
     pub priority: u32,
+    /// Proactive FlexFEC protection for this subscribed video track.
+    /// Requires server-side downstream FlexFEC and negotiated flexfec-03 support.
+    /// Omitted leaves the previous level unchanged; the initial default is FEC_NONE.
+    /// Unknown levels are treated as FEC_NONE.
+    #[prost(enumeration = "FecProtection", optional, tag = "9")]
+    pub fec: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct UpdateLocalAudioTrack {
@@ -4708,6 +4714,42 @@ impl SignalTarget {
         match value {
             "PUBLISHER" => Some(Self::Publisher),
             "SUBSCRIBER" => Some(Self::Subscriber),
+            _ => None,
+        }
+    }
+}
+/// Proactive video FEC presets, matching the publish-track protection levels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum FecProtection {
+    FecNone = 0,
+    /// approximately 15% repair packet overhead
+    FecLow = 1,
+    /// approximately 25% repair packet overhead
+    FecMedium = 2,
+    /// approximately 35% repair packet overhead
+    FecHigh = 3,
+}
+impl FecProtection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::FecNone => "FEC_NONE",
+            Self::FecLow => "FEC_LOW",
+            Self::FecMedium => "FEC_MEDIUM",
+            Self::FecHigh => "FEC_HIGH",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "FEC_NONE" => Some(Self::FecNone),
+            "FEC_LOW" => Some(Self::FecLow),
+            "FEC_MEDIUM" => Some(Self::FecMedium),
+            "FEC_HIGH" => Some(Self::FecHigh),
             _ => None,
         }
     }
