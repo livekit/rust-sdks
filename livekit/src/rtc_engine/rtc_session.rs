@@ -2065,11 +2065,7 @@ impl SessionInner {
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
-            let sender = transceiver.sender();
-            #[cfg(not(target_arch = "wasm32"))]
-            sender.set_video_sender_options(options.video_encoder, options.fec.fec_rate());
-            #[cfg(target_arch = "wasm32")]
-            sender.set_video_encoder_backend(options.video_encoder);
+            transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
             let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
                 match track.kind() {
@@ -2103,8 +2099,8 @@ impl SessionInner {
 
             // libwebrtc's codec preference matching drops any codec missing
             // from the list and never re-adds flexfec. Retain rtx and
-            // flexfec-03 so retransmissions and FEC negotiate. Repair packets
-            // are generated only when this track's protection level is non-zero.
+            // flexfec-03 so retransmissions and FEC negotiate. How much FEC is
+            // sent is set per track through RtpParameters::fec_protection.
             for codec in unmatched {
                 let mime_type = codec.mime_type.to_lowercase();
                 if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {

@@ -116,33 +116,47 @@ impl AudioPreset {
 /// Proactive FlexFEC protection applied to a published video track.
 ///
 /// FlexFEC is negotiated for every published video track. [`Self::Disabled`] sends no repair
-/// packets and does not reserve encoder bitrate. Any other level spends a fixed fraction of the
-/// track's bitrate on repair packets. FlexFEC protects only the first simulcast layer, so
-/// disabling simulcast is recommended for protected tracks.
+/// packets. Any other level requests a fixed ratio of repair packets to media packets, with each
+/// frame protected on its own, regardless of observed loss. The ratio is a request rather than a
+/// cap: repair packets are rounded up to whole packets per frame, so frames that span only a few
+/// packets get proportionally more overhead. libwebrtc does not send FlexFEC for simulcast
+/// senders, so disable simulcast on tracks that need protection.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FecProtection {
     /// Do not generate FEC for this track.
     #[default]
     Disabled,
-    /// Spend approximately 15% of the video bitrate on FEC.
+    /// Request one repair packet per ~6.7 media packets (ratio 0.15).
     Low,
-    /// Spend approximately 25% of the video bitrate on FEC.
+    /// Request one repair packet per 4 media packets (ratio 0.25).
     Medium,
-    /// Spend approximately 35% of the video bitrate on FEC.
+    /// Request one repair packet per ~2.9 media packets (ratio 0.35).
     High,
 }
 
 impl FecProtection {
-    /// Returns libwebrtc's protection factor (0..=255) for this level.
-    pub(crate) const fn fec_rate(self) -> u8 {
-        let percent = match self {
-            Self::Disabled => 0,
-            Self::Low => 15,
-            Self::Medium => 25,
-            Self::High => 35,
+    /// Fraction of media packets requested as FEC packets for this level.
+    const fn protection_factor(self) -> f64 {
+        match self {
+            Self::Disabled => 0.0,
+            Self::Low => 0.15,
+            Self::Medium => 0.25,
+            Self::High => 0.35,
+        }
+    }
+}
+
+impl From<FecProtection> for RtpFecProtection {
+    fn from(value: FecProtection) -> Self {
+        // Pin every level, including `Disabled`, so libwebrtc's adaptive FEC
+        // never turns on by itself for a published track. `Fixed` protects each
+        // frame in its own block, which keeps recovery delay at one frame.
+        let mode = match value {
+            FecProtection::Disabled => FecProtectionMode::Disabled,
+            _ => FecProtectionMode::Fixed,
         };
-        (percent * 255 / 100) as u8
+        Self { mode, protection_factor: value.protection_factor(), ..Default::default() }
     }
 }
 
@@ -212,14 +226,26 @@ impl Default for TrackPublishOptions {
 
 #[cfg(test)]
 mod fec_tests {
+    use libwebrtc::rtp_parameters::{FecProtectionMode, RtpFecProtection};
+
     use super::{FecProtection, TrackPublishOptions};
 
     #[test]
-    fn fec_protection_maps_to_fixed_rates() {
-        assert_eq!(FecProtection::Disabled.fec_rate(), 0);
-        assert_eq!(FecProtection::Low.fec_rate(), 38);
-        assert_eq!(FecProtection::Medium.fec_rate(), 63);
-        assert_eq!(FecProtection::High.fec_rate(), 89);
+    fn fec_protection_maps_to_rtp_policy() {
+        let cases = [
+            (FecProtection::Disabled, FecProtectionMode::Disabled, 0.0),
+            (FecProtection::Low, FecProtectionMode::Fixed, 0.15),
+            (FecProtection::Medium, FecProtectionMode::Fixed, 0.25),
+            (FecProtection::High, FecProtectionMode::Fixed, 0.35),
+        ];
+
+        for (level, mode, protection_factor) in cases {
+            let policy = RtpFecProtection::from(level);
+            assert_eq!(policy.mode, mode);
+            assert_eq!(policy.protection_factor, protection_factor);
+            assert_eq!(policy.key_frame_protection_factor, None);
+            assert_eq!(policy.max_fec_frames, None);
+        }
     }
 
     #[test]

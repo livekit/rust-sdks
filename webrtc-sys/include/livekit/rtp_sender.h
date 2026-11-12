@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
 
 #include "api/peer_connection_interface.h"
@@ -67,9 +66,6 @@ class RtpSender {
   void set_parameters(RtpParameters params) const;
 
   void set_video_encoder_backend(VideoEncoderBackend backend) const;
-
-  void set_video_sender_options(VideoEncoderBackend backend,
-                                std::uint8_t fec_rate) const;
 
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
     return sender_;

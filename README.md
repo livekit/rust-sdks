@@ -174,7 +174,7 @@ let (room, mut room_events) = Room::connect(&url, &token, RoomOptions::default()
 
 let publish_options = TrackPublishOptions {
     fec: FecProtection::Medium,
-    // FlexFEC protects only the first simulcast layer.
+    // libwebrtc does not send FlexFEC for simulcast senders.
     simulcast: false,
     ..Default::default()
 };
@@ -184,9 +184,9 @@ room.local_participant()
     .await?;
 ```
 
-The available per-track levels are `Disabled` (0%, and the default), `Low`
-(15%), `Medium` (25%), and `High` (35%). `Disabled` negotiates FlexFEC but
-sends no repair packets. Receivers negotiate FlexFEC automatically and require
+The available per-track levels are `Disabled` (the default), `Low` (0.15),
+`Medium` (0.25), and `High` (0.35), given as the requested ratio of repair to
+media packets. `Disabled` negotiates FlexFEC but sends no repair packets. Receivers negotiate FlexFEC automatically and require
 no additional configuration.
 
 ### Receive video frames of a subscribed track

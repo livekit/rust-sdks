@@ -28,11 +28,14 @@ Notes:
 - FlexFEC is negotiated for every published video track. Receivers negotiate it
   automatically and need no room option.
 - Each video track selects `Disabled`, `Low`, `Medium`, or `High` protection.
-  These correspond to 0%, 15%, 25%, and 35% protection. The default is
-  `Disabled`, which sends no repair packets.
-- Protection uses a fixed one-frame block and a random-loss mask.
-- FlexFEC protects the first simulcast layer only, publishing with
-  `simulcast: false` is recommended for protected tracks.
+  These request repair-to-media packet ratios of 0, 0.15, 0.25, and 0.35. The
+  default is `Disabled`, which sends no repair packets.
+- Protection is applied through libwebrtc's `RtpParameters::fec_protection` in
+  fixed mode: each frame is protected on its own, independent of observed loss.
+  Repair packets are rounded up per frame, so small frames carry more overhead
+  than the requested ratio.
+- libwebrtc does not send FlexFEC for simulcast senders, so publish with
+  `simulcast: false` for protected tracks.
 - FEC spends bandwidth proactively: it pays off on links where loss is
   bursty or the RTT makes retransmissions slow, and costs throughput on
   clean or low-latency links.

@@ -456,7 +456,7 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        // Set degradation preference for video tracks
+        // Set degradation preference and FEC protection for video tracks
         if let LocalTrack::Video(video_track) = &track {
             let resolution = video_track.rtc_source().video_resolution();
             let degradation_pref =
@@ -464,12 +464,14 @@ impl LocalParticipant {
             if let Some(sender) = track.transceiver().map(|t| t.sender()) {
                 let mut params = sender.parameters();
                 params.set_degradation_preference(degradation_pref);
+                params.set_fec_protection(Some(options.fec.into()));
                 if let Err(e) = sender.set_parameters(params) {
-                    log::warn!("Failed to set degradation preference: {:?}", e);
+                    log::warn!("Failed to set video sender parameters: {:?}", e);
                 } else {
                     log::debug!(
-                        "Set degradation preference to {:?} for video track (height={})",
+                        "Set degradation preference to {:?} and FEC protection to {:?} for video track (height={})",
                         degradation_pref,
+                        options.fec,
                         resolution.height
                     );
                 }

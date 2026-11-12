@@ -36,7 +36,6 @@
 #include "api/audio/audio_device.h"
 #include "api/audio_options.h"
 #include "livekit/adm_proxy.h"
-#include "livekit/fec_controller.h"
 #include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
@@ -139,8 +138,8 @@ class CompositeFieldTrials final : public webrtc::FieldTrialsView {
 webrtc::Environment CreateEnvironment(bool zero_playout_delay,
                                       bool enable_warp) {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
-  // Always advertise and accept FlexFEC repair streams. Sending protection is
-  // still opt-in per room and per track.
+  // Always advertise and accept FlexFEC repair streams. How much protection a
+  // sender generates is set per track through RtpParameters::fec_protection.
   views.push_back(std::make_unique<EnableFlexFecFieldTrials>());
   if (zero_playout_delay) {
     views.push_back(std::make_unique<ZeroPlayoutDelayFieldTrials>());
@@ -208,11 +207,6 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
-
-  // Replace FecControllerDefault for video send streams. Per-stream
-  // protection remains disabled until its encoder configures a non-zero rate
-  // through the controller override.
-  dependencies.fec_controller_factory = std::make_unique<LkFecControllerFactory>();
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =

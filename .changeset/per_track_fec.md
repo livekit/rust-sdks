@@ -1,8 +1,9 @@
 ---
 livekit: minor
 livekit-ffi: minor
-libwebrtc: patch
-webrtc-sys: patch
+libwebrtc: minor
+webrtc-sys: minor
+webrtc-sys-build: patch
 ---
 
-Negotiate FlexFEC for every published video track and choose send-side protection per track: disabled, low, medium, or high. Repair packets use a one-frame block and a random-loss mask, and disabled sends none.
+Negotiate FlexFEC for every published video track and choose send-side protection per track (disabled, low, medium, or high), applied through the new `RtpParameters::fec_protection` sender policy.
