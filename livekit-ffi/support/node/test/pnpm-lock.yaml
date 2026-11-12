@@ -1,0 +1,13 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@livekit/uniffi':
+        specifier: link:../../../../target/packages/node
+        version: link:../../../../target/packages/node

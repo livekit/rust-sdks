@@ -1,0 +1,48 @@
+{
+  "name": "{{ NPM_NAME }}",
+  "version": "{{ CARGO_MAKE_CRATE_VERSION }}",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "import": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "require": {
+      "types": "./dist/index.d.cts",
+      "default": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-ffi"
+  },
+  "scripts": {
+    "prepublishOnly": "pnpm run build",
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "ts:check": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">= 18"
+  },
+  "dependencies": {
+    "@ubjs/core": "{{ UBRN_VERSION }}",
+    "@ubjs/node": "{{ UBRN_VERSION }}"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "5.9.3"
+  },
+  "optionalDependencies": {
+    "{{ NPM_NAME }}-darwin-arm64": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-darwin-x64": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-linux-x64-gnu": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-linux-arm64-gnu": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-win32-x64-msvc": "{{ CARGO_MAKE_CRATE_VERSION }}"
+  }
+}
