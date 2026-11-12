@@ -94,6 +94,32 @@ class MeasureAndSummaryTest(unittest.TestCase):
                     "--out", os.path.join(tmp, "o.json"),
                 ])
 
+    def test_pull_request_names_both_commits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = os.path.join(tmp, "summary.json")
+            md = os.path.join(tmp, "summary.md")
+            ffi_size.main([
+                "summary", tmp, "--sha", "aaaaaaaaaa", "--pr-head-sha", "bbbbbbbbbb",
+                "--json", merged, "--markdown", md,
+            ])
+
+            with open(merged) as f:
+                data = json.load(f)
+            self.assertEqual(data["sha"], "aaaaaaaaaa")
+            self.assertEqual(data["pr_head_sha"], "bbbbbbbbbb")
+
+            with open(md) as f:
+                text = f.read()
+            self.assertIn("Merge commit `aaaaaaa` of PR head `bbbbbbb`", text)
+
+    def test_push_omits_pr_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = os.path.join(tmp, "summary.json")
+            ffi_size.main(["summary", tmp, "--sha", "aaaaaaaaaa", "--pr-head-sha", "",
+                           "--json", merged])
+            with open(merged) as f:
+                self.assertNotIn("pr_head_sha", json.load(f))
+
     def test_empty_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             md = os.path.join(tmp, "summary.md")

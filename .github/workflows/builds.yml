@@ -318,12 +318,17 @@ jobs:
           merge-multiple: true
           path: sizes
 
+      # On a pull request, checkout builds GitHub's merge of the head into
+      # the base, and that merge commit is github.sha. Record it as what was
+      # measured, and the head separately, since that is the commit people
+      # will recognize.
       - name: Summarize
         env:
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           mkdir -p sizes
-          python3 .github/scripts/ffi_size.py summary sizes --sha "$SHA" \
+          python3 .github/scripts/ffi_size.py summary sizes \
+            --sha "$GITHUB_SHA" --pr-head-sha "$PR_HEAD_SHA" \
             --json size-summary.json --markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Upload summary
