@@ -21,7 +21,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
-const { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, ReadyForRoomEventRequest, ReadyForRoomEventResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, SimulateScenarioCallback, SimulateScenarioRequest, SimulateScenarioResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } = require("./room_pb.js");
+const { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PrewarmCallback, PrewarmedConnectionAliveRequest, PrewarmedConnectionAliveResponse, PrewarmRequest, PrewarmResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, ReadyForRoomEventRequest, ReadyForRoomEventResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, SimulateScenarioCallback, SimulateScenarioRequest, SimulateScenarioResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } = require("./room_pb.js");
 const { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } = require("./track_pb.js");
 const { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, TakeEncodedVideoSourceFeedbackRequest, TakeEncodedVideoSourceFeedbackResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } = require("./video_frame_pb.js");
 const { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, GetAudioDevicesRequest, GetAudioDevicesResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewPlatformAudioRequest, NewPlatformAudioResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse, SetPlayoutDeviceRequest, SetPlayoutDeviceResponse, SetRecordingDeviceRequest, SetRecordingDeviceResponse, StartRecordingRequest, StartRecordingResponse, StopRecordingRequest, StopRecordingResponse } = require("./audio_frame_pb.js");
@@ -146,6 +146,8 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
     { no: 92, name: "join_capture", kind: "message", T: JoinCaptureRequest, oneof: "message" },
+    { no: 93, name: "prewarm", kind: "message", T: PrewarmRequest, oneof: "message" },
+    { no: 94, name: "prewarmed_connection_alive", kind: "message", T: PrewarmedConnectionAliveRequest, oneof: "message" },
   ],
 );
 
@@ -247,6 +249,8 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
     { no: 92, name: "join_capture", kind: "message", T: JoinCaptureResponse, oneof: "message" },
+    { no: 93, name: "prewarm", kind: "message", T: PrewarmResponse, oneof: "message" },
+    { no: 94, name: "prewarmed_connection_alive", kind: "message", T: PrewarmedConnectionAliveResponse, oneof: "message" },
   ],
 );
 
@@ -307,6 +311,7 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 46, name: "get_schema", kind: "message", T: GetSchemaCallback, oneof: "message" },
     { no: 47, name: "new_capture_source", kind: "message", T: NewCaptureSourceCallback, oneof: "message" },
     { no: 49, name: "join_capture", kind: "message", T: JoinCaptureCallback, oneof: "message" },
+    { no: 50, name: "prewarm", kind: "message", T: PrewarmCallback, oneof: "message" },
   ],
 );
 

@@ -21,12 +21,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
+const { FfiOwnedHandle } = require("./handle_pb.js");
 const { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } = require("./participant_pb.js");
 const { FrameMetadataFeature, OwnedTrack, OwnedTrackPublication, TrackPublicationInfo, TrackSource } = require("./track_pb.js");
 const { RtcStats } = require("./stats_pb.js");
 const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
-const { FfiOwnedHandle } = require("./handle_pb.js");
 const { OwnedByteStreamReader, OwnedTextStreamReader } = require("./data_stream_pb.js");
 const { OwnedRemoteDataTrack } = require("./data_track_pb.js");
 
@@ -140,6 +140,67 @@ const DataPacketKind = /*@__PURE__*/ proto2.makeEnum(
   [
     {no: 0, name: "KIND_LOSSY"},
     {no: 1, name: "KIND_RELIABLE"},
+  ],
+);
+
+/**
+ * Open a connection (TCP, plus TLS for wss) to a server ahead of a ConnectRequest.
+ * Pass the returned handle as RoomOptions.prewarmed_connection_handle so the
+ * connect only performs the WebSocket upgrade. The connection is used at most
+ * once; dropping the handle closes it.
+ *
+ * @generated from message livekit.proto.PrewarmRequest
+ */
+const PrewarmRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrewarmRequest",
+  () => [
+    { no: 1, name: "url", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.PrewarmResponse
+ */
+const PrewarmResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrewarmResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.PrewarmCallback
+ */
+const PrewarmCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrewarmCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "message" },
+    { no: 3, name: "connection", kind: "message", T: FfiOwnedHandle, oneof: "message" },
+  ],
+);
+
+/**
+ * Whether a pre-warmed connection can still be used: not used yet, and not
+ * closed by the server.
+ *
+ * @generated from message livekit.proto.PrewarmedConnectionAliveRequest
+ */
+const PrewarmedConnectionAliveRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrewarmedConnectionAliveRequest",
+  () => [
+    { no: 1, name: "connection_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.PrewarmedConnectionAliveResponse
+ */
+const PrewarmedConnectionAliveResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrewarmedConnectionAliveResponse",
+  () => [
+    { no: 1, name: "alive", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
   ],
 );
 
@@ -807,6 +868,7 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 10, name: "data_stream", kind: "message", T: RoomDataStreamOptions, opt: true },
     { no: 11, name: "other_sdks", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 12, name: "prewarmed_connection_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 
@@ -1673,6 +1735,11 @@ exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
 exports.ConnectionState = ConnectionState;
 exports.DataPacketKind = DataPacketKind;
+exports.PrewarmRequest = PrewarmRequest;
+exports.PrewarmResponse = PrewarmResponse;
+exports.PrewarmCallback = PrewarmCallback;
+exports.PrewarmedConnectionAliveRequest = PrewarmedConnectionAliveRequest;
+exports.PrewarmedConnectionAliveResponse = PrewarmedConnectionAliveResponse;
 exports.ConnectRequest = ConnectRequest;
 exports.ConnectResponse = ConnectResponse;
 exports.ConnectCallback = ConnectCallback;

@@ -19,12 +19,12 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
+import type { FfiOwnedHandle } from "./handle_pb.js";
 import type { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
 import type { FrameMetadataFeature, OwnedTrack, OwnedTrackPublication, TrackPublicationInfo, TrackSource } from "./track_pb.js";
 import type { RtcStats } from "./stats_pb.js";
 import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
-import type { FfiOwnedHandle } from "./handle_pb.js";
 import type { OwnedByteStreamReader, OwnedTextStreamReader } from "./data_stream_pb.js";
 import type { OwnedRemoteDataTrack } from "./data_track_pb.js";
 
@@ -263,6 +263,156 @@ export declare enum DataPacketKind {
    * @generated from enum value: KIND_RELIABLE = 1;
    */
   KIND_RELIABLE = 1,
+}
+
+/**
+ * Open a connection (TCP, plus TLS for wss) to a server ahead of a ConnectRequest.
+ * Pass the returned handle as RoomOptions.prewarmed_connection_handle so the
+ * connect only performs the WebSocket upgrade. The connection is used at most
+ * once; dropping the handle closes it.
+ *
+ * @generated from message livekit.proto.PrewarmRequest
+ */
+export declare class PrewarmRequest extends Message<PrewarmRequest> {
+  /**
+   * @generated from field: required string url = 1;
+   */
+  url?: string;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<PrewarmRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrewarmRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrewarmRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrewarmRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrewarmRequest;
+
+  static equals(a: PrewarmRequest | PlainMessage<PrewarmRequest> | undefined, b: PrewarmRequest | PlainMessage<PrewarmRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.PrewarmResponse
+ */
+export declare class PrewarmResponse extends Message<PrewarmResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<PrewarmResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrewarmResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrewarmResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrewarmResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrewarmResponse;
+
+  static equals(a: PrewarmResponse | PlainMessage<PrewarmResponse> | undefined, b: PrewarmResponse | PlainMessage<PrewarmResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.PrewarmCallback
+ */
+export declare class PrewarmCallback extends Message<PrewarmCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * @generated from oneof livekit.proto.PrewarmCallback.message
+   */
+  message: {
+    /**
+     * @generated from field: string error = 2;
+     */
+    value: string;
+    case: "error";
+  } | {
+    /**
+     * @generated from field: livekit.proto.FfiOwnedHandle connection = 3;
+     */
+    value: FfiOwnedHandle;
+    case: "connection";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<PrewarmCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrewarmCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrewarmCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrewarmCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrewarmCallback;
+
+  static equals(a: PrewarmCallback | PlainMessage<PrewarmCallback> | undefined, b: PrewarmCallback | PlainMessage<PrewarmCallback> | undefined): boolean;
+}
+
+/**
+ * Whether a pre-warmed connection can still be used: not used yet, and not
+ * closed by the server.
+ *
+ * @generated from message livekit.proto.PrewarmedConnectionAliveRequest
+ */
+export declare class PrewarmedConnectionAliveRequest extends Message<PrewarmedConnectionAliveRequest> {
+  /**
+   * @generated from field: required uint64 connection_handle = 1;
+   */
+  connectionHandle?: bigint;
+
+  constructor(data?: PartialMessage<PrewarmedConnectionAliveRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrewarmedConnectionAliveRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrewarmedConnectionAliveRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrewarmedConnectionAliveRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrewarmedConnectionAliveRequest;
+
+  static equals(a: PrewarmedConnectionAliveRequest | PlainMessage<PrewarmedConnectionAliveRequest> | undefined, b: PrewarmedConnectionAliveRequest | PlainMessage<PrewarmedConnectionAliveRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.PrewarmedConnectionAliveResponse
+ */
+export declare class PrewarmedConnectionAliveResponse extends Message<PrewarmedConnectionAliveResponse> {
+  /**
+   * @generated from field: required bool alive = 1;
+   */
+  alive?: boolean;
+
+  constructor(data?: PartialMessage<PrewarmedConnectionAliveResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrewarmedConnectionAliveResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrewarmedConnectionAliveResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrewarmedConnectionAliveResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrewarmedConnectionAliveResponse;
+
+  static equals(a: PrewarmedConnectionAliveResponse | PlainMessage<PrewarmedConnectionAliveResponse> | undefined, b: PrewarmedConnectionAliveResponse | PlainMessage<PrewarmedConnectionAliveResponse> | undefined): boolean;
 }
 
 /**
@@ -2120,6 +2270,14 @@ export declare class RoomOptions extends Message<RoomOptions> {
    * @generated from field: optional string other_sdks = 11;
    */
   otherSdks?: string;
+
+  /**
+   * Handle from a PrewarmCallback. The first signal connection attempt runs the
+   * WebSocket upgrade over it, or dials a fresh connection if it is unusable.
+   *
+   * @generated from field: optional uint64 prewarmed_connection_handle = 12;
+   */
+  prewarmedConnectionHandle?: bigint;
 
   constructor(data?: PartialMessage<RoomOptions>);
 
