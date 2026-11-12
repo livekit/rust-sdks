@@ -476,6 +476,32 @@ impl RemoteParticipant {
                 });
             }
         });
+
+        publication.on_fec_protection_changed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            move |publication, protection| {
+                let rtc_engine = rtc_engine.clone();
+                tokio::spawn(async move {
+                    // The SFU replaces every setting but FEC on each update, so
+                    // repeat the current state alongside the new level.
+                    let TrackDimension(width, height) = publication.dimension();
+                    let update_track_settings = proto::UpdateTrackSettings {
+                        track_sids: vec![publication.sid().into()],
+                        disabled: !publication.is_enabled(),
+                        width,
+                        height,
+                        fec: Some(proto::FecProtection::from(protection).into()),
+                        ..Default::default()
+                    };
+
+                    rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await
+                });
+            }
+        });
     }
 
     pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {

@@ -18,7 +18,7 @@ use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::{e2ee::EncryptionType, prelude::*, track::VideoQuality};
+use crate::{e2ee::EncryptionType, options::FecProtection, prelude::*, track::VideoQuality};
 
 type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
 type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
@@ -30,6 +30,7 @@ type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) 
 type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
 type VideoDimensionsChangedHandler = Box<dyn Fn(RemoteTrackPublication, TrackDimension) + Send>;
 type VideoQualityChangedHandler = Box<dyn Fn(RemoteTrackPublication, VideoQuality) + Send>;
+type FecProtectionChangedHandler = Box<dyn Fn(RemoteTrackPublication, FecProtection) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -41,6 +42,7 @@ struct RemoteEvents {
     enabled_status_changed: Mutex<Option<EnabledStatusChangedHandler>>,
     video_dimensions_changed: Mutex<Option<VideoDimensionsChangedHandler>>,
     video_quality_changed: Mutex<Option<VideoQualityChangedHandler>>,
+    fec_protection_changed: Mutex<Option<FecProtectionChangedHandler>>,
 }
 
 #[derive(Debug)]
@@ -233,6 +235,13 @@ impl RemoteTrackPublication {
         *self.remote.events.video_quality_changed.lock() = Some(Box::new(f));
     }
 
+    pub(crate) fn on_fec_protection_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, FecProtection) + Send + 'static,
+    ) {
+        *self.remote.events.fec_protection_changed.lock() = Some(Box::new(f));
+    }
+
     pub fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
@@ -277,6 +286,24 @@ impl RemoteTrackPublication {
             self.remote.events.video_quality_changed.lock().as_ref()
         {
             video_quality_changed(self.clone(), quality)
+        }
+    }
+
+    /// Requests FlexFEC repair packets from the SFU for this video track.
+    ///
+    /// The SFU only sends repairs when downstream FlexFEC is enabled on the server and
+    /// `flexfec-03` was negotiated for the subscription; otherwise the request has no effect.
+    /// The level is kept across resubscriptions and changes without renegotiation.
+    /// [`FecProtection::Disabled`], the default, stops the repairs.
+    pub fn set_fec_protection(&self, protection: FecProtection) {
+        if self.kind() != TrackKind::Video {
+            log::warn!("Cannot set FEC protection for a track that is not video");
+            return;
+        }
+        if let Some(fec_protection_changed) =
+            self.remote.events.fec_protection_changed.lock().as_ref()
+        {
+            fec_protection_changed(self.clone(), protection)
         }
     }
 

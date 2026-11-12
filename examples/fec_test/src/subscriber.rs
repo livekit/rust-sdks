@@ -24,6 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 use livekit::{
+    options::FecProtection,
     track::RemoteTrack,
     webrtc::{stats::RtcStats, video_stream::native::NativeVideoStream},
     Room, RoomEvent, RoomOptions,
@@ -49,6 +50,31 @@ struct Args {
     /// CSV output for 1 Hz per-track receive statistics
     #[arg(long, default_value = "subscriber_stats.csv")]
     stats_out: String,
+    /// downstream FEC levels to request from the SFU, as comma separated
+    /// `seconds:level` steps relative to the subscription, e.g.
+    /// `0:none,20:high,40:none`; levels are none, low, medium and high
+    #[arg(long, value_parser = parse_fec_schedule, default_value = "")]
+    fec_schedule: FecSchedule,
+}
+
+type FecSchedule = Vec<(u64, FecProtection)>;
+
+fn parse_fec_schedule(value: &str) -> Result<FecSchedule, String> {
+    let mut schedule = FecSchedule::new();
+    for step in value.split(',').filter(|step| !step.is_empty()) {
+        let (secs, level) = step.split_once(':').ok_or(format!("invalid step {step:?}"))?;
+        let secs = secs.parse().map_err(|_| format!("invalid seconds in {step:?}"))?;
+        let level = match level {
+            "none" => FecProtection::Disabled,
+            "low" => FecProtection::Low,
+            "medium" => FecProtection::Medium,
+            "high" => FecProtection::High,
+            _ => return Err(format!("invalid level in {step:?}")),
+        };
+        schedule.push((secs, level));
+    }
+    schedule.sort_by_key(|(secs, _)| *secs);
+    Ok(schedule)
 }
 
 #[tokio::main]
@@ -72,7 +98,7 @@ async fn main() -> Result<()> {
          frames_decoded,frames_dropped,frames_per_second,frames_received_app,\
          freeze_count,total_freeze_duration,pause_count,nack_count,pli_count,fir_count,\
          jitter_buffer_delay,jitter_buffer_emitted_count,total_processing_delay,\
-         e2e_latency_ms,e2e_samples"
+         e2e_latency_ms,e2e_samples,fec_level"
     )?;
     let csv = Arc::new(Mutex::new(csv));
 
@@ -91,10 +117,25 @@ async fn main() -> Result<()> {
             _ = &mut deadline => break,
             event = events.recv() => {
                 let Some(event) = event else { break };
-                if let RoomEvent::TrackSubscribed { track, participant, .. } = event {
+                if let RoomEvent::TrackSubscribed { track, publication, participant } = event {
                     if let RemoteTrack::Video(video_track) = track {
                         let publisher = participant.identity().to_string();
                         log::info!("subscribed to video track from {}", publisher);
+
+                        // the FEC level currently requested, for the CSV
+                        let fec_level = Arc::new(std::sync::Mutex::new(FecProtection::Disabled));
+                        let schedule = args.fec_schedule.clone();
+                        let level = fec_level.clone();
+                        tokio::spawn(async move {
+                            let subscribed_at = tokio::time::Instant::now();
+                            for (secs, protection) in schedule {
+                                tokio::time::sleep_until(subscribed_at + Duration::from_secs(secs))
+                                    .await;
+                                log::info!("requesting downstream FEC {:?}", protection);
+                                publication.set_fec_protection(protection);
+                                *level.lock().unwrap() = protection;
+                            }
+                        });
 
                         // drain decoded frames, decoding is required for
                         // frame/freeze statistics and counts as the
@@ -153,7 +194,7 @@ async fn main() -> Result<()> {
                                     let mut csv = csv.lock().await;
                                     let _ = writeln!(
                                         csv,
-                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{},{:.3},{},{:.3},{:.2},{}",
+                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{},{:.3},{},{:.3},{:.2},{},{:?}",
                                         common::unix_time_secs(),
                                         publisher,
                                         inbound.stream.ssrc,
@@ -179,6 +220,7 @@ async fn main() -> Result<()> {
                                         inbound.inbound.total_processing_delay,
                                         e2e_ms,
                                         lat_n,
+                                        *fec_level.lock().unwrap(),
                                     );
                                     let _ = csv.flush();
                                 }
