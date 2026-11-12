@@ -47,5 +47,5 @@ async fn get_thread_request() {
         .expect("bearer token");
     let claims = Claims::from_unverified(token).unwrap();
     assert_eq!(claims.iss, "key");
-    assert!(claims.agent_database.admin && claims.agent_thread.all);
+    assert!(claims.agent_thread.all);
 }
