@@ -510,3 +510,34 @@ fn prewarmed_connection_handle_lifecycle() {
     assert!(FFI_SERVER.ffi_handles.is_empty());
     FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
 }
+
+/// A prewarm that finishes after dispose cannot reach a client, so its socket must not
+/// stay in the handle map. Uses the global server, so it runs alone.
+#[serial_test::serial]
+#[test]
+fn prewarm_completed_after_dispose_releases_the_connection() {
+    use std::time::Duration;
+    use tokio::io::AsyncReadExt;
+
+    FFI_SERVER.setup(FfiConfig {
+        callback_fn: Arc::new(|_| {}),
+        capture_logs: false,
+        sdk: "livekit-ffi-test".to_owned(),
+        sdk_version: "test".to_owned(),
+    });
+
+    FFI_SERVER.async_runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let connection = livekit::PrewarmedConnection::connect(&url).await;
+        let (mut server, _) = listener.accept().await.unwrap();
+
+        FFI_SERVER.dispose().await;
+        crate::server::requests::complete_prewarm(&FFI_SERVER, 1, connection);
+
+        assert!(FFI_SERVER.ffi_handles.is_empty());
+        let mut buf = [0u8; 1];
+        let n = tokio::time::timeout(Duration::from_secs(2), server.read(&mut buf)).await;
+        assert!(matches!(n, Ok(Ok(0))), "socket not closed after a failed callback");
+    });
+}

@@ -75,6 +75,8 @@ impl SignalStream {
 
         let headers = super::bearer_headers(token);
 
+        // One deadline covers the pre-warmed attempt and any fresh dial after it.
+        let deadline = tokio::time::Instant::now() + connect_timeout;
         let conn = match Self::upgrade_prewarmed(prewarmed, &url, &headers, connect_timeout).await?
         {
             Some(conn) => conn,
@@ -83,9 +85,10 @@ impl SignalStream {
             // ignores or mishandles `timeout_ms` must not be able to hang connect (and
             // thus the engine's reconnect loop) forever.
             None => {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                 tokio::time::timeout(
-                    connect_timeout,
-                    transport.connect(url.to_string(), headers, connect_timeout.as_millis() as u64),
+                    remaining,
+                    transport.connect(url.to_string(), headers, remaining.as_millis() as u64),
                 )
                 .await
                 .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??

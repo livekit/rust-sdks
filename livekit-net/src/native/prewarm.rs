@@ -33,6 +33,10 @@ pub(super) type Stream = MaybeTlsStream<TcpStream>;
 /// live server makes the fresh dial send a second join for the same identity.
 const UPGRADE_TIMEOUT: Duration = Duration::from_millis(1500);
 
+/// Upper bound on opening a pre-warmed stream (TCP connect plus TLS handshake),
+/// matching the default signal connect timeout.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// The server a stream is connected to. A pre-warmed stream is only used for
 /// the exact scheme, host and port it was opened for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +83,10 @@ pub(crate) struct Warm {
 
 impl Warm {
     pub(crate) async fn open(url: &str) -> Result<Self, TransportError> {
+        Self::open_with_timeout(url, DIAL_TIMEOUT).await
+    }
+
+    async fn open_with_timeout(url: &str, timeout: Duration) -> Result<Self, TransportError> {
         let url = url::Url::parse(url).map_err(|e| TransportError::Connection(e.to_string()))?;
         let endpoint = Endpoint::try_from(&url)?;
         if super::proxy::proxy_for(endpoint.tls).is_some() {
@@ -86,7 +94,9 @@ impl Warm {
             return Err(TransportError::Other("prewarm is not supported through a proxy".into()));
         }
 
-        let stream = dial(&endpoint).await?;
+        let stream = tokio::time::timeout(timeout, dial(&endpoint))
+            .await
+            .map_err(|_| TransportError::Timeout)??;
         let (take_tx, take_rx) = oneshot::channel();
         tokio::spawn(Watcher { take_rx, stream }.run());
         log::debug!("pre-warmed connection to {}", crate::redact_url(&url));
@@ -382,5 +392,26 @@ mod tests {
         assert!(used.is_none());
         assert!(started.elapsed() < Duration::from_secs(1));
         let _ = server.shutdown().await;
+    }
+
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "native-tls-vendored",
+        feature = "rustls-tls-native-roots",
+        feature = "rustls-tls-webpki-roots",
+        feature = "__rustls-tls"
+    ))]
+    #[tokio::test]
+    async fn stalled_tls_handshake_times_out() {
+        let (listener, _) = listener().await;
+        let url = format!("wss://{}", listener.local_addr().unwrap());
+        // Accept TCP but never answer the ClientHello.
+        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+
+        let started = tokio::time::Instant::now();
+        let result = Warm::open_with_timeout(&url, Duration::from_millis(200)).await;
+        assert!(matches!(result, Err(TransportError::Timeout)));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(accept.await.unwrap());
     }
 }

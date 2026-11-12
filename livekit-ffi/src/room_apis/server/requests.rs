@@ -68,19 +68,33 @@ fn on_prewarm(
 ) -> FfiResult<proto::PrewarmResponse> {
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
-        let message = match PrewarmedConnection::connect(&request.url).await {
-            Ok(connection) => {
-                let id = server.next_id();
-                server.store_handle(id, connection);
-                proto::prewarm_callback::Message::Connection(proto::FfiOwnedHandle { id })
-            }
-            Err(err) => proto::prewarm_callback::Message::Error(err.to_string()),
-        };
-        let _ =
-            server.send_event(proto::PrewarmCallback { async_id, message: Some(message) }.into());
+        let result = PrewarmedConnection::connect(&request.url).await;
+        complete_prewarm(server, async_id, result);
     });
     server.watch_panic(handle);
     Ok(proto::PrewarmResponse { async_id })
+}
+
+/// Hand a finished prewarm to the client. If the callback cannot be delivered (the
+/// server was disposed meanwhile), nobody can learn the handle, so it is released.
+pub(crate) fn complete_prewarm(
+    server: &FfiServer,
+    async_id: u64,
+    result: Result<PrewarmedConnection, impl std::fmt::Display>,
+) {
+    let (message, id) = match result {
+        Ok(connection) => {
+            let id = server.next_id();
+            server.store_handle(id, connection);
+            (proto::prewarm_callback::Message::Connection(proto::FfiOwnedHandle { id }), Some(id))
+        }
+        Err(err) => (proto::prewarm_callback::Message::Error(err.to_string()), None),
+    };
+    let sent =
+        server.send_event(proto::PrewarmCallback { async_id, message: Some(message) }.into());
+    if let (Err(_), Some(id)) = (sent, id) {
+        server.drop_handle(id);
+    }
 }
 
 fn on_prewarmed_connection_alive(

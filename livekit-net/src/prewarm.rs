@@ -43,7 +43,7 @@ impl PrewarmedConnection {
     ///
     /// `http(s)` URLs are treated as `ws(s)`, so either spelling matches a later
     /// connect to the same host and port. Fails if the connection cannot be
-    /// opened, or if an `HTTP(S)_PROXY` is configured for the scheme.
+    /// opened within 5 s, or if an `HTTP(S)_PROXY` is configured for the scheme.
     #[cfg(feature = "native")]
     pub async fn connect(url: &str) -> Result<Self, TransportError> {
         let inner = crate::native::prewarm::Warm::open(url).await?;
