@@ -30,6 +30,53 @@
 
 namespace livekit_ffi {
 
+// H.264 Annex-B emulation prevention: after XOR the trailer can contain
+// 0x000000 / 0x000001 / 0x000002 / 0x000003 (e.g. user_data ending in
+// FF FF FE becomes 00 00 01). Insert 0x03 after every 0x0000 when the next
+// byte is <= 0x03 so the H.264 packetizer does not treat the trailer as a
+// new NAL. The matching unescape runs before TLV parsing.
+std::vector<uint8_t> EscapeAnnexB(std::span<const uint8_t> data) {
+  std::vector<uint8_t> out;
+  out.reserve(data.size() + data.size() / 2 + 1);
+  int zeros = 0;
+  for (uint8_t b : data) {
+    if (zeros >= 2 && b <= 0x03) {
+      out.push_back(0x03);
+      zeros = 0;
+    }
+    out.push_back(b);
+    if (b == 0x00) {
+      ++zeros;
+    } else {
+      zeros = 0;
+    }
+  }
+  return out;
+}
+
+std::vector<uint8_t> UnescapeAnnexB(std::span<const uint8_t> data) {
+  std::vector<uint8_t> out;
+  out.reserve(data.size());
+  int zeros = 0;
+  for (size_t i = 0; i < data.size(); ++i) {
+    uint8_t b = data[i];
+    if (zeros >= 2 && b == 0x03) {
+      // Drop the emulation prevention byte; the next byte (if any) is real.
+      zeros = 0;
+      continue;
+    }
+    out.push_back(b);
+    if (b == 0x00) {
+      ++zeros;
+    } else {
+      zeros = 0;
+    }
+  }
+  return out;
+}
+
+
+
 namespace {
 
 uint64_t CurrentUnixTimeMicros() {
@@ -37,6 +84,7 @@ uint64_t CurrentUnixTimeMicros() {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
+
 
 std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
                                          uint32_t frame_id,
@@ -78,14 +126,16 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
     return {};
   }
 
-  const size_t trailer_len =
-      fixed_len +
-      (embed_user_data ? kUserDataTlvHeaderSize + user_data.size() : 0);
   std::vector<uint8_t> trailer;
-  trailer.reserve(trailer_len);
+  trailer.reserve(
+      fixed_len +
+      (embed_user_data ? kUserDataTlvHeaderSize + user_data.size() : 0));
 
-  // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
-  // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
+  // All TLV bytes are XORed with 0xFF. That alone is not enough: user_data
+  // (or timestamp / frame_id bytes) containing FF FF FE becomes 00 00 01 after
+  // XOR, which H.264 treats as a NAL start code and splits the packet (#1582).
+  // Build the XOR'd TLV region first, then Annex-B-escape it so 00 00 0x00-0x03
+  // cannot appear. The envelope length counts the escaped TLV size.
   if (has_timestamp) {
     trailer.push_back(kTagTimestampUs ^ 0xFF);
     trailer.push_back(8 ^ 0xFF);
@@ -112,10 +162,24 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
     }
   }
 
-  trailer.push_back(static_cast<uint8_t>(trailer_len ^ 0xFF));
-  trailer.insert(trailer.end(), std::begin(kPacketTrailerMagic),
+  std::vector<uint8_t> escaped = EscapeAnnexB(trailer);
+  if (escaped.size() + kTrailerEnvelopeSize > kPacketTrailerMaxTotal) {
+    // Escaping pushed us over the 255-byte envelope budget. Drop user_data and
+    // retry once; timestamp/frame_id alone cannot expand enough to overflow.
+    if (embed_user_data) {
+      return BuildTrailerPayload(user_timestamp, frame_id, {});
+    }
+    RTC_LOG(LS_WARNING)
+        << "BuildTrailerPayload dropping trailer: escaped size "
+        << escaped.size() << " exceeds envelope budget";
+    return {};
+  }
+
+  const size_t escaped_len = escaped.size() + kTrailerEnvelopeSize;
+  escaped.push_back(static_cast<uint8_t>(escaped_len ^ 0xFF));
+  escaped.insert(escaped.end(), std::begin(kPacketTrailerMagic),
                  std::end(kPacketTrailerMagic));
-  return trailer;
+  return escaped;
 }
 
 }  // namespace
@@ -136,21 +200,23 @@ std::optional<PacketTrailerMetadata> ParseTrailerPayload(
     return std::nullopt;
   }
 
-  size_t tlv_region_len = trailer_len - kTrailerEnvelopeSize;
+  std::vector<uint8_t> tlv = UnescapeAnnexB(
+      std::span<const uint8_t>(trailer.data(), trailer_len - kTrailerEnvelopeSize));
+  size_t tlv_region_len = tlv.size();
   PacketTrailerMetadata meta{0, 0, 0};
   bool found_any = false;
   size_t pos = 0;
 
   while (pos + 2 <= tlv_region_len) {
-    uint8_t tag = trailer[pos] ^ 0xFF;
-    uint8_t len = trailer[pos + 1] ^ 0xFF;
+    uint8_t tag = tlv[pos] ^ 0xFF;
+    uint8_t len = tlv[pos + 1] ^ 0xFF;
     pos += 2;
 
     if (pos + len > tlv_region_len) {
       break;
     }
 
-    const uint8_t* val = trailer.data() + pos;
+    const uint8_t* val = tlv.data() + pos;
     if (tag == kTagTimestampUs && len == 8) {
       uint64_t ts = 0;
       for (int i = 0; i < 8; ++i) {
