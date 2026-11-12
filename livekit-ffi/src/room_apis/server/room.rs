@@ -27,7 +27,7 @@ use super::FfiDataBuffer;
 use crate::server::data_track;
 use crate::{
     proto,
-    server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
+    server::data_stream,
     server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
@@ -1512,10 +1512,8 @@ async fn forward_event(
         }
         RoomEvent::ByteStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
-            let handle_id = server.next_id();
             let info = reader.info().clone();
-            let ffi_reader = FfiByteStreamReader { handle_id, inner: reader };
-            server.store_handle(ffi_reader.handle_id, ffi_reader);
+            let handle_id = Arc::new(data_stream::ByteStreamReader::new(reader)).ffi_handle_id();
 
             let _ = send_event(
                 proto::ByteStreamOpened {
@@ -1530,10 +1528,8 @@ async fn forward_event(
         }
         RoomEvent::TextStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
-            let handle_id = server.next_id();
             let info = reader.info().clone();
-            let ffi_reader = FfiTextStreamReader { handle_id, inner: reader };
-            server.store_handle(ffi_reader.handle_id, ffi_reader);
+            let handle_id = Arc::new(data_stream::TextStreamReader::new(reader)).ffi_handle_id();
 
             let _ = send_event(
                 proto::TextStreamOpened {

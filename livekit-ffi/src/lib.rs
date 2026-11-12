@@ -66,6 +66,14 @@ pub mod build_info;
 /// Shared UniFFI type registrations.
 pub mod common;
 
+/// Global async runtime.
+pub(crate) mod runtime;
+
+/// Data stream objects from [`livekit-data-stream`].
+///
+/// Shared by both surfaces, so either one hands client SDKs the same reader and writer objects.
+pub mod data_stream;
+
 /// Data track objects from [`livekit-datatrack`].
 ///
 /// Shared by both surfaces, so either one hands client SDKs the same track and stream objects.

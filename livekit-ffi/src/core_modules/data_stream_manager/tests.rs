@@ -25,17 +25,17 @@ use livekit_protocol as proto;
 use prost::Message as _;
 use tokio::sync::{mpsc, oneshot};
 
-use super::common::{
-    ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamByteOptions,
-    StreamProgress, StreamTextOptions,
-};
-use super::incoming::{
-    ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
-    TextStreamReader,
-};
+use super::common::{ClientCapability, PacketDeliveryError};
+use super::incoming::{IncomingDataStreamManager, IncomingDataStreamManagerDelegate};
 use super::outgoing::{
-    OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate,
-    RemoteParticipantRegistryDelegate, StreamProgressDelegate,
+    OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate, RemoteParticipantRegistryDelegate,
+};
+use crate::data_stream::{
+    common::{
+        DataStreamError, EncryptionType, StreamByteOptions, StreamProgress, StreamTextOptions,
+    },
+    incoming::{ByteStreamReader, TextStreamReader},
+    outgoing::StreamProgressDelegate,
 };
 
 /// Builds an encoded v2 inline (single-packet) text `DataPacket` for stream `stream_id`.
@@ -263,7 +263,7 @@ fn incoming_reader_reports_progress() {
 }
 
 /// How long a test waits for something that must happen.
-pub(super) const TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Topic of the inline marker streams that [`count_closes`] sends.
 const MARKER_TOPIC: &str = "marker";
@@ -313,14 +313,14 @@ impl IncomingDataStreamManagerDelegate for StreamEvents {
 }
 
 /// The receiving ends of [`StreamEvents`].
-pub(super) struct Events {
+pub(crate) struct Events {
     text: mpsc::UnboundedReceiver<Arc<TextStreamReader>>,
     bytes: mpsc::UnboundedReceiver<Arc<ByteStreamReader>>,
     closed: mpsc::UnboundedReceiver<String>,
 }
 
 /// Creates a manager whose delegate forwards its events to the returned [`Events`].
-pub(super) fn manager_with_events() -> (Arc<IncomingDataStreamManager>, Events) {
+pub(crate) fn manager_with_events() -> (Arc<IncomingDataStreamManager>, Events) {
     let (text_tx, text) = mpsc::unbounded_channel();
     let (bytes_tx, bytes) = mpsc::unbounded_channel();
     let (closed_tx, closed) = mpsc::unbounded_channel();
@@ -351,7 +351,7 @@ async fn count_closes(
 }
 
 /// Opens a text stream that declares 10 bytes and delivers its first 5, and returns its reader.
-pub(super) async fn open_text_stream(
+pub(crate) async fn open_text_stream(
     manager: &IncomingDataStreamManager,
     events: &mut Events,
     stream_id: &str,
