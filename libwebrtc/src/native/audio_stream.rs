@@ -34,6 +34,7 @@ pub struct NativeAudioStream {
     native_sink: SharedPtr<sys_at::ffi::NativeAudioSink>,
     audio_track: RtcAudioTrack,
     frame_queue: Arc<AudioFrameQueue>,
+    observer: Arc<AudioTrackObserver>,
 }
 
 impl NativeAudioStream {
@@ -43,8 +44,26 @@ impl NativeAudioStream {
         num_channels: i32,
         queue_size_frames: Option<usize>,
     ) -> Self {
+        Self::new_with_frame_size(audio_track, sample_rate, num_channels, queue_size_frames, None)
+    }
+
+    /// Creates a sink with optional aggregation for an unbounded queue.
+    pub fn new_with_frame_size(
+        audio_track: RtcAudioTrack,
+        sample_rate: i32,
+        num_channels: i32,
+        queue_size_frames: Option<usize>,
+        frame_size_ms: Option<u32>,
+    ) -> Self {
         let frame_queue = Arc::new(AudioFrameQueue::new(queue_size_frames));
-        let observer = Arc::new(AudioTrackObserver { frame_queue: frame_queue.clone() });
+        // Bounded queues count original sink frames; keep their overflow semantics unchanged.
+        let target = frame_size_ms
+            .filter(|ms| *ms > 10 && queue_size_frames.is_none())
+            .map(|ms| sample_rate as usize * ms as usize / 1000 * num_channels as usize);
+        let observer = Arc::new(AudioTrackObserver {
+            frame_queue: frame_queue.clone(),
+            batcher: target.map(|samples| Mutex::new(FrameBatcher::new(samples))),
+        });
         let native_sink = sys_at::ffi::new_native_audio_sink(
             Box::new(sys_at::AudioSinkWrapper::new(observer.clone())),
             sample_rate,
@@ -54,7 +73,7 @@ impl NativeAudioStream {
         let audio = unsafe { sys_at::ffi::media_to_audio(audio_track.sys_handle()) };
         audio.add_sink(&native_sink);
 
-        Self { native_sink, audio_track, frame_queue }
+        Self { native_sink, audio_track, frame_queue, observer }
     }
 
     pub fn track(&self) -> RtcAudioTrack {
@@ -66,6 +85,9 @@ impl NativeAudioStream {
         audio.remove_sink(&self.native_sink);
 
         self.frame_queue.close();
+        if let Some(batcher) = &self.observer.batcher {
+            batcher.lock().pending.clear();
+        }
     }
 }
 
@@ -85,16 +107,53 @@ impl Stream for NativeAudioStream {
 
 pub struct AudioTrackObserver {
     frame_queue: Arc<AudioFrameQueue>,
+    batcher: Option<Mutex<FrameBatcher>>,
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
+        if let Some(batcher) = &self.batcher {
+            batcher.lock().push(data, |data| {
+                self.frame_queue.push(AudioFrame {
+                    samples_per_channel: (data.len() / nb_channels) as u32,
+                    data: data.into(),
+                    sample_rate: sample_rate as u32,
+                    num_channels: nb_channels as u32,
+                })
+            });
+            return;
+        }
         self.frame_queue.push(AudioFrame {
             data: data.to_owned().into(),
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
         });
+    }
+}
+
+/// Accumulates PCM before waking the async consumer, without changing sink cadence.
+struct FrameBatcher {
+    pending: Vec<i16>,
+    target: usize,
+}
+
+impl FrameBatcher {
+    /// Allocates the accumulation buffer for one output frame.
+    fn new(target: usize) -> Self {
+        Self { pending: Vec::with_capacity(target), target }
+    }
+
+    /// Emits complete frames while retaining an incomplete tail.
+    fn push(&mut self, mut data: &[i16], mut emit: impl FnMut(Vec<i16>)) {
+        while !data.is_empty() {
+            let copied = data.len().min(self.target - self.pending.len());
+            self.pending.extend_from_slice(&data[..copied]);
+            data = &data[copied..];
+            if self.pending.len() == self.target {
+                emit(std::mem::replace(&mut self.pending, Vec::with_capacity(self.target)));
+            }
+        }
     }
 }
 
@@ -310,5 +369,48 @@ mod tests {
         queue.push(test_frame(2));
 
         assert_eq!(pop_marker(&queue), None);
+    }
+}
+
+#[cfg(test)]
+mod batching_tests {
+    use super::*;
+
+    #[test]
+    fn arbitrary_chunks_preserve_samples_and_tail() {
+        for target in [56, 80, 160, 312, 1200, 4800] {
+            let input: Vec<i16> = (0..15000).map(|i| i as i16).collect();
+            for chunk in [1, 80, 240, 1023, 4096] {
+                let mut batcher = FrameBatcher::new(target);
+                let mut output = Vec::new();
+                for part in input.chunks(chunk) {
+                    batcher.push(part, |frame| {
+                        assert_eq!(frame.len(), target);
+                        output.extend(frame);
+                    });
+                }
+                assert_eq!(output.len(), input.len() / target * target);
+                output.extend(batcher.pending);
+                assert_eq!(output, input);
+            }
+        }
+    }
+
+    #[test]
+    fn no_early_delivery_and_observer_releases_tail() {
+        let queue = Arc::new(AudioFrameQueue::new(None));
+        let observer = Arc::new(AudioTrackObserver {
+            frame_queue: queue.clone(),
+            batcher: Some(Mutex::new(FrameBatcher::new(1200))),
+        });
+        use webrtc_sys::audio_track::AudioSink;
+        observer.on_data(&[1; 240], 24000, 1, 240);
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        assert!(queue.poll_recv(&mut cx).is_pending());
+        let weak = Arc::downgrade(&observer);
+        drop(observer);
+        assert!(weak.upgrade().is_none());
+        queue.close();
+        assert!(matches!(queue.poll_recv(&mut cx), Poll::Ready(None)));
     }
 }

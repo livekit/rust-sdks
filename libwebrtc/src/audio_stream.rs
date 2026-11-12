@@ -86,6 +86,27 @@ pub mod native {
             }
         }
 
+        /// Aggregates unbounded sink frames before waking the consumer.
+        ///
+        /// Bounded queues and frame durations at or below 10 ms retain their existing behavior.
+        pub fn with_frame_size(
+            audio_track: RtcAudioTrack,
+            sample_rate: i32,
+            num_channels: i32,
+            options: NativeAudioStreamOptions,
+            frame_size_ms: Option<u32>,
+        ) -> Self {
+            Self {
+                handle: stream_imp::NativeAudioStream::new_with_frame_size(
+                    audio_track,
+                    sample_rate,
+                    num_channels,
+                    normalize_queue_size_frames(options.queue_size_frames),
+                    frame_size_ms,
+                ),
+            }
+        }
+
         pub fn track(&self) -> RtcAudioTrack {
             self.handle.track()
         }
