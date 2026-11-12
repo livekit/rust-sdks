@@ -15,6 +15,7 @@
 use base64::Engine;
 use livekit_protocol as proto;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 
 use livekit_token::{AccessTokenError, TokenVerifier};
@@ -53,7 +54,10 @@ impl WebhookReceiver {
         let hash = hasher.finalize();
 
         let claim_hash = base64::engine::general_purpose::STANDARD.decode(claims.sha256)?;
-        if claim_hash[..] != hash[..] {
+        // Constant-time: the token is already authenticated at this point, so the
+        // body digest is the last gate on the payload. Compare it without leaking
+        // a match-length signal.
+        if claim_hash.ct_ne(&hash[..]).into() {
             return Err(WebhookError::InvalidSignature);
         }
 
