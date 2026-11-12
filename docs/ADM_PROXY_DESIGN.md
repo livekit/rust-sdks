@@ -1607,5 +1607,5 @@ rust-sdks/
 ## References
 
 - [WebRTC AudioDeviceModule Documentation](https://webrtc.googlesource.com/src/+/main/modules/audio_device/g3doc/audio_device_module.md)
-- [LiveKit Swift SDK - AudioManager](https://docs.livekit.io/client-sdk-swift/AudioManager/)
+- [LiveKit Swift SDK - AudioManager](https://docs.livekit.io/reference/client-sdk-swift/documentation/livekit/audiomanager/)
 - [LiveKit Android SDK - AudioOptions](https://docs.livekit.io/reference/client-sdk-android/livekit-android-sdk/io.livekit.android/-audio-options/)
