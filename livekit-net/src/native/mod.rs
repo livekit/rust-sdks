@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod connection;
+pub(crate) mod prewarm;
 mod proxy;
 
 use crate::{
@@ -113,6 +114,22 @@ pub(crate) fn native_http_client_with_response_limit(limit: u64) -> Arc<dyn Http
     Arc::new(LimitedNativeClient { transport: default_transport(), limit })
 }
 
+/// The WebSocket upgrade request for `url`, carrying `headers`.
+fn build_request(url: &url::Url, headers: &[Header]) -> Result<http::Request<()>, TransportError> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    let mut request =
+        url.clone().into_client_request().map_err(|e| TransportError::Connection(e.to_string()))?;
+    for h in headers {
+        let name: http::header::HeaderName =
+            h.name.parse().map_err(|_| TransportError::Other("bad header name".into()))?;
+        let value = http::header::HeaderValue::from_str(&h.value)
+            .map_err(|_| TransportError::Other("bad header value".into()))?;
+        request.headers_mut().insert(name, value);
+    }
+    Ok(request)
+}
+
 #[async_trait::async_trait]
 impl WsClient for NativeTransport {
     async fn connect(
@@ -123,20 +140,7 @@ impl WsClient for NativeTransport {
     ) -> Result<WsConnectResult, TransportError> {
         let parsed =
             url::Url::parse(&url).map_err(|e| TransportError::Connection(e.to_string()))?;
-
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-
-        let mut request = parsed
-            .clone()
-            .into_client_request()
-            .map_err(|e| TransportError::Connection(e.to_string()))?;
-        for h in &headers {
-            let name: http::header::HeaderName =
-                h.name.parse().map_err(|_| TransportError::Other("bad header name".into()))?;
-            let value = http::header::HeaderValue::from_str(&h.value)
-                .map_err(|_| TransportError::Other("bad header value".into()))?;
-            request.headers_mut().insert(name, value);
-        }
+        let request = build_request(&parsed, &headers)?;
 
         let connect_fut = async {
             let ws = self::proxy::connect_ws(request, &parsed).await?;

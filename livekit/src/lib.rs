@@ -36,6 +36,7 @@ pub mod webrtc {
     }
 }
 
+pub use livekit_signaling::PrewarmedConnection;
 pub use room::*;
 
 /// `use livekit::prelude::*;` to import livekit types

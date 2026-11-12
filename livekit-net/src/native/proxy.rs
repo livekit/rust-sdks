@@ -22,7 +22,7 @@ use std::env;
 /// on the /rtc endpoint), tungstenite surfaces it as `Error::Http(response)`.
 /// We extract the status code and return `TransportError::Http { status }` so
 /// callers can distinguish HTTP error codes (403, 404) from network errors.
-fn map_ws_err(e: tokio_tungstenite::tungstenite::Error) -> TransportError {
+pub(super) fn map_ws_err(e: tokio_tungstenite::tungstenite::Error) -> TransportError {
     use tokio_tungstenite::tungstenite::Error;
     match e {
         Error::Http(resp) => TransportError::Http { status: resp.status().as_u16() },
@@ -43,16 +43,9 @@ pub(super) async fn connect_ws(
     request: http::Request<()>,
     url: &url::Url,
 ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, TransportError> {
-    // Check for HTTP_PROXY or HTTPS_PROXY environment variables
-    let proxy_env = if url.scheme() == "wss" {
-        env::var("HTTPS_PROXY").or_else(|_| env::var("https_proxy"))
-    } else {
-        env::var("HTTP_PROXY").or_else(|_| env::var("http_proxy"))
-    };
-
     // Connect directly or through proxy
-    let ws_stream = if let Ok(proxy_url) = proxy_env {
-        if !proxy_url.is_empty() {
+    let ws_stream = if let Some(proxy_url) = proxy_for(url.scheme() == "wss") {
+        {
             let proxy_url = url::Url::parse(&proxy_url)
                 .map_err(|e| TransportError::Connection(format!("Invalid proxy URL: {}", e)))?;
             log::info!("Using proxy: {}", crate::redact_url(&proxy_url));
@@ -213,16 +206,21 @@ pub(super) async fn connect_ws(
                 .await
                 .map_err(map_ws_err)?;
             ws_stream
-        } else {
-            // Proxy var is empty, connect directly
-            let (ws_stream, _) = connect_async(request).await.map_err(map_ws_err)?;
-            ws_stream
         }
     } else {
-        // No proxy env var set, connect directly
         let (ws_stream, _) = connect_async(request).await.map_err(map_ws_err)?;
         ws_stream
     };
 
     Ok(ws_stream)
+}
+
+/// The proxy configured for the given scheme through `HTTP(S)_PROXY`, if any.
+pub(super) fn proxy_for(tls: bool) -> Option<String> {
+    let proxy = if tls {
+        env::var("HTTPS_PROXY").or_else(|_| env::var("https_proxy"))
+    } else {
+        env::var("HTTP_PROXY").or_else(|_| env::var("http_proxy"))
+    };
+    proxy.ok().filter(|p| !p.is_empty())
 }

@@ -151,7 +151,14 @@ impl FfiRoom {
         let async_id = server.resolve_async_id(connect.request_async_id);
 
         let req = connect.clone();
+        let prewarmed_handle = connect.options.prewarmed_connection_handle;
         let mut options: RoomOptions = connect.options.into();
+        if let Some(id) = prewarmed_handle {
+            match server.retrieve_handle::<livekit::PrewarmedConnection>(id) {
+                Ok(connection) => options.prewarmed_connection = Some(connection.clone()),
+                Err(err) => log::warn!("ignoring prewarmed connection handle {id}: {err}"),
+            }
+        }
 
         {
             let config = server.config.lock();

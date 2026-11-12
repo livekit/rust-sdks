@@ -195,7 +195,11 @@ message FfiRequest {
     StopCaptureRequest stop_capture = 90;
     JoinCaptureRequest join_capture = 92;
 
-    // NEXT_ID: 93
+    // Signalling transport prewarm
+    PrewarmRequest prewarm = 93;
+    PrewarmedConnectionAliveRequest prewarmed_connection_alive = 94;
+
+    // NEXT_ID: 95
   }
 }
 
@@ -334,7 +338,11 @@ message FfiResponse {
     StopCaptureResponse stop_capture = 90;
     JoinCaptureResponse join_capture = 92;
 
-    // NEXT_ID: 93
+    // Signalling transport prewarm
+    PrewarmResponse prewarm = 93;
+    PrewarmedConnectionAliveResponse prewarmed_connection_alive = 94;
+
+    // NEXT_ID: 95
   }
 }
 
@@ -408,7 +416,10 @@ message FfiEvent {
     NewCaptureSourceCallback new_capture_source = 47;
     JoinCaptureCallback join_capture = 49;
 
-    // NEXT_ID: 50
+    // Signalling transport prewarm
+    PrewarmCallback prewarm = 50;
+
+    // NEXT_ID: 51
   }
 }
 

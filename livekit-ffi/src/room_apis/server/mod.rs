@@ -84,6 +84,7 @@ impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
 impl FfiHandle for () {}
+impl FfiHandle for livekit::PrewarmedConnection {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough

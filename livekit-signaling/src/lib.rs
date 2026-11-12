@@ -77,6 +77,7 @@ const CLIENT_CAPABILITIES: &[proto::client_info::Capability] = &[
 pub use livekit_common::{
     CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DATA_STREAM_V2, CLIENT_PROTOCOL_DEFAULT,
 };
+pub use livekit_net::PrewarmedConnection;
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
@@ -216,6 +217,9 @@ pub struct SignalOptions {
     ///
     /// The default token is never cancelled.
     pub cancellation_token: CancellationToken,
+    /// A connection opened ahead of time, used by the first connection attempt
+    /// to skip TCP and TLS setup. See [`PrewarmedConnection`].
+    pub prewarmed_connection: Option<PrewarmedConnection>,
 }
 
 impl Default for SignalOptions {
@@ -231,6 +235,7 @@ impl Default for SignalOptions {
             client_capabilities: CLIENT_CAPABILITIES.to_vec(),
             client_protocol: CLIENT_PROTOCOL_VERSION,
             cancellation_token: CancellationToken::new(),
+            prewarmed_connection: None,
         }
     }
 }
@@ -633,7 +638,9 @@ impl SignalInner {
         let use_v1_path = options.single_peer_connection;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
         let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", publisher_offer)?;
-        match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
+        let prewarmed = options.prewarmed_connection.as_ref();
+        match SignalStream::connect(lk_url.clone(), token, options.connect_timeout, prewarmed).await
+        {
             Ok((new_stream, stream_events)) => {
                 log::debug!(
                     "signal connection successful: path={}, single_pc_mode={}",
@@ -662,8 +669,13 @@ impl SignalInner {
                 if use_v1_path && is_not_found {
                     let lk_url_v0 = get_livekit_url(url, options, false, false, None, "", None)?;
                     log::warn!("v1 path not found (404), falling back to v0 path");
-                    match SignalStream::connect(lk_url_v0.clone(), token, options.connect_timeout)
-                        .await
+                    match SignalStream::connect(
+                        lk_url_v0.clone(),
+                        token,
+                        options.connect_timeout,
+                        None,
+                    )
+                    .await
                     {
                         Ok((new_stream, stream_events)) => Ok((new_stream, stream_events, false)),
                         Err(err) => {
@@ -780,6 +792,7 @@ impl SignalInner {
                     lk_url,
                     &token,
                     self.options.connect_timeout,
+                    None,
                 ))
                 .await
                 .ok_or(SignalError::Cancelled)??;
@@ -1535,6 +1548,7 @@ mod tests {
             url::Url::parse("wss://localhost:7880/rtc").unwrap(),
             "",
             Duration::from_secs(1),
+            None,
         )
         .await
         .expect("the mock transport always connects")
@@ -2404,6 +2418,7 @@ mod tests {
             url::Url::parse("ws://mock/rtc").unwrap(),
             "tok",
             Duration::from_secs(1),
+            None,
         )
         .await
         .unwrap();

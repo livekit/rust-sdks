@@ -31,7 +31,8 @@ use livekit_rpc::backend::{
     HandleRequestOptions, RpcClientManager, RpcServerManager, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC,
 };
 use livekit_signaling::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+    PrewarmedConnection, SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT,
+    SIGNAL_CONNECT_TIMEOUT,
 };
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -451,6 +452,11 @@ pub struct RoomOptions {
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
     pub data_stream: RoomDataStreamOptions,
+    /// A connection to the server opened ahead of time with
+    /// [`PrewarmedConnection::connect`]. The first signal connection attempt
+    /// runs only the WebSocket upgrade over it, and dials a fresh connection
+    /// if it is no longer usable or was opened for a different server.
+    pub prewarmed_connection: Option<PrewarmedConnection>,
 }
 
 impl Default for RoomOptions {
@@ -469,6 +475,7 @@ impl Default for RoomOptions {
             single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             data_stream: Default::default(),
+            prewarmed_connection: None,
         }
     }
 }
@@ -577,6 +584,7 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
+        signal_options.prewarmed_connection = options.prewarmed_connection.clone();
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,

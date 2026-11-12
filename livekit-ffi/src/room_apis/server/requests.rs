@@ -19,7 +19,7 @@ use livekit::{
     prelude::*,
     register_audio_filter_plugin,
     webrtc::{native::apm, native::audio_resampler, prelude::*},
-    AudioFilterPlugin, SimulateScenario,
+    AudioFilterPlugin, PrewarmedConnection, SimulateScenario,
 };
 use parking_lot::Mutex;
 
@@ -58,6 +58,37 @@ fn on_connect(
     connect: proto::ConnectRequest,
 ) -> FfiResult<proto::ConnectResponse> {
     Ok(room::FfiRoom::connect(server, connect))
+}
+
+/// Open a connection to a server for a later connect.
+/// This is an async function; the FfiClient must wait for the PrewarmCallback.
+fn on_prewarm(
+    server: &'static FfiServer,
+    request: proto::PrewarmRequest,
+) -> FfiResult<proto::PrewarmResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        let message = match PrewarmedConnection::connect(&request.url).await {
+            Ok(connection) => {
+                let id = server.next_id();
+                server.store_handle(id, connection);
+                proto::prewarm_callback::Message::Connection(proto::FfiOwnedHandle { id })
+            }
+            Err(err) => proto::prewarm_callback::Message::Error(err.to_string()),
+        };
+        let _ =
+            server.send_event(proto::PrewarmCallback { async_id, message: Some(message) }.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::PrewarmResponse { async_id })
+}
+
+fn on_prewarmed_connection_alive(
+    server: &'static FfiServer,
+    request: proto::PrewarmedConnectionAliveRequest,
+) -> FfiResult<proto::PrewarmedConnectionAliveResponse> {
+    let connection = server.retrieve_handle::<PrewarmedConnection>(request.connection_handle)?;
+    Ok(proto::PrewarmedConnectionAliveResponse { alive: connection.is_alive() })
 }
 
 /// Disconnect to a room
@@ -1400,6 +1431,10 @@ pub fn handle_request(
     res.message = Some(match request {
         Request::Dispose(req) => on_dispose(server, req)?.into(),
         Request::Connect(req) => on_connect(server, req)?.into(),
+        Request::Prewarm(req) => on_prewarm(server, req)?.into(),
+        Request::PrewarmedConnectionAlive(req) => {
+            on_prewarmed_connection_alive(server, req)?.into()
+        }
         Request::Disconnect(req) => on_disconnect(server, req)?.into(),
         Request::SimulateScenario(req) => on_simulate_scenario(server, req)?.into(),
         Request::ReadyForRoomEvent(req) => on_ready_for_room_event(server, req)?.into(),

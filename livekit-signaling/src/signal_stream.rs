@@ -55,10 +55,14 @@ impl SignalStream {
     /// Returns SignalError if the connection failed.
     ///
     /// SignalStream will never try to reconnect if the connection has been closed.
+    ///
+    /// When `prewarmed` is usable, the WebSocket upgrade runs over it instead of
+    /// a freshly dialed connection.
     pub async fn connect(
         url: url::Url,
         token: &str,
         connect_timeout: Duration,
+        prewarmed: Option<&livekit_net::PrewarmedConnection>,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         log::info!("connecting to {}", livekit_net::redact_url(&url));
 
@@ -71,17 +75,23 @@ impl SignalStream {
 
         let headers = super::bearer_headers(token);
 
-        // Delegate the connect deadline to the transport via `timeout_ms`, but keep
-        // an outer Rust-side timeout as a backstop: a foreign/host transport that
-        // ignores or mishandles `timeout_ms` must not be able to hang connect (and
-        // thus the engine's reconnect loop) forever.
-        let conn = tokio::time::timeout(
-            connect_timeout,
-            transport.connect(url.to_string(), headers, connect_timeout.as_millis() as u64),
-        )
-        .await
-        .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??
-        .connection;
+        let conn = match Self::upgrade_prewarmed(prewarmed, &url, &headers, connect_timeout).await?
+        {
+            Some(conn) => conn,
+            // Delegate the connect deadline to the transport via `timeout_ms`, but keep
+            // an outer Rust-side timeout as a backstop: a foreign/host transport that
+            // ignores or mishandles `timeout_ms` must not be able to hang connect (and
+            // thus the engine's reconnect loop) forever.
+            None => {
+                tokio::time::timeout(
+                    connect_timeout,
+                    transport.connect(url.to_string(), headers, connect_timeout.as_millis() as u64),
+                )
+                .await
+                .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??
+                .connection
+            }
+        };
 
         Ok(Self::spawn(conn))
     }
@@ -96,6 +106,29 @@ impl SignalStream {
         let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
 
         (Self { internal_tx, read_handle, write_handle }, events)
+    }
+
+    /// Upgrade over `prewarmed` if it is usable; `None` means dial a fresh connection.
+    #[cfg(feature = "native")]
+    async fn upgrade_prewarmed(
+        prewarmed: Option<&livekit_net::PrewarmedConnection>,
+        url: &url::Url,
+        headers: &[livekit_net::Header],
+        timeout: Duration,
+    ) -> SignalResult<Option<Arc<dyn livekit_net::WsConnection>>> {
+        let Some(prewarmed) = prewarmed else { return Ok(None) };
+        let result = prewarmed.upgrade(url.as_str(), headers, timeout).await?;
+        Ok(result.map(|r| r.connection))
+    }
+
+    #[cfg(not(feature = "native"))]
+    async fn upgrade_prewarmed(
+        _prewarmed: Option<&livekit_net::PrewarmedConnection>,
+        _url: &url::Url,
+        _headers: &[livekit_net::Header],
+        _timeout: Duration,
+    ) -> SignalResult<Option<Arc<dyn livekit_net::WsConnection>>> {
+        Ok(None)
     }
 
     /// Close the websocket.

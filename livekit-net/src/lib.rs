@@ -13,12 +13,14 @@
 // limitations under the License.
 
 mod bounded;
+mod prewarm;
 mod transport;
 mod types;
 
 #[cfg(feature = "native")]
 mod native;
 
+pub use prewarm::PrewarmedConnection;
 pub use transport::{
     HttpClient, HttpClientExt, HttpMethod, WsClient, WsConnectResult, WsConnection,
 };

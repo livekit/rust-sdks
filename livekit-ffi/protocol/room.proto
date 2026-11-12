@@ -26,6 +26,34 @@ import "stats.proto";
 import "data_stream.proto";
 import "data_track.proto";
 
+// Open a connection (TCP, plus TLS for wss) to a server ahead of a ConnectRequest.
+// Pass the returned handle as RoomOptions.prewarmed_connection_handle so the
+// connect only performs the WebSocket upgrade. The connection is used at most
+// once; dropping the handle closes it.
+message PrewarmRequest {
+  required string url = 1;
+  optional uint64 request_async_id = 2;
+}
+message PrewarmResponse {
+  required uint64 async_id = 1;
+}
+message PrewarmCallback {
+  required uint64 async_id = 1;
+  oneof message {
+    string error = 2;
+    FfiOwnedHandle connection = 3;
+  }
+}
+
+// Whether a pre-warmed connection can still be used: not used yet, and not
+// closed by the server.
+message PrewarmedConnectionAliveRequest {
+  required uint64 connection_handle = 1;
+}
+message PrewarmedConnectionAliveResponse {
+  required bool alive = 1;
+}
+
 // Connect to a new LiveKit room
 message ConnectRequest {
   required string url = 1;
@@ -402,6 +430,9 @@ message RoomOptions {
   // Comma separated list of additional LiveKit SDKs layered on top of this one, with versions,
   // e.g. "components-js:1.2.3,track-processors-js:1.2.3". Forwarded to ClientInfo.other_sdks.
   optional string other_sdks = 11;
+  // Handle from a PrewarmCallback. The first signal connection attempt runs the
+  // WebSocket upgrade over it, or dials a fresh connection if it is unusable.
+  optional uint64 prewarmed_connection_handle = 12;
 }
 
 //

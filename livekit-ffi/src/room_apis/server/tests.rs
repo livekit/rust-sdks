@@ -350,7 +350,7 @@ use std::sync::{
 };
 
 use super::{FfiConfig, FfiHandle};
-use crate::{FfiHandleId, FFI_SERVER};
+use crate::{proto, FfiHandleId, FFI_SERVER};
 
 struct DropsHandle {
     handle: FfiHandleId,
@@ -429,4 +429,84 @@ fn dispose_cleans_up_resources() {
     FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
     assert!(FFI_SERVER.ffi_handles.is_empty());
     assert!(!FFI_SERVER.is_setup());
+}
+
+/// Sets up and disposes the global server and checks its handle map is empty, so it
+/// runs alone like `dispose_cleans_up_resources`.
+#[serial_test::serial]
+#[test]
+fn prewarmed_connection_handle_lifecycle() {
+    use std::time::Duration;
+    use tokio::{io::AsyncReadExt, sync::mpsc};
+
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    FFI_SERVER.setup(FfiConfig {
+        callback_fn: Arc::new(move |event| {
+            if let Some(proto::ffi_event::Message::Prewarm(cb)) = event.message {
+                let _ = event_tx.send(cb);
+            }
+        }),
+        capture_logs: false,
+        sdk: "livekit-ffi-test".to_owned(),
+        sdk_version: "test".to_owned(),
+    });
+
+    let request = |message| {
+        crate::server::requests::handle_request(
+            &FFI_SERVER,
+            proto::FfiRequest { message: Some(message) },
+        )
+        .unwrap()
+        .message
+        .unwrap()
+    };
+    let prewarm = |url: &str| {
+        request(proto::ffi_request::Message::Prewarm(proto::PrewarmRequest {
+            url: url.to_owned(),
+            request_async_id: None,
+        }))
+    };
+    let alive = |handle| {
+        let res = request(proto::ffi_request::Message::PrewarmedConnectionAlive(
+            proto::PrewarmedConnectionAliveRequest { connection_handle: handle },
+        ));
+        let proto::ffi_response::Message::PrewarmedConnectionAlive(res) = res else {
+            panic!("unexpected response");
+        };
+        res.alive
+    };
+
+    FFI_SERVER.async_runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+
+        for _ in 0..20 {
+            prewarm(&url);
+            let (mut server, _) = listener.accept().await.unwrap();
+            let cb = tokio::time::timeout(Duration::from_secs(5), event_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let Some(proto::prewarm_callback::Message::Connection(handle)) = cb.message else {
+                panic!("prewarm failed: {:?}", cb.message);
+            };
+            assert!(alive(handle.id));
+
+            // Dropping the handle closes the socket.
+            assert!(FFI_SERVER.drop_handle(handle.id));
+            let mut buf = [0u8; 1];
+            let n = tokio::time::timeout(Duration::from_secs(2), server.read(&mut buf)).await;
+            assert!(matches!(n, Ok(Ok(0))), "socket not closed after the handle was dropped");
+        }
+
+        // A failed prewarm reports an error and stores no handle.
+        drop(listener);
+        prewarm(&url);
+        let cb =
+            tokio::time::timeout(Duration::from_secs(5), event_rx.recv()).await.unwrap().unwrap();
+        assert!(matches!(cb.message, Some(proto::prewarm_callback::Message::Error(_))));
+    });
+
+    assert!(FFI_SERVER.ffi_handles.is_empty());
+    FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
 }
