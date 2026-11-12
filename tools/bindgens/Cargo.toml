@@ -23,7 +23,7 @@ uniffi = { workspace = true, features = ["cli"] }
 # methods named `write` (#156), and each crate re-declaring the runtime
 # scaffolding, which kept livekit-datatrack's types from crossing over (#150).
 # Move to a version requirement once a release carries them.
-uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "67547701d849c9ef6302f79bb2189bb6075f69fa", optional = true }
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "e644a4ad980f72697aba211fd30cb4fbd8fc7324", optional = true }
 camino = { version = "1", optional = true }
 
 [features]
