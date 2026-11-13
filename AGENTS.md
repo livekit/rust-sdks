@@ -115,13 +115,13 @@ check = [
 ]
 ```
 
-A crate with no such table is not feature-checked at all. Today eleven crates are `"powerset"`, `livekit` and `livekit-api` are `"curated"`, and `livekit-ffi` deliberately declares nothing.
+A crate with no such table is not feature-checked at all. Today twelve crates are `"powerset"`, `livekit`, `livekit-api` and `livekit-session` are `"curated"`, and `livekit-ffi` deliberately declares nothing.
 
 - **When adding a workspace crate**, give it `mode = "powerset"` and stop there
   - Its features are then picked up automatically as they are added, and no CI file changes
   - Reach for `"curated"` only when the powerset is genuinely too expensive — that is a real loss of coverage, so it needs a reason recorded next to the table
   - cargo-hack only varies the features of packages it is given. A crate with no table still gets built as a dependency, which makes it easy to assume it is covered when it is not
-- **When adding a feature to a `"curated"` crate** (`livekit`, `livekit-api`), add the configurations a user would plausibly select to that crate's `check` list
+- **When adding a feature to a `"curated"` crate** (`livekit`, `livekit-api`, `livekit-session`), add the configurations a user would plausibly select to that crate's `check` list
   - A curated crate's new feature is invisible to this job until it is listed there — this is the standing cost of `"curated"`
   - Each entry is a complete feature set, run as `--no-default-features --features <entry joined by commas>`. Spell defaults as `"default"`, since a bare `[]` already means "no features at all"
   - Pair the feature with what it realistically ships alongside (a TLS backend together with `native`, say) rather than listing it on its own
