@@ -915,7 +915,56 @@ async fn test_fail_all_pending_resolves_callers() {
     client.fail_all_pending();
 
     let err = rx.await.expect("caller resolved").unwrap_err();
-    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
+    assert_eq!(err.code, RpcErrorCode::ConnectionClosed as u32);
+}
+
+/// Mirrors the JS SDK's `RpcClientManager` test "rejects every pending RPC and clears its timers
+/// when the room disconnects": a call that was acked and one that was not both fail promptly
+/// with CONNECTION_CLOSED, long before their response timeouts.
+#[tokio::test(start_paused = true)]
+async fn test_room_disconnect_fails_acked_and_unacked_calls() {
+    let client = Arc::new(RpcClientManager::new());
+    let transport_a = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("remote-a", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+    let transport_b = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("remote-b", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+    let started = tokio::time::Instant::now();
+
+    let acked = spawn_perform_rpc(
+        client.clone(),
+        transport_a.clone(),
+        PerformRpcData::new("remote-a", "m")
+            .with_payload("p")
+            .with_response_timeout(Duration::from_secs(300)),
+    )
+    .await;
+    transport_a.wait_for_text().await;
+    client.handle_incoming_rpc_ack(transport_a.extract_request_id());
+
+    let unacked = spawn_perform_rpc(
+        client.clone(),
+        transport_b.clone(),
+        PerformRpcData::new("remote-b", "m")
+            .with_payload("p")
+            .with_response_timeout(Duration::from_secs(300)),
+    )
+    .await;
+    transport_b.wait_for_text().await;
+
+    client.fail_all_pending();
+
+    let acked_err = acked.await.unwrap().unwrap_err();
+    assert_eq!(acked_err.code, RpcErrorCode::ConnectionClosed as u32);
+    let unacked_err = unacked.await.unwrap().unwrap_err();
+    assert_eq!(unacked_err.code, RpcErrorCode::ConnectionClosed as u32);
+    // Neither call waited out its ack or response timeout.
+    assert_eq!(started.elapsed(), Duration::ZERO);
 }
 
 /// A server version we cannot parse must not panic, and must not block the call: we fail open
