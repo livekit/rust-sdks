@@ -1018,6 +1018,7 @@ fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
         "unityweb" => proto::client_info::Sdk::UnityWeb,
         "node" => proto::client_info::Sdk::Node,
         "esp32" => proto::client_info::Sdk::Esp32,
+        "dotnet" => proto::client_info::Sdk::Dotnet,
         _ => {
             log::warn!("unknown SDK name in signal options: {}", sdk);
             proto::client_info::Sdk::Unknown
@@ -1477,6 +1478,7 @@ mod tests {
         assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
         assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
         assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
+        assert_eq!(client_info_sdk_for_name("dotnet"), proto::client_info::Sdk::Dotnet);
         assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
     }
 
