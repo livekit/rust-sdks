@@ -150,12 +150,13 @@ fn stop_installed_instruments() {
 /// pipeline uploaded but could not delete from its storage directory is uploaded once more by
 /// the next pipeline on that directory.
 ///
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
-/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
-/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
-/// by the caller (nothing here owns it). While the caller holds the refused pipeline it stays
-/// known to later [`disable`] calls, which purge it like any other generation: they retry a
-/// delete that failed here.
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged, cancelled and handed back
+/// instead. The cancellation stops its exporter, which has no work left: one already spawned
+/// stops by itself, and one the caller spawns later stops at its first turn, so a stopped
+/// exporter here is the refusal and not a failure. The caller still owns that task and joins it
+/// (or drops an exporter it never spawned); nothing here waits for it. While the caller holds
+/// the refused pipeline it stays known to later [`disable`] calls, which purge it like any
+/// other generation: they retry a delete that failed here.
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
@@ -164,6 +165,9 @@ pub fn install(
     if is_disabled() {
         telemetry.shared.revoke();
         GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).register(&telemetry.shared);
+        // A revoked exporter has nothing left to do. The permit is kept when no exporter waits
+        // yet, so one spawned after this stops as well. The caller joins the task.
+        telemetry.shared.cancel.notify_one();
         // Deleted outside the lock. The caller's clones, its exporter and a later `disable` can
         // hold the refused pipeline too: `Shared::clear` serializes overlapping clears. `clear`
         // logs an incomplete delete itself.
@@ -607,45 +611,65 @@ mod tests {
         }
     }
 
-    /// A pipeline refused after the opt-out stays known to later opt-outs: a later `disable`
-    /// deletes what its caller-provided cache could not delete at the refusal. Its exporter is
-    /// still the caller's: it keeps running until the caller shuts the pipeline down, and its
-    /// task ends without a panic. Once the caller lets the pipeline go, the registry does too.
-    #[tokio::test(start_paused = true)]
-    async fn a_refused_pipeline_is_purged_by_a_later_opt_out_and_stopped_by_its_caller() {
-        let _global = TEST_LOCK.lock().await;
+    /// What one refused pipeline did, collected before any verdict.
+    struct Refusal {
+        /// The exporter task ended by itself within 5 s of test time, with this join result.
+        stopped: Option<Result<(), tokio::task::JoinError>>,
+        /// The join result when the test had to stop the exporter itself.
+        forced: Option<Result<(), tokio::task::JoinError>>,
+        handed_back: bool,
+        /// Batches in the caller's cache after the refusal, then after a later opt-out.
+        kept: usize,
+        left: usize,
+        /// The later opt-out's result.
+        complete: bool,
+        uploads: usize,
+        /// Registry entries after the caller dropped the pipeline and an opt-out compacted it.
+        registered: usize,
+        released: bool,
+    }
+
+    /// Refuse a pipeline whose caller-provided cache cannot be cleared yet, with its exporter
+    /// spawned before the refusal or after it, then let a later opt-out retry. Everything is torn
+    /// down here: the task joined, the pipeline dropped, the global state reset.
+    async fn refuse(spawn_first: bool) -> Refusal {
         reset_for_test();
-        let first = disable().await;
+        let _ = disable().await;
         let cache = Arc::new(Lockable {
             inner: crate::MemoryCache::new(1 << 20),
             locked: AtomicBool::new(true),
         });
-        let seeded = cache.inner.push("00000000000000000001-000001-1-l", b"cached").is_ok();
+        let _ = cache.inner.push("00000000000000000001-000001-1-l", b"cached");
+        let transport = FakeTransport::scripted([]);
         let (telemetry, exporter) =
-            Telemetry::with_cache(test_config(), FakeTransport::scripted([]), cache.clone());
-        let mut task = tokio::spawn(exporter.run());
+            Telemetry::with_cache(test_config(), transport.clone(), cache.clone());
         let pipeline = Arc::downgrade(&telemetry.shared);
-        let refused = install(telemetry, Vec::new());
-        // Five seconds of the exporter's own ticks: nothing but its caller stops it.
+        let (mut task, refused) = if spawn_first {
+            let task = tokio::spawn(exporter.run());
+            (task, install(telemetry, Vec::new()))
+        } else {
+            let refused = install(telemetry, Vec::new());
+            (tokio::spawn(exporter.run()), refused)
+        };
         let early = tokio::time::timeout(std::time::Duration::from_secs(5), &mut task).await;
         let kept = cache.inner.pending().len();
-        let running = early.is_err();
-        // The caller's shutdown, as the contract says. A task that already ended is not awaited
-        // twice: its result is the one the first wait returned. One that still does not end is
-        // aborted and joined, and its cancellation fails the test below.
-        let joined = match early {
-            Ok(ended) => ended,
+        // A task that ended is not awaited twice. One that still runs is stopped by its caller
+        // and joined, so nothing outlives this function whatever the code under test does.
+        let (stopped, forced) = match early {
+            Ok(ended) => (Some(ended), None),
             Err(_) => {
                 if let Some(refused) = &refused {
                     refused.shutdown().await;
                 }
-                match tokio::time::timeout(std::time::Duration::from_secs(10), &mut task).await {
+                let wait = tokio::time::timeout(std::time::Duration::from_secs(10), &mut task);
+                let ended = match wait.await {
                     Ok(ended) => ended,
                     Err(_) => {
                         task.abort();
                         task.await
                     }
-                }
+                };
+                (None, Some(ended))
             }
         };
         cache.locked.store(false, Ordering::SeqCst);
@@ -657,13 +681,49 @@ mod tests {
         let _ = disable().await;
         let registered = GENERATIONS.lock().unwrap().live.len();
         let released = pipeline.upgrade().is_none();
+        let uploads = transport.sent().len();
         reset_for_test();
-        assert!(first && seeded && handed_back, "{first} {seeded} {handed_back}");
-        assert!(running, "the refused exporter did not keep running until its caller stopped it");
-        assert!(joined.is_ok(), "the exporter task ended with {joined:?}");
+        Refusal {
+            stopped,
+            forced,
+            handed_back,
+            kept,
+            left,
+            complete,
+            uploads,
+            registered,
+            released,
+        }
+    }
+
+    /// The verdicts both refusal cases share.
+    fn assert_refused_and_stopped(refusal: Refusal) {
+        let Refusal { stopped, forced, handed_back, kept, left, complete, uploads, .. } = refusal;
+        assert!(handed_back, "a refused pipeline is handed back");
+        assert!(forced.is_none(), "the test had to stop the refused exporter: {forced:?}");
+        assert!(matches!(stopped, Some(Ok(()))), "the refused exporter ended with {stopped:?}");
         assert_eq!((kept, complete, left), (1, true, 0), "a later opt-out retries the delete");
-        assert!(released, "the refused pipeline is still held");
-        assert_eq!(registered, 0, "the registry kept a dropped pipeline");
+        assert_eq!(uploads, 0, "nothing is uploaded after the opt-out");
+        assert!(refusal.released, "the refused pipeline is still held");
+        assert_eq!(refusal.registered, 0, "the registry kept a dropped pipeline");
+    }
+
+    /// A pipeline refused after the opt-out is cancelled: an exporter already running for it
+    /// stops by itself, and its task ends without a panic for its caller to join. The pipeline
+    /// stays known to later opt-outs, which delete what its caller-provided cache could not
+    /// delete at the refusal. Once the caller lets the pipeline go, the registry does too.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_pipeline_stops_its_running_exporter() {
+        let _global = TEST_LOCK.lock().await;
+        assert_refused_and_stopped(refuse(true).await);
+    }
+
+    /// The same for an exporter its caller spawns only after the refusal: the cancellation is
+    /// kept for it, and it stops at its first turn.
+    #[tokio::test(start_paused = true)]
+    async fn an_exporter_spawned_after_the_refusal_stops_at_once() {
+        let _global = TEST_LOCK.lock().await;
+        assert_refused_and_stopped(refuse(false).await);
     }
 
     /// Installing the installed pipeline again replaces nothing: no pipeline is handed back for
