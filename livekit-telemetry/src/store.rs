@@ -163,8 +163,14 @@ impl Store {
         out
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).events.is_empty()
+        self.len() == 0
+    }
+
+    /// How many events wait for export right now.
+    pub fn len(&self) -> usize {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).events.len()
     }
 
     /// Drop everything queued (opt-out); returns how many records went.

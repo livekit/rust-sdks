@@ -186,6 +186,7 @@ impl TelemetryConfig {
         self.max_batches_per_upload = self.max_batches_per_upload.max(1);
         self.flush_threshold_bytes = self.flush_threshold_bytes.max(1);
         self.max_batch_bytes = self.max_batch_bytes.max(1);
+        self.max_cache_bytes = self.max_cache_bytes.max(1);
         self
     }
 
@@ -483,6 +484,8 @@ impl Telemetry {
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
     ) -> (Self, Exporter) {
+        // Before the cache is built: it takes its bound from the config.
+        let config = config.normalized();
         let mut fell_back = false;
         let cache: Arc<dyn BatchCache> = match config.storage_dir.as_deref() {
             Some(dir) => match FileCache::open(dir, config.max_cache_bytes) {

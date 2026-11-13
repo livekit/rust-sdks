@@ -217,12 +217,29 @@ impl ScopeState {
         &self.hex
     }
 
+    #[cfg(test)]
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        self.set_attributes(&[(key, value)]);
+    }
+
+    /// Set (or, with `None`, remove) SDK-owned attributes as one change: a record captured
+    /// meanwhile carries all of it or none of it.
+    pub fn set_attributes(&self, changes: &[(&str, Option<AttributeValue>)]) {
         let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        attributes.retain(|a| a.key != key);
-        if let Some(value) = value {
-            attributes.push(Attribute::new(key, value));
+        for (key, value) in changes {
+            attributes.retain(|a| a.key != *key);
+            if let Some(value) = value {
+                attributes.push(Attribute::new(*key, value.clone()));
+            }
         }
+    }
+
+    /// Whether [`set_attributes`](Self::set_attributes) would change anything.
+    pub fn attributes_differ(&self, changes: &[(&str, Option<AttributeValue>)]) -> bool {
+        let attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        changes.iter().any(|(key, value)| {
+            attributes.iter().find(|a| a.key == *key).map(|a| &a.value) != value.as_ref()
+        })
     }
 
     /// Whether `set_custom(key, value)` would be accepted right now: within the limits, outside
@@ -260,8 +277,11 @@ impl ScopeState {
     /// attributes win.
     pub fn snapshot_custom(&self, own: &mut Vec<Attribute>) {
         let custom = self.custom.lock().unwrap_or_else(|e| e.into_inner());
+        // The session's keys are unique (`set_custom`): only the record's own can collide.
+        let record = own.len();
+        own.reserve(custom.len());
         for attribute in custom.iter() {
-            if !own.iter().any(|a| a.key == attribute.key) {
+            if !own[..record].iter().any(|a| a.key == attribute.key) {
                 own.push(attribute.clone());
             }
         }
@@ -419,8 +439,17 @@ impl Scope {
         self.telemetry.set_server(&self.state, url, token);
     }
 
-    /// Queue an event or log record under this session.
-    pub fn emit(&self, event: TelemetryEvent) {
+    /// Queue an event or log record under this session. It links to the span it names
+    /// (`span_id`) only when that span is this session's: a span of another session, or one the
+    /// pipeline cannot place, is no link, and the record stays in this session's trace without it.
+    pub fn emit(&self, mut event: TelemetryEvent) {
+        let own = event.span_id.is_some_and(|id| {
+            let spans = self.telemetry.shared.spans.lock().unwrap_or_else(|e| e.into_inner());
+            spans.scope_of(id).is_some_and(|session| Arc::ptr_eq(&session, &self.state))
+        });
+        if !own {
+            event.span_id = None;
+        }
         self.telemetry.emit_in(event, &self.state);
     }
 
@@ -691,33 +720,45 @@ impl Scope {
         self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).remove(sid)
     }
 
-    /// Start a typed span in this session's trace, stamped now. `parent` nests it. A new
+    /// Start a typed span in this session's trace, stamped now. `parent` nests it when it is a
+    /// span of this session; a span of another session's trace is not a parent here. A new
     /// `lk.connect` starts a new connection: its end is reported again by
     /// [`disconnected`](Self::disconnected).
     pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
         if name == SpanName::Connect {
             self.state.disconnected.store(false, std::sync::atomic::Ordering::SeqCst);
         }
-        let parent = parent.and_then(|p| p.context()).map(|c| c.span_id);
+        let parent = parent
+            .and_then(|p| p.context())
+            .filter(|c| c.trace_id == self.state.hex())
+            .map(|c| c.span_id);
         Span::bound(name, parent, self.telemetry.clone(), &self.state)
     }
 
     /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record
-    /// captured from then on.
+    /// captured from then on. The four fields change as one, and an RTC window open under the
+    /// identity before ships under it, as with [`set_attribute`](Self::set_attribute). The same
+    /// identity again is a no-op.
     pub fn set_room(&self, room: RoomIdentity) {
-        for (key, value) in [
+        let identity = [
             ("lk.room.sid", room.sid),
             ("lk.room.name", room.name),
             ("lk.participant.sid", room.participant_sid),
             ("lk.participant.identity", room.participant_identity),
-        ] {
+        ]
+        .map(|(key, value)| {
             // Identifiers, not free text: an over-long one is not attached (counted as invalid).
             if value.as_ref().is_some_and(|v| v.len() > crate::event::MAX_VALUE_BYTES) {
                 self.telemetry.count_invalid();
-                continue;
+                return (key, None);
             }
-            self.state.set_attribute(key, value.map(AttributeValue::Str));
-        }
+            (key, value.map(AttributeValue::Str))
+        });
+        self.telemetry.with_windows_split(
+            &self.state,
+            || self.state.attributes_differ(&identity),
+            || self.state.set_attributes(&identity),
+        );
     }
 }
 
