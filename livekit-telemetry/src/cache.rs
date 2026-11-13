@@ -1725,6 +1725,52 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// `clear` makes a full cache's deletions durable with one directory sync, not one per batch.
+    #[test]
+    fn clear_syncs_the_directory_once_for_a_full_cache() {
+        let dir = temp_dir("clear-one-sync");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        for n in 0..MAX_BATCHES as u64 {
+            fs::write(cache.path(&id(n), BATCH_EXT), b"batch").expect("batch");
+        }
+        let syncs = Arc::new(Mutex::new(0));
+        let counted = syncs.clone();
+        cache.inject(move |step, _| {
+            *counted.lock().expect("lock") += usize::from(step == Step::SyncDir);
+            Ok(())
+        });
+        cache.clear().expect("clear");
+        let left = fs::read_dir(&dir).expect("dir").count();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!((left, *syncs.lock().expect("lock")), (0, 1));
+    }
+
+    /// A batch that cannot be deleted fails `clear`, yet every other file is still deleted and
+    /// the directory is synced afterwards, so the deletions that did happen are durable.
+    #[test]
+    fn clear_syncs_the_directory_after_a_failed_deletion() {
+        let dir = temp_dir("clear-sync-after-failure");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.push(&id(1), b"deleted").expect("push");
+        cache.push(&id(2), b"undeletable").expect("push");
+        fs::write(cache.path(&id(3), TMP_EXT), b"stray").expect("tmp");
+        let (kept, steps) = (cache.path(&id(2), BATCH_EXT), Arc::new(Mutex::new(Vec::new())));
+        let (undeletable, seen) = (kept.clone(), steps.clone());
+        cache.inject(move |step, path| {
+            seen.lock().expect("lock").push(step);
+            if step == Step::Delete && path == undeletable {
+                return Err(io::Error::other("undeletable"));
+            }
+            Ok(())
+        });
+        let cleared = cache.clear();
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(cleared.expect_err("the failure is reported").to_string(), "undeletable");
+        assert_eq!(left, [kept], "everything else is deleted");
+        assert_eq!(steps.lock().expect("lock").last(), Some(&Step::SyncDir));
+    }
+
     /// The retention floor holds even when the older batches cannot be deleted: the newest is
     /// never a candidate.
     #[test]
