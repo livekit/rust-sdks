@@ -24,12 +24,14 @@
 //! never yields still ends and the test fails rather than hangs.
 
 use std::{
+    future::Future,
     io::Read,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex, Weak,
     },
+    task::{Context, Waker},
 };
 
 use opentelemetry_proto::tonic::{
@@ -529,6 +531,150 @@ async fn shutdown_turns_leave_the_thread_to_other_tasks_and_can_be_aborted() {
     assert!(shutdown.is_ok() && verdict.destroyed, "cleanup first");
     assert!(elapsed < deadline, "other tasks ran between turns: {elapsed:?}");
     assert!(verdict.joined.expect_err("aborted mid-drain").is_cancelled());
+}
+
+/// What one late resumption of a suspended shutdown drain did.
+#[derive(Debug)]
+struct Resumed {
+    suspended: bool,
+    completed: bool,
+    writes_before: usize,
+    writes_after: usize,
+    destroyed: bool,
+    logs: Vec<String>,
+    spans: Vec<String>,
+}
+
+/// Suspend the drain at the yield before its second turn, with a record and a span that
+/// arrived during the first turn's write queued; let `after` of real time pass; then resume it
+/// once. The exporter lives in a runtime that is entered but never driven, so its timers never
+/// fire: once the deadline has passed by the clock, the yielded turn is still the only ready
+/// branch, whatever `select!` would pick. (That is a legal schedule: an executor can poll a task
+/// before it processes the timers that expired meanwhile.) The test owns and polls the exporter
+/// future itself, so no task or thread outlives the poll, and everything is dropped and observed
+/// destroyed before the cache is reopened.
+fn resume_once(name: &str, after: Duration) -> Resumed {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().expect("rt");
+    let entered = runtime.enter();
+    let dir = dir(name);
+    let cache = HookedCache::new(FileCache::open(&dir, 1 << 24).expect("cache"));
+    let acks = Arc::new(Acks::default());
+    let config = TelemetryConfig { export_timeout_ms: 2000, ..quiet(100) };
+    let (telemetry, exporter) = Telemetry::with_cache(config, acks.clone(), cache.clone());
+    let noop = &mut Context::from_waker(Waker::noop());
+    let mut run = Box::pin(exporter.run());
+    // A flush the exporter answers settles its start before anything is queued.
+    let mut flush = Box::pin(telemetry.flush());
+    let _ = flush.as_mut().poll(noop);
+    let _ = run.as_mut().poll(noop);
+    let settled = flush.as_mut().poll(noop).is_ready();
+    drop(flush);
+    let scope = Arc::new(telemetry.begin_scope());
+    scope.emit(TelemetryEvent::new("app.initial"));
+    cache.arm(once(Arc::downgrade(&scope), |scope| {
+        scope.emit(TelemetryEvent::new("app.late"));
+        span(scope, "app.late");
+    }));
+    let mut shutdown = Box::pin(telemetry.shutdown());
+    let _ = shutdown.as_mut().poll(noop);
+    // Polled even when the flush did not settle, so a completed drain is never polled again.
+    let first = run.as_mut().poll(noop);
+    let suspended = settled && first.is_pending();
+    let writes_before = cache.pushes.load(Ordering::SeqCst);
+    std::thread::sleep(after);
+    let completed = first.is_ready() || run.as_mut().poll(noop).is_ready();
+    let writes_after = cache.pushes.load(Ordering::SeqCst);
+    let _ = shutdown.as_mut().poll(noop);
+    drop((shutdown, run));
+    cache.hook.lock().expect("lock").take();
+    let weak = (
+        Arc::downgrade(&telemetry.shared),
+        Arc::downgrade(&scope),
+        Arc::downgrade(&cache),
+        Arc::downgrade(&acks),
+    );
+    drop((telemetry, scope, cache, acks));
+    let destroyed = weak.0.upgrade().is_none()
+        && weak.1.upgrade().is_none()
+        && weak.2.upgrade().is_none()
+        && weak.3.upgrade().is_none();
+    drop(entered);
+    drop(runtime);
+    let reopened = FileCache::open(&dir, 1 << 24).expect("reopen");
+    let bodies: Vec<_> = reopened
+        .pending()
+        .into_iter()
+        .map(|id| {
+            let traces = matches!(BatchId::parse(&id).signal, Signal::Traces);
+            (traces, reopened.read(&id).expect("read"))
+        })
+        .collect();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&dir);
+    let (logs, spans) = names(&bodies);
+    Resumed { suspended, completed, writes_before, writes_after, destroyed, logs, spans }
+}
+
+/// [`resume_once`], counted only when the first turn ended before the deadline: its two
+/// synchronous file writes can take longer on a cold disk, and then the drain rightly ends
+/// without a second turn. Up to three attempts.
+fn resume(name: &str, after: Duration) -> Resumed {
+    let mut attempt = 0;
+    loop {
+        let resumed = resume_once(&format!("{name}-{attempt}"), after);
+        attempt += 1;
+        if resumed.suspended || attempt == 3 {
+            return resumed;
+        }
+    }
+}
+
+/// A turn never starts after the original deadline, even when the drain is resumed late with
+/// its yielded turn ready and the deadline branch not. The control resumes the same drain
+/// before the deadline: the same branch then runs the turn and the late record and span reach
+/// the disk, so the first case fails for the right reason. The first turn writes two batches:
+/// the scope's record, and the shutdown self-report, which belongs to the process.
+#[test]
+fn a_drain_resumed_after_its_deadline_starts_no_turn() {
+    let late = resume("resume-late", Duration::from_millis(2300));
+    let early = resume("resume-early", Duration::ZERO);
+    eprintln!("late: {late:?}\nearly: {early:?}");
+    for verdict in [&late, &early] {
+        assert!(verdict.destroyed, "cleanup first");
+        assert!(verdict.suspended && verdict.completed, "{verdict:?}");
+        assert_eq!(verdict.writes_before, 2, "the first turn's two batches");
+    }
+    assert_eq!(late.writes_after, late.writes_before, "no turn after the deadline");
+    assert_eq!(late.logs, ["app.initial"]);
+    assert!(late.spans.is_empty());
+    assert_eq!(early.writes_after, early.writes_before + 2, "a turn before the deadline");
+    assert_eq!(early.logs, ["app.initial", "app.late"]);
+    assert_eq!(early.spans, ["app.late"]);
+}
+
+/// A turn that has started may finish its writes after the deadline: the cache is synchronous.
+/// Here the first turn's first write takes past the deadline (real time, a blocking write). The
+/// turn completes, its two batches (the scope's record and the process's self-report) stay on
+/// disk, but the record and span that arrived during the crossing write get no further turn.
+#[tokio::test(flavor = "current_thread")]
+async fn a_write_that_crosses_the_deadline_finishes_but_no_turn_follows() {
+    let config = TelemetryConfig { export_timeout_ms: 1000, ..quiet(100) };
+    let rig = Rig::start(Mode::FileReopen, "crossing", config).await;
+    let deadline = rig.telemetry.shared.config.export_timeout();
+    rig.scope.emit(TelemetryEvent::new("app.initial"));
+    rig.cache.arm(once(Arc::downgrade(&rig.scope), move |scope| {
+        scope.emit(TelemetryEvent::new("app.late"));
+        span(scope, "app.late");
+        std::thread::sleep(deadline + Duration::from_millis(200));
+    }));
+    rig.telemetry.shutdown().await;
+    let pushes = rig.cache.pushes.load(Ordering::SeqCst);
+    let verdict = rig.finish(Duration::from_secs(5)).await;
+    eprintln!("crossing: pushes={pushes} logs={:?} spans={:?}", verdict.logs, verdict.spans);
+    assert!(verdict.joined.is_ok() && verdict.destroyed, "cleanup first");
+    assert_eq!(pushes, 2, "the first turn's two batches, and no turn after them");
+    assert_eq!(verdict.logs, ["app.initial"], "the crossing write completed");
+    assert!(verdict.spans.is_empty());
 }
 
 /// The harness itself: a panicking exporter surfaces as its real `JoinError`, and the pipeline
