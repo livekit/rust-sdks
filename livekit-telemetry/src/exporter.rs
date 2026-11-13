@@ -472,6 +472,11 @@ impl Exporter {
     /// respects server-directed delays and the device's own holds. At the deadline the request
     /// on the wire is cancelled and the actor stops: its batch stays cached for the next launch.
     /// Returns the shutdowns asked for meanwhile, to be answered once the actor has stopped.
+    ///
+    /// A scope the app still holds can capture while this runs. What it queues is encoded by
+    /// further bounded turns, each after a trip back to the executor, and only while the deadline
+    /// is ahead and the app has not opted out. What is still queued at the deadline, or arrives
+    /// after the actor stops, is not cached.
     async fn drain(&mut self) -> Vec<oneshot::Sender<()>> {
         let deadline = Instant::now() + self.shared.config.export_timeout();
         self.draining = true;
@@ -485,7 +490,12 @@ impl Exporter {
         self.export_pending();
         let mut commands_open = true;
         let mut waiters = Vec::new();
-        while self.pass.is_some() || self.inflight.is_some() {
+        loop {
+            // What arrived during the last turn gets a turn of its own, within the same deadline.
+            let turn = Instant::now() < deadline && !self.shared.revoked() && self.queued();
+            if !turn && self.pass.is_none() && self.inflight.is_none() {
+                break;
+            }
             tokio::select! {
                 outcome = answer(&mut self.inflight) => self.on_answer(outcome),
                 _ = sleep_until(deadline) => {
@@ -506,6 +516,7 @@ impl Exporter {
                     Some(Command::Shutdown(done)) => waiters.push(done),
                     None => commands_open = false,
                 },
+                () = yield_once(), if turn => self.export_pending(),
             }
             // A pass that ended with a request left to make (a split, the rerun) goes on.
             if self.inflight.is_none() && self.pass.is_some() {
@@ -532,6 +543,12 @@ impl Exporter {
     fn export_pending(&mut self) {
         self.enqueue();
         self.begin_pass();
+    }
+
+    /// Whether records or finished spans wait to be encoded.
+    fn queued(&self) -> bool {
+        self.shared.store.len() > 0
+            || self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len() > 0
     }
 
     /// Split records by owner — the project their session routes to, and the session — so each
@@ -583,8 +600,8 @@ impl Exporter {
     /// producer never decides how long the actor stays here. The bound is on the counts, not on
     /// which records they are: a full queue still drops its oldest record for a new one, as
     /// always, and that new record then takes a place in this turn's count. What the counts leave
-    /// queued is encoded by a later turn (the next tick, a flush, or the queue crossing its
-    /// threshold again).
+    /// queued is encoded by a later turn (the next tick, a flush, the queue crossing its
+    /// threshold again, or at shutdown the drain's next turn).
     fn enqueue(&mut self) {
         let spans = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len();
         let mut left = self.shared.store.len();
@@ -1478,6 +1495,19 @@ async fn at(deadline: Option<Instant>) {
         Some(deadline) => sleep_until(deadline).await,
         None => std::future::pending().await,
     }
+}
+
+/// Ready on its second poll: one trip back to the executor, whatever the runtime.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            return std::task::Poll::Ready(());
+        }
+        cx.waker().wake_by_ref();
+        std::task::Poll::Pending
+    })
+    .await
 }
 
 /// The `failures`-th consecutive failure's wait: [`RETRY_BASE`] doubling up to [`RETRY_CAP`],
