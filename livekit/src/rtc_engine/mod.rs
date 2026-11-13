@@ -116,15 +116,6 @@ pub enum EngineError {
     Internal(Cow<'static, str>), // Unexpected error, generally we can't recover
 }
 
-/// A track to be published as part of the join request, with its prepared request and encodings.
-#[derive(Debug, Clone)]
-pub(crate) struct PrePublishTrack {
-    pub(crate) track: LocalTrack,
-    pub(crate) options: TrackPublishOptions,
-    pub(crate) encodings: Vec<RtpEncodingParameters>,
-    pub(crate) request: proto::AddTrackRequest,
-}
-
 #[derive(Default, Debug, Clone)]
 pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
@@ -334,12 +325,12 @@ impl RtcEngine {
     ///
     /// Returns a receiver for the server's `TrackInfo` per track that was sent, keyed by its cid.
     /// Tracks without one were not sent and must be published normally.
-    pub(crate) async fn connect(
+    pub async fn connect(
         url: &str,
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-        publish_tracks: &[PrePublishTrack],
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
     ) -> EngineResult<(
         Self,
         proto::JoinResponse,
@@ -353,14 +344,6 @@ impl RtcEngine {
 
     pub async fn close(&self, reason: DisconnectReason) {
         self.inner.close(reason).await
-    }
-
-    /// Test-only: connects with default options and no join-time tracks, so lifecycle tests can
-    /// exercise the engine without a [`Room`](crate::Room) around it.
-    #[cfg(feature = "__lk-e2e-test")]
-    pub async fn connect_for_test(url: &str, token: &str) -> EngineResult<Self> {
-        let (engine, ..) = Self::connect(url, token, EngineOptions::default(), None, &[]).await?;
-        Ok(engine)
     }
 
     /// Test-only: returns a probe that reports whether the engine internals have been
@@ -531,7 +514,7 @@ impl EngineInner {
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-        publish_tracks: &[PrePublishTrack],
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
     ) -> EngineResult<(
         Arc<Self>,
         proto::JoinResponse,

@@ -41,8 +41,24 @@ use tokio::sync::{
 };
 use tokio::{task::JoinHandle, time::sleep};
 
-use super::{
-    rtc_events, EngineError, EngineOptions, EngineResult, PrePublishTrack, SimulateScenario,
+use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use crate::{
+    e2ee::EncryptionType,
+    id::ParticipantSid,
+    options::TrackPublishOptions,
+    prelude::TrackKind,
+    room::{
+        e2ee::manager::E2eeManager,
+        participant::{configure_sender, prepare_publish},
+        DisconnectReason,
+    },
+    rtc_engine::{
+        lk_runtime::LkRuntime,
+        peer_transport::PeerTransport,
+        rtc_events::{RtcEvent, RtcEvents},
+    },
+    track::{LocalTrack, TrackSource},
+    DataPacketKind,
 };
 use crate::{
     id::ParticipantIdentity,
@@ -53,19 +69,6 @@ use crate::{
         tx_queue::{TxQueue, TxQueueItem},
     },
     ChatMessage, TranscriptionSegment,
-};
-use crate::{
-    id::ParticipantSid,
-    options::TrackPublishOptions,
-    prelude::TrackKind,
-    room::{e2ee::manager::E2eeManager, participant::configure_sender, DisconnectReason},
-    rtc_engine::{
-        lk_runtime::LkRuntime,
-        peer_transport::PeerTransport,
-        rtc_events::{RtcEvent, RtcEvents},
-    },
-    track::{LocalTrack, TrackSource},
-    DataPacketKind,
 };
 
 /// Connection-state transition counts per transport, sampled before a resume begins.
@@ -536,9 +539,9 @@ struct EarlyPublisher {
 
 impl EarlyPublisher {
     /// Closes the transport and detaches the join-time tracks from its transceivers.
-    fn discard(self, publish_tracks: &[PrePublishTrack]) {
-        for pt in publish_tracks {
-            pt.track.set_transceiver(None);
+    fn discard(self, publish_tracks: &[(LocalTrack, TrackPublishOptions)]) {
+        for (track, _) in publish_tracks {
+            track.set_transceiver(None);
         }
         self.pc.close();
     }
@@ -551,7 +554,7 @@ impl RtcSession {
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-        publish_tracks: &[PrePublishTrack],
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
     ) -> EngineResult<(
         Self,
         proto::JoinResponse,
@@ -569,7 +572,13 @@ impl RtcSession {
         let use_single_pc = options.signal_options.single_peer_connection;
 
         let early_publisher = if use_single_pc {
-            Self::create_early_publisher(&options.rtc_config, &emitter, publish_tracks).await?
+            Self::create_early_publisher(
+                &options.rtc_config,
+                &emitter,
+                e2ee_manager.as_ref().map_or(EncryptionType::None, |e2ee| e2ee.encryption_type()),
+                publish_tracks,
+            )
+            .await?
         } else {
             None
         };
@@ -756,9 +765,9 @@ impl RtcSession {
             if sent_publisher_offer {
                 publish_tracks
                     .iter()
-                    .filter_map(|pt| {
-                        let cid = &pt.request.cid;
-                        inner.register_pending_track(cid).ok().map(|rx| (cid.clone(), rx))
+                    .filter_map(|(track, _)| {
+                        let cid = track.rtc_track().id();
+                        inner.register_pending_track(&cid).ok().map(|rx| (cid, rx))
                     })
                     .collect()
             } else {
@@ -797,7 +806,8 @@ impl RtcSession {
     async fn create_early_publisher(
         rtc_config: &RtcConfiguration,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
-        publish_tracks: &[PrePublishTrack],
+        encryption_type: EncryptionType,
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
     ) -> EngineResult<Option<EarlyPublisher>> {
         let pc = PeerTransport::new(
             LkRuntime::instance().pc_factory().create_peer_connection(rtc_config.clone())?,
@@ -812,30 +822,28 @@ impl RtcSession {
             Self::add_recv_media_sections(&pc.peer_connection(), 3, 3)?;
 
             // The offer must carry a media section for every track sent with the join.
-            for pt in publish_tracks {
-                let transceiver = SessionInner::create_sender_for_pc(
-                    &pc,
-                    &pt.track,
-                    &pt.options,
-                    pt.encodings.clone(),
-                )
-                .await?;
-                pt.track.set_transceiver(Some(transceiver));
+            let mut add_track_requests = Vec::with_capacity(publish_tracks.len());
+            for (track, options) in publish_tracks {
+                let (request, encodings) = prepare_publish(track, options, encryption_type, None);
+                let transceiver =
+                    SessionInner::create_sender_for_pc(&pc, track, options, encodings).await?;
+                track.set_transceiver(Some(transceiver));
+                add_track_requests.push(request);
             }
 
             let Some(offer) = pc.create_initial_offer().await? else {
                 return Err(EngineError::Internal("publisher is not in single PC mode".into()));
             };
-            EngineResult::Ok((data_channels, offer))
+            EngineResult::Ok((data_channels, offer, add_track_requests))
         }
         .await;
 
-        let (data_channels, offer) = match prepared {
+        let (data_channels, offer, add_track_requests) = match prepared {
             Ok(prepared) => prepared,
             Err(err) => {
                 log::warn!("failed to prepare initial publisher offer: {:?}", err);
-                for pt in publish_tracks {
-                    pt.track.set_transceiver(None);
+                for (track, _) in publish_tracks {
+                    track.set_transceiver(None);
                 }
                 pc.close();
                 return Ok(None);
@@ -849,7 +857,7 @@ impl RtcSession {
                 id: 0,
                 mid_to_track_id: Default::default(),
             },
-            add_track_requests: publish_tracks.iter().map(|pt| pt.request.clone()).collect(),
+            add_track_requests,
         };
         Ok(Some(EarlyPublisher { pc, data_channels, initial_publish }))
     }

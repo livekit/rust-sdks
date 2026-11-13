@@ -39,7 +39,7 @@ use livekit::{
     },
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteTrack, TrackSource},
-    E2eeOptions, InitialTrack, Room, RoomError, RoomEvent, RoomOptions, SimulateScenario,
+    E2eeOptions, Room, RoomError, RoomEvent, RoomOptions, SimulateScenario,
 };
 use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
@@ -54,7 +54,7 @@ use tokio::{
 
 mod common;
 
-fn join_tracks() -> Vec<InitialTrack> {
+fn join_tracks() -> Vec<(LocalTrack, TrackPublishOptions)> {
     let audio = LocalAudioTrack::create_audio_track(
         "join-audio",
         RtcAudioSource::Native(NativeAudioSource::new(
@@ -72,15 +72,14 @@ fn join_tracks() -> Vec<InitialTrack> {
         )),
     );
     vec![
-        InitialTrack::new(LocalTrack::Audio(audio)).with_options(TrackPublishOptions {
-            source: TrackSource::Microphone,
-            ..Default::default()
-        }),
+        (
+            LocalTrack::Audio(audio),
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+        ),
         (
             LocalTrack::Video(video),
             TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
-        )
-            .into(),
+        ),
     ]
 }
 
@@ -243,7 +242,7 @@ impl ServerEnv {
     }
 }
 
-fn single_audio_track() -> (InitialTrack, impl Fn() -> bool) {
+fn single_audio_track() -> ((LocalTrack, TrackPublishOptions), impl Fn() -> bool) {
     let track = LocalAudioTrack::create_audio_track(
         "join-audio",
         RtcAudioSource::Native(NativeAudioSource::new(
@@ -254,7 +253,7 @@ fn single_audio_track() -> (InitialTrack, impl Fn() -> bool) {
         )),
     );
     let released = track.drop_probe();
-    (LocalTrack::Audio(track).into(), released)
+    ((LocalTrack::Audio(track), TrackPublishOptions::default()), released)
 }
 
 async fn wait_released(released: impl Fn() -> bool) -> Result<()> {
@@ -475,14 +474,14 @@ async fn test_publish_with_join_muted_tracks() -> Result<()> {
     let (audio, video) = muted_tracks();
     let mut publisher = RoomOptions::default();
     publisher.publish_tracks = vec![
-        InitialTrack::new(LocalTrack::Audio(audio.clone())).with_options(TrackPublishOptions {
-            source: TrackSource::Microphone,
-            ..Default::default()
-        }),
-        InitialTrack::new(LocalTrack::Video(video.clone())).with_options(TrackPublishOptions {
-            source: TrackSource::Camera,
-            ..Default::default()
-        }),
+        (
+            LocalTrack::Audio(audio.clone()),
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+        ),
+        (
+            LocalTrack::Video(video.clone()),
+            TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
+        ),
     ];
     let ((publisher, _), (subscriber, mut subscriber_events)) = connect_pair(publisher).await?;
 

@@ -34,8 +34,8 @@ pub use crate::{
         SubscribeTimingEventStream, SubscribeTimingStage, Track, TrackDimension, TrackKind,
         TrackSource, VideoTrack,
     },
-    ConnectionState, DataPacket, DataPacketKind, InitialTrack, Room, RoomError, RoomEvent,
-    RoomOptions, RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
+    ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
+    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };
 
 // Platform audio device management (native platforms only)
