@@ -17,6 +17,7 @@
 #include "livekit/audio_track.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -77,6 +78,19 @@ void AudioTrack::remove_sink(
   webrtc::MutexLock lock(&mutex_);
   track()->RemoveSink(sink.get());
   sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+}
+
+void AudioTrack::set_volume(double volume) const {
+  // RemoteAudioSource::SetVolume accepts [0, 10] only (it DCHECKs the range),
+  // so clamp here rather than let a caller abort the process.
+  volume = std::isnan(volume) ? 1.0 : std::clamp(volume, 0.0, 10.0);
+  // The source and the receiver it notifies belong to the signaling thread;
+  // BlockingCall runs inline when already on it.
+  rtc_runtime_->signaling_thread()->BlockingCall([&] {
+    if (auto* source = track()->GetSource()) {
+      source->SetVolume(volume);
+    }
+  });
 }
 
 NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,

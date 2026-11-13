@@ -79,6 +79,15 @@ impl RemoteAudioTrack {
         self.inner.rtc_track.set_enabled(false);
     }
 
+    /// Sets how loud this participant's track is played on this device, without affecting what
+    /// anyone else hears.
+    ///
+    /// `0.0` is silent, `1.0` is unchanged and values up to `10.0` amplify. Out-of-range values
+    /// are clamped. See [`RtcAudioTrack::set_volume`].
+    pub fn set_volume(&self, volume: f64) {
+        self.rtc_track().set_volume(volume);
+    }
+
     pub fn is_muted(&self) -> bool {
         self.inner.info.read().muted
     }

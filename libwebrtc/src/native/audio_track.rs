@@ -30,4 +30,8 @@ impl RtcAudioTrack {
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::MediaStreamTrack> {
         audio_to_media(self.sys_handle.clone())
     }
+
+    pub fn set_volume(&self, volume: f64) {
+        self.sys_handle.set_volume(volume)
+    }
 }

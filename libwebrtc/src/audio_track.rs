@@ -26,6 +26,16 @@ pub struct RtcAudioTrack {
 
 impl RtcAudioTrack {
     media_stream_track!();
+
+    /// Sets the playout volume of a remote track on this device only.
+    ///
+    /// `0.0` is silent, `1.0` leaves the audio unchanged and values up to `10.0` amplify it.
+    /// Values outside that range are clamped, and NaN is treated as `1.0`. It has no effect on
+    /// local tracks, and it does not change the samples seen by an
+    /// [`audio_stream`](crate::audio_stream), only what is played out.
+    pub fn set_volume(&self, volume: f64) {
+        self.handle.set_volume(volume)
+    }
 }
 
 impl Debug for RtcAudioTrack {
