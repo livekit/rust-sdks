@@ -1065,6 +1065,23 @@ export declare class VideoFrameReceived extends Message<VideoFrameReceived> {
    */
   metadata?: FrameMetadata;
 
+  /**
+   * Frames this stream has dropped since it was created, because the FFI
+   * forwarding task did not keep up with the WebRTC sink.
+   *
+   * Dropped frames are decoded but never delivered. No WebRTC stat reports
+   * them -- `framesDecoded` counts them and `framesDropped` does not -- so
+   * this counter is the only way an application can observe the loss. It is
+   * cumulative and monotonic: compare it against the previous frame's value
+   * to find how many were lost in between.
+   *
+   * Always zero for a stream created with `queue_size_frames = 0`, which is
+   * unbounded and never drops.
+   *
+   * @generated from field: optional uint64 dropped_frames = 5;
+   */
+  droppedFrames?: bigint;
+
   constructor(data?: PartialMessage<VideoFrameReceived>);
 
   static readonly runtime: typeof proto2;
@@ -1084,6 +1101,16 @@ export declare class VideoFrameReceived extends Message<VideoFrameReceived> {
  * @generated from message livekit.proto.VideoStreamEOS
  */
 export declare class VideoStreamEOS extends Message<VideoStreamEOS> {
+  /**
+   * Total frames this stream decoded but never delivered, over its whole life.
+   *
+   * A stream can lose frames after the last one it managed to forward, so the
+   * final total has no frame event to ride on. This carries it.
+   *
+   * @generated from field: optional uint64 dropped_frames = 1;
+   */
+  droppedFrames?: bigint;
+
   constructor(data?: PartialMessage<VideoStreamEOS>);
 
   static readonly runtime: typeof proto2;
