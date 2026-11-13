@@ -70,6 +70,14 @@ impl Debug for RemoteTrackPublication {
 }
 
 impl RemoteTrackPublication {
+    /// Test-only: reports destruction of both parts of the publication's state.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        let remote = Arc::downgrade(&self.remote);
+        move || inner.upgrade().is_none() && remote.upgrade().is_none()
+    }
+
     pub(crate) fn new(
         info: proto::TrackInfo,
         track: Option<RemoteTrack>,
