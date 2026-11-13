@@ -16,7 +16,11 @@
 //!
 //! What a platform calls, and when:
 //!
-//! - SDK init: [`telemetry_configure`] (or [`telemetry_configure_pulled`] where foreign callbacks
+//! - SDK init, first: `log_forward_bootstrap` (in `log_forward`), which installs the Rust logger.
+//!   Without it configure still succeeds, but the core's own warnings and errors are never copied
+//!   into telemetry. Do not pass the entries it forwards on to [`telemetry_log`]: the core has
+//!   copied them already.
+//! - SDK init, then: [`telemetry_configure`] (or [`telemetry_configure_pulled`] where foreign callbacks
 //!   are thread-bound) with storage and instruments. No endpoint, no headers: destinations come
 //!   from the rooms.
 //! - Room created: [`telemetry_scope`]; connect: [`TelemetryScope::set_server`] with the server
@@ -89,7 +93,15 @@ pub fn telemetry_configure(
 ) -> Result<(), TelemetryError> {
     let transport: Arc<dyn TelemetryTransport> = match transport {
         Some(transport) => transport,
-        None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
+        None => match NetTransport::from_registry() {
+            Some(transport) => Arc::new(transport),
+            // The opt-out takes precedence over a missing transport: the refusal cleanup runs.
+            // Read after the lookup, so an opt-out that lands during it is seen too.
+            None if global::is_disabled() => {
+                return refuse_in(&LIFECYCLE, config.storage_dir.as_deref());
+            }
+            None => return Err(TelemetryError::NoTransport),
+        },
     };
     let Some(lease) = admit(&LIFECYCLE, config.storage_dir.as_deref())? else {
         return Ok(());
@@ -654,6 +666,14 @@ async fn shutdown_in(slot: &LifecycleSlot, uninstall: impl FnOnce() + Send + 'st
 /// Everything not yet sent — queued, open, cached on disk — is then deleted in the background
 /// without another upload (awaited by [`telemetry_shutdown`] and [`telemetry_flush`]). Data
 /// already sent cannot be recalled.
+///
+/// Pulled exports ([`TelemetryExportQueue`]): a hand-out that starts after this call returned
+/// gives the host nothing. A hand-out whose check ran before the opt-out is committed: its
+/// request can reach the host while or after this call returns, and the core cannot take it back.
+/// The opt-out does not wait for its answer; the purge cancels the exporter that waits for it and
+/// deletes the batch, whatever the host answers. A host that must not upload after its own
+/// opt-out checks [`telemetry_is_disabled`] right before each send, on the thread or under the
+/// lock that also makes its call to this function, and drops the request when it is `true`.
 ///
 /// The installed instruments' `stop()` runs synchronously on the calling thread, under the
 /// lifecycle lock, before this returns: it must not block on the caller's queue and must not

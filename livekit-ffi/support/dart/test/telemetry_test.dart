@@ -12,10 +12,20 @@ import 'package:test/test.dart';
 /// timer (never leaving a Rust future holding a continuation of an isolate that may die),
 /// performs the request, and reports the collector's answer back with `complete()` (or `fail()`
 /// when there was none); the core classifies the status and body.
-Future<void> serve(TelemetryExportQueue queue, List<ExportRequest> sink, int count) async {
+Future<void> serve(
+  TelemetryExportQueue queue,
+  List<ExportRequest> sink,
+  int count, {
+  Duration deadline = const Duration(seconds: 20),
+}) async {
+  final waited = Stopwatch()..start();
   for (var i = 0; i < count; i++) {
     var pending = queue.tryNext();
     while (pending == null) {
+      if (waited.elapsed > deadline) {
+        fail('export request ${i + 1} of $count did not arrive within ${deadline.inSeconds} s '
+            '(${sink.length} served so far)');
+      }
       await Future<void>.delayed(const Duration(milliseconds: 10));
       pending = queue.tryNext();
     }

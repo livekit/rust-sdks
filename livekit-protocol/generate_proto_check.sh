@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# MANUAL CHECK: no CI workflow runs this script. Run it by hand after a change to
+# `generate_proto.sh`, to the protocol submodule or to a generator version.
+#
 # Checks `generate_proto.sh` in a scratch copy, never in `src/`:
 #   1. a protoc that fails (exit 47) fails the script with 47 and leaves stale outputs untouched;
 #   2. the same with an empty output directory;

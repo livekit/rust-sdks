@@ -34,9 +34,16 @@ async fn main() {
     env_logger::init();
     let url = env::var("LK_URL").unwrap_or_else(|_| "ws://localhost:7880".to_owned());
     let token = env::var("LK_TOKEN").unwrap_or_default();
-    if env::var(ENDPOINT_OVERRIDE_ENV).is_err() && env::var("LK_URL").is_err() {
+    let local = env::var(ENDPOINT_OVERRIDE_ENV).is_ok();
+    if !local && env::var("LK_URL").is_err() {
         eprintln!("set {ENDPOINT_OVERRIDE_ENV}=http://localhost:4318, or LK_URL and LK_TOKEN");
         return;
+    }
+    // A LiveKit Cloud project takes nothing without a token that carries the observability
+    // grant. A local collector (the override) needs none.
+    if !local && token.is_empty() {
+        eprintln!("LK_URL is set without LK_TOKEN: set LK_TOKEN to a participant token with the observability grant");
+        std::process::exit(2);
     }
 
     let config = TelemetryConfig {
