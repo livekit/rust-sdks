@@ -379,6 +379,11 @@ impl Spans {
         n as u64
     }
 
+    /// How many finished spans wait for export right now.
+    pub fn finished_len(&self) -> usize {
+        self.finished.len()
+    }
+
     pub fn take_dropped(&mut self) -> u64 {
         std::mem::take(&mut self.dropped)
     }

@@ -111,6 +111,20 @@ pub struct TelemetryConfig {
     pub disabled_instruments: Vec<Instrument>,
 }
 
+#[cfg(test)]
+mod config_tests {
+    use super::TelemetryConfig;
+
+    /// The cache's byte bound has the floor every other byte bound has. The floor is one byte,
+    /// not the default: a cache that small still keeps only its newest batch.
+    #[test]
+    fn a_zero_cache_bound_is_raised_to_its_floor() {
+        let config = TelemetryConfig { max_cache_bytes: 0, ..Default::default() }.normalized();
+        assert_eq!(config.max_cache_bytes, 1);
+        assert_eq!(config.clone().normalized().max_cache_bytes, 1, "normalizing twice is the same");
+    }
+}
+
 /// The platform instruments a config can switch off.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,6 +188,7 @@ impl TelemetryConfig {
         self.max_batches_per_upload = self.max_batches_per_upload.max(1);
         self.flush_threshold_bytes = self.flush_threshold_bytes.max(1);
         self.max_batch_bytes = self.max_batch_bytes.max(1);
+        self.max_cache_bytes = self.max_cache_bytes.max(1);
         self
     }
 
@@ -471,6 +486,8 @@ impl Telemetry {
         config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
     ) -> (Self, Exporter) {
+        // Before the cache is built: it takes its bound from the config.
+        let config = config.normalized();
         let mut fell_back = false;
         let cache: Arc<dyn BatchCache> = match config.storage_dir.as_deref() {
             Some(dir) => match FileCache::open(dir, config.max_cache_bytes) {
