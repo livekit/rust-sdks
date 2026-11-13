@@ -511,4 +511,85 @@ mod tests {
         }
         reset_for_test();
     }
+
+    /// A caller-provided cache whose `clear` fails while it is locked.
+    struct Lockable {
+        inner: crate::MemoryCache,
+        locked: AtomicBool,
+    }
+
+    impl BatchCache for Lockable {
+        fn push(&self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
+            self.inner.push(id, body)
+        }
+        fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> std::io::Result<Vec<String>> {
+            self.inner.replace(old, new)
+        }
+        fn pending(&self) -> Vec<String> {
+            self.inner.pending()
+        }
+        fn read(&self, id: &str) -> std::io::Result<Vec<u8>> {
+            self.inner.read(id)
+        }
+        fn remove(&self, id: &str) -> std::io::Result<()> {
+            self.inner.remove(id)
+        }
+        fn clear(&self) -> std::io::Result<()> {
+            if self.locked.load(Ordering::SeqCst) {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            self.inner.clear()
+        }
+    }
+
+    /// A pipeline refused after the opt-out stays known to it: its spawned exporter is cancelled,
+    /// and a later `disable` deletes what its caller-provided cache could not delete at the
+    /// refusal. The caller still owns the exporter task and the pipeline.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_pipeline_is_cancelled_and_purged_by_a_later_opt_out() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        assert!(disable().await);
+        let cache = Arc::new(Lockable {
+            inner: crate::MemoryCache::new(1 << 20),
+            locked: AtomicBool::new(true),
+        });
+        cache.inner.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        let (telemetry, exporter) =
+            Telemetry::with_cache(test_config(), FakeTransport::scripted([]), cache.clone());
+        let mut task = tokio::spawn(exporter.run());
+        let refused = install(telemetry, Vec::new()).expect("refused pipelines are handed back");
+        let stopped =
+            tokio::time::timeout(std::time::Duration::from_secs(5), &mut task).await.is_ok();
+        let kept = cache.inner.pending().len();
+        cache.locked.store(false, Ordering::SeqCst);
+        let complete = disable().await;
+        let left = cache.inner.pending().len();
+        let shared = Arc::downgrade(&refused.shared);
+        drop(refused);
+        task.abort();
+        let _ = task.await;
+        reset_for_test();
+        assert!(stopped, "the refused exporter kept running");
+        assert_eq!((kept, complete, left), (1, true, 0), "a later opt-out retries the delete");
+        assert!(shared.upgrade().is_none(), "the refused pipeline is released");
+    }
+
+    /// Installing the installed pipeline again replaces nothing: no pipeline is handed back for
+    /// the caller to shut down, and it stays one generation.
+    #[tokio::test]
+    async fn reinstalling_the_installed_pipeline_hands_nothing_back() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
+        drop(exporter);
+        assert!(install(telemetry.clone(), Vec::new()).is_none());
+        let handed_back =
+            (0..64).filter(|_| install(telemetry.clone(), Vec::new()).is_some()).count();
+        let registered = GENERATIONS.lock().unwrap().live.len();
+        let installed = current().is_some_and(|t| Arc::ptr_eq(&t.shared, &telemetry.shared));
+        assert!(disable().await);
+        reset_for_test();
+        assert_eq!((handed_back, registered, installed), (0, 1, true));
+    }
 }
