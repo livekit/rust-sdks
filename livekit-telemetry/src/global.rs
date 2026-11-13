@@ -150,11 +150,12 @@ fn stop_installed_instruments() {
 /// pipeline uploaded but could not delete from its storage directory is uploaded once more by
 /// the next pipeline on that directory.
 ///
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged, cancelled and handed back
-/// instead. It stays known to later [`disable`] calls while the caller holds it, so they retry
-/// a delete that failed here. Its exporter is still the caller's: one already spawned stops by
-/// itself and the caller joins its task, and one never spawned is dropped by the caller (nothing
-/// here owns it).
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
+/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
+/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
+/// by the caller (nothing here owns it). While the caller holds the refused pipeline it stays
+/// known to later [`disable`] calls, which purge it like any other generation: they retry a
+/// delete that failed here.
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
@@ -163,11 +164,9 @@ pub fn install(
     if is_disabled() {
         telemetry.shared.revoke();
         GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).register(&telemetry.shared);
-        // Nothing else stops an exporter spawned for it: without this it ticks for the rest of
-        // the process.
-        telemetry.shared.cancel.notify_one();
-        // Deleted outside the lock: only this caller holds the refused pipeline. `clear` logs an
-        // incomplete delete itself.
+        // Deleted outside the lock. The caller's clones, its exporter and a later `disable` can
+        // hold the refused pipeline too: `Shared::clear` serializes overlapping clears. `clear`
+        // logs an incomplete delete itself.
         drop(lifecycle);
         telemetry.shared.clear();
         erase_refused_storage(telemetry.shared.config.storage_dir.as_deref());
@@ -608,39 +607,63 @@ mod tests {
         }
     }
 
-    /// A pipeline refused after the opt-out stays known to it: its spawned exporter is cancelled,
-    /// and a later `disable` deletes what its caller-provided cache could not delete at the
-    /// refusal. The caller still owns the exporter task and the pipeline.
+    /// A pipeline refused after the opt-out stays known to later opt-outs: a later `disable`
+    /// deletes what its caller-provided cache could not delete at the refusal. Its exporter is
+    /// still the caller's: it keeps running until the caller shuts the pipeline down, and its
+    /// task ends without a panic. Once the caller lets the pipeline go, the registry does too.
     #[tokio::test(start_paused = true)]
-    async fn a_refused_pipeline_is_cancelled_and_purged_by_a_later_opt_out() {
+    async fn a_refused_pipeline_is_purged_by_a_later_opt_out_and_stopped_by_its_caller() {
         let _global = TEST_LOCK.lock().await;
         reset_for_test();
-        assert!(disable().await);
+        let first = disable().await;
         let cache = Arc::new(Lockable {
             inner: crate::MemoryCache::new(1 << 20),
             locked: AtomicBool::new(true),
         });
-        cache.inner.push("00000000000000000001-000001-1-l", b"cached").unwrap();
+        let seeded = cache.inner.push("00000000000000000001-000001-1-l", b"cached").is_ok();
         let (telemetry, exporter) =
             Telemetry::with_cache(test_config(), FakeTransport::scripted([]), cache.clone());
         let mut task = tokio::spawn(exporter.run());
-        let refused = install(telemetry, Vec::new()).expect("refused pipelines are handed back");
-        let stopped =
-            tokio::time::timeout(std::time::Duration::from_secs(5), &mut task).await.is_ok();
+        let pipeline = Arc::downgrade(&telemetry.shared);
+        let refused = install(telemetry, Vec::new());
+        // Five seconds of the exporter's own ticks: nothing but its caller stops it.
+        let early = tokio::time::timeout(std::time::Duration::from_secs(5), &mut task).await;
         let kept = cache.inner.pending().len();
+        let running = early.is_err();
+        // The caller's shutdown, as the contract says. A task that already ended is not awaited
+        // twice: its result is the one the first wait returned. One that still does not end is
+        // aborted and joined, and its cancellation fails the test below.
+        let joined = match early {
+            Ok(ended) => ended,
+            Err(_) => {
+                if let Some(refused) = &refused {
+                    refused.shutdown().await;
+                }
+                match tokio::time::timeout(std::time::Duration::from_secs(10), &mut task).await {
+                    Ok(ended) => ended,
+                    Err(_) => {
+                        task.abort();
+                        task.await
+                    }
+                }
+            }
+        };
         cache.locked.store(false, Ordering::SeqCst);
         let complete = disable().await;
         let left = cache.inner.pending().len();
-        let shared = Arc::downgrade(&refused.shared);
+        let handed_back = refused.is_some();
         drop(refused);
-        if !stopped {
-            task.abort();
-            let _ = task.await;
-        }
+        // The registry lets a dropped pipeline go by itself: a real opt-out compacts it.
+        let _ = disable().await;
+        let registered = GENERATIONS.lock().unwrap().live.len();
+        let released = pipeline.upgrade().is_none();
         reset_for_test();
-        assert!(stopped, "the refused exporter kept running");
+        assert!(first && seeded && handed_back, "{first} {seeded} {handed_back}");
+        assert!(running, "the refused exporter did not keep running until its caller stopped it");
+        assert!(joined.is_ok(), "the exporter task ended with {joined:?}");
         assert_eq!((kept, complete, left), (1, true, 0), "a later opt-out retries the delete");
-        assert!(shared.upgrade().is_none(), "the refused pipeline is released");
+        assert!(released, "the refused pipeline is still held");
+        assert_eq!(registered, 0, "the registry kept a dropped pipeline");
     }
 
     /// Installing the installed pipeline again replaces nothing: no pipeline is handed back for
@@ -651,13 +674,18 @@ mod tests {
         reset_for_test();
         let (telemetry, exporter) = Telemetry::new(test_config(), FakeTransport::scripted([]));
         drop(exporter);
-        assert!(install(telemetry.clone(), Vec::new()).is_none());
+        let pipeline = Arc::downgrade(&telemetry.shared);
+        let replaced_first = install(telemetry.clone(), Vec::new()).is_some();
         let handed_back =
             (0..64).filter(|_| install(telemetry.clone(), Vec::new()).is_some()).count();
         let registered = GENERATIONS.lock().unwrap().live.len();
         let installed = current().is_some_and(|t| Arc::ptr_eq(&t.shared, &telemetry.shared));
-        assert!(disable().await);
+        let purged = disable().await;
+        drop(telemetry);
+        let released = pipeline.upgrade().is_none();
         reset_for_test();
+        assert!(!replaced_first, "the first install replaced something");
         assert_eq!((handed_back, registered, installed), (0, 1, true));
+        assert!(purged && released, "purged {purged}, released {released}");
     }
 }

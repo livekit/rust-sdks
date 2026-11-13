@@ -577,12 +577,19 @@ impl Exporter {
         crate::event::attributes_size_hint(&global)
     }
 
-    /// Encode what is queued now — log records and finished spans — into the cache. No network.
-    /// A turn takes at most the records queued when it started: one that arrives while a batch is
-    /// encoded waits for the next turn (the next tick, a flush, or the queue crossing its
-    /// threshold again), so a producer never decides how long the actor stays here.
+    /// Encode what is queued — log records and finished spans — into the cache. No network.
+    ///
+    /// The work of one turn is bounded: it encodes at most as many finished spans and at most as
+    /// many records as were queued when it started, both counted before anything is encoded. So a
+    /// producer never decides how long the actor stays here. The bound is on the counts, not on
+    /// which records they are: a full queue still drops its oldest record for a new one, as
+    /// always, and that new record then takes a place in this turn's count. What the counts leave
+    /// queued is encoded by a later turn (the next tick, a flush, or the queue crossing its
+    /// threshold again).
     fn enqueue(&mut self) {
-        self.enqueue_spans();
+        let spans = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len();
+        let mut left = self.shared.store.len();
+        self.enqueue_spans(spans);
         let config = &self.shared.config;
         let (max, max_bytes) = (
             config.max_batch_size as usize,
@@ -592,7 +599,6 @@ impl Exporter {
         // another batch must not make the next report due in the same pass, or with
         // `max_batch_size` 1 it would take the only place forever and no record would move.
         let mut reported = false;
-        let mut left = self.shared.store.len();
         // Every iteration drains at least one record or returns: with records left, `room` is 0
         // only when a report is due with `max_batch_size` 1, and that report goes out alone and is
         // not due again.
@@ -632,11 +638,10 @@ impl Exporter {
         }
     }
 
-    /// Finished spans travel as their own batches on the traces signal: every one finished when
-    /// the turn started (see [`enqueue`](Self::enqueue)), so a burst larger than a batch (or a
-    /// shutdown) leaves none of them behind in memory.
-    fn enqueue_spans(&mut self) {
-        let mut left = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len();
+    /// Finished spans travel as their own batches on the traces signal: at most `left` of them,
+    /// the number finished when the turn started (see [`enqueue`](Self::enqueue)), in as many
+    /// batches as that takes.
+    fn enqueue_spans(&mut self, mut left: usize) {
         loop {
             let extra = self.pipeline_attributes_size();
             let (spans, dropped) = {
