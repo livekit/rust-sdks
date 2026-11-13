@@ -567,8 +567,10 @@ mod tests {
         let left = cache.inner.pending().len();
         let shared = Arc::downgrade(&refused.shared);
         drop(refused);
-        task.abort();
-        let _ = task.await;
+        if !stopped {
+            task.abort();
+            let _ = task.await;
+        }
         reset_for_test();
         assert!(stopped, "the refused exporter kept running");
         assert_eq!((kept, complete, left), (1, true, 0), "a later opt-out retries the delete");
