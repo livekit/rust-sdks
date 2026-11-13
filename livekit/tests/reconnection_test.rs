@@ -142,6 +142,43 @@ async fn test_full_reconnect_with_published_track_recovers() -> Result<()> {
     assert_recovers(room, events, SimulateScenario::FullReconnect).await
 }
 
+/// A full reconnect removes every remote participant before rejoining. `Reconnecting` must be
+/// reported first, so observers can tell those removals apart from participants actually leaving.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_full_reconnect_reports_reconnecting_before_removing_participants() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (_remote, _remote_events) = rooms.pop().unwrap();
+    let (room, mut events) = rooms.pop().unwrap();
+
+    room.simulate_scenario(SimulateScenario::FullReconnect)
+        .await
+        .map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
+
+    let observe = async {
+        let mut saw_reconnecting = false;
+        while let Some(event) = events.recv().await {
+            match event {
+                RoomEvent::Reconnecting => saw_reconnecting = true,
+                RoomEvent::ParticipantDisconnected(p) => {
+                    if !saw_reconnecting {
+                        bail!("{} was removed before Reconnecting was reported", p.identity());
+                    }
+                    return Ok(());
+                }
+                RoomEvent::Reconnected => bail!("reconnected without removing participants"),
+                RoomEvent::Disconnected { reason } => {
+                    bail!("room disconnected during reconnection: {reason:?}");
+                }
+                _ => {}
+            }
+        }
+        bail!("event stream ended before the participant was removed");
+    };
+    timeout(Duration::from_secs(30), observe).await??;
+    Ok(())
+}
+
 /// A full reconnect republishes tracks from a detached task that marks the room `Connected` when
 /// it finishes. Closing the room while that task waits on the server must not let it bring the
 /// room back: once closed, the room stays `Disconnected`.
