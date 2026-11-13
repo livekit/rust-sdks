@@ -696,7 +696,9 @@ impl BatchCache for FileCache {
             };
             #[cfg(test)]
             self.step(Step::ClearListed, &self.dir)?;
-            // One directory sync at the end makes every deletion durable, whatever failed before it.
+            // One directory sync at the end makes this sweep's deletions durable, whatever failed
+            // before it. The listing above may have published a journaled split first, with its own
+            // sync.
             let mut first = Ok(());
             for id in ids {
                 if let Err(err) = self.delete(&id) {
@@ -732,7 +734,8 @@ impl BatchCache for FileCache {
                     }
                 }
             }
-            // Nothing journaled is left to publish.
+            // After a full sweep nothing journaled is left to publish. After a failed one a journal
+            // file may remain: the next listing retries its recovery.
             self.recovery_failed.store(false, Ordering::Relaxed);
             first.and(self.sync_dir())
         })
