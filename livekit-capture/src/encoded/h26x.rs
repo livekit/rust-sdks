@@ -571,7 +571,7 @@ fn access_unit_from_nalus(
 }
 
 /// Returns `true` when an Annex-B access unit is a key frame: an IDR
-/// picture for H.264, or parameter sets (VPS/SPS/PPS) plus an IDR picture
+/// picture for H.264, or parameter sets (VPS/SPS/PPS) plus an IRAP picture
 /// for H.265.
 fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, H26xParseError> {
     let nals = annex_b_nalus(bytes);
@@ -591,19 +591,23 @@ fn is_keyframe_nalus(
             let mut has_vps = false;
             let mut has_sps = false;
             let mut has_pps = false;
-            let mut has_idr = false;
+            let mut has_irap = false;
 
             for nal in nal_units {
                 match h265_nal_type(nal)? {
                     32 => has_vps = true,
                     33 => has_sps = true,
                     34 => has_pps = true,
-                    19 | 20 => has_idr = true,
+                    // IRAP pictures: BLA (16-18), IDR (19-20) and CRA (21).
+                    // Decoding can start at any of them, and libwebrtc's
+                    // receiver treats all of them as keyframes; a decoder
+                    // that starts at a CRA drops its leading RASL pictures.
+                    16..=21 => has_irap = true,
                     _ => {}
                 }
             }
 
-            Ok(has_vps && has_sps && has_pps && has_idr)
+            Ok(has_vps && has_sps && has_pps && has_irap)
         }
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
             Err(H26xParseError::UnsupportedCodec(codec))
@@ -968,18 +972,21 @@ mod tests {
     }
 
     #[test]
-    fn h265_keyframe_requires_parameter_sets_and_idr() {
+    fn h265_keyframe_requires_parameter_sets_and_irap() {
         let vps = [0x40, 1, 2];
         let sps = [0x42, 1, 2];
         let pps = [0x44, 1, 2];
         let idr_w_radl = [19 << 1, 1, 3];
         let cra = [21 << 1, 1, 3];
+        let bla = [16 << 1, 1, 3];
+        let trail_r = [1 << 1, 1, 3];
 
         assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &idr_w_radl]).unwrap());
-        assert!(
-            is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &idr_w_radl]).unwrap()
-        );
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &cra]).unwrap());
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &cra]).unwrap());
+        for irap in [&idr_w_radl, &cra, &bla] {
+            assert!(is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, irap]).unwrap());
+        }
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &trail_r]).unwrap());
     }
 
     #[test]
