@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "audio_frame.proto";
 import "room.proto";
 import "video_frame.proto";
 
@@ -71,6 +72,90 @@ message GstreamerVideoSourceConfig {
   // Forwards WebRTC rate-control targets to an encoder element's bitrate
   // property. Without this, the pipeline encodes at a fixed bitrate.
   optional GstreamerRateControl rate_control = 4;
+}
+
+// PCM S16LE interleaved ingest from `appsink name=lk_audio_appsink`.
+message GstreamerAudioSourceConfig {
+  required string pipeline = 1;
+  optional uint32 sample_rate = 2 [default = 48000];
+  optional uint32 num_channels = 3 [default = 1];
+  optional uint32 frame_duration_ms = 4 [default = 10];
+}
+
+message AudioCaptureSourceInfo {
+  required uint32 sample_rate = 1;
+  required uint32 num_channels = 2;
+  required uint32 samples_per_channel = 3;
+  // Pass this handle to CreateAudioTrackRequest.
+  required OwnedAudioSource audio_source = 4;
+}
+
+message OwnedAudioCaptureSource {
+  required FfiOwnedHandle handle = 1;
+  required AudioCaptureSourceInfo info = 2;
+}
+
+message NewAudioCaptureSourceRequest {
+  required GstreamerAudioSourceConfig gstreamer = 1;
+  optional uint64 request_async_id = 2;
+}
+message NewAudioCaptureSourceResponse { required uint64 async_id = 1; }
+message NewAudioCaptureSourceCallback {
+  required uint64 async_id = 1;
+  oneof message {
+    string error = 2;
+    OwnedAudioCaptureSource source = 3;
+  }
+}
+
+// Mixed PCM playout from existing remote audio track handles into
+// `appsrc name=lk_audio_appsrc`.
+message NewAudioPlayoutRequest {
+  required string pipeline = 1;
+  // Optional initial remote audio tracks. More tracks can be attached later.
+  repeated uint64 track_handles = 2;
+  optional uint32 sample_rate = 3 [default = 48000];
+  optional uint32 num_channels = 4 [default = 1];
+  optional uint32 frame_duration_ms = 5 [default = 10];
+}
+message NewAudioPlayoutResponse {
+  optional FfiOwnedHandle playout = 1;
+  optional string error = 2;
+}
+message AttachAudioPlayoutTrackRequest {
+  required uint64 playout_handle = 1;
+  required uint64 track_handle = 2;
+  optional uint64 request_async_id = 3;
+}
+message AttachAudioPlayoutTrackResponse { required uint64 async_id = 1; }
+message AttachAudioPlayoutTrackCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+  optional string track_id = 3;
+}
+message DetachAudioPlayoutTrackRequest {
+  required uint64 playout_handle = 1;
+  required string track_id = 2;
+  optional uint64 request_async_id = 3;
+}
+message DetachAudioPlayoutTrackResponse { required uint64 async_id = 1; }
+message DetachAudioPlayoutTrackCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+  // False means the ID was not attached; the pipeline remains running.
+  optional bool detached = 3;
+}
+message StopAudioPlayoutRequest {
+  required uint64 playout_handle = 1;
+  optional uint64 request_async_id = 2;
+}
+message StopAudioPlayoutResponse { required uint64 async_id = 1; }
+message StopAudioPlayoutCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+  optional uint64 frames_pushed = 3;
+  optional uint64 frames_dropped = 4;
+  optional uint64 bytes_pushed = 5;
 }
 
 // Test patterns built into livekit-capture.
@@ -178,6 +263,10 @@ enum CaptureExit {
 message CaptureFinished {
   required uint64 frames_captured = 1;
   required CaptureExit exit = 2;
+  optional uint64 samples_captured = 3;
+  optional uint64 bytes_captured = 4;
+  optional uint64 first_timestamp_ns = 5;
+  optional uint64 last_timestamp_ns = 6;
 }
 
 // Why a capture ended with an error.

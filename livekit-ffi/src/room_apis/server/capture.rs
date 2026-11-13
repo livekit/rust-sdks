@@ -19,7 +19,12 @@
 //! boundary. The RTC source is exposed as a regular [`FfiVideoSource`], so
 //! the existing `CreateVideoTrack`/`PublishTrack` requests work unchanged.
 
+#[cfg(feature = "capture-gstreamer")]
+use livekit_capture::playout::{
+    GStreamerAudioPlayout, GStreamerAudioPlayoutConfig, GStreamerAudioPlayoutControl,
+};
 use livekit_capture::{
+    audio::{AudioPump, PcmAudioSource},
     encoded::{EncodedVideoPump, EncodedVideoSource},
     pixel::{PixelVideoPump, PixelVideoSource},
     pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
@@ -28,12 +33,17 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSource;
-#[cfg(feature = "capture-gstreamer")]
-use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::PatternVideoSource;
+#[cfg(feature = "capture-gstreamer")]
+use livekit_capture::sources::{
+    gstreamer::GStreamerVideoSource, gstreamer_audio::GStreamerAudioSource,
+};
 
-use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
+use super::{
+    audio_source::FfiAudioSource, room::FfiTrack, video_source::FfiVideoSource, FfiHandle,
+    FfiServer,
+};
 #[cfg(feature = "capture-gstreamer")]
 use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
@@ -42,6 +52,7 @@ use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandl
 
 /// A capture pump of either kind, boxed at the FFI edge.
 enum CapturePump {
+    Audio(AudioPump<Box<dyn PcmAudioSource>>),
     Pixel(PixelVideoPump<Box<dyn PixelVideoSource>>),
     Encoded(EncodedVideoPump<Box<dyn EncodedVideoSource>>),
 }
@@ -49,6 +60,7 @@ enum CapturePump {
 impl CapturePump {
     fn spawn(self) -> std::io::Result<RunningPump> {
         match self {
+            Self::Audio(pump) => pump.spawn(),
             Self::Pixel(pump) => pump.spawn(),
             Self::Encoded(pump) => pump.spawn(),
         }
@@ -75,6 +87,15 @@ pub struct FfiCaptureSource {
 }
 
 impl FfiHandle for FfiCaptureSource {}
+
+#[cfg(feature = "capture-gstreamer")]
+struct FfiAudioPlayout {
+    playout: Mutex<Option<GStreamerAudioPlayout>>,
+    control: GStreamerAudioPlayoutControl,
+}
+
+#[cfg(feature = "capture-gstreamer")]
+impl FfiHandle for FfiAudioPlayout {}
 
 pub fn on_new_capture_source(
     server: &'static FfiServer,
@@ -136,6 +157,206 @@ async fn create_capture_source(
     Ok(register_capture_source(server, pump))
 }
 
+#[cfg(feature = "capture-gstreamer")]
+pub fn on_new_audio_capture_source(
+    server: &'static FfiServer,
+    request: proto::NewAudioCaptureSourceRequest,
+) -> FfiResult<proto::NewAudioCaptureSourceResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let config = request.gstreamer;
+        let result = GStreamerAudioSource::new(
+            livekit_capture::sources::gstreamer_audio::GStreamerAudioSourceConfig {
+                pipeline: config.pipeline,
+                sample_rate: config.sample_rate.unwrap_or(48_000),
+                num_channels: config.num_channels.unwrap_or(1),
+                frame_duration_ms: config.frame_duration_ms.unwrap_or(10),
+            },
+        )
+        .map(|source| {
+            let source: Box<dyn PcmAudioSource> = Box::new(source);
+            register_audio_capture_source(server, AudioPump::new(source))
+        });
+        let message = match result {
+            Ok(source) => proto::new_audio_capture_source_callback::Message::Source(source),
+            Err(error) => {
+                proto::new_audio_capture_source_callback::Message::Error(error.to_string())
+            }
+        };
+        let _ = server.send_event(proto::ffi_event::Message::NewAudioCaptureSource(
+            proto::NewAudioCaptureSourceCallback { async_id, message: Some(message) },
+        ));
+    });
+    Ok(proto::NewAudioCaptureSourceResponse { async_id })
+}
+
+#[cfg(feature = "capture-gstreamer")]
+fn register_audio_capture_source(
+    server: &'static FfiServer,
+    pump: AudioPump<Box<dyn PcmAudioSource>>,
+) -> proto::OwnedAudioCaptureSource {
+    let format = pump.format();
+    let stop = pump.stop_handle();
+    let source_handle = server.next_id();
+    let ffi_source = FfiAudioSource {
+        handle_id: source_handle,
+        source_type: proto::AudioSourceType::AudioSourceNative,
+        source: pump.rtc_source(),
+    };
+    let source_info = proto::AudioSourceInfo::from(&ffi_source);
+    server.store_handle(source_handle, ffi_source);
+
+    let capture_handle = server.next_id();
+    server.store_handle(
+        capture_handle,
+        FfiCaptureSource {
+            handle_id: capture_handle,
+            stop,
+            state: Mutex::new(CaptureState::Idle(CapturePump::Audio(pump))),
+        },
+    );
+
+    proto::OwnedAudioCaptureSource {
+        handle: proto::FfiOwnedHandle { id: capture_handle },
+        info: proto::AudioCaptureSourceInfo {
+            sample_rate: format.sample_rate,
+            num_channels: format.num_channels,
+            samples_per_channel: format.samples_per_channel,
+            audio_source: proto::OwnedAudioSource {
+                handle: proto::FfiOwnedHandle { id: source_handle },
+                info: source_info,
+            },
+        },
+    }
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn on_new_audio_playout(
+    server: &'static FfiServer,
+    request: proto::NewAudioPlayoutRequest,
+) -> FfiResult<proto::NewAudioPlayoutResponse> {
+    let tracks = request
+        .track_handles
+        .iter()
+        .map(|handle| {
+            let track = server.retrieve_handle::<FfiTrack>(*handle)?;
+            match &track.track {
+                livekit::track::Track::RemoteAudio(track) => Ok(track.rtc_track()),
+                _ => Err(FfiError::InvalidRequest(
+                    "audio playout track handles must reference remote audio tracks".into(),
+                )),
+            }
+        })
+        .collect::<FfiResult<Vec<_>>>()?;
+    let playout = match GStreamerAudioPlayout::start(
+        GStreamerAudioPlayoutConfig {
+            pipeline: request.pipeline,
+            sample_rate: request.sample_rate.unwrap_or(48_000),
+            num_channels: request.num_channels.unwrap_or(1),
+            frame_duration_ms: request.frame_duration_ms.unwrap_or(10),
+        },
+        tracks,
+    ) {
+        Ok(playout) => playout,
+        Err(error) => {
+            return Ok(proto::NewAudioPlayoutResponse {
+                playout: None,
+                error: Some(error.to_string()),
+            })
+        }
+    };
+    let handle = server.next_id();
+    let control = playout.control();
+    server.store_handle(handle, FfiAudioPlayout { playout: Mutex::new(Some(playout)), control });
+    Ok(proto::NewAudioPlayoutResponse {
+        playout: Some(proto::FfiOwnedHandle { id: handle }),
+        error: None,
+    })
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn on_attach_audio_playout_track(
+    server: &'static FfiServer,
+    request: proto::AttachAudioPlayoutTrackRequest,
+) -> FfiResult<proto::AttachAudioPlayoutTrackResponse> {
+    let control =
+        server.retrieve_handle::<FfiAudioPlayout>(request.playout_handle)?.control.clone();
+    let track = server.retrieve_handle::<FfiTrack>(request.track_handle)?;
+    let track = match &track.track {
+        livekit::track::Track::RemoteAudio(track) => track.rtc_track(),
+        _ => {
+            return Err(FfiError::InvalidRequest(
+                "audio playout track handle must reference a remote audio track".into(),
+            ))
+        }
+    };
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let (track_id, error) = match control.attach_track(track).await {
+            Ok(track_id) => (Some(track_id), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        let _ = server.send_event(proto::ffi_event::Message::AttachAudioPlayoutTrack(
+            proto::AttachAudioPlayoutTrackCallback { async_id, error, track_id },
+        ));
+    });
+    Ok(proto::AttachAudioPlayoutTrackResponse { async_id })
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn on_detach_audio_playout_track(
+    server: &'static FfiServer,
+    request: proto::DetachAudioPlayoutTrackRequest,
+) -> FfiResult<proto::DetachAudioPlayoutTrackResponse> {
+    let control =
+        server.retrieve_handle::<FfiAudioPlayout>(request.playout_handle)?.control.clone();
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let (detached, error) = match control.detach_track(&request.track_id).await {
+            Ok(detached) => (Some(detached), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        let _ = server.send_event(proto::ffi_event::Message::DetachAudioPlayoutTrack(
+            proto::DetachAudioPlayoutTrackCallback { async_id, error, detached },
+        ));
+    });
+    Ok(proto::DetachAudioPlayoutTrackResponse { async_id })
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn on_stop_audio_playout(
+    server: &'static FfiServer,
+    request: proto::StopAudioPlayoutRequest,
+) -> FfiResult<proto::StopAudioPlayoutResponse> {
+    let playout = server.take_handle::<FfiAudioPlayout>(request.playout_handle)?;
+    let playout = playout
+        .playout
+        .lock()
+        .take()
+        .ok_or(FfiError::InvalidRequest("audio playout is already stopped".into()))?;
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let callback = match playout.stop().await {
+            Ok(stats) => proto::StopAudioPlayoutCallback {
+                async_id,
+                error: None,
+                frames_pushed: Some(stats.frames_pushed),
+                frames_dropped: Some(stats.frames_dropped),
+                bytes_pushed: Some(stats.bytes_pushed),
+            },
+            Err(error) => proto::StopAudioPlayoutCallback {
+                async_id,
+                error: Some(error.to_string()),
+                frames_pushed: None,
+                frames_dropped: None,
+                bytes_pushed: None,
+            },
+        };
+        let _ = server.send_event(proto::ffi_event::Message::StopAudioPlayout(callback));
+    });
+    Ok(proto::StopAudioPlayoutResponse { async_id })
+}
+
 /// Stores the capture source and its RTC video source as client-owned
 /// handles.
 fn register_capture_source(
@@ -145,6 +366,7 @@ fn register_capture_source(
     // The source type must match how the pump built the RTC source, so the
     // FFI video source accepts the matching frame and feedback requests.
     let (kind, source_type, resolution, codec, publish_options, rtc_source, stop) = match &pump {
+        CapturePump::Audio(_) => unreachable!("audio pumps use register_audio_capture_source"),
         CapturePump::Pixel(pump) => (
             proto::CaptureSourceKind::CaptureSourcePixel,
             proto::VideoSourceType::VideoSourceNative,
@@ -271,6 +493,10 @@ impl From<Result<PumpStats, PumpError>> for proto::join_capture_callback::Messag
                 Self::Finished(proto::CaptureFinished {
                     frames_captured: stats.frames_captured,
                     exit: exit.into(),
+                    samples_captured: Some(stats.samples_captured),
+                    bytes_captured: Some(stats.bytes_captured),
+                    first_timestamp_ns: stats.first_timestamp_ns,
+                    last_timestamp_ns: stats.last_timestamp_ns,
                 })
             }
             Err(err) => {

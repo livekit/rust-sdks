@@ -3829,6 +3829,7 @@ version = "0.2.0"
 dependencies = [
  "bytes",
  "chrono",
+ "futures-util",
  "gstreamer",
  "gstreamer-app",
  "livekit",

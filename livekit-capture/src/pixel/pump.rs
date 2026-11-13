@@ -115,7 +115,7 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
             self.rtc_source.capture_frame(&frame);
             frames_captured += 1;
         };
-        Ok(PumpStats { frames_captured, exit })
+        Ok(PumpStats { frames_captured, exit, ..PumpStats::default() })
     }
 
     /// Runs the pump on a dedicated thread.

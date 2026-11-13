@@ -66,8 +66,29 @@ pub enum PumpExit {
 pub struct PumpStats {
     /// Number of frames or access units captured from the source.
     pub frames_captured: u64,
+    /// Number of samples per channel captured for audio pumps.
+    pub samples_captured: u64,
+    /// Number of payload bytes captured for audio pumps.
+    pub bytes_captured: u64,
+    /// First source timestamp observed by an audio pump.
+    pub first_timestamp_ns: Option<u64>,
+    /// Last source timestamp observed by an audio pump.
+    pub last_timestamp_ns: Option<u64>,
     /// Why the run ended.
     pub exit: PumpExit,
+}
+
+impl Default for PumpStats {
+    fn default() -> Self {
+        Self {
+            frames_captured: 0,
+            samples_captured: 0,
+            bytes_captured: 0,
+            first_timestamp_ns: None,
+            last_timestamp_ns: None,
+            exit: PumpExit::EndOfStream,
+        }
+    }
 }
 
 /// Cancellation handle for a pump.
@@ -170,7 +191,7 @@ impl RunningPump {
 
     /// Returns whether the pump thread exited.
     pub fn is_finished(&self) -> bool {
-        self.thread.as_ref().map_or(true, |thread| thread.is_finished())
+        self.thread.as_ref().is_none_or(|thread| thread.is_finished())
     }
 
     /// Waits for the pump to exit.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Video capture for the LiveKit Rust SDK.
+//! Media capture and playout for the LiveKit Rust SDK.
 //!
 //! A capture source produces video: pixel frames ([`pixel`]) or pre-encoded
 //! access units ([`encoded`]). A pump drives a source and publishes its
@@ -24,9 +24,11 @@
 //! pump returns a [`RunningPump`](pump::RunningPump) to await or stop.
 //! output to an RTC video source.
 
+pub mod audio;
 pub mod encoded;
 pub mod error;
 pub mod pixel;
+pub mod playout;
 pub mod primitive;
 pub mod pump;
 pub mod sources;

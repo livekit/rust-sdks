@@ -21,5 +21,8 @@ pub mod clock;
 #[cfg(feature = "source-gstreamer")]
 pub mod gstreamer;
 
+#[cfg(feature = "source-gstreamer")]
+pub mod gstreamer_audio;
+
 #[cfg(feature = "source-pattern")]
 pub mod pattern;

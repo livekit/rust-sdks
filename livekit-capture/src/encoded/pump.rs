@@ -145,7 +145,7 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
             capture_access_unit(&self.rtc_source, &access_unit, codec, metadata)?;
             frames_captured += 1;
         };
-        Ok(PumpStats { frames_captured, exit })
+        Ok(PumpStats { frames_captured, exit, ..PumpStats::default() })
     }
 
     /// Runs the pump on a dedicated thread.
