@@ -577,7 +577,10 @@ impl Exporter {
         crate::event::attributes_size_hint(&global)
     }
 
-    /// Encode everything queued — log records and finished spans — into the cache. No network.
+    /// Encode what is queued now — log records and finished spans — into the cache. No network.
+    /// A turn takes at most the records queued when it started: one that arrives while a batch is
+    /// encoded waits for the next turn (the next tick, a flush, or the queue crossing its
+    /// threshold again), so a producer never decides how long the actor stays here.
     fn enqueue(&mut self) {
         self.enqueue_spans();
         let config = &self.shared.config;
@@ -589,8 +592,10 @@ impl Exporter {
         // another batch must not make the next report due in the same pass, or with
         // `max_batch_size` 1 it would take the only place forever and no record would move.
         let mut reported = false;
-        // Every iteration drains at least one record or returns: `room` is 0 only when a report is due
-        // with `max_batch_size` 1, and that report goes out alone and is not due again.
+        let mut left = self.shared.store.len();
+        // Every iteration drains at least one record or returns: with records left, `room` is 0
+        // only when a report is due with `max_batch_size` 1, and that report goes out alone and is
+        // not due again.
         loop {
             // Self-telemetry rides along with real data: never its own request, never its own
             // cadence, and only when there is something to report — plus once at shutdown. It
@@ -600,10 +605,11 @@ impl Exporter {
             let report_due = !reported && (delta.has_problems() || self.force_report);
             let room = if report_due { max - 1 } else { max };
             let mut batch =
-                self.shared.store.drain(room, max_bytes, self.pipeline_attributes_size());
+                self.shared.store.drain(room.min(left), max_bytes, self.pipeline_attributes_size());
+            left -= batch.len();
             // Real data to ride along with (with `max_batch_size` 1 the report goes first, alone);
             // the shutdown summary goes out even with nothing else queued.
-            let data = !batch.is_empty() || (room == 0 && !self.shared.store.is_empty());
+            let data = !batch.is_empty() || (room == 0 && left > 0);
             if !data && !self.force_report {
                 return;
             }
@@ -626,16 +632,18 @@ impl Exporter {
         }
     }
 
-    /// Finished spans travel as their own batches on the traces signal: every one of them, so a
-    /// burst larger than a batch (or a shutdown) leaves nothing behind in memory.
+    /// Finished spans travel as their own batches on the traces signal: every one finished when
+    /// the turn started (see [`enqueue`](Self::enqueue)), so a burst larger than a batch (or a
+    /// shutdown) leaves none of them behind in memory.
     fn enqueue_spans(&mut self) {
+        let mut left = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len();
         loop {
             let extra = self.pipeline_attributes_size();
             let (spans, dropped) = {
                 let mut registry = self.shared.spans.lock().unwrap_or_else(|e| e.into_inner());
                 (
                     registry.drain(
-                        self.shared.config.max_batch_size as usize,
+                        (self.shared.config.max_batch_size as usize).min(left),
                         usize::try_from(self.shared.config.max_batch_bytes).unwrap_or(usize::MAX),
                         extra,
                     ),
@@ -646,6 +654,7 @@ impl Exporter {
             if spans.is_empty() {
                 return;
             }
+            left -= spans.len();
             let global = self.shared.global.lock().unwrap_or_else(|e| e.into_inner()).clone();
             for (owner, spans) in self.by_owner(spans, |s| (&s.session, s.route.as_deref())) {
                 let count = spans.len() as u64;

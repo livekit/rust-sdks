@@ -177,6 +177,21 @@ fn fill_in_global(own: &mut Vec<Attribute>, global: &[Attribute]) {
 /// repeat a key, so the precedence above holds: the session's attributes, `session.id` and
 /// `otel.event.name` replaced every copy of their keys, and the rest only fill in missing keys.
 fn last_value_wins(attributes: &mut Vec<Attribute>) {
+    if attributes.len() > 64 {
+        let mut seen = std::collections::HashSet::<&str>::with_capacity(attributes.len());
+        let mut keep = vec![false; attributes.len()];
+        for (i, attribute) in attributes.iter().enumerate().rev() {
+            keep[i] = seen.insert(attribute.key.as_str());
+        }
+        // Release borrowed keys before moving or dropping attributes.
+        drop(seen);
+        let mut keep = keep.into_iter();
+        attributes.retain(|_| keep.next().expect("one flag per attribute"));
+        return;
+    }
+
+    // Small lists keep the allocation-free scan.
+
     let mut i = 0;
     while i < attributes.len() {
         if attributes[i + 1..].iter().any(|a| a.key == attributes[i].key) {
@@ -292,6 +307,66 @@ mod tests {
             [any_value::Value::StringValue("second".into())]
         );
         assert_unique_keys(&span.attributes);
+    }
+
+    /// Check last-occurrence order against an independent index oracle on both paths.
+    #[test]
+    fn dedup_keeps_last_occurrences_across_threshold() {
+        for len in [0, 1, 63, 64, 65, 66, 4096] {
+            // Distinct, identical, alternating, adjacent pairs, and separated repeats.
+            for pattern in 0..5 {
+                let key = |i: usize| match pattern {
+                    0 => i,
+                    1 => 0,
+                    2 => i % 2,
+                    3 => i / 2,
+                    _ => i % 17,
+                };
+                let mut attributes: Vec<_> =
+                    (0..len).map(|i| Attribute::new(format!("key-{}", key(i)), i as i64)).collect();
+                let expected: Vec<_> = (0..len)
+                    .filter(|&i| !(i + 1..len).any(|j| key(i) == key(j)))
+                    .map(|i| Attribute::new(format!("key-{}", key(i)), i as i64))
+                    .collect();
+                last_value_wins(&mut attributes);
+                assert_eq!(attributes, expected, "len={len}, pattern={pattern}");
+            }
+        }
+    }
+
+    /// Retention moves the original strings and preserves floating-point payloads.
+    #[test]
+    fn dedup_preserves_allocations_and_value_bits() {
+        for len in [64, 65] {
+            let mut attributes: Vec<_> =
+                (0..len - 6).map(|i| Attribute::new(format!("key-{i}"), i as i64)).collect();
+            attributes.push(Attribute::new("text", "discard"));
+            attributes.push(Attribute::new("nan", 1.0));
+            attributes.push(Attribute::new("zero", 1.0));
+            attributes.push(Attribute::new("text", "original allocation"));
+            let nan_bits = 0x7ff8_0000_0000_0042;
+            attributes.push(Attribute::new("nan", f64::from_bits(nan_bits)));
+            attributes.push(Attribute::new("zero", -0.0));
+            let key_ptr = attributes[len - 3].key.as_ptr();
+            let AttributeValue::Str(value) = &attributes[len - 3].value else {
+                panic!("string value")
+            };
+            let value_ptr = value.as_ptr();
+            last_value_wins(&mut attributes);
+            assert_eq!(attributes.len(), len - 3);
+            let tail = &attributes[attributes.len() - 3..];
+            assert_eq!(tail[0].key.as_ptr(), key_ptr);
+            let AttributeValue::Str(value) = &tail[0].value else { panic!("string value") };
+            assert_eq!(value.as_ptr(), value_ptr);
+            assert_eq!(value, "original allocation");
+            for (attribute, key, bits) in
+                [(&tail[1], "nan", nan_bits), (&tail[2], "zero", (-0.0f64).to_bits())]
+            {
+                assert_eq!(attribute.key, key);
+                let AttributeValue::Double(value) = attribute.value else { panic!("double value") };
+                assert_eq!(value.to_bits(), bits);
+            }
+        }
     }
 
     fn assert_unique_keys(attributes: &[KeyValue]) {

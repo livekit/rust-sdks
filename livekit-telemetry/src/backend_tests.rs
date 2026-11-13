@@ -958,3 +958,72 @@ async fn an_accepted_batch_awaiting_its_delete_is_not_rebound_and_resent() {
     assert_eq!(sends(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Correlation stays inside one session on the wire (reviews 4555582642, 4555582656 and
+/// 4555582672): RTC windows ship under the identity their readings were recorded with, a scoped
+/// record does not link to another session's span, and a span takes no parent from another
+/// session's trace.
+#[tokio::test(start_paused = true)]
+async fn correlation_stays_inside_one_session_on_the_wire() {
+    use crate::{
+        proto::opentelemetry::proto::common::v1::any_value::Value, RoomIdentity, RtcStatsSample,
+        SpanName, SpanOutcome, StreamDirection, TrackKind,
+    };
+    let transport = FakeTransport::scripted([]);
+    let (telemetry, room) = connected(&transport);
+    let other = telemetry.begin_scope();
+    other.set_server(PROJECT, &granted(3600));
+    let identity = |tag: &str| RoomIdentity {
+        sid: Some(format!("RM_{tag}")),
+        name: Some(format!("room-{tag}")),
+        participant_sid: Some(format!("PA_{tag}")),
+        participant_identity: Some(format!("user-{tag}")),
+    };
+    let reading = |bytes| RtcStatsSample {
+        bytes: Some(bytes),
+        ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Outbound)
+    };
+    room.set_room(identity("before"));
+    room.record_stats(reading(1_000));
+    room.record_stats(reading(2_000));
+    room.set_room(identity("after"));
+    room.record_stats(reading(3_000));
+    room.record_stats(reading(4_000));
+    let foreign = other.start(SpanName::Connect, None);
+    let foreign_id = foreign.context().expect("bound").span_id;
+    room.emit(TelemetryEvent::new("app.linked").in_span(foreign_id));
+    room.start(SpanName::Publish, Some(foreign.clone())).end(SpanOutcome::Ok, None);
+    foreign.end(SpanOutcome::Ok, None);
+    telemetry.shutdown().await;
+
+    let trace = u128::from_str_radix(&room.trace_id(), 16).expect("hex").to_be_bytes().to_vec();
+    let logs: Vec<_> = transport
+        .sent()
+        .iter()
+        .filter(|r| r.url.contains("logs"))
+        .flat_map(crate::telemetry::tests::records)
+        .filter(|record| record.trace_id == trace)
+        .collect();
+    let tags = |record: &_| -> Vec<String> {
+        ["lk.room_id", "lk.pii.room_name", "lk.participant_id", "lk.pii.participant_identity"]
+            .iter()
+            .filter_map(|key| match crate::telemetry::tests::attribute(record, key) {
+                Some(Value::StringValue(value)) => {
+                    value.rsplit(['_', '-']).next().map(str::to_owned)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let windows: Vec<_> =
+        logs.iter().filter(|r| r.event_name == "lk.rtc.stats.sample").map(tags).collect();
+    assert_eq!(windows, [vec!["before"; 4], vec!["after"; 4]]);
+    let linked: Vec<_> = logs.iter().filter(|r| r.event_name == "app.linked").collect();
+    assert_eq!(linked.len(), 1);
+    assert!(linked[0].span_id.is_empty(), "no link to the other session's span");
+    let spans = crate::telemetry::tests::exported_spans(&transport);
+    let publish: Vec<_> = spans.iter().filter(|s| s.name == "lk.publish").collect();
+    assert_eq!(publish.len(), 1);
+    assert_eq!(publish[0].trace_id, trace);
+    assert!(publish[0].parent_span_id.is_empty(), "no parent from the other session's trace");
+}
