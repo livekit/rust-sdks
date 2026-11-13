@@ -376,8 +376,8 @@ async fn caller_name_byte_boundary_and_prefix_are_preserved_on_the_wire() {
     assert_eq!(stats.dropped_rate_limited, 0);
 }
 
-/// A cache that counts its writes and, while a batch is written, lets a test produce
-/// more records. The hook may own a `Telemetry`: a test clears it before it asserts.
+/// A cache that counts its writes and, while a batch is written, lets a test produce more
+/// records. A hook captures its pipeline weakly, so the cache never keeps it alive.
 struct CountingCache {
     inner: crate::MemoryCache,
     pushes: std::sync::atomic::AtomicUsize,
@@ -419,40 +419,41 @@ impl crate::BatchCache for CountingCache {
     }
 }
 
-/// One encoding turn writes what was queued when it started. A record that arrives while a
-/// batch is written waits for the next turn, so a producer cannot keep the actor encoding; the
-/// next turn, and a shutdown, still write it.
+/// One encoding turn is bounded by the counts taken when it starts: as many records and as many
+/// finished spans as were queued then, both counted before anything is encoded. Here each batch
+/// written lets a producer add one record and one finished span, three times. They are left for
+/// later turns, which encode them; no turn grows with what arrives during it. (The queue is far
+/// from full, so nothing is dropped; this test says nothing about a shutdown.)
 #[tokio::test(start_paused = true)]
-async fn an_encoding_turn_ends_with_the_records_queued_when_it_started() {
+async fn an_encoding_turn_is_bounded_by_the_counts_at_its_start() {
     let cache = CountingCache::new();
     let config = TelemetryConfig { max_events_per_10min: 0, ..TelemetryConfig::default() };
     let transport = Arc::new(crate::exporter::tests::Collector::default());
     let (telemetry, mut exporter) = Telemetry::with_cache(config, transport, cache.clone());
-    let (producer, late) = (telemetry.clone(), std::sync::atomic::AtomicUsize::new(0));
+    let (producer, late) = (Arc::new(telemetry.clone()), std::sync::atomic::AtomicUsize::new(0));
+    let weak = Arc::downgrade(&producer);
     *cache.during_push.lock().expect("lock") = Some(Box::new(move || {
+        let Some(producer) = weak.upgrade() else { return };
         if late.fetch_add(1, Ordering::SeqCst) < 3 {
             producer.emit(crate::TelemetryEvent::new("app.late"));
-            let span = producer.begin_scope().start(SpanName::Publish, None);
-            span.end(SpanOutcome::Ok, None);
+            producer.begin_scope().start(SpanName::Publish, None).end(SpanOutcome::Ok, None);
         }
     }));
     telemetry.emit(crate::TelemetryEvent::new("app.first"));
-    exporter.enqueue();
-    let first_turn = cache.pushes.swap(0, Ordering::SeqCst);
-    let waiting = !telemetry.shared.store.is_empty();
-    exporter.enqueue();
-    let second_turn = cache.pushes.swap(0, Ordering::SeqCst);
-    // The last turn of a shutdown leaves nothing queued either.
-    exporter.draining = true;
-    while !telemetry.shared.store.is_empty() {
+    // After each turn: batches written, then records and finished spans still queued.
+    let mut turns = Vec::new();
+    for _ in 0..4 {
         exporter.enqueue();
+        let spans = telemetry.shared.spans.lock().expect("lock").finished_len();
+        turns.push((cache.pushes.swap(0, Ordering::SeqCst), telemetry.shared.store.len(), spans));
     }
+    // Torn down before the verdict: the hook, every handle, the exporter, then the pipeline.
     cache.during_push.lock().expect("lock").take();
-    let spans_left = telemetry.shared.spans.lock().expect("lock").drain(10, usize::MAX, 0).len();
-    assert_eq!(
-        (first_turn, waiting, second_turn),
-        (1, true, 2),
-        "one batch, then a log and a span batch"
-    );
-    assert_eq!(spans_left, 0, "every finished span is written by a later turn");
+    let shared = Arc::downgrade(&telemetry.shared);
+    drop((producer, telemetry, exporter));
+    assert!(shared.upgrade().is_none(), "the pipeline is released");
+    // Turn 1 writes the one record queued at its start. Turn 2 writes the span and the record
+    // that arrived during turn 1, and two more of each arrive. Turn 3 writes those: one batch
+    // of records and one batch for each of the two spans' sessions. Turn 4 has nothing to write.
+    assert_eq!(turns, [(1, 1, 1), (2, 2, 2), (3, 0, 0), (0, 0, 0)]);
 }
