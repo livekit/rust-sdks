@@ -217,12 +217,29 @@ impl ScopeState {
         &self.hex
     }
 
+    #[cfg(test)]
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        self.set_attributes(&[(key, value)]);
+    }
+
+    /// Set (or, with `None`, remove) SDK-owned attributes as one change: a record captured
+    /// meanwhile carries all of it or none of it.
+    pub fn set_attributes(&self, changes: &[(&str, Option<AttributeValue>)]) {
         let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        attributes.retain(|a| a.key != key);
-        if let Some(value) = value {
-            attributes.push(Attribute::new(key, value));
+        for (key, value) in changes {
+            attributes.retain(|a| a.key != *key);
+            if let Some(value) = value {
+                attributes.push(Attribute::new(*key, value.clone()));
+            }
         }
+    }
+
+    /// Whether [`set_attributes`](Self::set_attributes) would change anything.
+    pub fn attributes_differ(&self, changes: &[(&str, Option<AttributeValue>)]) -> bool {
+        let attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        changes.iter().any(|(key, value)| {
+            attributes.iter().find(|a| a.key == *key).map(|a| &a.value) != value.as_ref()
+        })
     }
 
     /// Whether `set_custom(key, value)` would be accepted right now: within the limits, outside
@@ -260,8 +277,11 @@ impl ScopeState {
     /// attributes win.
     pub fn snapshot_custom(&self, own: &mut Vec<Attribute>) {
         let custom = self.custom.lock().unwrap_or_else(|e| e.into_inner());
+        // The session's keys are unique (`set_custom`): only the record's own can collide.
+        let record = own.len();
+        own.reserve(custom.len());
         for attribute in custom.iter() {
-            if !own.iter().any(|a| a.key == attribute.key) {
+            if !own[..record].iter().any(|a| a.key == attribute.key) {
                 own.push(attribute.clone());
             }
         }
@@ -419,8 +439,17 @@ impl Scope {
         self.telemetry.set_server(&self.state, url, token);
     }
 
-    /// Queue an event or log record under this session.
-    pub fn emit(&self, event: TelemetryEvent) {
+    /// Queue an event or log record under this session. It links to the span it names
+    /// (`span_id`) only when that span is this session's: a span of another session, or one the
+    /// pipeline cannot place, is no link, and the record stays in this session's trace without it.
+    pub fn emit(&self, mut event: TelemetryEvent) {
+        let own = event.span_id.is_some_and(|id| {
+            let spans = self.telemetry.shared.spans.lock().unwrap_or_else(|e| e.into_inner());
+            spans.scope_of(id).is_some_and(|session| Arc::ptr_eq(&session, &self.state))
+        });
+        if !own {
+            event.span_id = None;
+        }
         self.telemetry.emit_in(event, &self.state);
     }
 
@@ -691,33 +720,45 @@ impl Scope {
         self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).remove(sid)
     }
 
-    /// Start a typed span in this session's trace, stamped now. `parent` nests it. A new
+    /// Start a typed span in this session's trace, stamped now. `parent` nests it when it is a
+    /// span of this session; a span of another session's trace is not a parent here. A new
     /// `lk.connect` starts a new connection: its end is reported again by
     /// [`disconnected`](Self::disconnected).
     pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
         if name == SpanName::Connect {
             self.state.disconnected.store(false, std::sync::atomic::Ordering::SeqCst);
         }
-        let parent = parent.and_then(|p| p.context()).map(|c| c.span_id);
+        let parent = parent
+            .and_then(|p| p.context())
+            .filter(|c| c.trace_id == self.state.hex())
+            .map(|c| c.span_id);
         Span::bound(name, parent, self.telemetry.clone(), &self.state)
     }
 
     /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record
-    /// captured from then on.
+    /// captured from then on. The four fields change as one, and an RTC window open under the
+    /// identity before ships under it, as with [`set_attribute`](Self::set_attribute). The same
+    /// identity again is a no-op.
     pub fn set_room(&self, room: RoomIdentity) {
-        for (key, value) in [
+        let identity = [
             ("lk.room.sid", room.sid),
             ("lk.room.name", room.name),
             ("lk.participant.sid", room.participant_sid),
             ("lk.participant.identity", room.participant_identity),
-        ] {
+        ]
+        .map(|(key, value)| {
             // Identifiers, not free text: an over-long one is not attached (counted as invalid).
             if value.as_ref().is_some_and(|v| v.len() > crate::event::MAX_VALUE_BYTES) {
                 self.telemetry.count_invalid();
-                continue;
+                return (key, None);
             }
-            self.state.set_attribute(key, value.map(AttributeValue::Str));
-        }
+            (key, value.map(AttributeValue::Str))
+        });
+        self.telemetry.with_windows_split(
+            &self.state,
+            || self.state.attributes_differ(&identity),
+            || self.state.set_attributes(&identity),
+        );
     }
 }
 
@@ -1212,5 +1253,168 @@ mod tests {
         let lines = crate::test_log::take();
         assert!(lines.iter().any(|l| l.contains("queue full")), "{lines:?}");
         assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
+    const IDENTITY_KEYS: [&str; 4] =
+        ["lk.room.sid", "lk.room.name", "lk.participant.sid", "lk.participant.identity"];
+
+    fn identity(tag: &str) -> RoomIdentity {
+        RoomIdentity {
+            sid: Some(format!("RM_{tag}")),
+            name: Some(format!("room-{tag}")),
+            participant_sid: Some(format!("PA_{tag}")),
+            participant_identity: Some(format!("user-{tag}")),
+        }
+    }
+
+    /// The tags (`before`, `after`) of a record's four identity attributes.
+    fn identity_tags(attributes: &[Attribute]) -> Vec<String> {
+        IDENTITY_KEYS
+            .iter()
+            .filter_map(|key| attributes.iter().find(|a| a.key == *key))
+            .filter_map(|a| match &a.value {
+                AttributeValue::Str(value) => value.rsplit(['_', '-']).next().map(str::to_owned),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Readings recorded under one identity ship under it: `set_room` closes the session's open
+    /// windows before the identity changes, as `set_attribute` does for a correlation attribute.
+    #[tokio::test]
+    async fn set_room_closes_the_windows_of_the_old_identity() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let reading = |bytes| RtcStatsSample {
+            bytes: Some(bytes),
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Outbound)
+        };
+        room.set_room(identity("before"));
+        room.record_stats(reading(1_000));
+        room.record_stats(reading(2_000));
+        room.set_room(identity("after"));
+        room.record_stats(reading(3_000));
+        room.record_stats(reading(4_000));
+        // The same identity again (a refresh) changes nothing: it must not end a window.
+        room.set_room(identity("after"));
+        room.record_stats(reading(5_000));
+        let mut windows = telemetry.shared.store.drain(100, usize::MAX, 0);
+        windows.extend(telemetry.shared.windows.lock().expect("lock").close());
+        let tags: Vec<_> = windows.iter().map(|w| identity_tags(&w.event.attributes)).collect();
+        assert_eq!(tags, [vec!["before"; 4], vec!["after"; 4]]);
+    }
+
+    /// A record captured while the identity changes carries the old identity or the new one,
+    /// never two fields of each.
+    #[tokio::test]
+    async fn a_capture_racing_set_room_never_sees_a_mixed_identity() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        room.set_room(identity("before"));
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let (writer, go) = (room.clone(), start.clone());
+        let flips = std::thread::spawn(move || {
+            go.wait();
+            for n in 0..20_000 {
+                writer.set_room(identity(if n % 2 == 0 { "after" } else { "before" }));
+            }
+        });
+        start.wait();
+        let mut mixed = None;
+        while !flips.is_finished() && mixed.is_none() {
+            let mut attributes = Vec::new();
+            room.state.decorate(&mut attributes);
+            let tags = identity_tags(&attributes);
+            mixed = tags.iter().any(|tag| *tag != tags[0]).then_some(tags);
+        }
+        flips.join().expect("writer");
+        assert_eq!(mixed, None, "one capture saw two identities");
+    }
+
+    /// An over-long identifier is not attached, and the value of the identity before it does not
+    /// stay in its place.
+    #[tokio::test]
+    async fn an_oversized_identity_field_does_not_keep_the_old_value() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        room.set_room(identity("before"));
+        let oversized = Some("x".repeat(crate::event::MAX_VALUE_BYTES + 1));
+        room.set_room(RoomIdentity { participant_identity: oversized, ..identity("after") });
+        let mut attributes = Vec::new();
+        room.state.decorate(&mut attributes);
+        assert_eq!(identity_tags(&attributes), ["after"; 3]);
+        assert_eq!(telemetry.stats().dropped_invalid, 1);
+    }
+
+    /// The trace id and span id of every log record queued, as they go on the wire.
+    fn wire_links(telemetry: &Telemetry) -> Vec<(Vec<u8>, Vec<u8>)> {
+        use prost::Message;
+        telemetry
+            .shared
+            .store
+            .drain(100, usize::MAX, 0)
+            .into_iter()
+            .map(|queued| {
+                let bytes = crate::otlp::encode_logs(&[], &[], vec![queued]);
+                let request =
+                    opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest::decode(&bytes[..])
+                        .expect("valid OTLP");
+                let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+                (record.trace_id.clone(), record.span_id.clone())
+            })
+            .collect()
+    }
+
+    /// A record emitted or logged under a session stays in that session's trace, and links only to
+    /// a span of that session: a span of another session, or one the pipeline does not know, is no
+    /// link (as in `Telemetry::emit`).
+    #[tokio::test]
+    async fn a_scoped_record_links_only_to_a_span_of_its_own_session() {
+        let (telemetry, _exporter) = pipeline();
+        let (a, b) = (telemetry.begin_scope(), telemetry.begin_scope());
+        let id = |span: &Span| span.context().expect("bound").span_id;
+        let (span_a, span_b) = (a.start(SpanName::Publish, None), b.start(SpanName::Publish, None));
+        let ended_b = b.start(SpanName::Publish, None);
+        ended_b.end(SpanOutcome::Ok, None);
+        let unknown = id(&span_b) + 1_000;
+        let line = |span_id| LogRecord {
+            severity: crate::Severity::Warn,
+            source: crate::LogSource::Sdk,
+            body: "line".to_owned(),
+            logger: None,
+            function: None,
+            file: None,
+            line: None,
+            timestamp_ns: None,
+            span_id: Some(span_id),
+        };
+        for span_id in [id(&span_a), unknown, id(&span_b), id(&ended_b)] {
+            b.emit(TelemetryEvent::new("app.event").in_span(span_id));
+            b.log(line(span_id));
+        }
+        let trace_b = b.state.trace_id.to_vec();
+        let link = |span_id: Option<u64>| {
+            (trace_b.clone(), span_id.map(|id| id.to_be_bytes().to_vec()).unwrap_or_default())
+        };
+        let expected = [None, None, Some(id(&span_b)), Some(id(&ended_b))].map(link);
+        let expected: Vec<_> = expected.iter().flat_map(|l| [l.clone(), l.clone()]).collect();
+        assert_eq!(wire_links(&telemetry), expected);
+    }
+
+    /// A span started under a session nests only under a span of that session: a parent from
+    /// another session's trace is left out.
+    #[tokio::test]
+    async fn a_span_takes_no_parent_from_another_session() {
+        let (telemetry, _exporter) = pipeline();
+        let (a, b) = (telemetry.begin_scope(), telemetry.begin_scope());
+        let (parent_a, parent_b) =
+            (a.start(SpanName::Connect, None), b.start(SpanName::Connect, None));
+        let own = parent_b.context().expect("bound").span_id;
+        b.start(SpanName::Publish, Some(parent_a.clone())).end(SpanOutcome::Ok, None);
+        b.start(SpanName::Publish, Some(parent_b.clone())).end(SpanOutcome::Ok, None);
+        let ended = telemetry.shared.spans.lock().expect("lock").drain(10, usize::MAX, 0);
+        let parents: Vec<_> =
+            ended.iter().map(|s| (s.session.trace_id, s.parent_span_id)).collect();
+        assert_eq!(parents, [(b.state.trace_id, None), (b.state.trace_id, Some(own))]);
     }
 }
