@@ -88,6 +88,15 @@ impl Generations {
     fn compact(&mut self) {
         self.live.retain(|shared| shared.strong_count() > 0);
     }
+
+    /// Make `shared` known to later opt-outs, once however often its pipeline is installed.
+    fn register(&mut self, shared: &Arc<Shared>) {
+        self.compact();
+        let shared = Arc::downgrade(shared);
+        if !self.live.iter().any(|known| known.ptr_eq(&shared)) {
+            self.live.push(shared);
+        }
+    }
 }
 
 /// Erase `dir`, the storage directory of a live or gone generation: open it as a [`FileCache`],
@@ -134,10 +143,18 @@ fn stop_installed_instruments() {
 
 /// Make `telemetry` the process pipeline and start `instruments` on it. Returns the pipeline it
 /// replaces (its instruments already stopped), still holding data: the caller shuts it down.
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
-/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
-/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
-/// by the caller (nothing here owns it).
+/// Installing the installed pipeline again replaces only its instruments and returns `None`:
+/// there is no outgoing pipeline to shut down.
+///
+/// Delivery is at least once across a replacement, as across a restart: a batch the replaced
+/// pipeline uploaded but could not delete from its storage directory is uploaded once more by
+/// the next pipeline on that directory.
+///
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged, cancelled and handed back
+/// instead. It stays known to later [`disable`] calls while the caller holds it, so they retry
+/// a delete that failed here. Its exporter is still the caller's: one already spawned stops by
+/// itself and the caller joins its task, and one never spawned is dropped by the caller (nothing
+/// here owns it).
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
@@ -145,6 +162,10 @@ pub fn install(
     let lifecycle = lifecycle();
     if is_disabled() {
         telemetry.shared.revoke();
+        GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).register(&telemetry.shared);
+        // Nothing else stops an exporter spawned for it: without this it ticks for the rest of
+        // the process.
+        telemetry.shared.cancel.notify_one();
         // Deleted outside the lock: only this caller holds the refused pipeline. `clear` logs an
         // incomplete delete itself.
         drop(lifecycle);
@@ -163,13 +184,13 @@ pub fn install(
     }
     {
         let mut generations = GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
-        generations.compact();
-        generations.live.push(Arc::downgrade(&telemetry.shared));
+        generations.register(&telemetry.shared);
         if let Some(dir) = &telemetry.shared.config.storage_dir {
             generations.stored.insert(PathBuf::from(dir));
         }
     }
     stop_installed_instruments();
+    let shared = telemetry.shared.clone();
     // `INSTALLED` is released before any instrument runs: `start` may call straight back in.
     let previous = INSTALLED
         .write()
@@ -178,7 +199,8 @@ pub fn install(
     for instrument in &instruments {
         instrument.start();
     }
-    previous.map(|p| p.telemetry)
+    // The installed pipeline installed again is not an outgoing one.
+    previous.map(|p| p.telemetry).filter(|p| !Arc::ptr_eq(&p.shared, &shared))
 }
 
 /// Stop the instruments and remove the process pipeline; the caller shuts it down.
@@ -196,8 +218,9 @@ fn uninstall() -> Option<Telemetry> {
 /// cancel and await each exporter, running or draining, delete everything it held (queue, spans,
 /// RTC windows, every cached batch on disk) without another upload, then delete what each live or
 /// gone generation left in its storage directory — and resolves `false` when some cached data
-/// could not be deleted. Spawn it; dropping it leaves the data in place until a later configure
-/// purges it. Every call revokes, purges and awaits each generation still alive, so a repeated
+/// could not be deleted. Spawn it; dropping it leaves the cleanup incomplete until a later
+/// `disable()` future is awaited, or until a later configure names the same storage directory
+/// (a refused configure erases only its own). Every call revokes, purges and awaits each generation still alive, so a repeated
 /// call resolves only once the cache is deleted, even while an earlier one is still running.
 /// All exporters are cancelled before waiting; their aggregate wait is at most the largest
 /// `export_timeout_ms` (1 s minimum) plus 1 s. Synchronous cache and filesystem work adds time
@@ -298,9 +321,9 @@ pub fn log(record: LogRecord) {
     }
 }
 
-/// [`log`] with the record built only when a pipeline is installed at the call. The installed
+/// [`log()`] with the record built only when a pipeline is installed at the call. The installed
 /// pipeline is read once, as a snapshot: when there is none, `record` never runs and the call
-/// costs one uncontended read lock. When there is one, `record` runs after the read and its record
+/// costs one read-lock acquisition. When there is one, `record` runs after the read and its record
 /// goes to that pipeline: a call that overlaps an uninstall or a replace can still build its
 /// record after the uninstall returned. That record is exported only if the pipeline it read still
 /// exports, is refused once the opt-out revoked that pipeline, and never goes to a replacing one.
