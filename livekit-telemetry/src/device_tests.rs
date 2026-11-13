@@ -1304,7 +1304,7 @@ async fn a_capture_racing_the_opt_out_leaves_nothing_behind() {
         telemetry.shared.clear(); // the purge, while the producer is held
         release.send(()).expect("release");
         producer.join().expect("producer");
-        assert!(telemetry.shared.store.is_empty(), "{path}: no record");
+        assert!(telemetry.shared.store.len() == 0, "{path}: no record");
         assert_eq!(
             telemetry.shared.spans.lock().expect("spans").open_count(),
             0,
@@ -1512,7 +1512,7 @@ async fn a_failing_self_report_never_starves_real_records() {
         assert!(flushed.is_ok(), "the pass ends (cache {cache})");
         let stats = telemetry.stats();
         assert!(stats.dropped_oversized + stats.dropped_cache_full >= 2, "{stats:?}");
-        assert!(telemetry.shared.store.is_empty(), "every real record moved");
+        assert!(telemetry.shared.store.len() == 0, "every real record moved");
     }
 }
 
