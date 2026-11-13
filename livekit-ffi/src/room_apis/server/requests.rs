@@ -967,12 +967,15 @@ fn on_new_apm(
     server: &'static FfiServer,
     new_apm: proto::NewApmRequest,
 ) -> FfiResult<proto::NewApmResponse> {
-    let apm = apm::AudioProcessingModule::new(
+    let mut apm = apm::AudioProcessingModule::new(
         new_apm.echo_canceller_enabled,
         new_apm.gain_controller_enabled,
         new_apm.high_pass_filter_enabled,
         new_apm.noise_suppression_enabled,
     );
+    if let Some(gain_db) = new_apm.gain_controller_initial_gain_db {
+        apm.set_gain_controller_initial_gain_db(gain_db);
+    }
 
     let apm = Arc::new(Mutex::new(apm));
     let handle_id = server.next_id();

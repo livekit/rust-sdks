@@ -280,6 +280,7 @@ const NewApmRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 2, name: "gain_controller_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 3, name: "high_pass_filter_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 4, name: "noise_suppression_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 5, name: "gain_controller_initial_gain_db", kind: "scalar", T: 2 /* ScalarType.FLOAT */, opt: true },
   ],
 );
 
