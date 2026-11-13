@@ -20,6 +20,8 @@
 //! dropped and observed destroyed. Delivery is read from processed acknowledgements (the
 //! pipeline's `uploads_sent` equals what the transport accepted) or from a cache reopened after
 //! the pipeline is gone: never from send attempts, never from a cache the pipeline still holds.
+//! A continuous producer stops by itself at three times the export timeout, so a drain that
+//! never yields still ends and the test fails rather than hangs.
 
 use std::{
     io::Read,
@@ -387,10 +389,10 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
     let (weak, stopped) = (Arc::downgrade(&rig.scope), stop.clone());
     let produced = Arc::new(AtomicUsize::new(0));
     let counted = produced.clone();
+    let cap = std::time::Instant::now() + deadline * 3;
     rig.cache.arm(Box::new(move || {
-        let Some(scope) = weak.upgrade().filter(|_| !stopped.load(Ordering::SeqCst)) else {
-            return false;
-        };
+        let live = !stopped.load(Ordering::SeqCst) && std::time::Instant::now() < cap;
+        let Some(scope) = weak.upgrade().filter(|_| live) else { return false };
         let i = counted.fetch_add(1, Ordering::SeqCst);
         scope.emit(TelemetryEvent::new(format!("app.late{i}")));
         span(&scope, &format!("app.late{i}"));
@@ -444,8 +446,11 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
     .await;
     let deadline = rig.telemetry.shared.config.export_timeout();
     let weak = Arc::downgrade(&rig.scope);
+    let cap = std::time::Instant::now() + deadline * 3;
     rig.cache.arm(Box::new(move || {
-        let Some(scope) = weak.upgrade() else { return false };
+        let Some(scope) = weak.upgrade().filter(|_| std::time::Instant::now() < cap) else {
+            return false;
+        };
         scope.emit(TelemetryEvent::new("app.late"));
         span(&scope, "app.late");
         true
@@ -497,8 +502,11 @@ async fn shutdown_turns_leave_the_thread_to_other_tasks_and_can_be_aborted() {
     let rig = Rig::start(Mode::MemoryAck, "abort-turns", config).await;
     let deadline = rig.telemetry.shared.config.export_timeout();
     let weak = Arc::downgrade(&rig.scope);
+    let cap = std::time::Instant::now() + deadline * 3;
     rig.cache.arm(Box::new(move || {
-        let Some(scope) = weak.upgrade() else { return false };
+        let Some(scope) = weak.upgrade().filter(|_| std::time::Instant::now() < cap) else {
+            return false;
+        };
         scope.emit(TelemetryEvent::new("app.late"));
         true
     }));
