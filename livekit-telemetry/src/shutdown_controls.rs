@@ -51,6 +51,11 @@ use crate::{
 /// Runs inside a cache write; returns whether to stay armed.
 type Hook = Box<dyn FnMut() -> bool + Send>;
 
+/// Every pipeline's cache write passes one process-wide gate (`SpillCache`). The cases that
+/// write in a loop, or block inside a write, would hold it again and again and starve each other
+/// when the suite runs in parallel, so they run one at a time.
+static GATE_HEAVY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A cache that counts its writes and runs a test hook inside each one.
 struct HookedCache {
     inner: Box<dyn BatchCache>,
@@ -385,6 +390,7 @@ async fn queue_evictions_during_shutdown_are_counted_apart_from_delivery() {
 /// joined.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline() {
+    let _one_at_a_time = GATE_HEAVY.lock().await;
     let rig = Rig::start(
         Mode::MemoryAck,
         "continuous",
@@ -445,6 +451,7 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
 /// on disk.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
+    let _one_at_a_time = GATE_HEAVY.lock().await;
     let mut rig = Rig::start(
         Mode::FileAck,
         "purge",
@@ -506,6 +513,7 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
 /// tasks run between turns and aborting the exporter takes effect at once, not at the deadline.
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_turns_leave_the_thread_to_other_tasks_and_can_be_aborted() {
+    let _one_at_a_time = GATE_HEAVY.lock().await;
     // A long deadline: a loaded machine can leave this thread idle for a second.
     let config = TelemetryConfig { export_timeout_ms: 10_000, ..quiet(1000) };
     let rig = Rig::start(Mode::MemoryAck, "abort-turns", config).await;
@@ -664,6 +672,7 @@ fn a_drain_resumed_after_its_deadline_starts_no_turn() {
 /// disk, but the record and span that arrived during the crossing write get no further turn.
 #[tokio::test(flavor = "current_thread")]
 async fn a_write_that_crosses_the_deadline_finishes_but_no_turn_follows() {
+    let _one_at_a_time = GATE_HEAVY.lock().await;
     let config = TelemetryConfig { export_timeout_ms: 1000, ..quiet(100) };
     let rig = Rig::start(Mode::FileReopen, "crossing", config).await;
     let deadline = rig.telemetry.shared.config.export_timeout();
