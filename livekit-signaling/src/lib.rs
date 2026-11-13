@@ -169,7 +169,7 @@ impl Default for SignalSdkOptions {
 
 /// Publisher state sent with the initial join request, so the server can answer the offer and
 /// publish the tracks without separate round trips.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InitialPublish {
     /// The publisher's initial SDP offer.
     pub offer: proto::SessionDescription,
