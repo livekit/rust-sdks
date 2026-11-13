@@ -475,3 +475,40 @@ fn admission_child_consent_boundaries() {
         _ => assert_eq!(observed, (3, 0, 0, 3, true)),
     }
 }
+
+/// Run in a fresh process: the opt-out is one-way, and no other test may have registered an HTTP
+/// client with `livekit-net`. With no transport passed and none registered, an enabled configure
+/// fails with `NoTransport` and admits nothing; after the opt-out the same call is refused like
+/// any other configure: `Ok`, with the storage directory erased.
+#[test]
+#[ignore = "one-way process consent and an empty HTTP registry; CI runs it in its own process"]
+fn admission_child_disabled_configure_without_transport() {
+    struct RemoveDir(std::path::PathBuf);
+    impl Drop for RemoveDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("lk-no-transport-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let _remove = RemoveDir(dir.clone());
+    std::fs::write(dir.join("old-secret"), b"pending").expect("old data");
+    let config = || TelemetryConfig {
+        storage_dir: Some(dir.to_string_lossy().into_owned()),
+        resource: Vec::new(),
+        ..Default::default()
+    };
+    let registered = livekit_net::has_http_client();
+    let enabled = telemetry_configure(config(), None, Vec::new());
+    let (admitted_enabled, kept) = (admitted(&LIFECYCLE), dir.join("old-secret").exists());
+    telemetry_disable();
+    let disabled = telemetry_configure(config(), None, Vec::new());
+    let admitted_disabled = admitted(&LIFECYCLE);
+    runtime().block_on(telemetry_shutdown());
+    let left = std::fs::read_dir(&dir).map(|entries| entries.count()).unwrap_or(usize::MAX);
+    assert!(!registered, "precondition: no HTTP client is registered in this process");
+    assert!(matches!(enabled, Err(TelemetryError::NoTransport)), "enabled: {enabled:?}");
+    assert!(admitted_enabled == 0 && kept, "a failed configure admits and erases nothing");
+    assert!(disabled.is_ok(), "the opt-out takes precedence: {disabled:?}");
+    assert_eq!((admitted_disabled, left), (0, 0), "refusal cleanup ran without a generation");
+}
