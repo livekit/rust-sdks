@@ -150,12 +150,13 @@ fn stop_installed_instruments() {
 /// pipeline uploaded but could not delete from its storage directory is uploaded once more by
 /// the next pipeline on that directory.
 ///
-/// After [`disable`] nothing installs: `telemetry` is revoked, purged and handed back instead,
-/// and its exporter is the caller's to stop as well: an exporter already spawned for it keeps
-/// running until the caller shuts the returned pipeline down, and one never spawned is dropped
-/// by the caller (nothing here owns it). While the caller holds the refused pipeline it stays
-/// known to later [`disable`] calls, which purge it like any other generation: they retry a
-/// delete that failed here.
+/// After [`disable`] nothing installs: `telemetry` is revoked, purged, cancelled and handed back
+/// instead. The cancellation stops its exporter, which has no work left: one already spawned
+/// stops by itself, and one the caller spawns later stops at its first turn, so a stopped
+/// exporter here is the refusal and not a failure. The caller still owns that task and joins it
+/// (or drops an exporter it never spawned); nothing here waits for it. While the caller holds
+/// the refused pipeline it stays known to later [`disable`] calls, which purge it like any
+/// other generation: they retry a delete that failed here.
 pub fn install(
     telemetry: Telemetry,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
@@ -164,6 +165,9 @@ pub fn install(
     if is_disabled() {
         telemetry.shared.revoke();
         GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).register(&telemetry.shared);
+        // A revoked exporter has nothing left to do. The permit is kept when no exporter waits
+        // yet, so one spawned after this stops as well. The caller joins the task.
+        telemetry.shared.cancel.notify_one();
         // Deleted outside the lock. The caller's clones, its exporter and a later `disable` can
         // hold the refused pipeline too: `Shared::clear` serializes overlapping clears. `clear`
         // logs an incomplete delete itself.
