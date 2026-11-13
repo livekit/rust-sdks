@@ -109,6 +109,20 @@ pub struct TelemetryConfig {
     pub disabled_instruments: Vec<Instrument>,
 }
 
+#[cfg(test)]
+mod config_tests {
+    use super::TelemetryConfig;
+
+    /// The cache's byte bound has the floor every other byte bound has. The floor is one byte,
+    /// not the default: a cache that small still keeps only its newest batch.
+    #[test]
+    fn a_zero_cache_bound_is_raised_to_its_floor() {
+        let config = TelemetryConfig { max_cache_bytes: 0, ..Default::default() }.normalized();
+        assert_eq!(config.max_cache_bytes, 1);
+        assert_eq!(config.clone().normalized().max_cache_bytes, 1, "normalizing twice is the same");
+    }
+}
+
 /// The platform instruments a config can switch off.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

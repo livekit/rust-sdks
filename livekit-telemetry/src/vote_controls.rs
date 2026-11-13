@@ -375,3 +375,84 @@ async fn caller_name_byte_boundary_and_prefix_are_preserved_on_the_wire() {
     assert_eq!(stats.dropped_invalid, 2);
     assert_eq!(stats.dropped_rate_limited, 0);
 }
+
+/// A cache that counts its writes and, while a batch is written, lets a test produce
+/// more records. The hook may own a `Telemetry`: a test clears it before it asserts.
+struct CountingCache {
+    inner: crate::MemoryCache,
+    pushes: std::sync::atomic::AtomicUsize,
+    during_push: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+}
+
+impl CountingCache {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            inner: crate::MemoryCache::new(1 << 20),
+            pushes: Default::default(),
+            during_push: Default::default(),
+        })
+    }
+}
+
+impl crate::BatchCache for CountingCache {
+    fn push(&self, id: &str, body: &[u8]) -> std::io::Result<Vec<String>> {
+        self.pushes.fetch_add(1, Ordering::SeqCst);
+        if let Some(hook) = self.during_push.lock().expect("lock").as_ref() {
+            hook();
+        }
+        crate::BatchCache::push(&self.inner, id, body)
+    }
+    fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> std::io::Result<Vec<String>> {
+        crate::BatchCache::replace(&self.inner, old, new)
+    }
+    fn pending(&self) -> Vec<String> {
+        crate::BatchCache::pending(&self.inner)
+    }
+    fn read(&self, id: &str) -> std::io::Result<Vec<u8>> {
+        crate::BatchCache::read(&self.inner, id)
+    }
+    fn remove(&self, id: &str) -> std::io::Result<()> {
+        crate::BatchCache::remove(&self.inner, id)
+    }
+    fn clear(&self) -> std::io::Result<()> {
+        crate::BatchCache::clear(&self.inner)
+    }
+}
+
+/// One encoding turn writes what was queued when it started. A record that arrives while a
+/// batch is written waits for the next turn, so a producer cannot keep the actor encoding; the
+/// next turn, and a shutdown, still write it.
+#[tokio::test(start_paused = true)]
+async fn an_encoding_turn_ends_with_the_records_queued_when_it_started() {
+    let cache = CountingCache::new();
+    let config = TelemetryConfig { max_events_per_10min: 0, ..TelemetryConfig::default() };
+    let transport = Arc::new(crate::exporter::tests::Collector::default());
+    let (telemetry, mut exporter) = Telemetry::with_cache(config, transport, cache.clone());
+    let (producer, late) = (telemetry.clone(), std::sync::atomic::AtomicUsize::new(0));
+    *cache.during_push.lock().expect("lock") = Some(Box::new(move || {
+        if late.fetch_add(1, Ordering::SeqCst) < 3 {
+            producer.emit(crate::TelemetryEvent::new("app.late"));
+            let span = producer.begin_scope().start(SpanName::Publish, None);
+            span.end(SpanOutcome::Ok, None);
+        }
+    }));
+    telemetry.emit(crate::TelemetryEvent::new("app.first"));
+    exporter.enqueue();
+    let first_turn = cache.pushes.swap(0, Ordering::SeqCst);
+    let waiting = !telemetry.shared.store.is_empty();
+    exporter.enqueue();
+    let second_turn = cache.pushes.swap(0, Ordering::SeqCst);
+    // The last turn of a shutdown leaves nothing queued either.
+    exporter.draining = true;
+    while !telemetry.shared.store.is_empty() {
+        exporter.enqueue();
+    }
+    cache.during_push.lock().expect("lock").take();
+    let spans_left = telemetry.shared.spans.lock().expect("lock").drain(10, usize::MAX, 0).len();
+    assert_eq!(
+        (first_turn, waiting, second_turn),
+        (1, true, 2),
+        "one batch, then a log and a span batch"
+    );
+    assert_eq!(spans_left, 0, "every finished span is written by a later turn");
+}
