@@ -20,8 +20,9 @@
 //! dropped and observed destroyed. Delivery is read from processed acknowledgements (the
 //! pipeline's `uploads_sent` equals what the transport accepted) or from a cache reopened after
 //! the pipeline is gone: never from send attempts, never from a cache the pipeline still holds.
-//! A continuous producer stops by itself at three times the export timeout, so a drain that
-//! never yields still ends and the test fails rather than hangs.
+//! A continuous producer stops by itself after a few export timeouts, so a drain that never
+//! yields still ends and the test fails rather than hangs. The real-time cases leave seconds of
+//! margin for a loaded machine; the exact deadline rule is the paused, deterministic B1 case.
 
 use std::{
     future::Future,
@@ -377,7 +378,10 @@ async fn queue_evictions_during_shutdown_are_counted_apart_from_delivery() {
 /// encoding in turns until the original `export_timeout_ms` deadline, and no longer. The drain
 /// neither stops while work keeps arriving and time is left, nor takes a new deadline per turn.
 /// (Real time on two workers: a drain that never yields cannot hold back the test's clock.
-/// If the drain does not stop by itself, the producer is stopped so the task can be joined.)
+/// The drain must stop within 2 s after the deadline, a margin for a loaded machine; the
+/// producer runs for five deadlines, so a drain that takes a new deadline per turn, or loops
+/// until empty, is still caught. If the drain does not stop by itself, the producer is stopped
+/// so the task can be joined.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline() {
     let rig = Rig::start(
@@ -391,7 +395,7 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
     let (weak, stopped) = (Arc::downgrade(&rig.scope), stop.clone());
     let produced = Arc::new(AtomicUsize::new(0));
     let counted = produced.clone();
-    let cap = std::time::Instant::now() + deadline * 3;
+    let cap = std::time::Instant::now() + deadline * 5;
     rig.cache.arm(Box::new(move || {
         let live = !stopped.load(Ordering::SeqCst) && std::time::Instant::now() < cap;
         let Some(scope) = weak.upgrade().filter(|_| live) else { return false };
@@ -404,7 +408,7 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
     let started = std::time::Instant::now();
     rig.telemetry.shutdown().await;
     let mut rig = rig;
-    let stopped_itself = timeout(Duration::from_millis(500), &mut rig.task).await;
+    let stopped_itself = timeout(deadline * 5, &mut rig.task).await;
     let elapsed = started.elapsed();
     stop.store(true, Ordering::SeqCst);
     let stopped_itself = match stopped_itself {
@@ -428,7 +432,7 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
     assert!(verdict.joined.is_ok() && verdict.destroyed, "cleanup first");
     assert_eq!(stopped_itself, Some(true), "the drain stops by itself");
     assert!(elapsed >= deadline, "not before the deadline while work arrives: {elapsed:?}");
-    assert!(elapsed < deadline + Duration::from_millis(500), "the original deadline: {elapsed:?}");
+    assert!(elapsed < deadline + Duration::from_secs(2), "the original deadline: {elapsed:?}");
     assert_eq!(verdict.stats.uploads_sent as usize, verdict.acked, "acknowledged");
     // Many turns ran: each write produced one record, and well over one turn's worth arrived.
     assert!(produced > 10, "turns: {produced}");
@@ -443,7 +447,7 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
     let mut rig = Rig::start(
         Mode::FileAck,
         "purge",
-        TelemetryConfig { export_timeout_ms: 5000, ..quiet(1000) },
+        TelemetryConfig { export_timeout_ms: 20_000, ..quiet(1000) },
     )
     .await;
     let deadline = rig.telemetry.shared.config.export_timeout();
@@ -501,7 +505,8 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
 /// tasks run between turns and aborting the exporter takes effect at once, not at the deadline.
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_turns_leave_the_thread_to_other_tasks_and_can_be_aborted() {
-    let config = TelemetryConfig { export_timeout_ms: 1000, ..quiet(1000) };
+    // A long deadline: a loaded machine can leave this thread idle for a second.
+    let config = TelemetryConfig { export_timeout_ms: 10_000, ..quiet(1000) };
     let rig = Rig::start(Mode::MemoryAck, "abort-turns", config).await;
     let deadline = rig.telemetry.shared.config.export_timeout();
     let weak = Arc::downgrade(&rig.scope);
