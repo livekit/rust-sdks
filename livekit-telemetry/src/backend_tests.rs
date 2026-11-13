@@ -962,7 +962,8 @@ async fn an_accepted_batch_awaiting_its_delete_is_not_rebound_and_resent() {
 /// Correlation stays inside one session on the wire (reviews 4555582642, 4555582656 and
 /// 4555582672): RTC windows ship under the identity their readings were recorded with, a scoped
 /// record does not link to another session's span, and a span takes no parent from another
-/// session's trace.
+/// session's trace. The test owns the exporter task: it is joined, and the pipeline is seen
+/// released, before anything is asserted.
 #[tokio::test(start_paused = true)]
 async fn correlation_stays_inside_one_session_on_the_wire() {
     use crate::{
@@ -970,8 +971,10 @@ async fn correlation_stays_inside_one_session_on_the_wire() {
         SpanName, SpanOutcome, StreamDirection, TrackKind,
     };
     let transport = FakeTransport::scripted([]);
-    let (telemetry, room) = connected(&transport);
-    let other = telemetry.begin_scope();
+    let (telemetry, exporter) = Telemetry::new(test_config(), transport.clone());
+    let exporter = tokio::spawn(exporter.run());
+    let (room, other) = (telemetry.begin_scope(), telemetry.begin_scope());
+    room.set_server(PROJECT, &granted(3600));
     other.set_server(PROJECT, &granted(3600));
     let identity = |tag: &str| RoomIdentity {
         sid: Some(format!("RM_{tag}")),
@@ -990,13 +993,24 @@ async fn correlation_stays_inside_one_session_on_the_wire() {
     room.record_stats(reading(3_000));
     room.record_stats(reading(4_000));
     let foreign = other.start(SpanName::Connect, None);
-    let foreign_id = foreign.context().expect("bound").span_id;
+    // 0 is never a span id: an unbound span would link nothing and fail the checks below.
+    let foreign_id = foreign.context().map_or(0, |context| context.span_id);
     room.emit(TelemetryEvent::new("app.linked").in_span(foreign_id));
     room.start(SpanName::Publish, Some(foreign.clone())).end(SpanOutcome::Ok, None);
     foreign.end(SpanOutcome::Ok, None);
-    telemetry.shutdown().await;
 
-    let trace = u128::from_str_radix(&room.trace_id(), 16).expect("hex").to_be_bytes().to_vec();
+    // Torn down before any verdict: the exporter stopped and joined, every owner released.
+    telemetry.shutdown().await;
+    let joined = exporter.await;
+    let trace = room.trace_id();
+    let pipeline = Arc::downgrade(&telemetry.shared);
+    drop((room, other, foreign, telemetry));
+    let released = pipeline.upgrade().is_none();
+    assert!(joined.is_ok(), "the exporter task ended with {joined:?}");
+    assert!(released, "the pipeline is still held after its owners are gone");
+    assert_ne!(foreign_id, 0, "the other session's span was bound");
+
+    let trace = u128::from_str_radix(&trace, 16).expect("hex").to_be_bytes().to_vec();
     let logs: Vec<_> = transport
         .sent()
         .iter()
