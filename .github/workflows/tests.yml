@@ -212,6 +212,11 @@ jobs:
               core_modules::telemetry::tests::admission_child_consent_boundaries \
               -- --ignored --exact
           done
+          # Needs the same fresh process, and an HTTP registry no other test has filled.
+          cargo test --verbose --target ${{ matrix.target }} \
+            -p livekit-ffi --no-default-features --features core-modules --lib \
+            core_modules::telemetry::tests::admission_child_disabled_configure_without_transport \
+            -- --ignored --exact
 
       - name: Test RPC seam (livekit-rpc)
         shell: bash
