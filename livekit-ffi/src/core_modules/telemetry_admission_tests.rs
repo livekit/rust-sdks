@@ -479,7 +479,8 @@ fn admission_child_consent_boundaries() {
 /// Run in a fresh process: the opt-out is one-way, and no other test may have registered an HTTP
 /// client with `livekit-net`. With no transport passed and none registered, an enabled configure
 /// fails with `NoTransport` and admits nothing; after the opt-out the same call is refused like
-/// any other configure: `Ok`, with the storage directory erased.
+/// any other configure: `Ok`, with the storage directory erased. The same holds once a client
+/// is registered: the refusal never uses it.
 #[test]
 #[ignore = "one-way process consent and an empty HTTP registry; CI runs it in its own process"]
 fn admission_child_disabled_configure_without_transport() {
@@ -506,9 +507,38 @@ fn admission_child_disabled_configure_without_transport() {
     let admitted_disabled = admitted(&LIFECYCLE);
     runtime().block_on(telemetry_shutdown());
     let left = std::fs::read_dir(&dir).map(|entries| entries.count()).unwrap_or(usize::MAX);
+    // Now with a registered client (registration is once per process, so this comes last).
+    struct Counting(AtomicUsize);
+    #[async_trait::async_trait]
+    impl livekit_net::HttpClient for Counting {
+        async fn request(
+            &self,
+            _: livekit_net::HttpMethod,
+            _: String,
+            _: Vec<livekit_net::Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<livekit_net::HttpResponse, livekit_net::TransportError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(livekit_net::HttpResponse { status: 200, headers: vec![], body: vec![] })
+        }
+    }
+    let client = Arc::new(Counting(AtomicUsize::new(0)));
+    livekit_net::set_http_client(client.clone());
+    std::fs::write(dir.join("old-secret"), b"pending").expect("old data");
+    let constructed = LIFECYCLE.constructed.load(Ordering::SeqCst);
+    let with_client = telemetry_configure(config(), None, Vec::new());
+    runtime().block_on(telemetry_shutdown());
+    let with_client_left =
+        std::fs::read_dir(&dir).map(|entries| entries.count()).unwrap_or(usize::MAX);
+    let built = LIFECYCLE.constructed.load(Ordering::SeqCst) - constructed;
+    // The registry and this test: the refused configure kept no handle on the client.
+    let (holders, requests) = (Arc::strong_count(&client), client.0.load(Ordering::SeqCst));
     assert!(!registered, "precondition: no HTTP client is registered in this process");
     assert!(matches!(enabled, Err(TelemetryError::NoTransport)), "enabled: {enabled:?}");
     assert!(admitted_enabled == 0 && kept, "a failed configure admits and erases nothing");
     assert!(disabled.is_ok(), "the opt-out takes precedence: {disabled:?}");
     assert_eq!((admitted_disabled, left), (0, 0), "refusal cleanup ran without a generation");
+    assert!(with_client.is_ok(), "refused with a client registered: {with_client:?}");
+    assert_eq!((with_client_left, built, admitted(&LIFECYCLE)), (0, 0, 0), "erased, nothing built");
+    assert_eq!((holders, requests), (2, 0), "the refusal never took or used the client");
 }

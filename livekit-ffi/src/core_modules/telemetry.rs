@@ -91,12 +91,17 @@ pub fn telemetry_configure(
     transport: Option<Arc<dyn TelemetryTransport>>,
     instruments: Vec<Arc<dyn TelemetryInstrument>>,
 ) -> Result<(), TelemetryError> {
+    // The opt-out takes precedence over the transport: after it nothing is resolved (a registry
+    // lookup can build the native client), and the refusal cleanup runs whatever is registered.
+    if global::is_disabled() {
+        return refuse_in(&LIFECYCLE, config.storage_dir.as_deref());
+    }
     let transport: Arc<dyn TelemetryTransport> = match transport {
         Some(transport) => transport,
         None => match NetTransport::from_registry() {
             Some(transport) => Arc::new(transport),
-            // The opt-out takes precedence over a missing transport: the refusal cleanup runs.
-            // Read after the lookup, so an opt-out that lands during it is seen too.
+            // Read again after a lookup that found nothing: an opt-out that landed during it is
+            // refused too. One that lands during a lookup that succeeds is refused by `admit`.
             None if global::is_disabled() => {
                 return refuse_in(&LIFECYCLE, config.storage_dir.as_deref());
             }
