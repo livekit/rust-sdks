@@ -5,24 +5,7 @@ name: UniFFI Dart tests
 # can affect the livekit-ffi Dart bindings.
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    paths:
-      - "livekit-ffi/src/core_modules/**"
-      - "livekit-ffi/src/lib.rs"
-      - "livekit-ffi/src/build_info.rs"
-      - "livekit-ffi/Cargo.toml"
-      - "livekit-ffi/uniffi.toml"
-      - "livekit-ffi/Makefile.toml"
-      - "livekit-ffi/support/dart/**"
-      - "livekit-api/**"
-      - "livekit-protocol/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - ".cargo/**"
-      - ".github/workflows/uniffi-dart-test.yml"
+  workflow_call:
 
 permissions:
   contents: read

@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      dart: ${{ steps.filter.outputs.dart }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          # A named filter matches when any changed file matches an include
+          # pattern without also matching one of its `!` exclusion patterns.
+          predicate-quantifier: some-with-excludes
+
+          # A note on the filters block below
+
+          # `core` groups builds, tests, and feature-combination
+          # checks because they currently share the same broad change scope.
+          # Split it into stage-specific filters if their inputs diverge.
+          # The leading `!` excludes paths matched by that pattern, so core
+          # runs if any files not excluded here are changed.
+
+          # For reference, the C++ SDK splits these into distinct build/test
+          # filters: https://github.com/livekit/client-sdk-cpp/blob/main/.github/workflows/ci.yml#L36
+          filters: |
+            core:
+              - '**'
+              - '!**/*.md'
+              - '!.changeset/**'
+              - '!LICENSE'
+              - '!NOTICE'
+              - '!renovate.json'
+              - '!.vscode/**'
+            dart:
+              - 'livekit-ffi/src/core_modules/**'
+              - 'livekit-ffi/src/lib.rs'
+              - 'livekit-ffi/src/build_info.rs'
+              - 'livekit-ffi/build.rs'
+              - 'livekit-ffi/Cargo.toml'
+              - 'livekit-ffi/uniffi.toml'
+              - 'livekit-ffi/Makefile.toml'
+              - 'livekit-ffi/support/dart/**'
+              - 'livekit-common/**'
+              - 'livekit-data-stream/**'
+              - 'livekit-datatrack/**'
+              - 'livekit-net/**'
+              - 'livekit-region/**'
+              - 'livekit-signaling/**'
+              - 'livekit-token/**'
+              - 'device-info/**'
+              - 'livekit-api/**'
+              - 'livekit-protocol/**'
+              - 'tools/bindgens/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - '.github/actions/uniffi-deps/**'
+              - '.github/scripts/ffi_features.py'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/uniffi-dart-test.yml'
+
+  # Label events rerun applicable validation so a new aggregate result cannot
+  # replace a failed result for the same commit without rechecking it.
+  formatting:
+    name: Formatting
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
+    uses: ./.github/workflows/format.yml
+
+  builds:
+    name: Builds
+    needs: changes
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/builds.yml
+
+  tests:
+    name: Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/tests.yml
+
+  feature-combinations:
+    name: Feature Combinations
+    needs: changes
+    if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/feature-combinations-curated.yml
+
+  uniffi-dart-test:
+    name: UniFFI Dart Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.dart == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/uniffi-dart-test.yml
+
+  test-api:
+    name: Test API
+    uses: ./.github/workflows/test-api.yml
+
+  license-check:
+    name: License Check
+    uses: ./.github/workflows/license-check.yml
+
+  changeset:
+    name: Changeset Check
+    if: ${{ github.event_name == 'pull_request' }}
+    # Reusable workflows cannot elevate the caller's token permissions.
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/changeset-check.yml
+
+  # After this workflow has produced a check, configure repository rulesets to
+  # require only this job. Intentional path-based skips are accepted.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - formatting
+      - builds
+      - tests
+      - feature-combinations
+      - uniffi-dart-test
+      - test-api
+      - license-check
+      - changeset
+    if: always()
+    steps:
+      - name: Reject incomplete validation
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            <<< "$NEEDS_JSON"
+
+      - name: Verify required CI jobs
+        uses: suzuki-shunsuke/required-status-check-action@2b5a46064846b09381852c2c4217e898f639e768 # v0.1.3
+        with:
+          needs: ${{ toJson(needs) }}

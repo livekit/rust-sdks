@@ -18,11 +18,8 @@ permissions:
   contents: read
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
   # Each leg pins its feature set via --no-default-features so a regression in a
@@ -39,9 +36,8 @@ jobs:
   # compile check. Only signal_unreachable is independent of it: that one dials a
   # dead port on purpose.
   #
-  # The job name stays `livekit-api` even though it now also covers
-  # livekit-signaling: it is a required status check, and renaming it would break
-  # branch protection.
+  # The job name stays `livekit-api` for continuity even though this matrix now
+  # also covers livekit-signaling.
   livekit-api:
     runs-on: ubuntu-latest
     strategy:
