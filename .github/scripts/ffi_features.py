@@ -23,12 +23,19 @@ back here so a platform cannot silently drift onto the wrong surface.
     $ ffi_features.py swift
     --no-default-features --features core-modules
 
+    $ ffi_features.py dart
+    --lib --crate-type cdylib --no-default-features --features core-modules
+
     $ ffi_features.py --list
     android        --no-default-features --features core-modules
     ...
 
+An entry's optional `crate-type` adds `--lib --crate-type <type>`, for use
+with `cargo rustc`: livekit-ffi's [lib] also lists "lib", and a build that
+emits an rlib silently loses LTO.
+
 Every build site that produces an artifact names its platform. Used by
-livekit-ffi/Makefile.toml and by the uniffi-* workflows.
+livekit-ffi/Makefile.toml, ffi-builds.yml and the uniffi-* workflows.
 """
 
 import argparse
@@ -38,6 +45,7 @@ import sys
 
 PACKAGE = "livekit-ffi"
 METADATA_KEY = "platform-features"
+CRATE_TYPES = ("cdylib", "staticlib")
 
 
 def load_table():
@@ -83,6 +91,14 @@ def flags_for(entry, platform):
         )
 
     flags = []
+    crate_type = entry.get("crate-type")
+    if crate_type is not None:
+        if crate_type not in CRATE_TYPES:
+            sys.exit(
+                f"platform '{platform}' has crate-type '{crate_type}'; expected "
+                f"one of {', '.join(CRATE_TYPES)}"
+            )
+        flags += ["--lib", "--crate-type", crate_type]
     if entry.get("no-default-features"):
         flags.append("--no-default-features")
     flags += ["--features", ",".join(features)]
