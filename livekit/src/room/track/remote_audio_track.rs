@@ -88,6 +88,14 @@ impl RemoteAudioTrack {
         self.rtc_track().set_volume(volume);
     }
 
+    /// Test-only: returns a probe that reports whether this track's state, and with it the
+    /// native track it owns, has been dropped.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub fn is_muted(&self) -> bool {
         self.inner.info.read().muted
     }

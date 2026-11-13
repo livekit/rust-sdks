@@ -84,13 +84,17 @@ void AudioTrack::set_volume(double volume) const {
   // RemoteAudioSource::SetVolume accepts [0, 10] only (it DCHECKs the range),
   // so clamp here rather than let a caller abort the process.
   volume = std::isnan(volume) ? 1.0 : std::clamp(volume, 0.0, 10.0);
-  // The source and the receiver it notifies belong to the signaling thread;
-  // BlockingCall runs inline when already on it.
-  rtc_runtime_->signaling_thread()->BlockingCall([&] {
-    if (auto* source = track()->GetSource()) {
-      source->SetVolume(volume);
-    }
-  });
+  // The source and the receiver it notifies belong to the signaling thread.
+  // Posted rather than blocking: the receiver blocks on the worker thread, so
+  // waiting here from the worker would deadlock. Posted tasks run in order, so
+  // the last volume set wins; the task keeps its own reference to the track.
+  rtc_runtime_->signaling_thread()->PostTask(
+      [track = track_, volume] {
+        auto* audio = static_cast<webrtc::AudioTrackInterface*>(track.get());
+        if (auto* source = audio->GetSource()) {
+          source->SetVolume(volume);
+        }
+      });
 }
 
 NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,

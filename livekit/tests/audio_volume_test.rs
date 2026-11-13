@@ -133,10 +133,23 @@ async fn test_remote_audio_volume_lifecycle() -> Result<()> {
 
         sine.unpublish().await?;
         sub_room.close().await?;
+        let room_dropped = sub_room.drop_probe();
+        let track_dropped = track.drop_probe();
         drop(sub_room);
+        drop(sub_events);
         // The track outlives its room here: changing it must still be harmless.
         track.set_volume(0.5);
         drop(track);
+
+        // Teardown unwinds across tasks and the signaling thread, so poll for release.
+        let released = timeout(Duration::from_secs(10), async {
+            while !(room_dropped() && track_dropped()) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        assert!(released, "subscriber room or remote audio track retained after drop");
     }
     Ok(())
 }
