@@ -412,11 +412,12 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 #[derive(Debug, Clone)]
 pub struct RoomDataStreamOptions {
     max_payload_byte_length: Option<usize>,
+    max_open_streams_per_participant: Option<usize>,
 }
 
 impl Default for RoomDataStreamOptions {
     fn default() -> Self {
-        Self { max_payload_byte_length: None }
+        Self { max_payload_byte_length: None, max_open_streams_per_participant: None }
     }
 }
 
@@ -427,6 +428,15 @@ impl RoomDataStreamOptions {
     /// be thrown.
     pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
         self.max_payload_byte_length = Some(byte_length);
+        self
+    }
+
+    /// Maximum number of incoming data streams a single remote participant may have open at
+    /// once. Defaults to 500.
+    ///
+    /// Headers for new streams beyond this limit are dropped.
+    pub fn with_max_open_streams_per_participant(mut self, max_open_streams: usize) -> Self {
+        self.max_open_streams_per_participant = Some(max_open_streams);
         self
     }
 }
@@ -717,7 +727,12 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            ds::incoming::Manager::new(options.data_stream.max_payload_byte_length);
+            ds::incoming::Manager::new(ds::incoming::ManagerOptions {
+                max_payload_byte_length: options.data_stream.max_payload_byte_length,
+                max_open_streams_per_participant: options
+                    .data_stream
+                    .max_open_streams_per_participant,
+            });
         let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();
