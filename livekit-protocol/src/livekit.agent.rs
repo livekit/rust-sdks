@@ -1293,9 +1293,6 @@ pub mod agent_thread {
         pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
         #[prost(message, optional, tag = "7")]
         pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
-        /// The thread's database ("DB_..."), created with the thread.
-        #[prost(string, tag = "8")]
-        pub database_id: ::prost::alloc::string::String,
     }
     /// Direction of a listing. Each request documents what unset means.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

@@ -4909,6 +4909,10 @@ pub struct Job {
     /// when the server created the job, in Unix nanoseconds
     #[prost(int64, tag = "14")]
     pub created_at: i64,
+    /// The agent thread (an AT_ id, see agent/livekit_agent_thread.proto) the dispatched job's
+    /// call reads and writes. Empty means the call keeps no durable thread.
+    #[prost(string, tag = "15")]
+    pub thread_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JobState {
@@ -4955,7 +4959,7 @@ pub struct JobState {
 /// from Worker to Server
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof = "worker_message::Message", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "worker_message::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4980,12 +4984,15 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag = "7")]
         MigrateJob(super::MigrateJobRequest),
+        /// a running job asks the server to sign an access token for it
+        #[prost(message, tag = "8")]
+        CreateJobToken(super::CreateJobTokenRequest),
     }
 }
 /// from Server to Worker
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4, 6")]
+    #[prost(oneof = "server_message::Message", tags = "1, 2, 3, 5, 4, 6, 7")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -5008,6 +5015,8 @@ pub mod server_message {
         /// in-flight agent HTTP streams run to completion
         #[prost(message, tag = "6")]
         GoAway(super::agent_http::GoAway),
+        #[prost(message, tag = "7")]
+        CreateJobToken(super::CreateJobTokenResponse),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5181,6 +5190,31 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag = "1")]
     pub job_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateJobTokenRequest {
+    /// echoed in the response
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub job_id: ::prost::alloc::string::String,
+    /// The claims of the token the job wants, as JSON, in the same shape as an
+    /// access token's payload: identity, name, attributes, video, sip, and so on.
+    #[prost(string, tag = "3")]
+    pub claims: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CreateJobTokenResponse {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
+    /// Unix seconds
+    #[prost(int64, tag = "3")]
+    pub expires_at: i64,
+    /// empty on success; otherwise why the token was refused, naming any refused claim
+    #[prost(string, tag = "4")]
+    pub error: ::prost::alloc::string::String,
 }
 /// ----- agent HTTP endpoints data plane -----
 ///
@@ -5518,6 +5552,10 @@ pub struct CreateAgentDispatchRequest {
     pub deployment: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "6")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// The agent thread (an AT_ id, see agent/livekit_agent_thread.proto) the dispatched job's
+    /// call reads and writes. Empty means the call keeps no durable thread.
+    #[prost(string, tag = "7")]
+    pub thread_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RoomAgentDispatch {
@@ -5532,6 +5570,10 @@ pub struct RoomAgentDispatch {
     pub deployment: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "5")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// The agent thread (an AT_ id, see agent/livekit_agent_thread.proto) the dispatched job's
+    /// call reads and writes. Empty means the call keeps no durable thread.
+    #[prost(string, tag = "6")]
+    pub thread_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteAgentDispatchRequest {
@@ -5573,6 +5615,10 @@ pub struct AgentDispatch {
     pub deployment: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "8")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// The agent thread (an AT_ id, see agent/livekit_agent_thread.proto) the dispatched job's
+    /// call reads and writes. Empty means the call keeps no durable thread.
+    #[prost(string, tag = "9")]
+    pub thread_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentDispatchState {
@@ -7162,9 +7208,20 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag = "21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 29
     #[prost(message, optional, tag = "22")]
     pub destination: ::core::option::Option<Destination>,
+    /// cloud only
+    /// LiveKit SIP call ID (SCL_\[...\]) of a live inbound call in the same project.
+    /// This is the ID that LiveKit assigns to the call (sip_call_id on
+    /// SIPParticipantInfo), not the SIP Call-ID header from the provider. It is
+    /// used for forwarding an inbound call, while keeping the original caller's ID
+    /// as the caller ID of this new call.
+    /// If sip_from_header is set, its user must match the caller's number. If not,
+    /// the caller's number is used.
+    ///
+    /// NEXT ID: 30
+    #[prost(string, tag = "29")]
+    pub sip_source_call_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SipParticipantInfo {
@@ -8881,7 +8938,7 @@ pub mod agent_db {
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct CreateResponse {
-        /// "DB_..."
+        /// "DB_..." for a standalone database, the thread id ("AT_...") for a thread's
         #[prost(string, tag = "1")]
         pub database_id: ::prost::alloc::string::String,
         #[prost(message, optional, tag = "2")]

@@ -5955,9 +5955,6 @@ impl serde::Serialize for agent_thread::Thread {
         if self.idle_ttl.is_some() {
             len += 1;
         }
-        if !self.database_id.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.Thread", len)?;
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
@@ -5979,9 +5976,6 @@ impl serde::Serialize for agent_thread::Thread {
         }
         if let Some(v) = self.idle_ttl.as_ref() {
             struct_ser.serialize_field("idleTtl", v)?;
-        }
-        if !self.database_id.is_empty() {
-            struct_ser.serialize_field("databaseId", &self.database_id)?;
         }
         struct_ser.end()
     }
@@ -6005,8 +5999,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
             "expiresAt",
             "idle_ttl",
             "idleTtl",
-            "database_id",
-            "databaseId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -6018,7 +6010,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
             LastActive,
             ExpiresAt,
             IdleTtl,
-            DatabaseId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6048,7 +6039,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             "lastActive" | "last_active" => Ok(GeneratedField::LastActive),
                             "expiresAt" | "expires_at" => Ok(GeneratedField::ExpiresAt),
                             "idleTtl" | "idle_ttl" => Ok(GeneratedField::IdleTtl),
-                            "databaseId" | "database_id" => Ok(GeneratedField::DatabaseId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6075,7 +6065,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                 let mut last_active__ = None;
                 let mut expires_at__ = None;
                 let mut idle_ttl__ = None;
-                let mut database_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -6122,12 +6111,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             }
                             idle_ttl__ = map_.next_value()?;
                         }
-                        GeneratedField::DatabaseId => {
-                            if database_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("databaseId"));
-                            }
-                            database_id__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -6141,7 +6124,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                     last_active: last_active__,
                     expires_at: expires_at__,
                     idle_ttl: idle_ttl__,
-                    database_id: database_id__.unwrap_or_default(),
                 })
             }
         }

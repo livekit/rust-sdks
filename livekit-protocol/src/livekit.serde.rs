@@ -5918,6 +5918,9 @@ impl serde::Serialize for AgentDispatch {
         if !self.attributes.is_empty() {
             len += 1;
         }
+        if !self.thread_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDispatch", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -5945,6 +5948,9 @@ impl serde::Serialize for AgentDispatch {
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
+        if !self.thread_id.is_empty() {
+            struct_ser.serialize_field("threadId", &self.thread_id)?;
+        }
         struct_ser.end()
     }
 }
@@ -5965,6 +5971,8 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
             "restartPolicy",
             "deployment",
             "attributes",
+            "thread_id",
+            "threadId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5977,6 +5985,7 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
             RestartPolicy,
             Deployment,
             Attributes,
+            ThreadId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6007,6 +6016,7 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
                             "deployment" => Ok(GeneratedField::Deployment),
                             "attributes" => Ok(GeneratedField::Attributes),
+                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6034,6 +6044,7 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                 let mut restart_policy__ = None;
                 let mut deployment__ = None;
                 let mut attributes__ = None;
+                let mut thread_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -6086,6 +6097,12 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ThreadId => {
+                            if thread_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("threadId"));
+                            }
+                            thread_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -6100,6 +6117,7 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                     restart_policy: restart_policy__.unwrap_or_default(),
                     deployment: deployment__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
+                    thread_id: thread_id__.unwrap_or_default(),
                 })
             }
         }
@@ -14924,6 +14942,9 @@ impl serde::Serialize for CreateAgentDispatchRequest {
         if !self.attributes.is_empty() {
             len += 1;
         }
+        if !self.thread_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.CreateAgentDispatchRequest", len)?;
         if !self.agent_name.is_empty() {
             struct_ser.serialize_field("agentName", &self.agent_name)?;
@@ -14945,6 +14966,9 @@ impl serde::Serialize for CreateAgentDispatchRequest {
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
+        if !self.thread_id.is_empty() {
+            struct_ser.serialize_field("threadId", &self.thread_id)?;
+        }
         struct_ser.end()
     }
 }
@@ -14963,6 +14987,8 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
             "restartPolicy",
             "deployment",
             "attributes",
+            "thread_id",
+            "threadId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -14973,6 +14999,7 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
             RestartPolicy,
             Deployment,
             Attributes,
+            ThreadId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -15001,6 +15028,7 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
                             "deployment" => Ok(GeneratedField::Deployment),
                             "attributes" => Ok(GeneratedField::Attributes),
+                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -15026,6 +15054,7 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                 let mut restart_policy__ = None;
                 let mut deployment__ = None;
                 let mut attributes__ = None;
+                let mut thread_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AgentName => {
@@ -15066,6 +15095,12 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ThreadId => {
+                            if thread_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("threadId"));
+                            }
+                            thread_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -15078,6 +15113,7 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                     restart_policy: restart_policy__.unwrap_or_default(),
                     deployment: deployment__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
+                    thread_id: thread_id__.unwrap_or_default(),
                 })
             }
         }
@@ -16022,6 +16058,289 @@ impl<'de> serde::Deserialize<'de> for CreateIngressRequest {
             }
         }
         deserializer.deserialize_struct("livekit.CreateIngressRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for CreateJobTokenRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.request_id.is_empty() {
+            len += 1;
+        }
+        if !self.job_id.is_empty() {
+            len += 1;
+        }
+        if !self.claims.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.CreateJobTokenRequest", len)?;
+        if !self.request_id.is_empty() {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if !self.job_id.is_empty() {
+            struct_ser.serialize_field("jobId", &self.job_id)?;
+        }
+        if !self.claims.is_empty() {
+            struct_ser.serialize_field("claims", &self.claims)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for CreateJobTokenRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "request_id",
+            "requestId",
+            "job_id",
+            "jobId",
+            "claims",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RequestId,
+            JobId,
+            Claims,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "jobId" | "job_id" => Ok(GeneratedField::JobId),
+                            "claims" => Ok(GeneratedField::Claims),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CreateJobTokenRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.CreateJobTokenRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<CreateJobTokenRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut request_id__ = None;
+                let mut job_id__ = None;
+                let mut claims__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::JobId => {
+                            if job_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("jobId"));
+                            }
+                            job_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Claims => {
+                            if claims__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("claims"));
+                            }
+                            claims__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(CreateJobTokenRequest {
+                    request_id: request_id__.unwrap_or_default(),
+                    job_id: job_id__.unwrap_or_default(),
+                    claims: claims__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.CreateJobTokenRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for CreateJobTokenResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.request_id.is_empty() {
+            len += 1;
+        }
+        if !self.token.is_empty() {
+            len += 1;
+        }
+        if self.expires_at != 0 {
+            len += 1;
+        }
+        if !self.error.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.CreateJobTokenResponse", len)?;
+        if !self.request_id.is_empty() {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if !self.token.is_empty() {
+            struct_ser.serialize_field("token", &self.token)?;
+        }
+        if self.expires_at != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("expiresAt", ToString::to_string(&self.expires_at).as_str())?;
+        }
+        if !self.error.is_empty() {
+            struct_ser.serialize_field("error", &self.error)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for CreateJobTokenResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "request_id",
+            "requestId",
+            "token",
+            "expires_at",
+            "expiresAt",
+            "error",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RequestId,
+            Token,
+            ExpiresAt,
+            Error,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "token" => Ok(GeneratedField::Token),
+                            "expiresAt" | "expires_at" => Ok(GeneratedField::ExpiresAt),
+                            "error" => Ok(GeneratedField::Error),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CreateJobTokenResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.CreateJobTokenResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<CreateJobTokenResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut request_id__ = None;
+                let mut token__ = None;
+                let mut expires_at__ = None;
+                let mut error__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Token => {
+                            if token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("token"));
+                            }
+                            token__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ExpiresAt => {
+                            if expires_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("expiresAt"));
+                            }
+                            expires_at__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Error => {
+                            if error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("error"));
+                            }
+                            error__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(CreateJobTokenResponse {
+                    request_id: request_id__.unwrap_or_default(),
+                    token: token__.unwrap_or_default(),
+                    expires_at: expires_at__.unwrap_or_default(),
+                    error: error__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.CreateJobTokenResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for CreatePrivateLinkRequest {
@@ -17278,6 +17597,9 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if self.destination.is_some() {
             len += 1;
         }
+        if !self.sip_source_call_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.CreateSIPParticipantRequest", len)?;
         if !self.sip_trunk_id.is_empty() {
             struct_ser.serialize_field("sipTrunkId", &self.sip_trunk_id)?;
@@ -17369,6 +17691,9 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if let Some(v) = self.destination.as_ref() {
             struct_ser.serialize_field("destination", v)?;
         }
+        if !self.sip_source_call_id.is_empty() {
+            struct_ser.serialize_field("sipSourceCallId", &self.sip_source_call_id)?;
+        }
         struct_ser.end()
     }
 }
@@ -17429,6 +17754,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             "display_name",
             "displayName",
             "destination",
+            "sip_source_call_id",
+            "sipSourceCallId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -17461,6 +17788,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             WaitUntilAnswered,
             DisplayName,
             Destination,
+            SipSourceCallId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -17511,6 +17839,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             "waitUntilAnswered" | "wait_until_answered" => Ok(GeneratedField::WaitUntilAnswered),
                             "displayName" | "display_name" => Ok(GeneratedField::DisplayName),
                             "destination" => Ok(GeneratedField::Destination),
+                            "sipSourceCallId" | "sip_source_call_id" => Ok(GeneratedField::SipSourceCallId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -17558,6 +17887,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                 let mut wait_until_answered__ = None;
                 let mut display_name__ = None;
                 let mut destination__ = None;
+                let mut sip_source_call_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SipTrunkId => {
@@ -17732,6 +18062,12 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             }
                             destination__ = map_.next_value()?;
                         }
+                        GeneratedField::SipSourceCallId => {
+                            if sip_source_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipSourceCallId"));
+                            }
+                            sip_source_call_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -17766,6 +18102,7 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                     wait_until_answered: wait_until_answered__.unwrap_or_default(),
                     display_name: display_name__,
                     destination: destination__,
+                    sip_source_call_id: sip_source_call_id__.unwrap_or_default(),
                 })
             }
         }
@@ -32449,6 +32786,9 @@ impl serde::Serialize for Job {
         if self.created_at != 0 {
             len += 1;
         }
+        if !self.thread_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.Job", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -32496,6 +32836,9 @@ impl serde::Serialize for Job {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdAt", ToString::to_string(&self.created_at).as_str())?;
         }
+        if !self.thread_id.is_empty() {
+            struct_ser.serialize_field("threadId", &self.thread_id)?;
+        }
         struct_ser.end()
     }
 }
@@ -32525,6 +32868,8 @@ impl<'de> serde::Deserialize<'de> for Job {
             "enableRedaction",
             "created_at",
             "createdAt",
+            "thread_id",
+            "threadId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -32543,6 +32888,7 @@ impl<'de> serde::Deserialize<'de> for Job {
             Attributes,
             EnableRedaction,
             CreatedAt,
+            ThreadId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -32579,6 +32925,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "enableRedaction" | "enable_redaction" => Ok(GeneratedField::EnableRedaction),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -32612,6 +32959,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                 let mut attributes__ = None;
                 let mut enable_redaction__ = None;
                 let mut created_at__ = None;
+                let mut thread_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -32702,6 +33050,12 @@ impl<'de> serde::Deserialize<'de> for Job {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::ThreadId => {
+                            if thread_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("threadId"));
+                            }
+                            thread_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -32722,6 +33076,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                     attributes: attributes__.unwrap_or_default(),
                     enable_redaction: enable_redaction__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
+                    thread_id: thread_id__.unwrap_or_default(),
                 })
             }
         }
@@ -52049,6 +52404,9 @@ impl serde::Serialize for RoomAgentDispatch {
         if !self.attributes.is_empty() {
             len += 1;
         }
+        if !self.thread_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.RoomAgentDispatch", len)?;
         if !self.agent_name.is_empty() {
             struct_ser.serialize_field("agentName", &self.agent_name)?;
@@ -52067,6 +52425,9 @@ impl serde::Serialize for RoomAgentDispatch {
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
+        if !self.thread_id.is_empty() {
+            struct_ser.serialize_field("threadId", &self.thread_id)?;
+        }
         struct_ser.end()
     }
 }
@@ -52084,6 +52445,8 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
             "restartPolicy",
             "deployment",
             "attributes",
+            "thread_id",
+            "threadId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -52093,6 +52456,7 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
             RestartPolicy,
             Deployment,
             Attributes,
+            ThreadId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -52120,6 +52484,7 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
                             "deployment" => Ok(GeneratedField::Deployment),
                             "attributes" => Ok(GeneratedField::Attributes),
+                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -52144,6 +52509,7 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                 let mut restart_policy__ = None;
                 let mut deployment__ = None;
                 let mut attributes__ = None;
+                let mut thread_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AgentName => {
@@ -52178,6 +52544,12 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ThreadId => {
+                            if thread_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("threadId"));
+                            }
+                            thread_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -52189,6 +52561,7 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                     restart_policy: restart_policy__.unwrap_or_default(),
                     deployment: deployment__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
+                    thread_id: thread_id__.unwrap_or_default(),
                 })
             }
         }
@@ -62816,6 +63189,9 @@ impl serde::Serialize for ServerMessage {
                 server_message::Message::GoAway(v) => {
                     struct_ser.serialize_field("goAway", v)?;
                 }
+                server_message::Message::CreateJobToken(v) => {
+                    struct_ser.serialize_field("createJobToken", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -62835,6 +63211,8 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
             "pong",
             "go_away",
             "goAway",
+            "create_job_token",
+            "createJobToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -62845,6 +63223,7 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
             Termination,
             Pong,
             GoAway,
+            CreateJobToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -62873,6 +63252,7 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
                             "termination" => Ok(GeneratedField::Termination),
                             "pong" => Ok(GeneratedField::Pong),
                             "goAway" | "go_away" => Ok(GeneratedField::GoAway),
+                            "createJobToken" | "create_job_token" => Ok(GeneratedField::CreateJobToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -62935,6 +63315,13 @@ impl<'de> serde::Deserialize<'de> for ServerMessage {
                                 return Err(serde::de::Error::duplicate_field("goAway"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(server_message::Message::GoAway)
+;
+                        }
+                        GeneratedField::CreateJobToken => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createJobToken"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(server_message::Message::CreateJobToken)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -86079,6 +86466,9 @@ impl serde::Serialize for WorkerMessage {
                 worker_message::Message::MigrateJob(v) => {
                     struct_ser.serialize_field("migrateJob", v)?;
                 }
+                worker_message::Message::CreateJobToken(v) => {
+                    struct_ser.serialize_field("createJobToken", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -86102,6 +86492,8 @@ impl<'de> serde::Deserialize<'de> for WorkerMessage {
             "simulateJob",
             "migrate_job",
             "migrateJob",
+            "create_job_token",
+            "createJobToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -86113,6 +86505,7 @@ impl<'de> serde::Deserialize<'de> for WorkerMessage {
             Ping,
             SimulateJob,
             MigrateJob,
+            CreateJobToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -86142,6 +86535,7 @@ impl<'de> serde::Deserialize<'de> for WorkerMessage {
                             "ping" => Ok(GeneratedField::Ping),
                             "simulateJob" | "simulate_job" => Ok(GeneratedField::SimulateJob),
                             "migrateJob" | "migrate_job" => Ok(GeneratedField::MigrateJob),
+                            "createJobToken" | "create_job_token" => Ok(GeneratedField::CreateJobToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -86211,6 +86605,13 @@ impl<'de> serde::Deserialize<'de> for WorkerMessage {
                                 return Err(serde::de::Error::duplicate_field("migrateJob"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(worker_message::Message::MigrateJob)
+;
+                        }
+                        GeneratedField::CreateJobToken => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createJobToken"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(worker_message::Message::CreateJobToken)
 ;
                         }
                         GeneratedField::__SkipField__ => {
