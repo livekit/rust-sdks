@@ -547,13 +547,8 @@ impl FileCache {
     /// result, so a failed sync never turns another pass's unlink into this one's. A gone
     /// directory (the OS purged it) has nothing left to sync.
     fn unlink(&self, id: &str) -> (bool, io::Result<()>) {
-        let path = self.path(id, BATCH_EXT);
-        if let Err(err) = self.step(Step::Delete, &path) {
-            return (false, Err(err));
-        }
-        let unlinked = match fs::remove_file(&path) {
-            Ok(()) => true,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => false,
+        let unlinked = match self.delete(id) {
+            Ok(unlinked) => unlinked,
             Err(err) => return (false, Err(err)),
         };
         let synced = match self.sync_dir() {
@@ -561,6 +556,18 @@ impl FileCache {
             other => other,
         };
         (unlinked, synced)
+    }
+
+    /// Delete `id`'s file without syncing the directory: the caller makes the delete durable.
+    /// `Ok(false)` when the file was already gone.
+    fn delete(&self, id: &str) -> io::Result<bool> {
+        let path = self.path(id, BATCH_EXT);
+        self.step(Step::Delete, &path)?;
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 
     /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
@@ -689,37 +696,45 @@ impl BatchCache for FileCache {
             };
             #[cfg(test)]
             self.step(Step::ClearListed, &self.dir)?;
+            // One directory sync at the end makes every deletion durable, whatever failed before it.
             let mut first = Ok(());
             for id in ids {
-                if let Err(err) = self.unlink(&id).1 {
+                if let Err(err) = self.delete(&id) {
                     first = first.and(Err(err));
                 }
             }
-            for pend in self.journal()? {
-                if let Err(err) = fs::remove_file(&pend) {
-                    first = first.and(Err(err));
+            match self.journal() {
+                Ok(journal) => {
+                    for pend in journal {
+                        if let Err(err) = fs::remove_file(&pend) {
+                            first = first.and(Err(err));
+                        }
+                    }
                 }
+                Err(err) => first = first.and(Err(err)),
             }
             // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
             // no push or split is writing one right now.
             {
                 let _locked = lock_dir();
-                let entries = match fs::read_dir(&self.dir) {
+                match fs::read_dir(&self.dir) {
                     Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
-                    other => other?,
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == TMP_EXT) {
-                        if let Err(err) = fs::remove_file(&path) {
-                            first = first.and(Err(err));
+                    Err(err) => first = first.and(Err(err)),
+                    Ok(entries) => {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().is_some_and(|e| e == TMP_EXT) {
+                                if let Err(err) = fs::remove_file(&path) {
+                                    first = first.and(Err(err));
+                                }
+                            }
                         }
                     }
                 }
             }
             // Nothing journaled is left to publish.
             self.recovery_failed.store(false, Ordering::Relaxed);
-            first.and_then(|()| self.sync_dir())
+            first.and(self.sync_dir())
         })
     }
 
