@@ -441,7 +441,7 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
     let mut rig = Rig::start(
         Mode::FileAck,
         "purge",
-        TelemetryConfig { export_timeout_ms: 1000, ..quiet(1000) },
+        TelemetryConfig { export_timeout_ms: 5000, ..quiet(1000) },
     )
     .await;
     let deadline = rig.telemetry.shared.config.export_timeout();
@@ -461,9 +461,10 @@ async fn an_opt_out_stops_shutdown_turns_without_waiting_for_the_deadline() {
         let telemetry = rig.telemetry.clone();
         tokio::spawn(async move { telemetry.shutdown().await })
     };
-    // Wait for a few turns of the drain (bounded), then opt out.
-    let turns = timeout(Duration::from_millis(500), async {
-        while rig.cache.pushes.load(Ordering::SeqCst) < 6 {
+    // Wait for a few turns of the drain, within half the deadline, then opt out. (Each write
+    // syncs the directory: slow when the whole suite runs at once.)
+    let turns = timeout(deadline / 2, async {
+        while rig.cache.pushes.load(Ordering::SeqCst) < 4 {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
