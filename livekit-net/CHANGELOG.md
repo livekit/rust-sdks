@@ -1,3 +1,13 @@
+## 0.2.0 (2026-11-13)
+
+### Breaking Changes
+
+- Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
+
+### Fixes
+
+- The native HTTP client no longer follows a redirect from `https` to a plaintext scheme, so an `Authorization` header never reaches a plaintext URL on the same host and port. An `http` to `https` upgrade is still followed.
+
 ## 0.1.4 (2026-10-20)
 
 ### Fixes
