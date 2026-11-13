@@ -37,7 +37,7 @@ impl VideoResolution {
     /// Creates a video resolution from a width and height in pixels.
     ///
     /// ```
-    /// # use livekit_capture::primitive::VideoResolution;
+    /// # use livekit_capture::video::primitive::VideoResolution;
     /// let resolution = VideoResolution::new(1920, 1080);
     /// assert_eq!(resolution.width, 1920);
     /// assert_eq!(resolution.height, 1080);
@@ -50,7 +50,7 @@ impl VideoResolution {
     /// zero.
     ///
     /// ```
-    /// # use livekit_capture::primitive::VideoResolution;
+    /// # use livekit_capture::video::primitive::VideoResolution;
     /// assert_eq!(VideoResolution::new(1920, 960).aspect_ratio(), Some(2.0));
     /// assert_eq!(VideoResolution::new(1920, 0).aspect_ratio(), None);
     /// ```
@@ -71,7 +71,7 @@ impl std::fmt::Display for VideoResolution {
     /// Formats as `WIDTHxHEIGHT`.
     ///
     /// ```
-    /// # use livekit_capture::primitive::VideoResolution;
+    /// # use livekit_capture::video::primitive::VideoResolution;
     /// assert_eq!(VideoResolution::new(1920, 1080).to_string(), "1920x1080");
     /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

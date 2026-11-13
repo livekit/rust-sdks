@@ -16,8 +16,8 @@
 //! and keyframe detection.
 
 use crate::{
-    encoded::{EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit},
-    primitive::VideoResolution,
+    video::encoded::{EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit},
+    video::primitive::VideoResolution,
 };
 use bytes::Bytes;
 use std::ops::Range;

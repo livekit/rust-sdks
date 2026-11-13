@@ -4,29 +4,32 @@
 > This crate is currently in Developer Preview mode and not ready for production use.
 > There may be bugs, and APIs and configuration options are subject to change during this period.
 
-This crate provides video capture sources and the pumps that publish them
+This crate provides audio and video capture sources and the pumps that publish them
 with the LiveKit [Rust SDK](../livekit/README.md). Pick a ready-made source
 or implement your own.
 
 ## Source and pump
 
-Two concepts make up the crate. Video reaches a LiveKit track in one of two
-forms, so the source and the pump each have two variants.
+Sources produce media; pumps deliver it to an RTC source. Audio and video have
+separate modules, with a shared pump lifecycle.
 
-**A source** produces video:
+**A source** produces media:
 
-- A `pixel::PixelVideoSource` produces raw `VideoFrame`s — from a camera, for
+- An `audio::PcmAudioSource` produces interleaved signed 16-bit PCM in fixed
+  10 ms frames. `audio::AudioPump<S>` feeds it to an RTC audio source.
+
+- A `video::pixel::PixelVideoSource` produces raw `VideoFrame`s — from a camera, for
   example. The WebRTC encoder encodes them.
-- An `encoded::EncodedVideoSource` produces access units that are already
+- An `video::encoded::EncodedVideoSource` produces access units that are already
   encoded — from an encoding pipeline, for example. The SDK sends them to the
   wire without re-encoding (passthrough). When frames are encoded upstream,
   this removes an extra decode and encode step and lowers latency.
 
 **A pump** connects one source to an RTC video source:
-`pixel::PixelVideoPump<S>` or `encoded::EncodedVideoPump<S>`. It builds the
+`video::pixel::PixelVideoPump<S>` or `video::encoded::EncodedVideoPump<S>`. It builds the
 matching RTC video source, derives the publish options, and runs the capture
 loop. Spawn a pump and it becomes a `pump::RunningPump`: await it to join,
-or stop it from any thread through its stop handle. Both pump kinds spawn
+or stop it from any thread through its stop handle. All pump kinds spawn
 into the same type, so an application supervises them the same way.
 Spawning is the usual choice; a pump can also `run` on the calling thread,
 for an application that creates the capture thread itself.
@@ -51,21 +54,26 @@ let stats = running.stop_and_join().await?;
 
 ## Built-in sources
 
-Each source lives in its own module under `sources`, behind a Cargo feature
+Each source lives in its own module under `audio::sources` or `video::sources`, behind a Cargo feature
 named `source-<module>`. Each module documents its source.
 
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
 | `source-gstreamer` | `GStreamerVideoSource` | encoded |
+| `source-gstreamer` | `GStreamerAudioSource` | PCM audio |
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
 | `source-clock`     | `ClockVideoSource`     | pixel   |
 
 ## Custom sources
 
-Implement `pixel::PixelVideoSource` for raw frames or
-`encoded::EncodedVideoSource` for pre-encoded access units. A source is
+Implement `audio::PcmAudioSource` for audio, `video::pixel::PixelVideoSource` for raw frames or
+`video::encoded::EncodedVideoSource` for pre-encoded access units. A source is
 constructed from its own config struct and is driven by the matching pump —
 no other integration is needed.
+
+`pump::PumpStats` reports accepted frames and the exit reason. An audio frame
+is always 10 ms, regardless of the input backend’s buffer size. GStreamer audio
+playout lives under `audio::playout`; it uses the same PCM format.
 
 Two conventions keep a source easy to consume:
 

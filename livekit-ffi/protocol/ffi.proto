@@ -195,7 +195,13 @@ message FfiRequest {
     StopCaptureRequest stop_capture = 90;
     JoinCaptureRequest join_capture = 92;
 
-    // NEXT_ID: 93
+    NewAudioCaptureSourceRequest new_audio_capture_source = 93;
+    NewAudioPlayoutRequest new_audio_playout = 94;
+    StopAudioPlayoutRequest stop_audio_playout = 95;
+    AttachAudioPlayoutTrackRequest attach_audio_playout_track = 96;
+    DetachAudioPlayoutTrackRequest detach_audio_playout_track = 97;
+
+    // NEXT_ID: 98
   }
 }
 
@@ -334,7 +340,13 @@ message FfiResponse {
     StopCaptureResponse stop_capture = 90;
     JoinCaptureResponse join_capture = 92;
 
-    // NEXT_ID: 93
+    NewAudioCaptureSourceResponse new_audio_capture_source = 93;
+    NewAudioPlayoutResponse new_audio_playout = 94;
+    StopAudioPlayoutResponse stop_audio_playout = 95;
+    AttachAudioPlayoutTrackResponse attach_audio_playout_track = 96;
+    DetachAudioPlayoutTrackResponse detach_audio_playout_track = 97;
+
+    // NEXT_ID: 98
   }
 }
 
@@ -407,8 +419,12 @@ message FfiEvent {
     // Capture sources (livekit-capture; requires the `capture` feature)
     NewCaptureSourceCallback new_capture_source = 47;
     JoinCaptureCallback join_capture = 49;
+    NewAudioCaptureSourceCallback new_audio_capture_source = 50;
+    StopAudioPlayoutCallback stop_audio_playout = 51;
+    AttachAudioPlayoutTrackCallback attach_audio_playout_track = 52;
+    DetachAudioPlayoutTrackCallback detach_audio_playout_track = 53;
 
-    // NEXT_ID: 50
+    // NEXT_ID: 54
   }
 }
 

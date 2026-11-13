@@ -15,8 +15,8 @@
 //! Pumps pixel frames from a capture source into an RTC video source.
 
 use crate::{
-    pixel::PixelVideoSource,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
+    video::pixel::PixelVideoSource,
 };
 use livekit::{
     options::TrackPublishOptions,
@@ -148,7 +148,7 @@ mod tests {
     use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 
     use super::*;
-    use crate::{error::SourceError, primitive::VideoResolution};
+    use crate::{error::SourceError, video::primitive::VideoResolution};
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 

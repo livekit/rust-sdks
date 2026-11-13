@@ -1531,6 +1531,22 @@ pub fn handle_request(
         Request::StopCapture(req) => capture::on_stop_capture(server, req)?.into(),
         #[cfg(feature = "capture")]
         Request::JoinCapture(req) => capture::on_join_capture(server, req)?.into(),
+        #[cfg(feature = "capture-gstreamer")]
+        Request::NewAudioCaptureSource(req) => {
+            capture::on_new_audio_capture_source(server, req)?.into()
+        }
+        #[cfg(feature = "capture-gstreamer")]
+        Request::NewAudioPlayout(req) => capture::on_new_audio_playout(server, req)?.into(),
+        #[cfg(feature = "capture-gstreamer")]
+        Request::AttachAudioPlayoutTrack(req) => {
+            capture::on_attach_audio_playout_track(server, req)?.into()
+        }
+        #[cfg(feature = "capture-gstreamer")]
+        Request::DetachAudioPlayoutTrack(req) => {
+            capture::on_detach_audio_playout_track(server, req)?.into()
+        }
+        #[cfg(feature = "capture-gstreamer")]
+        Request::StopAudioPlayout(req) => capture::on_stop_audio_playout(server, req)?.into(),
         #[cfg(not(feature = "capture"))]
         Request::NewCaptureSource(_)
         | Request::StartCapture(_)
@@ -1538,6 +1554,16 @@ pub fn handle_request(
         | Request::JoinCapture(_) => {
             return Err(FfiError::InvalidRequest(
                 "livekit-ffi was built without the 'capture' feature".into(),
+            ));
+        }
+        #[cfg(not(feature = "capture-gstreamer"))]
+        Request::NewAudioCaptureSource(_)
+        | Request::NewAudioPlayout(_)
+        | Request::AttachAudioPlayoutTrack(_)
+        | Request::DetachAudioPlayoutTrack(_)
+        | Request::StopAudioPlayout(_) => {
+            return Err(FfiError::InvalidRequest(
+                "livekit-ffi was built without the 'capture-gstreamer' feature".into(),
             ));
         }
     });

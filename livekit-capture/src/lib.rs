@@ -12,24 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Video capture for the LiveKit Rust SDK.
+//! Media capture and playout for the LiveKit Rust SDK.
 //!
-//! A capture source produces video: pixel frames ([`pixel`]) or pre-encoded
-//! access units ([`encoded`]). A pump drives a source and publishes its
-//! output to an RTC video source.
-//!
-//! Construct a source, hand it to the matching pump, and publish the pump's
-//! [`rtc_source`](pixel::PixelVideoPump::rtc_source) with its
-//! [`publish_options`](pixel::PixelVideoPump::publish_options). Spawning the
-//! pump returns a [`RunningPump`](pump::RunningPump) to await or stop.
-//! output to an RTC video source.
+//! [`audio`] provides fixed 10 ms PCM sources, their pump, and playout sinks.
+//! [`video`] provides pixel and pre-encoded sources and their matching pumps.
+//! Sources run through media-specific pumps while sharing cancellation,
+//! running handles, and terminal results in [`pump`].
 
-pub mod encoded;
+pub mod audio;
 pub mod error;
-pub mod pixel;
-pub mod primitive;
 pub mod pump;
-pub mod sources;
-
-#[cfg(any(feature = "source-clock", feature = "source-pattern"))]
-mod renderer;
+pub mod video;
