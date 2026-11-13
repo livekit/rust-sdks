@@ -72,8 +72,9 @@ pub struct RoomInner {
     // local tracks just published, it is used to synchronize the publish events:
     // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
     pending_published_tracks: Mutex<HashSet<TrackSid>>,
-    // Used to wait for the LocalTrackUnpublished event
-    pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,
+    // Correlates explicit FFI unpublish requests with LocalTrackUnpublished
+    // events, distinguishing them from internal full-reconnect bookkeeping.
+    pending_unpublish_requests: Mutex<HashMap<TrackSid, u64>>,
 
     track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
 
@@ -92,6 +93,7 @@ pub struct RoomInner {
 }
 
 const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
+const UNPUBLISH_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Handle {
     sid_handle: JoinHandle<()>,
@@ -213,7 +215,7 @@ impl FfiRoom {
                         transcription_tx,
                         dtmf_tx,
                         pending_published_tracks: Default::default(),
-                        pending_unpublished_tracks: Default::default(),
+                        pending_unpublish_requests: Default::default(),
                         track_handle_lookup: Default::default(),
                         local_publication_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
@@ -593,28 +595,75 @@ impl RoomInner {
         let async_id = server.resolve_async_id(unpublish.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
-            let sid = unpublish.track_sid.try_into().unwrap();
-            let unpublish_res = inner.room.local_participant().unpublish_track(&sid).await;
-
-            if unpublish_res.is_ok() {
-                // Wait for the LocalTrackUnpublished event to be sent before sending our callback
-                loop {
-                    if inner.pending_unpublished_tracks.lock().remove(&sid) {
-                        break; // Event was sent
-                    }
-
-                    log::debug!("waiting for the LocalTrackUnpublished event to be sent");
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            let sid: TrackSid = unpublish.track_sid.try_into().unwrap();
+            // Register first so an immediate room event can complete this request.
+            let registered = {
+                let mut pending = inner.pending_unpublish_requests.lock();
+                if pending.contains_key(&sid) {
+                    false
+                } else {
+                    pending.insert(sid.clone(), async_id);
+                    true
                 }
+            };
+            // Do not replace the callback for an unpublish already in progress.
+            if !registered {
+                let _ = server.send_event(
+                    proto::UnpublishTrackCallback {
+                        async_id,
+                        error: Some(format!(
+                            "an unpublish request is already pending for track {sid}"
+                        )),
+                    }
+                    .into(),
+                );
+                return;
             }
 
-            let _ = server.send_event(
-                proto::UnpublishTrackCallback {
-                    async_id,
-                    error: unpublish_res.err().map(|e| e.to_string()),
+            let unpublish_res = inner.room.local_participant().unpublish_track(&sid).await;
+
+            if let Err(error) = unpublish_res {
+                // Complete the request here only if the room event has not already done so.
+                let removed = {
+                    let mut pending = inner.pending_unpublish_requests.lock();
+                    if pending.get(&sid) == Some(&async_id) {
+                        pending.remove(&sid);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if removed {
+                    let _ = server.send_event(
+                        proto::UnpublishTrackCallback { async_id, error: Some(error.to_string()) }
+                            .into(),
+                    );
                 }
-                .into(),
-            );
+                return;
+            }
+
+            // Bound the wait in case the expected room event is never emitted.
+            tokio::time::sleep(UNPUBLISH_EVENT_TIMEOUT).await;
+            let timed_out = {
+                let mut pending = inner.pending_unpublish_requests.lock();
+                if pending.get(&sid) == Some(&async_id) {
+                    pending.remove(&sid);
+                    true
+                } else {
+                    false
+                }
+            };
+            if timed_out {
+                let _ = server.send_event(
+                    proto::UnpublishTrackCallback {
+                        async_id,
+                        error: Some(format!(
+                            "timed out waiting for LocalTrackUnpublished for track {sid}"
+                        )),
+                    }
+                    .into(),
+                );
+            }
         });
         server.watch_panic(handle);
         proto::UnpublishTrackResponse { async_id }
@@ -1151,16 +1200,20 @@ async fn forward_event(
         }
         RoomEvent::LocalTrackUnpublished { publication, participant: _ } => {
             let sid = publication.sid();
+            let request_async_id = inner.pending_unpublish_requests.lock().remove(&sid);
             // During a reconnect, the unpublish is the SDK's internal
-            // bookkeeping for the auto-republish flow. we will ignore it here and handle it in
-            // the LocalTrackRepublished handler
-            if present_state.lock().reconnecting {
+            // bookkeeping for the auto-republish flow unless an explicit FFI
+            // request initiated it.
+            if present_state.lock().reconnecting && request_async_id.is_none() {
                 return;
             }
 
             inner.local_publication_lookup.lock().remove(&sid);
-            inner.pending_unpublished_tracks.lock().insert(sid.clone());
             let _ = send_event(proto::LocalTrackUnpublished { publication_sid: sid.into() }.into());
+            if let Some(async_id) = request_async_id {
+                let _ = server
+                    .send_event(proto::UnpublishTrackCallback { async_id, error: None }.into());
+            }
         }
         RoomEvent::LocalTrackRepublished {
             previous_sid,
