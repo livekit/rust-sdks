@@ -1524,6 +1524,10 @@ mod vote_controls;
 mod split_controls;
 
 #[cfg(test)]
+#[path = "shutdown_controls.rs"]
+mod shutdown_controls;
+
+#[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Mutex;
 
