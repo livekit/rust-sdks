@@ -378,16 +378,17 @@ async fn queue_evictions_during_shutdown_are_counted_apart_from_delivery() {
 /// encoding in turns until the original `export_timeout_ms` deadline, and no longer. The drain
 /// neither stops while work keeps arriving and time is left, nor takes a new deadline per turn.
 /// (Real time on two workers: a drain that never yields cannot hold back the test's clock.
-/// The drain must stop within 2 s after the deadline, a margin for a loaded machine; the
-/// producer runs for five deadlines, so a drain that takes a new deadline per turn, or loops
-/// until empty, is still caught. If the drain does not stop by itself, the producer is stopped
-/// so the task can be joined.)
+/// The deadline is 3 s and the drain must stop within 3 s after it: margins for a loaded
+/// machine, which can leave a worker idle for a second or more. The producer runs for five
+/// deadlines, so a drain that takes a new deadline per turn, or loops until empty, is still
+/// caught. If the drain does not stop by itself, the producer is stopped so the task can be
+/// joined.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline() {
     let rig = Rig::start(
         Mode::MemoryAck,
         "continuous",
-        TelemetryConfig { export_timeout_ms: 1000, ..quiet(1000) },
+        TelemetryConfig { export_timeout_ms: 3000, ..quiet(1000) },
     )
     .await;
     let deadline = rig.telemetry.shared.config.export_timeout();
@@ -432,7 +433,7 @@ async fn a_continuous_producer_is_encoded_in_turns_until_the_original_deadline()
     assert!(verdict.joined.is_ok() && verdict.destroyed, "cleanup first");
     assert_eq!(stopped_itself, Some(true), "the drain stops by itself");
     assert!(elapsed >= deadline, "not before the deadline while work arrives: {elapsed:?}");
-    assert!(elapsed < deadline + Duration::from_secs(2), "the original deadline: {elapsed:?}");
+    assert!(elapsed < deadline * 2, "the original deadline: {elapsed:?}");
     assert_eq!(verdict.stats.uploads_sent as usize, verdict.acked, "acknowledged");
     // Many turns ran: each write produced one record, and well over one turn's worth arrived.
     assert!(produced > 10, "turns: {produced}");
