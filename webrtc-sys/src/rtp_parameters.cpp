@@ -177,6 +177,29 @@ webrtc::RtcpParameters to_native_rtcp_paramaters(RtcpParameters params) {
   return native;
 }
 
+// FecProtectionMode is converted with static_cast, so its values must match
+// webrtc::RtpFecProtection::Mode.
+static_assert(static_cast<int>(FecProtectionMode::Adaptive) ==
+              static_cast<int>(webrtc::RtpFecProtection::Mode::kAdaptive));
+static_assert(static_cast<int>(FecProtectionMode::Fixed) ==
+              static_cast<int>(webrtc::RtpFecProtection::Mode::kFixed));
+static_assert(static_cast<int>(FecProtectionMode::Minimum) ==
+              static_cast<int>(webrtc::RtpFecProtection::Mode::kMinimum));
+static_assert(static_cast<int>(FecProtectionMode::Disabled) ==
+              static_cast<int>(webrtc::RtpFecProtection::Mode::kDisabled));
+
+webrtc::RtpFecProtection to_native_rtp_fec_protection(
+    const RtpFecProtection& protection) {
+  webrtc::RtpFecProtection native{};
+  native.mode = static_cast<webrtc::RtpFecProtection::Mode>(protection.mode);
+  native.protection_factor = protection.protection_factor;
+  if (protection.has_key_frame_protection_factor)
+    native.key_frame_protection_factor = protection.key_frame_protection_factor;
+  if (protection.has_max_fec_frames)
+    native.max_fec_frames = protection.max_fec_frames;
+  return native;
+}
+
 webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params) {
   webrtc::RtpParameters native{};
   native.transaction_id = params.transaction_id.c_str();
@@ -196,6 +219,9 @@ webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params) {
   if (params.has_degradation_preference)
     native.degradation_preference = static_cast<webrtc::DegradationPreference>(
         params.degradation_preference);
+
+  if (params.has_fec_protection)
+    native.fec_protection = to_native_rtp_fec_protection(params.fec_protection);
 
   return native;
 }
@@ -386,6 +412,22 @@ RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params) {
   return rust;
 }
 
+RtpFecProtection to_rust_rtp_fec_protection(
+    const webrtc::RtpFecProtection& protection) {
+  RtpFecProtection rust{};
+  rust.mode = static_cast<FecProtectionMode>(protection.mode);
+  rust.protection_factor = protection.protection_factor;
+  if (protection.key_frame_protection_factor.has_value()) {
+    rust.has_key_frame_protection_factor = true;
+    rust.key_frame_protection_factor = *protection.key_frame_protection_factor;
+  }
+  if (protection.max_fec_frames.has_value()) {
+    rust.has_max_fec_frames = true;
+    rust.max_fec_frames = *protection.max_fec_frames;
+  }
+  return rust;
+}
+
 RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params) {
   RtpParameters rust{};
   rust.transaction_id = params.transaction_id;
@@ -406,6 +448,11 @@ RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params) {
     rust.has_degradation_preference = true;
     rust.degradation_preference = static_cast<DegradationPreference>(
         params.degradation_preference.value());
+  }
+
+  if (params.fec_protection.has_value()) {
+    rust.has_fec_protection = true;
+    rust.fec_protection = to_rust_rtp_fec_protection(*params.fec_protection);
   }
 
   return rust;

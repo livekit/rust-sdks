@@ -2110,6 +2110,17 @@ impl SessionInner {
                 matched = producible_codecs;
             }
 
+            // libwebrtc's codec preference matching drops any codec missing
+            // from the list and never re-adds flexfec. Retain rtx and
+            // flexfec-03 so retransmissions and FEC negotiate. How much FEC is
+            // sent is set per track through RtpParameters::fec_protection.
+            for codec in unmatched {
+                let mime_type = codec.mime_type.to_lowercase();
+                if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {
+                    matched.push(codec);
+                }
+            }
+
             transceiver.set_codec_preferences(matched)?;
         }
 

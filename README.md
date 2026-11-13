@@ -159,6 +159,36 @@ async fn main() -> Result<()> {
 }
 ```
 
+### Publish video with FlexFEC
+
+Set the protection level when publishing each video track. Assuming
+`video_track` is a `LocalVideoTrack`:
+
+```rust
+use livekit::{
+    options::{FecProtection, TrackPublishOptions},
+    prelude::{LocalTrack, Room, RoomOptions},
+};
+
+let (room, mut room_events) = Room::connect(&url, &token, RoomOptions::default()).await?;
+
+let publish_options = TrackPublishOptions {
+    fec: FecProtection::Medium,
+    // libwebrtc does not send FlexFEC for simulcast senders.
+    simulcast: false,
+    ..Default::default()
+};
+
+room.local_participant()
+    .publish_track(LocalTrack::Video(video_track), publish_options)
+    .await?;
+```
+
+The available per-track levels are `Disabled` (the default), `Low` (0.15),
+`Medium` (0.25), and `High` (0.35), given as the requested ratio of repair to
+media packets. `Disabled` negotiates FlexFEC but sends no repair packets. Receivers negotiate FlexFEC automatically and require
+no additional configuration.
+
 ### Receive video frames of a subscribed track
 
 ```rust

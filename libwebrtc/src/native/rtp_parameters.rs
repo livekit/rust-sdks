@@ -45,6 +45,55 @@ impl From<sys_rp::ffi::RtpParameters> for RtpParameters {
             mid: value.mid,
             has_degradation_preference: value.has_degradation_preference,
             degradation_preference: value.degradation_preference.repr,
+            fec_protection: value.has_fec_protection.then(|| value.fec_protection.into()),
+        }
+    }
+}
+
+impl From<sys_rp::ffi::FecProtectionMode> for FecProtectionMode {
+    fn from(value: sys_rp::ffi::FecProtectionMode) -> Self {
+        match value {
+            sys_rp::ffi::FecProtectionMode::Fixed => Self::Fixed,
+            sys_rp::ffi::FecProtectionMode::Minimum => Self::Minimum,
+            sys_rp::ffi::FecProtectionMode::Disabled => Self::Disabled,
+            _ => Self::Adaptive,
+        }
+    }
+}
+
+impl From<FecProtectionMode> for sys_rp::ffi::FecProtectionMode {
+    fn from(value: FecProtectionMode) -> Self {
+        match value {
+            FecProtectionMode::Adaptive => Self::Adaptive,
+            FecProtectionMode::Fixed => Self::Fixed,
+            FecProtectionMode::Minimum => Self::Minimum,
+            FecProtectionMode::Disabled => Self::Disabled,
+        }
+    }
+}
+
+impl From<sys_rp::ffi::RtpFecProtection> for RtpFecProtection {
+    fn from(value: sys_rp::ffi::RtpFecProtection) -> Self {
+        Self {
+            mode: value.mode.into(),
+            protection_factor: value.protection_factor,
+            key_frame_protection_factor: value
+                .has_key_frame_protection_factor
+                .then_some(value.key_frame_protection_factor),
+            max_fec_frames: value.has_max_fec_frames.then_some(value.max_fec_frames),
+        }
+    }
+}
+
+impl From<RtpFecProtection> for sys_rp::ffi::RtpFecProtection {
+    fn from(value: RtpFecProtection) -> Self {
+        Self {
+            mode: value.mode.into(),
+            protection_factor: value.protection_factor,
+            has_key_frame_protection_factor: value.key_frame_protection_factor.is_some(),
+            key_frame_protection_factor: value.key_frame_protection_factor.unwrap_or_default(),
+            has_max_fec_frames: value.max_fec_frames.is_some(),
+            max_fec_frames: value.max_fec_frames.unwrap_or_default(),
         }
     }
 }
@@ -171,6 +220,8 @@ impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
     fn from(value: RtpParameters) -> Self {
         let degradation_preference =
             sys_rp::ffi::DegradationPreference { repr: value.degradation_preference };
+        let has_fec_protection = value.fec_protection.is_some();
+        let fec_protection = value.fec_protection.unwrap_or_default().into();
         Self {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
@@ -180,6 +231,8 @@ impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
             mid: value.mid,
             has_degradation_preference: value.has_degradation_preference,
             degradation_preference,
+            has_fec_protection,
+            fec_protection,
         }
     }
 }

@@ -40,6 +40,8 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
     RtpCodecParameters params);
 webrtc::RtpCapabilities to_rtp_capabilities(RtpCapabilities capabilities);
 webrtc::RtcpParameters to_native_rtcp_paramaters(RtcpParameters params);
+webrtc::RtpFecProtection to_native_rtp_fec_protection(
+    const RtpFecProtection& protection);
 webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params);
 
 RtcpFeedback to_rust_rtcp_feedback(webrtc::RtcpFeedback feedback);
@@ -56,6 +58,8 @@ RtpCodecParameters to_rust_rtp_codec_parameters(
     webrtc::RtpCodecParameters params);
 RtpCapabilities to_rust_rtp_capabilities(webrtc::RtpCapabilities capabilities);
 RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params);
+RtpFecProtection to_rust_rtp_fec_protection(
+    const webrtc::RtpFecProtection& protection);
 RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params);
 
 }  // namespace livekit_ffi

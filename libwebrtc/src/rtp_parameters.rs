@@ -44,6 +44,40 @@ impl DegradationPreference {
     pub const Disabled: Self = Self::MaintainFramerateAndResolution;
 }
 
+/// How a [`RtpFecProtection`] policy derives the FEC rate of a video sender.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum FecProtectionMode {
+    /// Derive protection from the observed loss and RTT, as when no policy is set.
+    #[default]
+    Adaptive,
+    /// Always request [`RtpFecProtection::protection_factor`], regardless of loss and RTT.
+    Fixed,
+    /// Request the higher of the adaptive rate and [`RtpFecProtection::protection_factor`].
+    Minimum,
+    /// Generate no FEC packets, even when FEC was negotiated.
+    Disabled,
+}
+
+/// Sender-wide FEC (FlexFEC or ULPFEC) protection policy for a video sender.
+///
+/// Has no effect unless FEC was negotiated. Applied through
+/// [`RtpParameters::set_fec_protection`] and takes effect without renegotiation.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RtpFecProtection {
+    /// How the FEC rate is derived.
+    pub mode: FecProtectionMode,
+    /// Requested FEC packets relative to media packets, in `[0.0, 1.0]`.
+    ///
+    /// Used by [`FecProtectionMode::Fixed`] and [`FecProtectionMode::Minimum`].
+    pub protection_factor: f64,
+    /// Protection factor for key frames. Defaults to `protection_factor`.
+    pub key_frame_protection_factor: Option<f64>,
+    /// Maximum number of frames covered by one FEC block, in `[1, 6]`.
+    ///
+    /// Defaults to 1 for [`FecProtectionMode::Fixed`] and the adaptive value otherwise.
+    pub max_fec_frames: Option<i32>,
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -63,6 +97,7 @@ pub struct RtpParameters {
     pub(crate) mid: String,
     pub(crate) has_degradation_preference: bool,
     pub(crate) degradation_preference: i32,
+    pub(crate) fec_protection: Option<RtpFecProtection>,
 }
 
 impl RtpParameters {
@@ -92,6 +127,19 @@ impl RtpParameters {
             3 => DegradationPreference::Balanced,
             _ => DegradationPreference::Balanced,
         })
+    }
+
+    /// Sets the FEC protection policy for this video sender.
+    ///
+    /// `None` restores adaptive protection. Setting a policy on an audio sender
+    /// makes [`set_parameters`](crate::rtp_sender::RtpSender::set_parameters) fail.
+    pub fn set_fec_protection(&mut self, protection: Option<RtpFecProtection>) {
+        self.fec_protection = protection;
+    }
+
+    /// Gets the FEC protection policy, if set.
+    pub fn fec_protection(&self) -> Option<&RtpFecProtection> {
+        self.fec_protection.as_ref()
     }
 }
 
