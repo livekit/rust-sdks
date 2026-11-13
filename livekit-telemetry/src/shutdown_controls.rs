@@ -22,7 +22,11 @@
 //! the pipeline is gone: never from send attempts, never from a cache the pipeline still holds.
 //! A continuous producer stops by itself after a few export timeouts, so a drain that never
 //! yields still ends and the test fails rather than hangs. The real-time cases leave seconds of
-//! margin for a loaded machine; the exact deadline rule is the paused, deterministic B1 case.
+//! margin for a loaded machine; their time limits are local progress checks, not a bound on how
+//! long a drain or another pipeline's write can take (a started turn finishes its synchronous
+//! writes, and every pipeline's writes pass one process-wide gate). The late-start rule is the
+//! B1 case: its branch selection is forced, but it runs in real time, needs its setup's disk
+//! writes to finish before a 2 s deadline, and retries a setup that did not.
 
 use std::{
     future::Future,
@@ -384,7 +388,8 @@ async fn queue_evictions_during_shutdown_are_counted_apart_from_delivery() {
 /// neither stops while work keeps arriving and time is left, nor takes a new deadline per turn.
 /// (Real time on two workers: a drain that never yields cannot hold back the test's clock.
 /// The deadline is 3 s and the drain must stop within 3 s after it: margins for a loaded
-/// machine, which can leave a worker idle for a second or more. The producer runs for five
+/// machine, which can leave a worker idle for a second or more. That limit is a local progress
+/// check, not a product bound: a started turn can take longer. The producer runs for five
 /// deadlines, so a drain that takes a new deadline per turn, or loops until empty, is still
 /// caught. If the drain does not stop by itself, the producer is stopped so the task can be
 /// joined.)
@@ -631,7 +636,8 @@ fn resume_once(name: &str, after: Duration) -> Resumed {
 
 /// [`resume_once`], counted only when the first turn ended before the deadline: its two
 /// synchronous file writes can take longer on a cold disk, and then the drain rightly ends
-/// without a second turn. Up to three attempts.
+/// without a second turn. Up to three attempts. A discarded attempt also drops its owners and
+/// computes `destroyed`, but only the returned attempt's cleanup is asserted.
 fn resume(name: &str, after: Duration) -> Resumed {
     let mut attempt = 0;
     loop {

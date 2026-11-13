@@ -2,4 +2,4 @@
 livekit-telemetry: patch
 ---
 
-A telemetry shutdown now encodes the records and spans that a retained scope captures during its final drain, in bounded turns that start only before the original export deadline, instead of leaving them neither sent nor cached.
+A telemetry shutdown now gives the records and spans that a retained scope captures during its final drain further bounded encoding turns, which start only before the original export deadline; a started turn may finish after that deadline, and what is still queued when no further turn may start is not cached.
