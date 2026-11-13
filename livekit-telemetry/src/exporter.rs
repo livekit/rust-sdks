@@ -474,9 +474,10 @@ impl Exporter {
     /// Returns the shutdowns asked for meanwhile, to be answered once the actor has stopped.
     ///
     /// A scope the app still holds can capture while this runs. What it queues is encoded by
-    /// further bounded turns, each after a trip back to the executor, and only while the deadline
-    /// is ahead and the app has not opted out. What is still queued at the deadline, or arrives
-    /// after the actor stops, is not cached.
+    /// further bounded turns. Each starts after a trip back to the executor, and only if the
+    /// deadline is still ahead and the app has not opted out when it starts. A turn that has
+    /// started finishes its synchronous writes even past the deadline. What is still queued at
+    /// the deadline, or arrives after the actor stops, is not cached.
     async fn drain(&mut self) -> Vec<oneshot::Sender<()>> {
         let deadline = Instant::now() + self.shared.config.export_timeout();
         self.draining = true;
@@ -492,7 +493,7 @@ impl Exporter {
         let mut waiters = Vec::new();
         loop {
             // What arrived during the last turn gets a turn of its own, within the same deadline.
-            let turn = Instant::now() < deadline && !self.shared.revoked() && self.queued();
+            let turn = self.turn_due(deadline);
             if !turn && self.pass.is_none() && self.inflight.is_none() {
                 break;
             }
@@ -516,7 +517,12 @@ impl Exporter {
                     Some(Command::Shutdown(done)) => waiters.push(done),
                     None => commands_open = false,
                 },
-                () = yield_once(), if turn => self.export_pending(),
+                // Asked again after the yield: the drain can resume after its deadline.
+                () = yield_once(), if turn => {
+                    if self.turn_due(deadline) {
+                        self.export_pending();
+                    }
+                }
             }
             // A pass that ended with a request left to make (a split, the rerun) goes on.
             if self.inflight.is_none() && self.pass.is_some() {
@@ -545,10 +551,13 @@ impl Exporter {
         self.begin_pass();
     }
 
-    /// Whether records or finished spans wait to be encoded.
-    fn queued(&self) -> bool {
-        self.shared.store.len() > 0
-            || self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len() > 0
+    /// Whether a shutdown turn may start now: before `deadline`, without an opt-out, with
+    /// records or finished spans waiting to be encoded.
+    fn turn_due(&self, deadline: Instant) -> bool {
+        Instant::now() < deadline
+            && !self.shared.revoked()
+            && (self.shared.store.len() > 0
+                || self.shared.spans.lock().unwrap_or_else(|e| e.into_inner()).finished_len() > 0)
     }
 
     /// Split records by owner — the project their session routes to, and the session — so each
