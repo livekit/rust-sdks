@@ -284,6 +284,8 @@ struct EngineInner {
 
     close_notifier: Arc<Notify>,
     running_handle: RwLock<EngineHandle>,
+    /// The session created by `connect`, which sent the join-time tracks.
+    join_session: Weak<RtcSession>,
 
     // The lock is write guarded for the whole reconnection time.
     // We can simply wait for reconnection by trying to acquire a read lock.
@@ -408,16 +410,28 @@ impl RtcEngine {
         session.add_track(req).await
     }
 
-    pub(crate) async fn wait_track_published_by_cid(
+    /// Waits for the server to confirm a track sent with the join request and passes the
+    /// confirmation to `complete` while no reconnect can start, so a full reconnect either
+    /// happens before (and the track is not completed) or republishes the completed track.
+    ///
+    /// Returns `false` without calling `complete` if a full reconnect has replaced the session
+    /// that sent the track: its confirmation and sender belong to that session, so the track
+    /// must be published again.
+    pub(crate) async fn complete_join_track(
         &self,
         cid: String,
         rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
-    ) -> EngineResult<proto::TrackInfo> {
+        complete: impl FnOnce(proto::TrackInfo),
+    ) -> EngineResult<bool> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
             (handle.session.clone(), _r_lock)
         };
-        session.wait_track_published_by_cid(cid, rx).await
+        if !Weak::ptr_eq(&self.inner.join_session, &Arc::downgrade(&session)) {
+            return Ok(false);
+        }
+        complete(session.wait_track_published_by_cid(cid, rx).await?);
+        Ok(true)
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
@@ -547,13 +561,15 @@ impl EngineInner {
                         return Err(err);
                     }
 
+                    let session = Arc::new(session);
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
                     let inner = Arc::new(Self {
                         lk_runtime,
                         engine_tx,
                         close_notifier: Arc::new(Notify::new()),
+                        join_session: Arc::downgrade(&session),
                         running_handle: RwLock::new(EngineHandle {
-                            session: Arc::new(session),
+                            session,
                             closed: false,
                             reconnecting: false,
                             can_reconnect: true,

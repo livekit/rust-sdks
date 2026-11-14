@@ -946,15 +946,23 @@ impl Room {
                 local_participant.publish_track(track, options).await?;
                 continue;
             };
-            let track_info = match self.inner.rtc_engine.wait_track_published_by_cid(cid, rx).await
-            {
-                Ok(track_info) => track_info,
+            let completed = self
+                .inner
+                .rtc_engine
+                .complete_join_track(cid, rx, |track_info| {
+                    local_participant.complete_publish(track.clone(), options.clone(), track_info);
+                })
+                .await;
+            match completed {
+                Ok(true) => {}
+                Ok(false) => {
+                    local_participant.publish_track(track, options).await?;
+                }
                 Err(err) => {
                     log::error!("failed to publish track {} with join: {}", track.name(), err);
                     return Err(err.into());
                 }
-            };
-            local_participant.complete_publish(track, options, track_info);
+            }
         }
         Ok(())
     }
