@@ -28,6 +28,7 @@ namespace {
 using WindowsDeviceType = webrtc::AudioDeviceModule::WindowsDeviceType;
 
 constexpr char kWindowsDeviceTypePrefix[] = "windows:";
+constexpr char kIndexPrefix[] = "index:";
 
 // Parses the number following `prefix` in `token`.
 std::optional<int> ParseSelectionNumber(const std::string& token,
@@ -81,7 +82,8 @@ rust::String AudioDeviceController::playout_device_name(uint16_t index) const {
   return rust::String(name);
 }
 
-rust::String AudioDeviceController::recording_device_name(uint16_t index) const {
+rust::String AudioDeviceController::recording_device_name(
+    uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->RecordingDeviceName(index, name, guid);
@@ -96,11 +98,13 @@ rust::String AudioDeviceController::playout_device_guid(uint16_t index) const {
     return rust::String(guid);
   }
   // Linux PulseAudio/ALSA does not populate device GUIDs in WebRTC.
-  // Synthesize an index-based identifier so callers can distinguish and select devices.
+  // Synthesize an index-based identifier so callers can distinguish and select
+  // devices.
   return rust::String("index:" + std::to_string(index));
 }
 
-rust::String AudioDeviceController::recording_device_guid(uint16_t index) const {
+rust::String AudioDeviceController::recording_device_guid(
+    uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->RecordingDeviceName(index, name, guid);
@@ -108,41 +112,72 @@ rust::String AudioDeviceController::recording_device_guid(uint16_t index) const 
     return rust::String(guid);
   }
   // Linux PulseAudio/ALSA does not populate device GUIDs in WebRTC.
-  // Synthesize an index-based identifier so callers can distinguish and select devices.
+  // Synthesize an index-based identifier so callers can distinguish and select
+  // devices.
   return rust::String("index:" + std::to_string(index));
 }
 
 bool AudioDeviceController::set_playout_device(uint16_t index) const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
   return select_playout_device(index);
+}
+
+bool AudioDeviceController::set_playout_device_by_guid(
+    rust::String guid) const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  return select_playout_device_by_id(std::string(guid.c_str()));
+}
+
+rust::String AudioDeviceController::playout_device_selection() const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  return rust::String(playout_selection_);
+}
+
+bool AudioDeviceController::restore_playout_device_selection(
+    rust::String selection) const {
+  std::string token(selection.c_str());
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  if (token.empty()) {
+    bool selected = SelectPlatformDefault(
+        [this](uint16_t index) { return adm_proxy_->SetPlayoutDevice(index); },
+        [this](WindowsDeviceType type) {
+          return adm_proxy_->SetPlayoutDevice(type);
+        });
+    if (selected) {
+      playout_selection_.clear();
+    }
+    return selected;
+  }
+  if (auto type = ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
+    if (adm_proxy_->SetPlayoutDevice(static_cast<WindowsDeviceType>(*type)) !=
+        0) {
+      return false;
+    }
+    playout_selection_ = std::move(token);
+    return true;
+  }
+  if (auto index = ParseSelectionNumber(token, kIndexPrefix)) {
+    // Selected directly, as set_playout_device(index) does: before the platform
+    // ADM exists there is no device list to check the index against.
+    return *index >= 0 && *index <= UINT16_MAX &&
+           select_playout_device(static_cast<uint16_t>(*index));
+  }
+  // A device GUID: find the device in the current list, which may have changed
+  // since it was selected.
+  return select_playout_device_by_id(token);
 }
 
 bool AudioDeviceController::select_playout_device(uint16_t index) const {
   if (adm_proxy_->SetPlayoutDevice(index) != 0) {
     return false;
   }
-  std::string identity(playout_device_guid(index).c_str());
-  std::lock_guard<std::mutex> lock(selection_mutex_);
-  playout_selection_ = std::move(identity);
+  playout_selection_ = std::string(playout_device_guid(index).c_str());
   return true;
 }
 
-bool AudioDeviceController::set_recording_device(uint16_t index) const {
-  return select_recording_device(index);
-}
-
-bool AudioDeviceController::select_recording_device(uint16_t index) const {
-  if (adm_proxy_->SetRecordingDevice(index) != 0) {
-    return false;
-  }
-  std::string identity(recording_device_guid(index).c_str());
-  std::lock_guard<std::mutex> lock(selection_mutex_);
-  recording_selection_ = std::move(identity);
-  return true;
-}
-
-bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const {
+bool AudioDeviceController::select_playout_device_by_id(
+    const std::string& target_guid) const {
   int16_t count = adm_proxy_->PlayoutDevices();
-  std::string target_guid = std::string(guid.c_str());
 
   if (target_guid.empty()) {
     return false;
@@ -156,7 +191,8 @@ bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const 
       if (pos == target_guid.length() - 6 && idx >= 0 && idx < count) {
         return select_playout_device(static_cast<uint16_t>(idx));
       }
-    } catch (...) {}
+    } catch (...) {
+    }
     return false;
   }
 
@@ -193,9 +229,69 @@ bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const 
   return false;
 }
 
-bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) const {
+bool AudioDeviceController::set_recording_device(uint16_t index) const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  return select_recording_device(index);
+}
+
+bool AudioDeviceController::set_recording_device_by_guid(
+    rust::String guid) const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  return select_recording_device_by_id(std::string(guid.c_str()));
+}
+
+rust::String AudioDeviceController::recording_device_selection() const {
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  return rust::String(recording_selection_);
+}
+
+bool AudioDeviceController::restore_recording_device_selection(
+    rust::String selection) const {
+  std::string token(selection.c_str());
+  std::lock_guard<std::mutex> lock(selection_mutex_);
+  if (token.empty()) {
+    bool selected = SelectPlatformDefault(
+        [this](uint16_t index) {
+          return adm_proxy_->SetRecordingDevice(index);
+        },
+        [this](WindowsDeviceType type) {
+          return adm_proxy_->SetRecordingDevice(type);
+        });
+    if (selected) {
+      recording_selection_.clear();
+    }
+    return selected;
+  }
+  if (auto type = ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
+    if (adm_proxy_->SetRecordingDevice(static_cast<WindowsDeviceType>(*type)) !=
+        0) {
+      return false;
+    }
+    recording_selection_ = std::move(token);
+    return true;
+  }
+  if (auto index = ParseSelectionNumber(token, kIndexPrefix)) {
+    // Selected directly, as set_recording_device(index) does: before the
+    // platform ADM exists there is no device list to check the index against.
+    return *index >= 0 && *index <= UINT16_MAX &&
+           select_recording_device(static_cast<uint16_t>(*index));
+  }
+  // A device GUID: find the device in the current list, which may have changed
+  // since it was selected.
+  return select_recording_device_by_id(token);
+}
+
+bool AudioDeviceController::select_recording_device(uint16_t index) const {
+  if (adm_proxy_->SetRecordingDevice(index) != 0) {
+    return false;
+  }
+  recording_selection_ = std::string(recording_device_guid(index).c_str());
+  return true;
+}
+
+bool AudioDeviceController::select_recording_device_by_id(
+    const std::string& target_guid) const {
   int16_t count = adm_proxy_->RecordingDevices();
-  std::string target_guid = std::string(guid.c_str());
 
   if (target_guid.empty()) {
     return false;
@@ -209,7 +305,8 @@ bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) cons
       if (pos == target_guid.length() - 6 && idx >= 0 && idx < count) {
         return select_recording_device(static_cast<uint16_t>(idx));
       }
-    } catch (...) {}
+    } catch (...) {
+    }
     return false;
   }
 
@@ -244,74 +341,6 @@ bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) cons
 #endif
 
   return false;
-}
-
-rust::String AudioDeviceController::playout_device_selection() const {
-  std::lock_guard<std::mutex> lock(selection_mutex_);
-  return rust::String(playout_selection_);
-}
-
-rust::String AudioDeviceController::recording_device_selection() const {
-  std::lock_guard<std::mutex> lock(selection_mutex_);
-  return rust::String(recording_selection_);
-}
-
-bool AudioDeviceController::restore_playout_device_selection(
-    rust::String selection) const {
-  std::string token(selection.c_str());
-  if (!token.empty() && token.rfind(kWindowsDeviceTypePrefix, 0) != 0) {
-    // A device identity: find the device in the current list, which may have
-    // changed since it was selected.
-    return set_playout_device_by_guid(selection);
-  }
-
-  bool selected = false;
-  if (token.empty()) {
-    selected = SelectPlatformDefault(
-        [this](uint16_t index) { return adm_proxy_->SetPlayoutDevice(index); },
-        [this](WindowsDeviceType type) {
-          return adm_proxy_->SetPlayoutDevice(type);
-        });
-  } else if (auto type =
-                 ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
-    selected = adm_proxy_->SetPlayoutDevice(
-                   static_cast<WindowsDeviceType>(*type)) == 0;
-  }
-  if (selected) {
-    std::lock_guard<std::mutex> lock(selection_mutex_);
-    playout_selection_ = std::move(token);
-  }
-  return selected;
-}
-
-bool AudioDeviceController::restore_recording_device_selection(
-    rust::String selection) const {
-  std::string token(selection.c_str());
-  if (!token.empty() && token.rfind(kWindowsDeviceTypePrefix, 0) != 0) {
-    // A device identity: find the device in the current list, which may have
-    // changed since it was selected.
-    return set_recording_device_by_guid(selection);
-  }
-
-  bool selected = false;
-  if (token.empty()) {
-    selected = SelectPlatformDefault(
-        [this](uint16_t index) {
-          return adm_proxy_->SetRecordingDevice(index);
-        },
-        [this](WindowsDeviceType type) {
-          return adm_proxy_->SetRecordingDevice(type);
-        });
-  } else if (auto type =
-                 ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
-    selected = adm_proxy_->SetRecordingDevice(
-                   static_cast<WindowsDeviceType>(*type)) == 0;
-  }
-  if (selected) {
-    std::lock_guard<std::mutex> lock(selection_mutex_);
-    recording_selection_ = std::move(token);
-  }
-  return selected;
 }
 
 bool AudioDeviceController::stop_recording() const {

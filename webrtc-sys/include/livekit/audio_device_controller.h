@@ -93,8 +93,13 @@ class AudioDeviceController {
   bool is_platform_adm_active() const;
 
  private:
+  // Select a device and remember it. The caller holds selection_mutex_.
   bool select_playout_device(uint16_t index) const;
   bool select_recording_device(uint16_t index) const;
+  // Select a device by GUID, "index:<n>" ID or name. The caller holds
+  // selection_mutex_.
+  bool select_playout_device_by_id(const std::string& target_guid) const;
+  bool select_recording_device_by_id(const std::string& target_guid) const;
 
   // The AdmProxy marshals its calls onto the runtime's worker thread, keep
   // the runtime (and its threads) alive as long as Rust can reach the proxy.
@@ -106,6 +111,11 @@ class AudioDeviceController {
 
   // The last successful selections, kept as stable identities (see
   // *_device_selection()) so they survive devices being added or removed.
+  // selection_mutex_ is held across each selection, from the native call to
+  // remembering its result, so concurrent selections can't remember a device
+  // other than the one selected. Holding it while the proxy blocks on the
+  // worker thread is safe: the worker never calls back into this controller
+  // (see AdmProxy).
   mutable std::mutex selection_mutex_;
   mutable std::string playout_selection_;
   mutable std::string recording_selection_;

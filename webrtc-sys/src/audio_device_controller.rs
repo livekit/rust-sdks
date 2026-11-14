@@ -149,5 +149,19 @@ mod tests {
             assert!(audio.restore_playout_device_selection("windows:-1".to_string()));
             assert_eq!(audio.playout_device_selection(), "windows:-1");
         }
+
+        // Before the platform ADM exists, index selections are deferred and
+        // must still round trip.
+        assert!(audio.set_recording_device(0));
+        let first_recording = audio.recording_device_selection();
+        assert!(audio.set_recording_device(1));
+        assert!(audio.restore_recording_device_selection(first_recording.clone()));
+        assert_eq!(audio.recording_device_selection(), first_recording);
+
+        assert!(audio.set_playout_device(0));
+        let first_playout = audio.playout_device_selection();
+        assert!(audio.set_playout_device(1));
+        assert!(audio.restore_playout_device_selection(first_playout.clone()));
+        assert_eq!(audio.playout_device_selection(), first_playout);
     }
 }
