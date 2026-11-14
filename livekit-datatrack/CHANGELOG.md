@@ -1,4 +1,10 @@
 # Changelog
+## 0.2.6 (2026-11-14)
+
+### Fixes
+
+- Mark data track unpublished after republish fail - #1537 (@ladvoc)
+
 ## 0.2.5 (2026-11-13)
 
 ### Fixes

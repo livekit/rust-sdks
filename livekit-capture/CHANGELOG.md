@@ -1,3 +1,9 @@
+## 0.2.1 (2026-11-14)
+
+### Fixes
+
+- Mark data track unpublished after republish fail - #1537 (@ladvoc)
+
 ## 0.2.0 (2026-11-13)
 
 ### Breaking Changes
