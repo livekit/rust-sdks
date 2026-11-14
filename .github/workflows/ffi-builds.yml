@@ -185,13 +185,16 @@ jobs:
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
+      # Every build below selects its output with `cargo rustc --crate-type`
+      # rather than `cargo build`: livekit-ffi also lists "lib" (for the Node
+      # bindings), and Cargo drops LTO for a build that emits an rlib.
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macosx_deployment_target }}
         run: |
           cd livekit-ffi
-          cargo build --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc --lib --crate-type cdylib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Build (iOS)
         if: ${{ matrix.platform == 'ios' }}
@@ -201,7 +204,7 @@ jobs:
         # run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
         run: |
           cd livekit-ffi
-          cargo rustc --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc --lib --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Strip iOS release archive
         if: ${{ matrix.platform == 'ios' }}
@@ -216,7 +219,7 @@ jobs:
         if: ${{ matrix.platform == 'windows' }}
         run: |
           cd livekit-ffi
-          cargo build --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc --lib --crate-type cdylib --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
       - name: Build (Linux)
@@ -235,7 +238,7 @@ jobs:
             export CC=clang; \
             export CXX=clang++; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
-            cd livekit-ffi && cargo build --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
+            cd livekit-ffi && cargo rustc --lib --crate-type cdylib --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
           sudo chown -R $USER:$USER "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
 
@@ -245,7 +248,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build --profile "$CARGO_RUST_PROFILE" ${{ matrix.buildargs }}
+          cargo ndk --target ${{ matrix.target }} rustc --lib --crate-type cdylib --profile "$CARGO_RUST_PROFILE" ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |

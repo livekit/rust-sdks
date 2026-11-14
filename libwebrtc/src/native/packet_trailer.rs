@@ -19,8 +19,8 @@
 //! through the WebRTC pipeline and can be extracted on the receiver side.
 //!
 //! On the send side, user timestamps/frameIDs are stored in the handler's internal
-//! map keyed by RTP timestamp. When the encoder produces a frame,
-//! the transformer looks up the metadata via the frame's CaptureTime().
+//! map keyed by a unique microsecond timestamp. When the encoder produces a frame,
+//! the transformer looks up the metadata via the frame's presentation timestamp.
 //!
 //! On the receive side, extracted frame metadata is stored in an
 //! internal map keyed by RTP timestamp. Decoded frames look up their
@@ -175,11 +175,10 @@ impl PacketTrailerHandler {
 
     /// Store frame metadata for a given capture timestamp (sender side).
     ///
-    /// The `capture_timestamp_us` must be the TimestampAligner-adjusted
-    /// timestamp (as produced by `VideoTrackSource::on_captured_frame`),
-    /// NOT the original `timestamp_us` from the VideoFrame. The transformer
-    /// looks up the metadata by the frame's `CaptureTime()` which is
-    /// derived from the aligned value.
+    /// The `capture_timestamp_us` must match the unique microsecond key placed
+    /// in the native frame's presentation timestamp by the video source,
+    /// rather than the original [`VideoFrame::timestamp_us`](crate::video_frame::VideoFrame::timestamp_us).
+    /// This preserves sub-millisecond precision through encoding.
     ///
     /// In normal usage this is called automatically by the C++ layer --
     /// callers should set `user_timestamp` and `frame_id` on the

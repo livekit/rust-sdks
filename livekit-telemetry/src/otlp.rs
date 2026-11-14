@@ -29,6 +29,7 @@ use crate::{
     Attribute, AttributeValue, Severity, SpanOutcome,
 };
 
+/// The `Content-Type` of an OTLP/HTTP protobuf request.
 pub(crate) const CONTENT_TYPE: &str = "application/x-protobuf";
 
 fn resource(attributes: &[Attribute]) -> Option<Resource> {
@@ -133,14 +134,20 @@ fn log_record(
     // duplicates `EventName` for backends that do not read the field yet (Loki); an app cannot
     // set it (`otel.*` is reserved).
     let body = event.body.or_else(|| (!event.name.is_empty()).then(|| event.name.clone()));
+    // The core's copy is the only one: a pipeline attribute of that name never ships.
+    event.attributes.retain(|a| a.key != "otel.event.name");
     if !event.name.is_empty() {
         event.attributes.push(Attribute::new("otel.event.name", event.name.clone()));
     }
+    last_value_wins(&mut event.attributes);
     LogRecord {
         time_unix_nano,
+        // When the collecting side saw the record: for one recorded in process, OTel SDKs set
+        // it equal to the timestamp (9 bytes).
         observed_time_unix_nano: time_unix_nano,
         severity_number: SeverityNumber::from(event.severity) as i32,
-        severity_text: severity_text(event.severity).to_owned(),
+        // The text as well as the number, as OTel SDKs send them: a log view shows the text.
+        severity_text: event.severity.as_str().to_owned(),
         body: body.map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
         attributes: event.attributes.iter().map(KeyValue::from).collect(),
         event_name: event.name,
@@ -151,14 +158,14 @@ fn log_record(
 }
 
 fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
-    let session = record.session.clone();
     fill_in_global(&mut record.attributes, global);
     // The outcome is the core's, as `session.id` is: a span's own copies never ship.
     record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
+    last_value_wins(&mut record.attributes);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
-        trace_id: session.trace_id.to_vec(),
+        trace_id: record.session.trace_id.to_vec(),
         span_id: record.span_id.to_be_bytes().to_vec(),
         parent_span_id: record.parent_span_id.map(|p| p.to_be_bytes().to_vec()).unwrap_or_default(),
         name: record.name,
@@ -196,6 +203,36 @@ fn fill_in_global(own: &mut Vec<Attribute>, global: &[Attribute]) {
     }
 }
 
+/// One attribute per key, as OTLP requires (a receiver's choice among repeats is unpredictable):
+/// the last value supplied wins, in the place of that last copy. Only a caller's own list can
+/// repeat a key, so the precedence above holds: the session's attributes, `session.id` and
+/// `otel.event.name` replaced every copy of their keys, and the rest only fill in missing keys.
+fn last_value_wins(attributes: &mut Vec<Attribute>) {
+    if attributes.len() > 64 {
+        let mut seen = std::collections::HashSet::<&str>::with_capacity(attributes.len());
+        let mut keep = vec![false; attributes.len()];
+        for (i, attribute) in attributes.iter().enumerate().rev() {
+            keep[i] = seen.insert(attribute.key.as_str());
+        }
+        // Release borrowed keys before moving or dropping attributes.
+        drop(seen);
+        let mut keep = keep.into_iter();
+        attributes.retain(|_| keep.next().expect("one flag per attribute"));
+        return;
+    }
+
+    // Small lists keep the allocation-free scan.
+
+    let mut i = 0;
+    while i < attributes.len() {
+        if attributes[i + 1..].iter().any(|a| a.key == attributes[i].key) {
+            attributes.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
 impl From<SpanKind> for span::SpanKind {
     /// The OTLP value of a span kind.
     fn from(kind: SpanKind) -> Self {
@@ -215,16 +252,6 @@ impl From<Severity> for SeverityNumber {
             Severity::Warn => SeverityNumber::Warn,
             Severity::Error => SeverityNumber::Error,
         }
-    }
-}
-
-fn severity_text(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Trace => "TRACE",
-        Severity::Debug => "DEBUG",
-        Severity::Info => "INFO",
-        Severity::Warn => "WARN",
-        Severity::Error => "ERROR",
     }
 }
 
@@ -248,6 +275,138 @@ impl From<&Attribute> for KeyValue {
 mod tests {
     use super::*;
     use crate::TelemetryEvent;
+
+    /// A pipeline attribute named `otel.event.name` never ships a second copy of the key: the
+    /// core's own, from the event's name, is the only one.
+    #[test]
+    fn otel_event_name_is_sent_once() {
+        let session = crate::scope::ScopeState::new();
+        let global = [Attribute::new("otel.event.name", "sdk-meta")];
+        let queued = vec![QueuedEvent::new(TelemetryEvent::new("lk.ping"), session)];
+        let decoded = ExportLogsServiceRequest::decode(&encode_logs(&[], &global, queued)[..])
+            .expect("valid OTLP");
+        let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
+        let names: Vec<_> =
+            record.attributes.iter().filter(|kv| kv.key == "otel.event.name").collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+        let value = names[0].value.as_ref().and_then(|v| v.value.as_ref());
+        assert_eq!(value, Some(&any_value::Value::StringValue("lk.ping".into())));
+    }
+
+    /// OTLP keys are unique: of a caller's repeated keys the last value ships, and a session key
+    /// the caller repeats still ships the session's value — on log records and spans alike.
+    #[test]
+    fn repeated_caller_keys_ship_once_with_the_last_value() {
+        let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
+        let custom = TelemetryEvent::custom(
+            "checkout",
+            vec![Attribute::new("app.step", "first"), Attribute::new("app.step", "second")],
+        );
+        let sdk = TelemetryEvent::new("lk.ping")
+            .with_attribute("session.id", "spoofed")
+            .with_attribute("session.id", "spoofed again");
+        let queued =
+            vec![QueuedEvent::new(custom, session.clone()), QueuedEvent::new(sdk, session)];
+        let decoded = ExportLogsServiceRequest::decode(&encode_logs(&[], &[], queued)[..])
+            .expect("valid OTLP");
+        let records = &decoded.resource_logs[0].scope_logs[0].log_records;
+        let values = |record: &LogRecord, key: &str| -> Vec<_> {
+            let values = record.attributes.iter().filter(|kv| kv.key == key);
+            values.filter_map(|kv| kv.value.clone()?.value).collect()
+        };
+        assert_eq!(
+            values(&records[0], "app.step"),
+            [any_value::Value::StringValue("second".into())]
+        );
+        let session_id = any_value::Value::StringValue("07".repeat(16));
+        assert_eq!(values(&records[1], "session.id"), [session_id]);
+        for record in records {
+            assert_unique_keys(&record.attributes);
+        }
+
+        let mut spans = crate::span::Spans::new(1);
+        let span = spans.begin("checkout", SpanKind::Internal, None);
+        let own = vec![Attribute::new("app.step", "first"), Attribute::new("app.step", "second")];
+        spans.end(span, SpanOutcome::Ok, None, own);
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let [span] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
+            panic!("one span")
+        };
+        assert_eq!(
+            self::values(&span.attributes, "app.step"),
+            [any_value::Value::StringValue("second".into())]
+        );
+        assert_unique_keys(&span.attributes);
+    }
+
+    /// Check last-occurrence order against an independent index oracle on both paths.
+    #[test]
+    fn dedup_keeps_last_occurrences_across_threshold() {
+        for len in [0, 1, 63, 64, 65, 66, 4096] {
+            // Distinct, identical, alternating, adjacent pairs, and separated repeats.
+            for pattern in 0..5 {
+                let key = |i: usize| match pattern {
+                    0 => i,
+                    1 => 0,
+                    2 => i % 2,
+                    3 => i / 2,
+                    _ => i % 17,
+                };
+                let mut attributes: Vec<_> =
+                    (0..len).map(|i| Attribute::new(format!("key-{}", key(i)), i as i64)).collect();
+                let expected: Vec<_> = (0..len)
+                    .filter(|&i| !(i + 1..len).any(|j| key(i) == key(j)))
+                    .map(|i| Attribute::new(format!("key-{}", key(i)), i as i64))
+                    .collect();
+                last_value_wins(&mut attributes);
+                assert_eq!(attributes, expected, "len={len}, pattern={pattern}");
+            }
+        }
+    }
+
+    /// Retention moves the original strings and preserves floating-point payloads.
+    #[test]
+    fn dedup_preserves_allocations_and_value_bits() {
+        for len in [64, 65] {
+            let mut attributes: Vec<_> =
+                (0..len - 6).map(|i| Attribute::new(format!("key-{i}"), i as i64)).collect();
+            attributes.push(Attribute::new("text", "discard"));
+            attributes.push(Attribute::new("nan", 1.0));
+            attributes.push(Attribute::new("zero", 1.0));
+            attributes.push(Attribute::new("text", "original allocation"));
+            let nan_bits = 0x7ff8_0000_0000_0042;
+            attributes.push(Attribute::new("nan", f64::from_bits(nan_bits)));
+            attributes.push(Attribute::new("zero", -0.0));
+            let key_ptr = attributes[len - 3].key.as_ptr();
+            let AttributeValue::Str(value) = &attributes[len - 3].value else {
+                panic!("string value")
+            };
+            let value_ptr = value.as_ptr();
+            last_value_wins(&mut attributes);
+            assert_eq!(attributes.len(), len - 3);
+            let tail = &attributes[attributes.len() - 3..];
+            assert_eq!(tail[0].key.as_ptr(), key_ptr);
+            let AttributeValue::Str(value) = &tail[0].value else { panic!("string value") };
+            assert_eq!(value.as_ptr(), value_ptr);
+            assert_eq!(value, "original allocation");
+            for (attribute, key, bits) in
+                [(&tail[1], "nan", nan_bits), (&tail[2], "zero", (-0.0f64).to_bits())]
+            {
+                assert_eq!(attribute.key, key);
+                let AttributeValue::Double(value) = attribute.value else { panic!("double value") };
+                assert_eq!(value.to_bits(), bits);
+            }
+        }
+    }
+
+    fn assert_unique_keys(attributes: &[KeyValue]) {
+        let mut keys: Vec<_> = attributes.iter().map(|kv| &kv.key).collect();
+        let count = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "unique keys: {attributes:?}");
+    }
 
     #[test]
     fn encodes_events_as_otlp_log_records() {

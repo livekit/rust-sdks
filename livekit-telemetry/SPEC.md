@@ -8,9 +8,11 @@ Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamp
 captured (queued), never at export; an explicit `timestamp_ns` is kept. Its attributes, like its
 owner and timestamp, are taken at capture, its session's (`lk.room.*`, `lk.participant.*`,
 `session.id`) included, so a record captured before a disconnect keeps its room; only
-pipeline-wide attributes are added at export. Attribute keys the SDK owns are `lk.*`, `otel.*`,
-`code.*`, `session.id` and `error.type`: an app's attributes and custom events cannot set them,
-and on a span only the core writes `lk.outcome` and `error.type` (see [Spans](#spans)).
+pipeline-wide attributes are added at export. A record ships each key once: of a key it repeats,
+the last value supplied wins, and its session's keys replace its own. Attribute keys the SDK
+owns are `lk.*`, `otel.*`, `code.*`, `session.id`, `error.type` and `network.connection.type`:
+an app's attributes and custom events cannot set them, and on a span only the core writes
+`lk.outcome` and `error.type` (see [Spans](#spans)).
 
 ## Resource attributes
 
@@ -23,6 +25,71 @@ Set once per pipeline (`TelemetryConfig.resource`):
 | `os.name`, `os.version` | platform SDK | `iOS`, `18.5` |
 | `device.model.identifier` | platform SDK | `iPhone16,1` |
 | `telemetry.sdk.name/language/version` | core | `livekit-telemetry`, `rust`, `0.1.0` |
+
+## Pipeline, scopes and destination
+
+### Destination and credentials
+
+The platform passes exactly two things per room, through `Scope::set_server(url, token)`: the
+LiveKit server URL the room connects to and the participant token it connects with — at connect,
+and again with **every** refreshed token (the SFU sends one right after join, then every few
+minutes). The call is cheap and idempotent. There is no client-side endpoint, header or sink.
+
+- **Ingest URL:** derived from the server URL's host, `https://<host>/observability/client/{logs,traces}/otlp/v0`,
+  for LiveKit Cloud hosts only (`*.livekit.cloud`, including `*.staging.livekit.cloud`). Any other
+  host (self-hosted, OSS) has no ingest: one local warning, and that room's records are dropped
+  at the door instead of cached.
+- **Token:** `Authorization: Bearer <token>`. The core reads the token's *unverified* claims: the
+  observability grant (`observability.write` or `observability.clientWrite`) and `exp`. It never
+  sends a token known to be expired or refused; batches wait for the next token instead
+  (a hard hold). A project whose first token has no grant never opted in: nothing is collected
+  for it. A refreshed token without the grant (today's SFU drops it) does not replace a granted
+  one that is still valid. Tokens live in memory only — never in a batch, never on disk.
+- **Server URL validation:** parsed with WHATWG URL rules, never string-matched. A token is only
+  sent to `https://<project>.livekit.cloud/…` built from the parsed host alone: TLS scheme
+  (`wss`/`https`), a domain under the Cloud suffix with a label of its own, the default port, no
+  userinfo.
+- **Ownership:** every record captures its owner when it is captured — its session and the
+  project that session is routed to at that moment — and keeps it: a Room that reconnects to
+  another project takes nothing queued or cached along. Credentials are keyed by (project,
+  session): a live Room uploads with its **own** latest token for that project, never another
+  Room's. A Room's records captured before it had a server go to its own first project, never to
+  another Room's. Process-level records (device state, pre-room errors, self-telemetry) go to
+  the project most recently handed a token, with that project's latest token; so do batches from
+  a previous launch, which wait — up to the 24 h age limit — for a token of the same project.
+  The answer to a request is attributed to the project it was sent to — its 404, disable or
+  pause never lands on another project. A session's credentials stay while the session is alive
+  (its Room, or records, windows or spans still referencing it) — for every project it was routed
+  to, so records captured for an earlier project can still be sent; that is the residual: a live
+  Room keeps one credential per project it has used — and while cached batches need them;
+  project-level copies only while a live session is routed there or the backlog has batches for
+  it. A token the collector refused is recorded by identity (a hash) and never sent again from
+  any slot, until it expires (a token without `exp` stays refused for the process). A past,
+  negative or non-numeric `exp` counts as expired. A project's entry goes once no live session
+  and no cached batch needs it. Unowned entries that are not Cloud or never had a grant are
+  compacted once no live session or cached batch needs them; their all-dead routing knowledge
+  remains. Disabled projects and consent remembered across a 404 stay for the process. A new
+  Room still waits for its own server/token; a granted token can opt a compacted project in.
+- **Routing key:** a Cloud project is keyed by its host, which must be a DNS hostname (letters,
+  digits, `-` and `.`). Any other URL is keyed by its scheme, host and port, so a plaintext or
+  userinfo URL on a Cloud host can neither feed that project a token nor silence it. Its host and
+  port are escaped (`%XX` for anything but a lowercase letter, a digit, `.`, `-` or `_`): the key
+  ends each cached batch's file name, which must be valid on every platform.
+- **Waiting** for a first destination or a usable token is uncapped, bounded only by the cache.
+
+Local end-to-end tests point everything at an OpenTelemetry collector of their own with the
+`LK_TELEMETRY_ENDPOINT` environment variable, read by the core at start (a base URL gets
+`/v1/logs` and `/v1/traces`; a URL with a `logs` path segment is used as is, and its traces URL
+replaces that segment). It is not part of any platform API. With it, every batch goes there
+without Cloud rules or tokens.
+
+## Transport timing contract
+
+The exporter bounds each transport attempt by `export_timeout_ms`.
+This timeout is cooperative: transport futures must return promptly from each poll.
+The exporter clamps server-directed pauses from `Retry-After`, `RetryInfo.retry_delay` and
+`retry_after_ms` to 24 hours for the affected destination.
+The exporter enforces these limits. The transport interface alone does not.
 
 ## Events
 
@@ -46,14 +113,14 @@ severity: info
 attributes:                             # counts since the previous report
   lk.telemetry.uploads.sent: int        # batches accepted
   lk.telemetry.uploads.bytes: int       # compressed bytes accepted — what telemetry cost the uplink
-  lk.telemetry.uploads.failed: int      # attempts that failed transiently (no answer, 429, 5xx)
+  lk.telemetry.uploads.failed: int      # attempts that failed transiently (a network error, 429 or 5xx, before the timeout)
   lk.telemetry.cache.batches: int       # batches waiting in the cache right now (a gauge)
   # the rest only when non-zero:
   lk.telemetry.uploads.timeouts: int    # attempts that hit export_timeout_ms
   lk.telemetry.uploads.unauthorized: int # 401/403 answers: tokens the collector refused
   lk.telemetry.holds.capped: int        # soft holds that reached the 60 s cap
   lk.telemetry.cache.write_errors: int  # batches the disk refused (full, gone), kept in memory
-  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue
+  lk.telemetry.dropped.queue_full: int  # records evicted from the in-memory queue, and spans dropped from a full span buffer
   lk.telemetry.dropped.cache_error: int # records no cache, not even memory, could take
   lk.telemetry.dropped.cache_full: int  # records evicted by the cache's size / file-count bound
   lk.telemetry.dropped.expired: int     # records in batches past the 24 h age limit
@@ -126,8 +193,8 @@ platforms: ios, macos, android — web: Chromium only
 event: lk.device.battery.changed
 area: device
 attributes:
-  hw.battery.charge: double                        # 0.0–1.0 (OTel hardware semconv)
-  hw.battery.state: enum(charging | discharging)   # OTel hardware semconv
+  lk.device.battery.level: int      # percent, 0–100
+  lk.device.battery.charging: bool
 cadence: on charging change and when the level crosses 20 % or 10 % unplugged — never per
          percent; silent where the level is unknown (desktops, tvOS)
 platforms: ios, android — optional elsewhere
@@ -163,6 +230,78 @@ cadence: on failure
 platforms: all — ios: authorization status, capture interruptions; android: permission checks, camera callbacks; web: DOMException names
 ```
 
+```yaml
+event: lk.rtc.stats.sample
+area: rtc
+severity: info
+cadence: one per track and direction per stats window (default 60 s, stretched by the cadence
+         factor); closed early on background, when the track leaves (`track_ended`), at
+         disconnect and at shutdown. Produced by the core from raw readings — one getStats()
+         report per peer connection (`record_peer_stats`), polled when the core says
+         (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
+         track keep two windows.
+attributes:
+  lk.track.sid: string
+  lk.track.kind: enum(audio | video)
+  lk.track.direction: enum(inbound | outbound)
+  lk.rtc.codec: string                      # mimeType, when known
+  lk.rtc.window_ms: int                     # actual window length
+  lk.rtc.samples: int                       # readings (polls) in the window; one poll's layers are one reading
+  # cumulative counters — the last reading's value, monotonic (W3C webrtc-stats model). A
+  # layered outbound track's (one whose readings name their RTP streams) bytes and packets are its
+  # running total: each poll adds every stream's growth since the previous poll, so a stream's
+  # first poll only sets its starting point (a new or returning stream's first poll is not
+  # counted, never a double count), and the order of a report's streams changes nothing
+  lk.rtc.bytes: int
+  lk.rtc.packets: int
+  lk.rtc.packets_lost: int                  # inbound
+  lk.rtc.freeze_count: int                  # inbound video
+  lk.rtc.freezes_duration_ms: int           # inbound video
+  lk.rtc.concealed_samples: int             # inbound audio
+  lk.rtc.concealment_events: int            # inbound audio
+  lk.rtc.jitter_buffer_delay_ms: int        # inbound
+  lk.rtc.jitter_buffer_emitted_count: int   # inbound
+  lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
+  lk.rtc.quality_limitation.cpu_ms: int         # outbound video
+  lk.rtc.quality_limitation.other_ms: int       # outbound video
+  lk.rtc.pause_count: int                   # inbound video
+  lk.rtc.pauses_duration_ms: int            # inbound video
+  lk.rtc.silent_concealed_samples: int      # inbound audio
+  lk.rtc.interruption_count: int            # inbound audio
+  lk.rtc.interruptions_duration_ms: int     # inbound audio
+  # gauges — min / max / avg over the window's readings, one reading per poll; a poll's value is
+  # the largest any of its streams reports, so a value one stream lacks comes from the others
+  lk.rtc.jitter_ms.{min,max,avg}: double
+  lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, the selected candidate pair for inbound
+  lk.rtc.fps.{min,max,avg}: double          # video
+  lk.rtc.audio_level.{min,max,avg}: double  # audio, 0.0–1.0 linear
+platforms: all
+```
+
+## Cadence policy
+
+`flush_interval × factor` and `stats_window × factor`, capped at 4× (60 s → 4 min at the default
+cadence: one export and one RTC window per minute, conservative for the collector's shared
+per-project quota). Factors multiply; a change applies at the next tick, and a *shorter* period
+applies at once (pressure relieved → no waiting out a stretched period).
+
+| Condition | factor | source |
+|---|---|---|
+| thermal `serious` | 2 | host, `DeviceState.thermal` |
+| thermal `critical` | 4 | host |
+| memory pressure `warning` | 2 | host, `DeviceState.memory` |
+| memory pressure `critical` | 4 | host |
+| low-power mode | 2 | host |
+| background | 2 | host |
+| battery ≤ 20 % and unplugged | 2 | host, `DeviceState.battery_*` |
+| constrained network (Low Data Mode / Data Saver) | 2 | host, `DeviceState.network_constrained` |
+| encoder CPU-limited: an outbound track's `qualityLimitationDurations.cpu` grew within the last 60 s | 2 | core, from `record_stats` |
+
+CPU is never measured by the pipeline itself (measuring CPU costs CPU): thermal state is the OS's
+judgement and `qualityLimitationReason` is WebRTC's. The core also paces the platform's
+`getStats()` polling (`Scope::stats_poll_interval_ms`): every second while a subscribe waits for
+its first media, else twice per (stretched) window — 30 s by default.
+
 ## Log records
 
 A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
@@ -170,8 +309,8 @@ A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without 
 (semconv), `lk.log.source` (`sdk` | `ffi` | `webrtc`) and `lk.log.logger` (type, module or file). The
 platform hands the core a typed `LogRecord` via `log(record)`; the core applies the floor: WebRTC only
 at `error`, the SDK and the core at the configured `log_severity`, the core's own telemetry module
-never. Only `warn` and `error` records
-leave the device; `trace`/`debug`/`info` are dropped in `emit`.
+never. Only plain records at or above `log_severity` (default `warn`) leave the device. Lower ones
+are dropped in `emit`.
 
 The core's own warnings and errors (Rust `log` records from `livekit*` targets, never
 `livekit_telemetry*`) reach the pipeline by themselves through `livekit-uniffi`'s log forwarder:
@@ -188,8 +327,9 @@ lines.
 ## Spans
 
 A span is **one attempt** at an operation. The scope (one Room connection lifetime, across
-reconnects) is the trace; its id is generated by the core when the pipeline starts and rides on
-every span and log record. Spans are exported when they end — never a long-lived scope span.
+reconnects) is the trace. The core generates its id in `begin_scope`, and it rides on every span
+and log record. Records outside any Room carry the id of the process session, which the pipeline
+makes at start. Spans are exported when they end — never a long-lived scope span.
 
 | Rule | Value |
 |---|---|

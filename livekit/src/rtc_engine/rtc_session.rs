@@ -583,10 +583,16 @@ impl RtcSession {
             None
         };
 
+        // A token of this session's own, cancelled by `close`: the engine reuses its options for
+        // the next session of a full reconnect. It replaces any configured token, because a
+        // cancel from outside would end signalling without the engine noticing. The engine
+        // ends with `close` instead.
+        let mut signal_options = options.signal_options.clone();
+        signal_options.cancellation_token = Default::default();
         let connected = SignalClient::connect(
             url,
             token,
-            options.signal_options.clone(),
+            signal_options,
             early_publisher.as_ref().map(|early| early.initial_publish.clone()),
         )
         .await;
@@ -2228,20 +2234,27 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
-            let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
-                match track.kind() {
-                    TrackKind::Video => MediaType::Video,
-                    TrackKind::Audio => MediaType::Audio,
-                },
-            );
+            // LocalParticipant already settled on a codec this sender can
+            // produce. Offer only that codec, and never fall back to an empty
+            // preference list: libwebrtc would then offer every codec the
+            // encoder factory lists, including pass-through-only codecs a raw
+            // sender cannot encode.
+            let lk_runtime = LkRuntime::instance();
+            let pc_factory = lk_runtime.pc_factory();
+            let producible = pc_factory
+                .video_encoder_codecs(crate::options::codec_source_backend(options.video_encoder));
+            let is_producible = |mime_type: &str| {
+                producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
+            };
+            let requested_mime_type = format!("video/{}", options.video_codec.as_str());
 
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();
-            let mut unmatched = Vec::new();
+            let mut producible_codecs = Vec::new();
 
-            for codec in capabilities.codecs {
+            for codec in pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs {
                 let mime_type = codec.mime_type.to_lowercase();
-                if mime_type == format!("video/{}", options.video_codec.as_str()) {
+                if mime_type == requested_mime_type {
                     if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
                         // for h264 codecs that have sdpFmtpLine available, use only if the
                         // profile-level-id is 42e01f for cross-browser compatibility
@@ -2251,12 +2264,18 @@ impl SessionInner {
                         }
                     }
                     partial_matched.push(codec);
-                } else {
-                    unmatched.push(codec);
+                } else if is_producible(&mime_type) {
+                    producible_codecs.push(codec);
                 }
             }
 
             matched.append(&mut partial_matched);
+            if matched.is_empty() {
+                log::warn!(
+                    "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
+                );
+                matched = producible_codecs;
+            }
 
             transceiver.set_codec_preferences(matched)?;
         }
@@ -2326,13 +2345,29 @@ impl SessionInner {
                 .await;
         }
 
+        // Final, unlike `close` alone: a resume racing this teardown is refused or stopped
+        // instead of reopening the session.
+        self.signal_client.options().cancellation_token.cancel();
         self.signal_client.close().await;
+    }
+
+    /// Close the signal link locally and report it as lost. A requested close emits no
+    /// `SignalEvent::Close`, so the resume has to be started here.
+    async fn simulate_signal_loss(&self) {
+        self.signal_client.close().await;
+        self.on_session_disconnected(
+            "simulated signal loss",
+            DisconnectReason::UnknownReason,
+            proto::ReconnectReason::RrSignalDisconnected,
+            proto::leave_request::Action::Resume,
+            false,
+        );
     }
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::DisconnectSignalOnResume => {
                 // Tell the server to drop the signalling link during the next
@@ -2347,7 +2382,7 @@ impl SessionInner {
                         ),
                     }))
                     .await;
-                self.signal_client.close().await;
+                self.simulate_signal_loss().await;
             }
             SimulateScenario::Speaker => {
                 self.signal_client

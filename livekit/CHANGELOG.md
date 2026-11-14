@@ -257,6 +257,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.11.0 (2026-11-13)
+
+### Breaking Changes
+
+- Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
+- When the local room closes, in-flight `perform_rpc` calls now fail with `RpcErrorCode::ConnectionClosed` (1506) instead of `RecipientDisconnected` (1503), which remains reserved for remote participant departures.
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+- Fix remote participant and track leaks when closing a room, including encrypted tracks, cancelled closure, and participant updates racing with teardown.
+- Handle out-of-range key indices gracefully in `KeyProvider` and clamp `key_ring_size` to valid bounds.
+- Log libwebrtc messages at their own severity instead of reporting every one as debug, so its warnings and errors are no longer filtered out by default in every SDK.
+- On a full reconnect, `Room` now reports `Reconnecting` (and the `ConnectionStateChanged` that precedes it) before removing remote participants, so the `ParticipantDisconnected` events of a full reconnect arrive after `Reconnecting` rather than before it and can be told apart from participants actually leaving. #1591 (@MaxHeimbrock)
+- Report the .NET SDK as `ClientInfo.SDK.DOTNET` in the join request. The `dotnet` SDK name fell through to `UNKNOWN` on the single peer connection path. - #1669 (@MaxHeimbrock)
+
+## 0.10.1 (2026-11-04)
+
+### Fixes
+
+- Pre-encoded video publishing no longer requires a local encoder for its codec, so pre-encoded H265 works on hosts without an H265 encoder, a camera track requesting a codec no local encoder produces now publishes VP8 instead of a codec it cannot encode, and `PeerConnectionFactory::video_encoder_codecs` reports codec support using a non-exhaustive `libwebrtc::video_codec::VideoCodec` enum supporting `FromStr`, with `Auto` excluding the pre-encoded pass-through backend.
+- Preserve distinct frame metadata when queued video frames are captured within the same millisecond, including pre-encoded frames that share an RTP timestamp.
+- livekit-signaling: fix teardown gaps on requested close and response timeout - #1568 (@lukasIO)
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+- Space reconnect attempts on the same schedule as livekit-client's `DefaultReconnectPolicy` (0.3 s, 1.2 s, 2.7 s, 4.8 s, then 7 s, plus up to 1 s of jitter) instead of full jitter, which could spend all ten attempts within a few seconds of outage. The jitter now comes from a randomly keyed hash rather than the clock's sub-second digits, which are all zero on macOS. No new reconnect attempt starts after `RECONNECT_MAX_DURATION` (60 s), so slow failing attempts cannot keep a room in `Reconnecting` for minutes. `RECONNECT_BACKOFF_MULTIPLIER` is deprecated: the schedule is quadratic in the attempt number.
+- Add `SignalOptions::cancellation_token`, which ends a signal session for good: a connect or resume in flight stops with `SignalError::Cancelled`, and the signal task closes the transport.
+- A requested `close` or `restart` no longer emits `SignalEvent::Close`. A join or reconnect response timeout now closes the WebSocket instead of leaving it open.
+- A received transcription with an invalid track sid is now dropped with a warning. Before, it made the client panic, which aborts the process in release builds.
+
 ## 0.10.0 (2026-10-28)
 
 ### Breaking Changes

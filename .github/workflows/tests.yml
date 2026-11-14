@@ -181,6 +181,8 @@ jobs:
         shell: bash
         run: |
           cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
+          # The https redirect test needs a TLS backend; native alone has none.
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native,rustls-tls-webpki-roots
           cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
 
       # These live behind livekit-ffi's non-default `core-modules` feature, so a

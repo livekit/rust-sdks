@@ -1,6 +1,6 @@
 [package]
 name = "livekit-net"
-version = "0.1.4"
+version = "0.2.0"
 license.workspace = true
 description = "Pluggable, host-providable network transport for LiveKit signalling"
 edition.workspace = true
@@ -68,6 +68,9 @@ futures-util = { workspace = true, default-features = false, features = ["sink"]
 bytes = { workspace = true, optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
+
+# Already used by telemetry and data streams; the opt-in reader also decodes already-buffered host responses.
+flate2 = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

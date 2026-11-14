@@ -21,6 +21,9 @@
 //! MockConn::recv() yields one canned `proto::SignalResponse { Pong }` frame
 //! and then returns `Ok(None)`.
 //!
+//! MockTransport::connect to a URL containing `silent` instead yields a SilentConn,
+//! which stays open and never sends a frame.
+//!
 //! MockTransport::request dispatches deterministically on the request inputs:
 //!
 //! 1. If the request has NO `Authorization: Bearer <non-empty>` header →
@@ -67,6 +70,49 @@ impl WsConnection for MockConn {
     async fn close(&self) {}
 }
 
+/// The URL of every open connection to a URL containing `silent`.
+static SILENT_CONNS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Open connections to URLs containing `marker`. Tests run concurrently, so each dials a
+/// marker of its own.
+pub fn silent_conns(marker: &str) -> usize {
+    SILENT_CONNS.lock().unwrap().iter().filter(|url| url.contains(marker)).count()
+}
+
+/// Stays open and never answers, so a join or reconnect response never arrives.
+struct SilentConn {
+    url: String,
+}
+
+impl SilentConn {
+    fn new(url: String) -> Self {
+        SILENT_CONNS.lock().unwrap().push(url.clone());
+        Self { url }
+    }
+}
+
+impl Drop for SilentConn {
+    fn drop(&mut self) {
+        let mut conns = SILENT_CONNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(index) = conns.iter().position(|url| *url == self.url) {
+            conns.swap_remove(index);
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl WsConnection for SilentConn {
+    async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        std::future::pending().await
+    }
+
+    async fn close(&self) {}
+}
+
 // ---------------------------------------------------------------------------
 // MockTransport: creates a MockConn pre-loaded with one Pong frame
 // ---------------------------------------------------------------------------
@@ -77,10 +123,13 @@ pub struct MockTransport;
 impl WsClient for MockTransport {
     async fn connect(
         &self,
-        _url: String,
+        url: String,
         _headers: Vec<Header>,
         _timeout_ms: u64,
     ) -> Result<WsConnectResult, TransportError> {
+        if url.contains("silent") {
+            return Ok(WsConnectResult { connection: Arc::new(SilentConn::new(url)) });
+        }
         let pong = proto::SignalResponse {
             message: Some(proto::signal_response::Message::PongResp(proto::Pong::default())),
         };

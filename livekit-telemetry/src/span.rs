@@ -23,7 +23,7 @@ use crate::{
 
 /// OTel span kind, restricted to what client operations need; implied by [`crate::SpanName`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpanKind {
+pub(crate) enum SpanKind {
     /// An operation inside the SDK (publish, subscribe).
     Internal,
     /// A call to the SFU that waits for its answer (connect, reconnect).
@@ -36,8 +36,11 @@ pub enum SpanKind {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanOutcome {
+    /// It did what it set out to do (OTel status `Ok`).
     Ok,
+    /// It failed; `error.type` says how (OTel status `Error`).
     Error,
+    /// It was called off before it finished, which is not a failure (OTel status `Unset`).
     Cancelled,
 }
 
@@ -89,8 +92,9 @@ const SPAN_OVERHEAD_BYTES: usize = 94;
 /// Encoded bytes of a span event beyond its name: its timestamp and framing.
 const SPAN_EVENT_OVERHEAD_BYTES: usize = 13;
 
-/// OTel default span limits.
+/// Checkpoints one span keeps: OTel's default span limit.
 const MAX_EVENTS_PER_SPAN: usize = 128;
+/// Attributes one span keeps: OTel's default span limit.
 const MAX_ATTRIBUTES_PER_SPAN: usize = 128;
 /// Spans a host can leave open before the oldest is abandoned (counted as dropped).
 const MAX_OPEN_SPANS: usize = 256;
@@ -104,7 +108,7 @@ pub(crate) struct Spans {
     open: HashMap<u64, SpanRecord>,
     /// Insertion order of `open`, to abandon the oldest when the cap is hit.
     open_order: VecDeque<u64>,
-    finished: Vec<SpanRecord>,
+    finished: VecDeque<SpanRecord>,
     finished_capacity: usize,
     /// Which session every recent span belongs to — open, finished or already exported — so a
     /// log record that arrives after its span ended (a warning logged right before a failing
@@ -114,7 +118,7 @@ pub(crate) struct Spans {
     /// open span keeps its session however many spans start after it.
     session_order: VecDeque<u64>,
     next_id: u64,
-    pub dropped: u64,
+    dropped: u64,
     warned: Warned,
     /// The opt-out, checked under the lock that guards the registry (see `Store`).
     revoked: Arc<std::sync::atomic::AtomicBool>,
@@ -150,13 +154,13 @@ impl Spans {
         Self {
             open: HashMap::new(),
             open_order: VecDeque::new(),
-            finished: Vec::new(),
+            finished: VecDeque::new(),
             finished_capacity: finished_capacity.max(1),
             sessions: HashMap::new(),
             session_order: VecDeque::new(),
-            // Span ids must be non-zero (OTLP treats all-zero as absent); start at 1 and mix in
-            // randomness so ids from two pipelines in one process never collide. 63 bits: a
-            // platform whose integers are signed (Dart) must be able to hand an id back.
+            // A random odd 63-bit start: never zero (OTLP treats all-zero as absent), and two
+            // pipelines in one process are very unlikely to overlap. 63 bits: a platform whose
+            // integers are signed (Dart) must be able to hand an id back.
             next_id: (rand::random::<u64>() >> 1) | 1,
             dropped: 0,
             warned: Warned::default(),
@@ -174,7 +178,8 @@ impl Spans {
         self.revoked.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Open a span in `session`'s trace.
+    /// Open a span in `session`'s trace. After the opt-out nothing opens: returns 0, which is
+    /// never a span id.
     pub fn begin_in(
         &mut self,
         name: &str,
@@ -216,8 +221,6 @@ impl Spans {
         id
     }
 
-    /// Whether a span with one of these names is still open (the exporter holds uploads while
-    /// `lk.connect` / `lk.reconnect` are).
     /// The session a recent span belongs to — open, ended or exported (log records emitted inside
     /// a span are filed there, and they may arrive after the span ended).
     pub fn scope_of(&self, id: u64) -> Option<Arc<ScopeState>> {
@@ -234,6 +237,8 @@ impl Spans {
         self.open.len()
     }
 
+    /// Whether a span with one of these names is still open (the exporter holds uploads while
+    /// `lk.connect` / `lk.reconnect` are).
     pub fn any_open(&self, names: &[&str]) -> bool {
         self.open.values().any(|span| names.contains(&span.name.as_str()))
     }
@@ -302,10 +307,10 @@ impl Spans {
         span.attributes = attributes;
         self.retire(id);
         if self.finished.len() >= self.finished_capacity {
-            self.finished.remove(0);
+            self.finished.pop_front();
             self.count_drop("finished", self.finished_capacity);
         }
-        self.finished.push(span);
+        self.finished.push_back(span);
     }
 
     /// A span ended or was abandoned: its session stays resolvable until [`REMEMBERED_SPANS`]
@@ -329,8 +334,8 @@ impl Spans {
     }
 
     /// Take the finished spans, oldest first.
-    /// At most `max` spans and about `max_bytes` (always at least one, so an oversized span
-    /// still ships).
+    /// At most `max` spans and about `max_bytes` (at least one when `max > 0`, so an oversized
+    /// span still ships).
     pub fn drain(&mut self, max: usize, max_bytes: usize) -> Vec<SpanRecord> {
         self.warned = Warned::default();
         let (mut n, mut bytes) = (0, 0);
