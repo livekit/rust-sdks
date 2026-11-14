@@ -71,13 +71,17 @@ struct ManagerInner {
 }
 
 impl ManagerInner {
-    /// Has the tracks we publish as `identity`, or all of ours for a shared key, encrypt with
-    /// the key at `key_index`.
-    fn use_key_index(&self, identity: Option<&ParticipantIdentity>, key_index: i32) {
-        for ((cryptor_identity, track_sid), cryptor) in &self.frame_cryptors {
-            let is_ours = self.local_tracks.contains(track_sid);
-            if is_ours && identity.is_none_or(|identity| identity == cryptor_identity) {
-                cryptor.set_key_index(key_index);
+    /// Has each track we publish encrypt with the key that is current for it.
+    ///
+    /// Asks the key provider instead of being told an index, so that it does not matter in
+    /// which order the notifications of keys set close together arrive.
+    fn use_current_key_indices(&self) {
+        let Some(options) = self.options.as_ref() else {
+            return;
+        };
+        for ((identity, track_sid), cryptor) in &self.frame_cryptors {
+            if self.local_tracks.contains(track_sid) {
+                cryptor.set_key_index(options.key_provider.latest_key_index_for(identity));
             }
         }
     }
@@ -113,9 +117,9 @@ impl E2eeManager {
         if let Some(key_provider) = key_provider {
             // A new key for the local participant is the one to encrypt with from then on.
             let weak_inner = Arc::downgrade(&inner);
-            let listener: Arc<KeySetListener> = Arc::new(move |identity, key_index| {
+            let listener: Arc<KeySetListener> = Arc::new(move || {
                 if let Some(inner) = weak_inner.upgrade() {
-                    inner.lock().use_key_index(identity, key_index);
+                    inner.lock().use_current_key_indices();
                 }
             });
             key_provider.subscribe_key_set(&listener);
