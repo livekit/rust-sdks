@@ -244,11 +244,21 @@ pub mod native {
         /// Device selection by GUID (preferred - stable across device changes)
         fn set_playout_device_by_guid(&self, guid: &str) -> bool;
         fn set_recording_device_by_guid(&self, guid: &str) -> bool;
-        /// The device last selected, as a token the matching restore call accepts.
+        /// The playout device last selected, as a token
+        /// [`restore_playout_device_selection`](Self::restore_playout_device_selection) accepts.
         /// Empty if none was selected and the platform default is in use.
         fn playout_device_selection(&self) -> String;
+        /// The recording device last selected, as a token
+        /// [`restore_recording_device_selection`](Self::restore_recording_device_selection)
+        /// accepts. Empty if none was selected and the platform default is in use.
         fn recording_device_selection(&self) -> String;
+        /// Selects the playout device a token from
+        /// [`playout_device_selection`](Self::playout_device_selection) names, finding it in
+        /// the current device list. An empty token selects the platform default.
         fn restore_playout_device_selection(&self, selection: &str) -> bool;
+        /// Selects the recording device a token from
+        /// [`recording_device_selection`](Self::recording_device_selection) names, finding it
+        /// in the current device list. An empty token selects the platform default.
         fn restore_recording_device_selection(&self, selection: &str) -> bool;
 
         // Recording control (for device switching while active)
