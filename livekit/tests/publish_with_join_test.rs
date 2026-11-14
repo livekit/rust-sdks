@@ -754,3 +754,67 @@ async fn test_publish_with_join_ice_failure_detaches_tracks() -> Result<()> {
     .await
     .map_err(|_| anyhow!("participant left behind after the failed connect"))
 }
+
+/// Spawns `connect` with `options`, cancels it once `ready` holds, and checks that no join-time
+/// track keeps a sender from the abandoned attempt.
+async fn assert_cancel_detaches_tracks(
+    url: String,
+    token: String,
+    options: RoomOptions,
+    ready: impl AsyncFn() -> bool,
+) -> Result<()> {
+    let tracks: Vec<LocalTrack> = options.publish_tracks.iter().map(|(t, _)| t.clone()).collect();
+    let connect = tokio::spawn(async move { Room::connect(&url, &token, options).await });
+    timeout(Duration::from_secs(10), async {
+        while !ready().await {
+            time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("connect never reached the point to cancel at"))?;
+    if connect.is_finished() {
+        bail!("connect finished before it could be cancelled");
+    }
+    connect.abort();
+    assert!(connect.await.is_err_and(|err| err.is_cancelled()));
+    assert!(tracks.iter().all(|t| !t.has_sender()), "a track kept the cancelled attempt's sender");
+    Ok(())
+}
+
+/// Cancelling `connect` while signalling detaches the join-time tracks from the early publisher.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_cancelled_during_signalling_detaches_tracks() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    // The delay keeps the WebSocket handshake in flight after the senders are attached.
+    let proxy = start_proxy(server.host_port(), Duration::from_millis(500)).await?;
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+    let options = publisher_options(true);
+    let tracks: Vec<LocalTrack> = options.publish_tracks.iter().map(|(t, _)| t.clone()).collect();
+
+    assert_cancel_detaches_tracks(format!("ws://{proxy}"), token, options, async || {
+        tracks.iter().all(|t| t.has_sender())
+    })
+    .await
+}
+
+/// Cancelling `connect` while waiting for the peer connection detaches the join-time tracks
+/// from the abandoned session.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_cancelled_during_ice_detaches_tracks() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+    let mut options = publisher_options(true);
+    // Relay only, and the dev server offers no TURN: ICE can never connect.
+    options.rtc_config.ice_transport_type = IceTransportsType::Relay;
+    options.join_retries = 0;
+
+    let http_url = server.url.replacen("ws", "http", 1);
+    let rooms = RoomClient::with_api_key(&http_url, &server.key, &server.secret);
+    // Once the server lists the participant, the join is done and connect waits for ICE.
+    assert_cancel_detaches_tracks(server.url.clone(), token, options, async || {
+        !rooms.list_participants(&room_name).await.unwrap_or_default().is_empty()
+    })
+    .await
+}

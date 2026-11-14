@@ -524,6 +524,24 @@ impl RtcEngine {
     }
 }
 
+/// Detaches the join-time tracks from their senders when a connect attempt is cancelled, so they
+/// do not keep the abandoned peer connection alive.
+struct DetachOnDrop<'a>(Option<&'a [(LocalTrack, TrackPublishOptions)]>);
+
+impl DetachOnDrop<'_> {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for DetachOnDrop<'_> {
+    fn drop(&mut self) {
+        for (track, _) in self.0.unwrap_or_default() {
+            track.set_transceiver(None);
+        }
+    }
+}
+
 impl EngineInner {
     async fn connect(
         url: &str,
@@ -539,6 +557,7 @@ impl EngineInner {
     )> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
+        let detach_on_cancel = DetachOnDrop(Some(publish_tracks));
 
         let try_connect = {
             move || {
@@ -608,7 +627,10 @@ impl EngineInner {
         let mut last_error = None;
         for i in 0..(max_retries + 1) {
             match try_connect().await {
-                Ok(res) => return Ok(res),
+                Ok(res) => {
+                    detach_on_cancel.disarm();
+                    return Ok(res);
+                }
                 Err(e) => {
                     // A validated auth failure (401/403) will not succeed on
                     // retry with the same token — surface it immediately instead
