@@ -32,6 +32,7 @@ pub struct FfiLogger {
     async_runtime: tokio::runtime::Handle,
     log_tx: mpsc::UnboundedSender<LogMsg>,
     capture_logs: AtomicBool,
+    python_log_filter: AtomicBool,
     env_logger: env_logger::Logger,
 }
 
@@ -49,6 +50,7 @@ impl FfiLogger {
         FfiLogger {
             async_runtime,
             log_tx,
+            python_log_filter: AtomicBool::new(false),
             capture_logs: AtomicBool::new(false), // Always false by default to ensure the server
             // is always initialized when using capture_logs
             env_logger,
@@ -57,6 +59,24 @@ impl FfiLogger {
 }
 
 impl FfiLogger {
+    /// Enables the filtering policy already used by the Python callback.
+    pub fn set_python_log_filter(&self, enabled: bool) {
+        self.python_log_filter.store(enabled, Ordering::Release);
+    }
+
+    /// Filters records before allocating the FFI representation.
+    fn should_forward(&self, metadata: &log::Metadata) -> bool {
+        if !self.python_log_filter.load(Ordering::Acquire) {
+            return true;
+        }
+        let debug = if metadata.level() == log::Level::Debug {
+            std::env::var("LIVEKIT_RTC_DEBUG").unwrap_or_default()
+        } else {
+            String::new()
+        };
+        python_accepts(metadata.level(), metadata.target(), &debug)
+    }
+
     pub fn capture_logs(&self) -> bool {
         self.capture_logs.load(Ordering::Acquire)
     }
@@ -72,7 +92,7 @@ impl Log for FfiLogger {
             return self.env_logger.enabled(metadata);
         }
 
-        true // The ffi client decides what to log (FfiLogger is just forwarding)
+        self.should_forward(metadata)
     }
 
     fn log(&self, record: &log::Record) {
@@ -80,7 +100,9 @@ impl Log for FfiLogger {
             return self.env_logger.log(record);
         }
 
-        self.log_tx.send(LogMsg::Log(record.into())).unwrap();
+        if self.should_forward(record.metadata()) {
+            self.log_tx.send(LogMsg::Log(record.into())).unwrap();
+        }
     }
 
     fn flush(&self) {
@@ -163,6 +185,36 @@ impl From<log::Level> for proto::LogLevel {
             log::Level::Info => Self::LogInfo,
             log::Level::Debug => Self::LogDebug,
             log::Level::Trace => Self::LogTrace,
+        }
+    }
+}
+
+/// Mirrors Python's existing filter before allocating or crossing the FFI boundary.
+fn python_accepts(level: log::Level, target: &str, debug_env: &str) -> bool {
+    if level == log::Level::Trace {
+        return false;
+    }
+    if level == log::Level::Debug && (target == "libwebrtc" || target.starts_with("livekit")) {
+        return matches!(debug_env.trim().to_ascii_lowercase().as_str(), "true" | "1");
+    }
+    true
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    #[test]
+    fn preserves_python_log_policy() {
+        for target in ["livekit", "livekit_ffi::room", "livekit_other", "libwebrtc", "tokio"] {
+            for debug in ["", "false", "0", "true", "1", " TRUE "] {
+                for level in [log::Level::Info, log::Level::Warn, log::Level::Error] {
+                    assert!(python_accepts(level, target, debug));
+                }
+                assert!(!python_accepts(log::Level::Trace, target, debug));
+                let expected = target == "tokio"
+                    || matches!(debug.trim().to_ascii_lowercase().as_str(), "true" | "1");
+                assert_eq!(python_accepts(log::Level::Debug, target, debug), expected);
+            }
         }
     }
 }
