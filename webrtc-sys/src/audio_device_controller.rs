@@ -142,7 +142,12 @@ mod tests {
         assert!(!audio.set_recording_device_by_guid("__livekit_missing_device__".to_string()));
         assert_eq!(audio.recording_device_selection(), "");
 
-        assert!(!audio.restore_recording_device_selection("windows:x".to_string()));
+        for malformed in ["windows:x", "windows:7", "windows:+1", "windows:-1 ", "windows:"] {
+            assert!(
+                !audio.restore_recording_device_selection(malformed.to_string()),
+                "{malformed}"
+            );
+        }
         assert_eq!(audio.recording_device_selection(), "");
 
         if cfg!(windows) {

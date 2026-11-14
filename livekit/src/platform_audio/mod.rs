@@ -311,6 +311,10 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
+    // Held for a whole device switch, so concurrent switches can't interleave and
+    // one's rollback can't undo another's successful switch.
+    recording_switch: Mutex<()>,
+    playout_switch: Mutex<()>,
 }
 
 impl Drop for PlatformAdmHandle {
@@ -490,7 +494,11 @@ impl PlatformAudio {
             playout_count
         );
 
-        let handle = Arc::new(PlatformAdmHandle { runtime });
+        let handle = Arc::new(PlatformAdmHandle {
+            runtime,
+            recording_switch: Mutex::new(()),
+            playout_switch: Mutex::new(()),
+        });
         *handle_ref = Arc::downgrade(&handle);
 
         let audio = Self { handle };
@@ -886,6 +894,7 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
 
+        let _switching = self.handle.recording_switch.lock();
         device_switch::switch_device(&RecordingSwitch(&self.handle.runtime), id.as_str())
     }
 
@@ -945,12 +954,16 @@ impl PlatformAudio {
     ///
     /// [`set_playout_device`]: Self::set_playout_device
     pub fn switch_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
-        // Accept both a listed ID and an index-based ID (`PlayoutDeviceId::from_index`)
+        // Accept everything the selection below resolves: a listed ID, an index-based
+        // ID (`PlayoutDeviceId::from_index`) or a device name
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.playout_devices(), |device| {
-            &device.id == id || PlayoutDeviceId::from_index(device.index) == *id
+            &device.id == id
+                || PlayoutDeviceId::from_index(device.index) == *id
+                || device.name == id.as_str()
         })?;
 
+        let _switching = self.handle.playout_switch.lock();
         device_switch::switch_device(&PlayoutSwitch(&self.handle.runtime), id.as_str())
     }
 
@@ -1446,8 +1459,8 @@ impl device_switch::DeviceSwitchSteps for PlayoutSwitch<'_> {
 mod tests {
     use super::*;
 
-    /// Device switching rolls back to the remembered selection, so it must name
-    /// the device that was accepted, by an identity that survives hot-plug.
+    /// Device switching rolls back to the remembered selection, so it must name the
+    /// device that was accepted, by its GUID rather than its index.
     #[test_log::test(tokio::test)]
     #[serial_test::serial]
     #[cfg(not(any(target_os = "ios", target_os = "android")))]

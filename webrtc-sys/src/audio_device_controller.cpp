@@ -16,9 +16,11 @@
 
 #include "livekit/audio_device_controller.h"
 
+#include <charconv>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace livekit_ffi {
@@ -30,19 +32,30 @@ using WindowsDeviceType = webrtc::AudioDeviceModule::WindowsDeviceType;
 constexpr char kWindowsDeviceTypePrefix[] = "windows:";
 constexpr char kIndexPrefix[] = "index:";
 
-// Parses the number following `prefix` in `token`.
+// Parses the whole number following `prefix` in `token`, rejecting anything
+// else (whitespace, a plus sign, trailing characters).
 std::optional<int> ParseSelectionNumber(const std::string& token,
                                         const std::string& prefix) {
   if (token.rfind(prefix, 0) != 0) {
     return std::nullopt;
   }
-  try {
-    size_t pos = 0;
-    int value = std::stoi(token.substr(prefix.size()), &pos);
-    if (pos == token.size() - prefix.size()) {
-      return value;
-    }
-  } catch (...) {
+  const char* begin = token.data() + prefix.size();
+  const char* end = token.data() + token.size();
+  int value = 0;
+  auto [parsed_to, error] = std::from_chars(begin, end, value);
+  if (begin == end || error != std::errc() || parsed_to != end) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+// The Windows default device type a "windows:<type>" token names.
+std::optional<WindowsDeviceType> ParseWindowsDeviceType(
+    const std::string& token) {
+  auto type = ParseSelectionNumber(token, kWindowsDeviceTypePrefix);
+  if (type == webrtc::AudioDeviceModule::kDefaultCommunicationDevice ||
+      type == webrtc::AudioDeviceModule::kDefaultDevice) {
+    return static_cast<WindowsDeviceType>(*type);
   }
   return std::nullopt;
 }
@@ -82,8 +95,7 @@ rust::String AudioDeviceController::playout_device_name(uint16_t index) const {
   return rust::String(name);
 }
 
-rust::String AudioDeviceController::recording_device_name(
-    uint16_t index) const {
+rust::String AudioDeviceController::recording_device_name(uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->RecordingDeviceName(index, name, guid);
@@ -103,8 +115,7 @@ rust::String AudioDeviceController::playout_device_guid(uint16_t index) const {
   return rust::String("index:" + std::to_string(index));
 }
 
-rust::String AudioDeviceController::recording_device_guid(
-    uint16_t index) const {
+rust::String AudioDeviceController::recording_device_guid(uint16_t index) const {
   char name[webrtc::kAdmMaxDeviceNameSize] = {0};
   char guid[webrtc::kAdmMaxGuidSize] = {0};
   adm_proxy_->RecordingDeviceName(index, name, guid);
@@ -112,8 +123,7 @@ rust::String AudioDeviceController::recording_device_guid(
     return rust::String(guid);
   }
   // Linux PulseAudio/ALSA does not populate device GUIDs in WebRTC.
-  // Synthesize an index-based identifier so callers can distinguish and select
-  // devices.
+  // Synthesize an index-based identifier so callers can distinguish and select devices.
   return rust::String("index:" + std::to_string(index));
 }
 
@@ -148,9 +158,9 @@ bool AudioDeviceController::restore_playout_device_selection(
     }
     return selected;
   }
-  if (auto type = ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
-    if (adm_proxy_->SetPlayoutDevice(static_cast<WindowsDeviceType>(*type)) !=
-        0) {
+  if (token.rfind(kWindowsDeviceTypePrefix, 0) == 0) {
+    auto type = ParseWindowsDeviceType(token);
+    if (!type || adm_proxy_->SetPlayoutDevice(*type) != 0) {
       return false;
     }
     playout_selection_ = std::move(token);
@@ -262,9 +272,9 @@ bool AudioDeviceController::restore_recording_device_selection(
     }
     return selected;
   }
-  if (auto type = ParseSelectionNumber(token, kWindowsDeviceTypePrefix)) {
-    if (adm_proxy_->SetRecordingDevice(static_cast<WindowsDeviceType>(*type)) !=
-        0) {
+  if (token.rfind(kWindowsDeviceTypePrefix, 0) == 0) {
+    auto type = ParseWindowsDeviceType(token);
+    if (!type || adm_proxy_->SetRecordingDevice(*type) != 0) {
       return false;
     }
     recording_selection_ = std::move(token);

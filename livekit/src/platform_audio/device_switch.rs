@@ -35,8 +35,8 @@ pub(super) trait DeviceSwitchSteps {
 /// Selects `device_id`, restarting audio on it if audio was active.
 ///
 /// If any step after stopping fails, the partially opened device is closed and
-/// audio resumes on the previously selected device, so a failed switch never
-/// leaves active audio stopped.
+/// audio resumes on the previously selected device, or on the platform default
+/// if that device is gone, so a failed switch doesn't leave active audio stopped.
 pub(super) fn switch_device(steps: &impl DeviceSwitchSteps, device_id: &str) -> AudioResult<()> {
     if !steps.is_initialized() {
         return if steps.select(device_id) { Ok(()) } else { Err(AudioError::DeviceNotFound) };
@@ -64,12 +64,26 @@ pub(super) fn switch_device(steps: &impl DeviceSwitchSteps, device_id: &str) -> 
 fn resume_on_previous_device(steps: &impl DeviceSwitchSteps, previous_selection: &str) {
     // Close whatever the failed attempt left open before reopening the previous device
     steps.stop();
-    if !(steps.restore(previous_selection) && steps.init() && steps.start()) {
-        log::warn!(
-            "PlatformAudio: failed to resume {} on the previous device after a failed switch",
-            steps.direction()
-        );
+    if reopen(steps, previous_selection) {
+        return;
     }
+    // The previous device may be gone, for example unplugged; the platform default
+    // (an empty selection) is the best remaining choice.
+    if !previous_selection.is_empty() {
+        steps.stop();
+        if reopen(steps, "") {
+            log::warn!(
+                "PlatformAudio: resumed {} on the platform default after a failed switch",
+                steps.direction()
+            );
+            return;
+        }
+    }
+    log::warn!("PlatformAudio: failed to resume {} after a failed switch", steps.direction());
+}
+
+fn reopen(steps: &impl DeviceSwitchSteps, selection: &str) -> bool {
+    steps.restore(selection) && steps.init() && steps.start()
 }
 
 #[cfg(test)]
@@ -215,10 +229,37 @@ mod tests {
     }
 
     #[test]
+    fn resumes_on_the_platform_default_when_the_previous_device_is_gone() {
+        let steps = FakeSteps::new(true, &[("init", 1), ("restore", 1)]);
+
+        assert_eq!(
+            switch_device(&steps, "new-device"),
+            Err(AudioError::OperationFailed("init_recording failed".to_string()))
+        );
+        assert_eq!(steps.calls()[..3], ["stop", "select new-device", "init"]);
+        assert_eq!(
+            steps.calls()[3..],
+            ["stop", "restore index:0", "stop", "restore", "init", "start"]
+        );
+    }
+
+    #[test]
     fn reports_the_switch_failure_when_resuming_also_fails() {
-        let steps = FakeSteps::new(true, &[("select", 1), ("init", 1)]);
+        let steps = FakeSteps::new(true, &[("select", 1), ("init", 1), ("init", 2)]);
 
         assert_eq!(switch_device(&steps, "new-device"), Err(AudioError::DeviceNotFound));
-        assert_eq!(steps.calls(), ["stop", "select new-device", "stop", "restore index:0", "init"]);
+        assert_eq!(
+            steps.calls(),
+            [
+                "stop",
+                "select new-device",
+                "stop",
+                "restore index:0",
+                "init",
+                "stop",
+                "restore",
+                "init"
+            ]
+        );
     }
 }
