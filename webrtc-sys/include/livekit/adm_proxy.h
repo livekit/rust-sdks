@@ -143,6 +143,26 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   bool playout_enabled() const;
 
   // ===========================================================================
+  // Mute Mode (Apple AudioEngine ADM only)
+  // ===========================================================================
+
+  /// Sets the mute mode of the Apple AudioEngine ADM. `mode` uses
+  /// webrtc::AudioEngineDevice::MuteMode values:
+  /// 0 = VoiceProcessing (VPIO mute, engine keeps running, default)
+  /// 1 = RestartEngine (input node torn down, mic indicator turns off)
+  /// 2 = InputMixer (input mixer volume set to 0)
+  ///
+  /// Mute mode is configuration like device selection, so it can be set at
+  /// any time, including before platform audio is acquired. A mode set
+  /// before the platform ADM exists is cached and applied when the ADM is
+  /// created on first acquire.
+  ///
+  /// Returns 0 on success, -1 on non-Apple platforms or for out-of-range
+  /// modes.
+  int32_t SetMuteMode(int32_t mode);
+  int32_t GetMuteMode(int32_t* mode) const;
+
+  // ===========================================================================
   // AudioDeviceModule Interface
   // ===========================================================================
 
@@ -206,6 +226,12 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t SetMicrophoneMute(bool enable) override;
   int32_t MicrophoneMute(bool* enabled) const override;
 
+  // Delegated to the active recording ADM so the voice engine picks the
+  // right mute strategy (see MuteStream in webrtc_voice_engine.cc). The
+  // AudioEngine ADM returns false and expects SetMicrophoneMute instead of
+  // Stop/StartRecording.
+  bool IsStopOnMuteModeEnabled() const override;
+
   int32_t StereoPlayoutIsAvailable(bool* available) const override;
   int32_t SetStereoPlayout(bool enable) override;
   int32_t StereoPlayout(bool* enabled) const override;
@@ -222,6 +248,14 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t EnableBuiltInAEC(bool enable) override;
   int32_t EnableBuiltInAGC(bool enable) override;
   int32_t EnableBuiltInNS(bool enable) override;
+
+  // Platform voice processing (Apple's coupled AEC+NS path)
+  webrtc::AudioDeviceModule::PlatformAudioProcessingTopology
+  GetPlatformAudioProcessingTopology() const override;
+  bool PlatformVoiceProcessingPathIsAvailable() const override;
+  int32_t EnablePlatformVoiceProcessingPath(bool enable) override;
+  webrtc::AudioDeviceModule::PlatformAudioProcessingState
+  GetPlatformAudioProcessingState() const override;
 
 #if defined(WEBRTC_IOS)
   int GetPlayoutAudioParameters(webrtc::AudioParameters* params) const override;
@@ -301,7 +335,13 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
   // State tracking
   bool playing_ RTC_GUARDED_BY(worker_thread_) = false;
-  bool recording_ RTC_GUARDED_BY(worker_thread_) = false;
+  // WebRTC's standing recording request: set by StartRecording (also while
+  // platform recording is unavailable), cleared only by StopRecording.
+  // WebRTC issues these calls at discrete lifecycle events (send stream
+  // added/removed, unmute) and never re-issues them spontaneously, so the
+  // request must survive platform release/reacquire cycles for capture to
+  // restart on the next acquire.
+  bool recording_requested_ RTC_GUARDED_BY(worker_thread_) = false;
 
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)
@@ -330,6 +370,16 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   std::optional<bool> selected_stereo_playout_ RTC_GUARDED_BY(worker_thread_);
   std::optional<bool> selected_stereo_recording_
       RTC_GUARDED_BY(worker_thread_);
+
+  // Mute mode set before the Platform ADM exists (Apple AudioEngine only),
+  // stored for the same replay-on-creation reason as the device indices.
+  std::optional<int32_t> selected_mute_mode_ RTC_GUARDED_BY(worker_thread_);
+
+  // Last requested microphone mute state. The voice engine only issues
+  // SetMicrophoneMute when the track mute state changes, and the platform
+  // ADM resets its mute state when recording restarts, so this is re-applied
+  // whenever platform recording starts.
+  std::optional<bool> microphone_mute_ RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi
