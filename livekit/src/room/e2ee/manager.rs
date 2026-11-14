@@ -71,17 +71,21 @@ struct ManagerInner {
 }
 
 impl ManagerInner {
-    /// Has each track we publish encrypt with the key that is current for it.
+    /// Has the tracks we publish as `identity`, or all of ours after a shared key, encrypt
+    /// with the key that is current for them.
     ///
     /// Asks the key provider instead of being told an index, so that it does not matter in
-    /// which order the notifications of keys set close together arrive.
-    fn use_current_key_indices(&self) {
+    /// which order the notifications of keys set close together arrive. Tracks of other
+    /// identities are left alone, and with them an index the application chose itself with
+    /// [`FrameCryptor::set_key_index`].
+    fn use_current_key_index(&self, identity: Option<&ParticipantIdentity>) {
         let Some(options) = self.options.as_ref() else {
             return;
         };
-        for ((identity, track_sid), cryptor) in &self.frame_cryptors {
-            if self.local_tracks.contains(track_sid) {
-                cryptor.set_key_index(options.key_provider.latest_key_index_for(identity));
+        for ((cryptor_identity, track_sid), cryptor) in &self.frame_cryptors {
+            let is_ours = self.local_tracks.contains(track_sid);
+            if is_ours && identity.is_none_or(|identity| identity == cryptor_identity) {
+                cryptor.set_key_index(options.key_provider.latest_key_index_for(cryptor_identity));
             }
         }
     }
@@ -117,9 +121,9 @@ impl E2eeManager {
         if let Some(key_provider) = key_provider {
             // A new key for the local participant is the one to encrypt with from then on.
             let weak_inner = Arc::downgrade(&inner);
-            let listener: Arc<KeySetListener> = Arc::new(move || {
+            let listener: Arc<KeySetListener> = Arc::new(move |identity| {
                 if let Some(inner) = weak_inner.upgrade() {
-                    inner.lock().use_current_key_indices();
+                    inner.lock().use_current_key_index(identity);
                 }
             });
             key_provider.subscribe_key_set(&listener);
@@ -136,6 +140,11 @@ impl E2eeManager {
         }
         inner.frame_cryptors.clear();
         inner.local_tracks.clear();
+        // The room is closed: stop listening, so that a key provider that outlives it does
+        // not keep an entry for every room it was used in.
+        if let (Some(listener), Some(options)) = (inner.key_set_listener.take(), &inner.options) {
+            options.key_provider.unsubscribe_key_set(&listener);
+        }
     }
 
     /// Register to e2ee state changes

@@ -54,9 +54,10 @@ impl Default for KeyProviderOptions {
     }
 }
 
-/// Called after a key was set. It is not told which: calls may arrive in another order than
-/// the keys were set in, so a listener asks for the index that is current when it runs.
-pub(crate) type KeySetListener = dyn Fn() + Send + Sync;
+/// Called after a key was set, with the participant it was set for or `None` for a shared key.
+/// It is not told the index: calls may arrive in another order than the keys were set in, so a
+/// listener asks for the index that is current when it runs.
+pub(crate) type KeySetListener = dyn Fn(Option<&ParticipantIdentity>) + Send + Sync;
 
 /// Which key each participant's media is to be encrypted with, and who wants to know.
 #[derive(Default)]
@@ -129,7 +130,7 @@ impl KeyProvider {
             set
         };
         if set {
-            self.notify_key_set();
+            self.notify_key_set(None);
             true
         } else {
             false
@@ -160,7 +161,7 @@ impl KeyProvider {
             set
         };
         if set {
-            self.notify_key_set();
+            self.notify_key_set(Some(identity));
             true
         } else {
             false
@@ -196,7 +197,16 @@ impl KeyProvider {
         self.key_indices.lock().listeners.push(Arc::downgrade(listener));
     }
 
-    fn notify_key_set(&self) {
+    /// Stops calling `listener`. Without this it would only be forgotten at the next key.
+    pub(crate) fn unsubscribe_key_set(&self, listener: &Arc<KeySetListener>) {
+        let listener = Arc::downgrade(listener);
+        self.key_indices
+            .lock()
+            .listeners
+            .retain(|other| other.strong_count() > 0 && !other.ptr_eq(&listener));
+    }
+
+    fn notify_key_set(&self, identity: Option<&ParticipantIdentity>) {
         let listeners: Vec<_> = {
             let mut key_indices = self.key_indices.lock();
             key_indices.listeners.retain(|listener| listener.strong_count() > 0);
@@ -204,7 +214,7 @@ impl KeyProvider {
         };
         // Called without the lock, so that a listener may ask for an index.
         for listener in listeners {
-            listener();
+            listener(identity);
         }
     }
 }
@@ -263,13 +273,21 @@ mod tests {
         let listener: Arc<KeySetListener> = Arc::new({
             // A listener may ask the provider for the current index.
             let (seen, provider, local) = (seen.clone(), provider.clone(), local.clone());
-            move || seen.lock().push(provider.latest_key_index_for(&local))
+            move |identity: Option<&ParticipantIdentity>| {
+                seen.lock().push((identity.cloned(), provider.latest_key_index_for(&local)));
+            }
         });
         provider.subscribe_key_set(&listener);
 
         assert!(provider.set_key(&local, 2, vec![1; 32]));
         assert!(!provider.set_key(&local, -1, vec![1; 32]));
-        assert_eq!(*seen.lock(), [2]);
+        assert_eq!(*seen.lock(), [(Some(local.clone()), 2)]);
+
+        // One that unsubscribes is forgotten at once, others stay.
+        let other: Arc<KeySetListener> = Arc::new(|_| {});
+        provider.subscribe_key_set(&other);
+        provider.unsubscribe_key_set(&other);
+        assert_eq!(provider.key_indices.lock().listeners.len(), 1);
 
         // The provider does not keep a listener alive, nor call one that is gone.
         let weak = Arc::downgrade(&listener);
