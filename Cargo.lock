@@ -3645,7 +3645,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -3876,7 +3876,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3898,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8696,7 +8696,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.54"
+version = "0.3.55"
 dependencies = [
  "cc",
  "cxx",

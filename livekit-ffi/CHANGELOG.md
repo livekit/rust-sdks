@@ -316,6 +316,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.14.1 (2026-11-14)
+
+### Fixes
+
+- Fix Objective-C linking - #1394 (@ladvoc)
+- Mark data track unpublished after republish fail - #1537 (@ladvoc)
+
 ## 0.14.0 (2026-11-13)
 
 ### Breaking Changes
