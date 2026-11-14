@@ -158,7 +158,7 @@ pub trait RemoteDataTrackManagerDelegate: Send + Sync {
     fn on_track_unpublished(&self, sid: DataTrackSid);
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl RemoteDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
@@ -193,6 +193,15 @@ impl RemoteDataTrackManager {
     ///
     pub fn resend_subscription_updates(&self) {
         _ = self.input.send(remote::InputEvent::ResendSubscriptionUpdates);
+    }
+
+    /// Get a serialized subscription update for all subscribed tracks to support sync state.
+    ///
+    /// Returns a serialized [`proto::UpdateDataSubscription`].
+    ///
+    pub async fn subscription_update_for_sync_state(&self) -> Bytes {
+        let subscribed_sids = self.input.query_subscribed().await;
+        remote::subscription_update_for_sync_state(subscribed_sids).encode_to_vec().into()
     }
 
     /// Handles a serialized `JoinResponse` signal response from the SFU.
