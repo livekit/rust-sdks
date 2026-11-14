@@ -173,16 +173,7 @@ pub fn install(
         // logs an incomplete delete itself.
         drop(lifecycle);
         telemetry.shared.clear();
-        // A storage dir it could not open still holds what an earlier launch cached.
-        if let Some(dir) = telemetry.shared.config.storage_dir.as_deref() {
-            if !erase(Path::new(dir)) {
-                GENERATIONS
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .stored
-                    .insert(PathBuf::from(dir));
-            }
-        }
+        erase_refused_storage(telemetry.shared.config.storage_dir.as_deref());
         return Some(telemetry);
     }
     {
@@ -206,12 +197,63 @@ pub fn install(
     previous.map(|p| p.telemetry).filter(|p| !Arc::ptr_eq(&p.shared, &shared))
 }
 
-/// Stop the instruments and remove the process pipeline; the caller shuts it down.
-fn uninstall() -> Option<Telemetry> {
+/// Erase refused storage and retain a failed path for the next opt-out.
+fn erase_refused_storage(storage_dir: Option<&str>) {
+    if let Some(dir) = storage_dir {
+        if !erase(Path::new(dir)) {
+            GENERATIONS.lock().unwrap_or_else(|e| e.into_inner()).stored.insert(PathBuf::from(dir));
+        }
+    }
+}
+
+/// Handle configuration refusal without constructing a pipeline.
+///
+/// Returns whether opt-out refuses configuration, not whether erasure completed. Failed
+/// erasure stays registered for the next opt-out. This bridge helper keeps admission outside
+/// cache construction and uses the same configured-directory policy as [`install`].
+#[doc(hidden)]
+pub fn refuse_configuration(storage_dir: Option<&str>) -> bool {
+    let lifecycle = lifecycle();
+    if !is_disabled() {
+        return false;
+    }
+    drop(lifecycle);
+    erase_refused_storage(storage_dir);
+    true
+}
+
+/// Stop the instruments and remove the process pipeline; the caller shuts it down. With
+/// [`install`], the synchronous half of [`shutdown`]: a caller that orders installs and uninstalls
+/// itself drains the pipeline it gets back when it is ready to.
+pub fn uninstall() -> Option<Telemetry> {
     let _lifecycle = lifecycle();
+    uninstall_locked()
+}
+
+/// Remove only this pipeline after a bridge delivery failure.
+///
+/// A later configuration stays installed. This bridge helper does not erase cached data.
+#[doc(hidden)]
+pub fn uninstall_if_current(telemetry: &Telemetry) -> Option<Telemetry> {
+    let _lifecycle = lifecycle();
+    let matches = INSTALLED
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|installed| Arc::ptr_eq(&installed.telemetry.shared, &telemetry.shared));
+    if !matches {
+        return None;
+    }
+    uninstall_locked()
+}
+
+/// Remove the current pipeline while the caller holds the lifecycle lock.
+fn uninstall_locked() -> Option<Telemetry> {
     stop_installed_instruments();
-    let taken = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
-    taken.map(|i| i.telemetry)
+    // A statement of its own, so the write guard ends here: the instruments freed below may log
+    // or read the pipeline from their destructors.
+    let installed = INSTALLED.write().unwrap_or_else(|e| e.into_inner()).take();
+    installed.map(|i| i.telemetry)
 }
 
 /// Opt-out: stop collecting for the rest of the process. Before this returns, the pipeline is
@@ -250,6 +292,7 @@ pub fn disable() -> impl std::future::Future<Output = bool> + Send + 'static {
         // A live pipeline that fell back to memory at start leaves an earlier launch's batches
         // there, and a gone one leaves what it cached.
         let stored: Vec<PathBuf> = list.stored.iter().cloned().collect();
+        // Freed outside every lock but the lifecycle one: an instrument's destructor may log.
         drop(list);
         drop(taken);
         (live, stored)

@@ -20,6 +20,7 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{self, upstream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Instant};
 
@@ -222,7 +223,7 @@ impl TelemetryConfig {
 /// let room = telemetry.begin_scope();
 /// room.set_server("wss://my-project.livekit.cloud", "<participant token>");
 /// room.emit_custom("checkout", vec![Attribute::new("plan", "pro")]);
-/// telemetry.emit(TelemetryEvent::new("lk.ping"));
+/// telemetry.emit(TelemetryEvent::new(livekit_protocol::semconv::event::LK_PING));
 /// telemetry.shutdown().await;
 /// # }
 /// ```
@@ -767,7 +768,8 @@ impl Telemetry {
     /// the core sets on every record or span (`session.id`, `error.type`, `lk.outcome`), or 64
     /// keys are already set.
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
-        let core_owned = matches!(key, "session.id" | "error.type" | "lk.outcome");
+        let core_owned =
+            matches!(key, upstream::SESSION_ID | upstream::ERROR_TYPE | semconv::LK_OUTCOME);
         if core_owned || !within_limits(key, value.as_ref()) {
             return self.count_invalid();
         }
@@ -1012,13 +1014,13 @@ pub struct TelemetryResource {
 impl TelemetryResource {
     pub(crate) fn attributes(&self) -> Vec<Attribute> {
         let mut out = vec![
-            Attribute::new("service.name", format!("livekit-client-{}", self.sdk.as_str())),
-            Attribute::new("service.version", self.sdk_version.as_str()),
-            Attribute::new("os.name", self.os_name.as_str()),
-            Attribute::new("os.version", self.os_version.as_str()),
+            Attribute::new(upstream::SERVICE_NAME, format!("livekit-client-{}", self.sdk.as_str())),
+            Attribute::new(upstream::SERVICE_VERSION, self.sdk_version.as_str()),
+            Attribute::new(upstream::OS_NAME, self.os_name.as_str()),
+            Attribute::new(upstream::OS_VERSION, self.os_version.as_str()),
         ];
         if let Some(model) = &self.device_model {
-            out.push(Attribute::new("device.model.identifier", model.as_str()));
+            out.push(Attribute::new(upstream::DEVICE_MODEL_IDENTIFIER, model.as_str()));
         }
         out
     }
@@ -1033,10 +1035,10 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResourc
         }
     }
     let defaults = [
-        ("service.name", "livekit-client"),
-        ("telemetry.sdk.name", env!("CARGO_PKG_NAME")),
-        ("telemetry.sdk.language", "rust"),
-        ("telemetry.sdk.version", env!("CARGO_PKG_VERSION")),
+        (upstream::SERVICE_NAME, "livekit-client"),
+        (upstream::TELEMETRY_SDK_NAME, env!("CARGO_PKG_NAME")),
+        (upstream::TELEMETRY_SDK_LANGUAGE, upstream::telemetry_sdk_language::RUST),
+        (upstream::TELEMETRY_SDK_VERSION, env!("CARGO_PKG_VERSION")),
     ];
     for (key, value) in defaults {
         if !resource.iter().any(|a| a.key == key) {
@@ -1068,6 +1070,64 @@ pub(crate) mod tests {
         AppState, ExportError, ExportRequest, ExportResponse, ReconnectReason, RoomIdentity,
         SpanName, SpanOutcome, SpanStep, StreamDirection, ThermalState, TrackKind,
     };
+
+    /// A record built by `log_with` goes to the pipeline it read, even when the builder replaces
+    /// the installed pipeline, and is refused when the builder opts out. The builder holds no
+    /// global lock, and the pipeline it read is freed once its last handle goes.
+    #[tokio::test(start_paused = true)]
+    async fn a_record_built_during_a_lifecycle_change_goes_to_its_snapshot_only() {
+        let _global = crate::global::TEST_LOCK.lock().await;
+        crate::global::reset_for_test();
+        fn line(body: &str) -> crate::LogRecord {
+            crate::LogRecord {
+                severity: Severity::Warn,
+                source: LogSource::Sdk,
+                body: body.into(),
+                logger: None,
+                function: None,
+                file: None,
+                line: None,
+                timestamp_ns: None,
+                span_id: None,
+            }
+        }
+        let sent = |transport: &FakeTransport, text: &str| {
+            transport.sent().iter().any(|request| {
+                let body = gunzip(&request.body);
+                body.windows(text.len()).any(|w| w == text.as_bytes())
+            })
+        };
+        let (first, second) = (FakeTransport::scripted([]), FakeTransport::scripted([]));
+        let read = pipeline(first.clone());
+        let freed = Arc::downgrade(&read.shared);
+        assert!(crate::global::install(read, Vec::new()).is_none());
+        let mut replaced = None;
+        crate::global::log_with(|| {
+            replaced = crate::global::uninstall();
+            assert!(crate::global::install(pipeline(second.clone()), Vec::new()).is_none());
+            Some(line("built during the replace"))
+        });
+        let replaced = replaced.expect("the pipeline the builder read");
+        replaced.flush().await;
+        crate::global::flush().await;
+        assert!(sent(&first, "built during the replace"), "it goes to the pipeline it read");
+        assert!(!sent(&second, "built during the replace"), "never to the replacing one");
+
+        let mut purge = None;
+        crate::global::log_with(|| {
+            purge = Some(crate::global::disable());
+            Some(line("built during the opt-out"))
+        });
+        purge.expect("the purge").await;
+        crate::global::flush().await;
+        assert!(!sent(&second, "built during the opt-out"), "refused once revoked");
+
+        replaced.shutdown().await;
+        drop(replaced);
+        tokio::task::yield_now().await;
+        assert!(freed.upgrade().is_none(), "the pipeline the builder read is freed");
+        crate::global::reset_for_test();
+    }
 
     #[tokio::test(start_paused = true)]
     async fn the_process_pipeline_no_ops_until_installed() {
@@ -1235,7 +1295,7 @@ pub(crate) mod tests {
                 .iter()
                 .find(|s| {
                     s.attributes.iter().any(|kv| {
-                        kv.key == "lk.track.sid"
+                        kv.key == "lk.track_id"
                             && kv.value.as_ref().and_then(|v| v.value.clone())
                                 == Some(Value::StringValue(sid.into()))
                     })
@@ -1264,7 +1324,7 @@ pub(crate) mod tests {
             "cancelled exports too"
         );
         assert!(
-            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track.sid"
+            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track_id"
                 && kv.value.as_ref().and_then(|v| v.value.clone())
                     == Some(Value::StringValue("TR_d".into())))),
             "still open"
@@ -1295,8 +1355,8 @@ pub(crate) mod tests {
         let sent = transport.sent();
         let logs: Vec<LogRecord> = sent.iter().flat_map(records).collect();
         let with_room =
-            logs.iter().find(|r| attribute(r, "lk.room.sid").is_some()).expect("room record");
-        assert_eq!(attribute(with_room, "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+            logs.iter().find(|r| attribute(r, "lk.room_id").is_some()).expect("room record");
+        assert_eq!(attribute(with_room, "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert!(logs.iter().any(|r| r.body.as_ref().and_then(|b| b.value.clone())
             == Some(Value::StringValue("audio interruption began".into()))));
         let decoded =
@@ -1978,13 +2038,13 @@ pub(crate) mod tests {
             sent.iter().filter(|r| r.url.ends_with("logs")).flat_map(records).collect();
         assert_eq!(logs.len(), 4);
         assert_eq!(hex(&logs[0].trace_id), a.trace_id());
-        assert_eq!(attribute(&logs[0], "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert_eq!(attribute(&logs[0], "lk.room_id"), Some(Value::StringValue("RM_a".into())));
         assert_eq!(attribute(&logs[0], "session.id"), Some(Value::StringValue(a.trace_id())));
         assert_eq!(hex(&logs[1].trace_id), a.trace_id(), "resolved through the span");
         assert_eq!(hex(&logs[2].trace_id), b.trace_id());
-        assert_eq!(attribute(&logs[2], "lk.room.sid"), Some(Value::StringValue("RM_b".into())));
+        assert_eq!(attribute(&logs[2], "lk.room_id"), Some(Value::StringValue("RM_b".into())));
         assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
-        assert_eq!(attribute(&logs[3], "lk.room.sid"), None);
+        assert_eq!(attribute(&logs[3], "lk.room_id"), None);
         assert!(
             logs.iter()
                 .all(|r| attribute(r, "acme.tenant") == Some(Value::StringValue("t1".into()))),
@@ -1995,7 +2055,7 @@ pub(crate) mod tests {
             ExportTraceServiceRequest::decode(&gunzip(&traces_request.body)[..]).expect("otlp");
         let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
-        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room.sid"));
+        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room_id"));
 
         // A record that names a span which has already ended — and been exported — is still that
         // session's: the SDK's log path hops threads, the span does not wait for it.
@@ -2137,21 +2197,21 @@ pub(crate) mod tests {
     async fn session_attributes_are_attached_to_every_record() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        telemetry.set_attribute("lk.room.sid", Some("RM_1".into()));
+        telemetry.set_attribute("lk.room_id", Some("RM_1".into()));
         telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room.sid", "RM_override"));
+        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room_id", "RM_override"));
         telemetry.flush().await;
         let first = records(&transport.sent()[0]);
-        assert_eq!(attribute(&first[0], "lk.room.sid"), Some(Value::StringValue("RM_1".into())));
+        assert_eq!(attribute(&first[0], "lk.room_id"), Some(Value::StringValue("RM_1".into())));
         assert_eq!(
-            attribute(&first[1], "lk.room.sid"),
+            attribute(&first[1], "lk.room_id"),
             Some(Value::StringValue("RM_override".into())),
             "an explicit attribute wins"
         );
-        telemetry.set_attribute("lk.room.sid", None);
+        telemetry.set_attribute("lk.room_id", None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room.sid"), None);
+        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room_id"), None);
     }
 
     #[tokio::test(start_paused = true)]

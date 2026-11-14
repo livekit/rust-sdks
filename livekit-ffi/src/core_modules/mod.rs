@@ -35,6 +35,9 @@ pub mod access_token;
 /// Signalling client from [`livekit-signaling`].
 pub mod signaling;
 
+/// Client telemetry core from [`livekit-telemetry`].
+pub mod telemetry;
+
 /// Forward log messages from Rust.
 pub mod log_forward;
 
