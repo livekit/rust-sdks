@@ -63,6 +63,8 @@ pub(crate) type KeySetListener = dyn Fn() + Send + Sync;
 struct KeyIndices {
     /// The index of the key last set for each participant.
     latest: HashMap<ParticipantIdentity, i32>,
+    /// The index of the shared key last set, 0 until one is.
+    shared: i32,
     /// Owned by whoever subscribed; gone ones are dropped on the next key.
     listeners: Vec<Weak<KeySetListener>>,
 }
@@ -122,6 +124,7 @@ impl KeyProvider {
                 self.latest_key_index.store(key_index, Ordering::Relaxed);
                 // A shared key is everyone's: it supersedes the keys set per participant.
                 key_indices.latest.clear();
+                key_indices.shared = key_index;
             }
             set
         };
@@ -181,12 +184,11 @@ impl KeyProvider {
     }
 
     /// The index of the key a participant's media is to be encrypted with: that of the key
-    /// last set for it, or of the last key set at all if it has none of its own or a shared
-    /// key was set since.
+    /// last set for it, or of the shared key last set if it has none of its own or a shared
+    /// key was set since. A key set for another participant makes no difference.
     pub(crate) fn latest_key_index_for(&self, identity: &ParticipantIdentity) -> i32 {
         let key_indices = self.key_indices.lock();
-        let own = key_indices.latest.get(identity).copied();
-        own.unwrap_or_else(|| self.get_latest_key_index())
+        key_indices.latest.get(identity).copied().unwrap_or(key_indices.shared)
     }
 
     /// Has `listener` called whenever a key is set, for as long as the caller keeps it alive.
@@ -229,8 +231,8 @@ mod tests {
         // A key of someone else does not change what we encrypt with.
         assert_eq!(provider.latest_key_index_for(&local), 1);
         assert_eq!(provider.latest_key_index_for(&remote), 3);
-        // Without a key of its own a participant goes by the last key set, as before.
-        assert_eq!(provider.latest_key_index_for(&ParticipantIdentity::from("other")), 3);
+        // Nor what a participant without a key of its own encrypts with.
+        assert_eq!(provider.latest_key_index_for(&ParticipantIdentity::from("other")), 0);
     }
 
     #[test]
@@ -238,6 +240,8 @@ mod tests {
         // A provider with a shared key also takes keys per participant.
         let provider = KeyProvider::with_shared_key(KeyProviderOptions::default(), vec![9; 32]);
         let local = ParticipantIdentity::from("local");
+        // A key of someone else leaves us on the shared key.
+        assert!(provider.set_key(&ParticipantIdentity::from("remote"), 3, vec![7; 32]));
         assert_eq!(provider.latest_key_index_for(&local), 0);
         assert!(provider.set_key(&local, 1, vec![1; 32]));
         assert!(provider.set_shared_key(vec![2; 32], 2));

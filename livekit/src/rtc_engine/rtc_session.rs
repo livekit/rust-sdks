@@ -2326,9 +2326,10 @@ impl SessionInner {
                     // Encode the payload and encrypt it
                     let payload_bytes = encrypted_payload.encode_to_vec();
 
-                    let key_index = e2ee_manager
-                        .key_provider()
-                        .map_or(0, |kp| kp.get_latest_key_index() as u32);
+                    // Our own latest key, not that of whoever a key was last set for.
+                    let key_index = e2ee_manager.key_provider().map_or(0, |kp| {
+                        kp.latest_key_index_for(&self.participant_info.identity) as u32
+                    });
 
                     match e2ee_manager.encrypt_data(
                         payload_bytes,
