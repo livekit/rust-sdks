@@ -187,12 +187,29 @@ pub mod native {
             Self { handle: ImpAudioSource::new(options, sample_rate, num_channels, queue_size_ms) }
         }
 
+        /// Drops the queued audio and the rest of every capture started before this call.
         pub fn clear_buffer(&self) {
             self.handle.clear_buffer()
         }
 
-        pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
-            self.handle.capture_frame(frame).await
+        /// Queues `frame`. A frame longer than the queue is fed one queue-sized chunk at a
+        /// time; a [`clear_buffer`](Self::clear_buffer) after this call drops the chunks not
+        /// queued yet.
+        pub fn capture_frame<'a>(
+            &self,
+            frame: &'a AudioFrame<'a>,
+        ) -> impl std::future::Future<Output = Result<(), RtcError>> + Send + 'a {
+            self.handle.capture_frame(frame)
+        }
+
+        /// [`capture_frame`](Self::capture_frame) with an owned frame, so the future can be
+        /// spawned (the FFI's capture requests).
+        #[doc(hidden)]
+        pub fn capture_owned_frame(
+            &self,
+            frame: AudioFrame<'static>,
+        ) -> impl std::future::Future<Output = Result<(), RtcError>> + Send + 'static {
+            self.handle.capture_owned_frame(frame)
         }
 
         pub fn set_audio_options(&self, options: AudioSourceOptions) {
@@ -210,5 +227,79 @@ pub mod native {
         pub fn num_channels(&self) -> u32 {
             self.handle.num_channels()
         }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use std::{
+        borrow::Cow,
+        time::{Duration, Instant},
+    };
+
+    use tokio_stream::StreamExt;
+
+    use super::{native::NativeAudioSource, AudioSourceOptions};
+    use crate::{
+        audio_frame::AudioFrame,
+        audio_stream::native::NativeAudioStream,
+        peer_connection_factory::{native::PeerConnectionFactoryExt, PeerConnectionFactory},
+    };
+
+    const SAMPLE_RATE: u32 = 24_000;
+
+    /// Audio captured before a clear stops within one 10ms tick of it, even when the capture is
+    /// longer than the queue and still feeding it chunk by chunk.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn clear_buffer_cuts_a_capture_longer_than_the_queue() {
+        let factory = PeerConnectionFactory::default();
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, 1, 50);
+        let track = factory.create_audio_track("clear", source.clone());
+        let mut stream = NativeAudioStream::new(track, SAMPLE_RATE as i32, 1);
+
+        let samples = SAMPLE_RATE as usize / 2; // 500ms, ten times the queue
+        let frame = AudioFrame {
+            data: Cow::Owned(vec![1000i16; samples]),
+            sample_rate: SAMPLE_RATE,
+            num_channels: 1,
+            samples_per_channel: samples as u32,
+        };
+        let capture = tokio::spawn(source.capture_owned_frame(frame));
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let cleared = Instant::now();
+        source.clear_buffer();
+        // The next reply starts at once: the source takes it while the cut capture winds down.
+        let next = AudioFrame {
+            data: Cow::Owned(vec![0i16; SAMPLE_RATE as usize / 100]),
+            sample_rate: SAMPLE_RATE,
+            num_channels: 1,
+            samples_per_channel: SAMPLE_RATE / 100,
+        };
+        source.capture_frame(&next).await.expect("a capture right after a clear is taken");
+        tokio::time::timeout(Duration::from_millis(100), capture)
+            .await
+            .expect("a cleared capture resolves")
+            .unwrap()
+            .unwrap();
+
+        let mut last_audio = None;
+        let listen_until = cleared + Duration::from_millis(600);
+        while let Ok(Some(frame)) = tokio::time::timeout(
+            listen_until.saturating_duration_since(Instant::now()),
+            stream.next(),
+        )
+        .await
+        {
+            if frame.data.iter().any(|&s| s != 0) {
+                last_audio = Some(Instant::now());
+            }
+        }
+        let after_clear =
+            last_audio.map_or(Duration::ZERO, |at| at.saturating_duration_since(cleared));
+        assert!(
+            after_clear < Duration::from_millis(20),
+            "audio played {after_clear:?} after the clear"
+        );
     }
 }
