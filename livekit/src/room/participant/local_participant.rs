@@ -522,6 +522,7 @@ impl LocalParticipant {
         options: TrackPublishOptions,
         track_info: proto::TrackInfo,
     ) -> LocalTrackPublication {
+        let server_muted = track_info.muted;
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
@@ -535,7 +536,20 @@ impl LocalParticipant {
         {
             local_track_published(self.clone(), publication.clone());
         }
-        track.enable();
+
+        // The track may have been (un)muted after its AddTrackRequest was built, before the
+        // publication existed to signal it.
+        let muted = track.is_muted();
+        if !muted {
+            track.enable();
+        }
+        if muted != server_muted {
+            if muted {
+                publication.mute();
+            } else {
+                publication.unmute();
+            }
+        }
 
         publication
     }

@@ -38,7 +38,8 @@ use livekit::{
         EncryptionType,
     },
     options::TrackPublishOptions,
-    track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteTrack, TrackSource},
+    publication::RemoteTrackPublication,
+    track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteTrack, TrackKind, TrackSource},
     E2eeOptions, Room, RoomError, RoomEvent, RoomOptions, SimulateScenario,
 };
 use livekit_api::services::room::RoomClient;
@@ -229,9 +230,13 @@ impl ServerEnv {
     }
 
     fn token(&self, room: &str, grants: VideoGrants) -> Result<String> {
+        self.token_for(room, "p0", grants)
+    }
+
+    fn token_for(&self, room: &str, identity: &str, grants: VideoGrants) -> Result<String> {
         Ok(AccessToken::with_api_key(&self.key, &self.secret)
             .with_grants(VideoGrants { room: room.to_string(), ..grants })
-            .with_identity("p0")
+            .with_identity(identity)
             .to_jwt()?)
     }
 
@@ -293,6 +298,11 @@ async fn test_publish_with_join_releases_unpublished_track() -> Result<()> {
 /// Accepts connections on a local port and forwards them to `target`, except WebSocket upgrades
 /// to `/rtc/v1`, which get a 404 as from a server without the v1 signalling path.
 async fn start_v1_rejecting_proxy(target: String) -> Result<SocketAddr> {
+    start_proxy(target, Duration::ZERO).await
+}
+
+/// Like [`start_v1_rejecting_proxy`], and also delays everything the server sends by `delay`.
+async fn start_proxy(target: String, delay: Duration) -> Result<SocketAddr> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     tokio::spawn(async move {
@@ -310,8 +320,39 @@ async fn start_v1_rejecting_proxy(target: String) -> Result<SocketAddr> {
                     return;
                 }
                 let Ok(mut outbound) = TcpStream::connect(&target).await else { return };
-                if outbound.write_all(&head).await.is_ok() {
+                if outbound.write_all(&head).await.is_err() {
+                    return;
+                }
+                if delay.is_zero() {
                     let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                    return;
+                }
+                let (mut client_read, mut client_write) = inbound.into_split();
+                let (mut server_read, mut server_write) = outbound.into_split();
+                let upstream = tokio::io::copy(&mut client_read, &mut server_write);
+                let downstream = async {
+                    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+                    let read = async move {
+                        let mut buf = vec![0u8; 16 * 1024];
+                        while let Ok(n @ 1..) = server_read.read(&mut buf).await {
+                            if tx.send((time::Instant::now() + delay, buf[..n].to_vec())).is_err() {
+                                break;
+                            }
+                        }
+                    };
+                    let write = async {
+                        while let Some((at, bytes)) = rx.recv().await {
+                            time::sleep_until(at).await;
+                            if client_write.write_all(&bytes).await.is_err() {
+                                break;
+                            }
+                        }
+                    };
+                    tokio::join!(read, write);
+                };
+                tokio::select! {
+                    _ = upstream => {},
+                    _ = downstream => {},
                 }
             });
         }
@@ -446,8 +487,8 @@ fn capture(audio: &LocalAudioTrack, video: &LocalVideoTrack) -> JoinHandle<()> {
     })
 }
 
-/// Waits until every remote publication `subscriber` sees is subscribed and has `muted` set.
-async fn wait_remote_muted(subscriber: &Room, muted: bool) -> Result<()> {
+/// Waits until `subscriber` sees both remote tracks subscribed with the given mute states.
+async fn wait_remote_muted(subscriber: &Room, audio_muted: bool, video_muted: bool) -> Result<()> {
     timeout(Duration::from_secs(10), async {
         loop {
             let publications: Vec<_> = subscriber
@@ -455,8 +496,12 @@ async fn wait_remote_muted(subscriber: &Room, muted: bool) -> Result<()> {
                 .values()
                 .flat_map(|p| p.track_publications().into_values())
                 .collect();
+            let expected = |p: &RemoteTrackPublication| match p.kind() {
+                TrackKind::Audio => audio_muted,
+                TrackKind::Video => video_muted,
+            };
             if publications.len() == 2
-                && publications.iter().all(|p| p.is_muted() == muted && p.track().is_some())
+                && publications.iter().all(|p| p.is_muted() == expected(p) && p.track().is_some())
             {
                 return;
             }
@@ -464,39 +509,18 @@ async fn wait_remote_muted(subscriber: &Room, muted: bool) -> Result<()> {
         }
     })
     .await
-    .map_err(|_| anyhow!("subscriber never saw both tracks subscribed with muted={muted}"))
+    .map_err(|_| {
+        anyhow!(
+            "subscriber never saw both tracks subscribed with \
+             audio muted={audio_muted}, video muted={video_muted}"
+        )
+    })
 }
 
-/// Tracks muted before joining are published like any muted track: the server publishes them
-/// without waiting for media, and they carry media once unmuted.
-#[test_log::test(tokio::test)]
-async fn test_publish_with_join_muted_tracks() -> Result<()> {
-    let (audio, video) = muted_tracks();
-    let mut publisher = RoomOptions::default();
-    publisher.publish_tracks = vec![
-        (
-            LocalTrack::Audio(audio.clone()),
-            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
-        ),
-        (
-            LocalTrack::Video(video.clone()),
-            TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
-        ),
-    ];
-    let ((publisher, _), (subscriber, mut subscriber_events)) = connect_pair(publisher).await?;
-
-    let publications = publisher.local_participant().track_publications();
-    assert_eq!(publications.len(), 2);
-    assert!(publications.values().all(|p| p.is_muted()));
-    wait_remote_muted(&subscriber, true).await?;
-
-    audio.unmute();
-    video.unmute();
-    let capture = capture(&audio, &video);
-    wait_remote_muted(&subscriber, false).await?;
-
+/// Waits for the first frame of the remote video track `events` reports subscribed.
+async fn wait_remote_frame(events: &mut UnboundedReceiver<RoomEvent>) -> Result<()> {
     let remote_video = timeout(Duration::from_secs(10), async {
-        while let Some(event) = subscriber_events.recv().await {
+        while let Some(event) = events.recv().await {
             if let RoomEvent::TrackSubscribed { track: RemoteTrack::Video(track), .. } = event {
                 return Ok(track);
             }
@@ -507,9 +531,196 @@ async fn test_publish_with_join_muted_tracks() -> Result<()> {
     let mut frames = NativeVideoStream::new(remote_video.rtc_track());
     timeout(Duration::from_secs(10), frames.next())
         .await
-        .map_err(|_| anyhow!("no video frame after unmuting"))?
+        .map_err(|_| anyhow!("no remote video frame"))?
         .ok_or_else(|| anyhow!("video stream ended"))?;
+    Ok(())
+}
+
+fn join_tracks_of(
+    audio: &LocalAudioTrack,
+    video: &LocalVideoTrack,
+) -> Vec<(LocalTrack, TrackPublishOptions)> {
+    vec![
+        (
+            LocalTrack::Audio(audio.clone()),
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+        ),
+        (
+            LocalTrack::Video(video.clone()),
+            TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
+        ),
+    ]
+}
+
+/// Tracks muted before joining are published like any muted track: the server publishes them
+/// without waiting for media, their senders stay disabled while media is captured, and they carry
+/// media once unmuted.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_muted_tracks() -> Result<()> {
+    let (audio, video) = muted_tracks();
+    let capture = capture(&audio, &video);
+    let mut publisher = RoomOptions::default();
+    publisher.publish_tracks = join_tracks_of(&audio, &video);
+    let ((publisher, _), (subscriber, mut subscriber_events)) = connect_pair(publisher).await?;
+
+    let publications = publisher.local_participant().track_publications();
+    assert_eq!(publications.len(), 2);
+    assert!(publications.values().all(|p| p.is_muted()));
+    assert!(!audio.is_enabled() && !video.is_enabled(), "muted tracks were re-enabled");
+    wait_remote_muted(&subscriber, true, true).await?;
+
+    audio.unmute();
+    video.unmute();
+    wait_remote_muted(&subscriber, false, false).await?;
+    wait_remote_frame(&mut subscriber_events).await?;
 
     capture.abort();
     Ok(())
+}
+
+/// Mute changes made while `connect` is in flight reach both the sender and the server: the
+/// camera is muted and the muted microphone unmuted after their publication has started.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_mute_during_connect() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let grants = VideoGrants { room_join: true, ..Default::default() };
+    let subscriber_token = server.token_for(&room_name, "subscriber", grants.clone())?;
+    let (subscriber, mut subscriber_events) =
+        Room::connect(&server.url, &subscriber_token, RoomOptions::default()).await?;
+
+    let (audio, video) = muted_tracks();
+    video.unmute();
+    let capture = capture(&audio, &video);
+    let mut options = RoomOptions::default();
+    options.publish_tracks = join_tracks_of(&audio, &video);
+    let token = server.token_for(&room_name, "publisher", grants)?;
+    let url = server.url.clone();
+    let connect = tokio::spawn(async move { Room::connect(&url, &token, options).await });
+
+    let (audio_track, video_track) =
+        (LocalTrack::Audio(audio.clone()), LocalTrack::Video(video.clone()));
+    timeout(Duration::from_secs(5), async {
+        while !(audio_track.has_sender() && video_track.has_sender()) {
+            time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("publication never started"))?;
+    if connect.is_finished() {
+        bail!("connect finished before the mute changes could be made");
+    }
+    audio.unmute();
+    video.mute();
+
+    let (publisher, _) = connect.await??;
+    assert!(audio.is_enabled(), "unmuted microphone is disabled");
+    assert!(!video.is_enabled(), "muted camera was re-enabled");
+    wait_remote_muted(&subscriber, false, true).await?;
+
+    video.unmute();
+    wait_remote_muted(&subscriber, false, false).await?;
+    wait_remote_frame(&mut subscriber_events).await?;
+
+    capture.abort();
+    publisher.close().await?;
+    subscriber.close().await?;
+    Ok(())
+}
+
+/// Grants that only allow publishing a microphone.
+fn microphone_only() -> VideoGrants {
+    VideoGrants {
+        room_join: true,
+        can_publish_sources: vec!["microphone".into()],
+        ..Default::default()
+    }
+}
+
+/// A join-time track the server explicitly refuses fails `connect` with the refusal, without
+/// waiting for a confirmation that will never come.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_rejected_track() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, microphone_only())?;
+
+    let connected = Room::connect(&server.url, &token, publisher_options(true)).await;
+    let Err(err) = connected else {
+        bail!("connect succeeded although the camera is not allowed");
+    };
+    let err = err.to_string();
+    assert!(err.contains("join-video") && err.contains("NOT_ALLOWED"), "unexpected error: {err}");
+    Ok(())
+}
+
+/// A track the server refuses fails `publish_track` with the refusal instead of timing out.
+#[test_log::test(tokio::test)]
+async fn test_publish_track_rejected() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, microphone_only())?;
+    let (room, _) = Room::connect(&server.url, &token, RoomOptions::default()).await?;
+
+    let (camera, options) = join_tracks().pop().expect("join tracks include a camera");
+    // Far below the 10 s publish timeout.
+    let published =
+        timeout(Duration::from_secs(3), room.local_participant().publish_track(camera, options))
+            .await
+            .map_err(|_| anyhow!("publish_track waited for a refused track"))?;
+    let Err(err) = published else {
+        bail!("publish_track succeeded although the camera is not allowed");
+    };
+    let err = err.to_string();
+    assert!(err.contains("join-video") && err.contains("NOT_ALLOWED"), "unexpected error: {err}");
+    room.close().await?;
+    Ok(())
+}
+
+/// Cancelling `connect` after some join-time tracks are published closes the room and releases
+/// the tracks, as a failed `connect` does.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_cancelled_connect_closes_room() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    // Without v1 the tracks are published one by one after joining; the delay keeps the camera's
+    // publication in flight once the microphone is published.
+    let proxy = start_proxy(server.host_port(), Duration::from_millis(500)).await?;
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+
+    let (microphone, released) = single_audio_track();
+    let mut options = RoomOptions::default();
+    options.publish_tracks =
+        vec![microphone, join_tracks().pop().expect("join tracks include a camera")];
+    let url = format!("ws://{proxy}");
+    let connect = tokio::spawn(async move { Room::connect(&url, &token, options).await });
+
+    let http_url = server.url.replacen("ws", "http", 1);
+    let rooms = RoomClient::with_api_key(&http_url, &server.key, &server.secret);
+    timeout(Duration::from_secs(10), async {
+        loop {
+            let participants = rooms.list_participants(&room_name).await.unwrap_or_default();
+            if participants.iter().any(|p| !p.tracks.is_empty()) {
+                return;
+            }
+            time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("microphone was never published"))?;
+    if connect.is_finished() {
+        bail!("connect finished before it could be cancelled");
+    }
+    connect.abort();
+    assert!(connect.await.is_err_and(|err| err.is_cancelled()));
+
+    timeout(Duration::from_secs(10), async {
+        while !rooms.list_participants(&room_name).await.unwrap_or_default().is_empty() {
+            time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("participant left behind after the cancelled connect"))?;
+
+    wait_released(released).await
 }

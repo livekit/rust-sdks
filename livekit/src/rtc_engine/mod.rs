@@ -335,7 +335,7 @@ impl RtcEngine {
         Self,
         proto::JoinResponse,
         EngineEvents,
-        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
     )> {
         let (inner, join_response, engine_events, pre_publish_receivers) =
             EngineInner::connect(url, token, options, e2ee_manager, publish_tracks).await?;
@@ -411,7 +411,7 @@ impl RtcEngine {
     pub(crate) async fn wait_track_published_by_cid(
         &self,
         cid: String,
-        rx: oneshot::Receiver<proto::TrackInfo>,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
     ) -> EngineResult<proto::TrackInfo> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
@@ -519,7 +519,7 @@ impl EngineInner {
         Arc<Self>,
         proto::JoinResponse,
         EngineEvents,
-        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
     )> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;

@@ -569,6 +569,28 @@ impl Debug for RoomSession {
     }
 }
 
+/// Closes a room whose `connect` is cancelled before returning it to the caller.
+struct CloseOnDrop(Option<Arc<RoomSession>>);
+
+impl CloseOnDrop {
+    fn disarm(mut self) -> Arc<RoomSession> {
+        self.0.take().expect("CloseOnDrop disarmed twice")
+    }
+}
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        let Some(inner) = self.0.take() else { return };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            log::error!("connect cancelled outside a tokio runtime, cannot close the room");
+            return;
+        };
+        runtime.spawn(async move {
+            let _ = inner.close(DisconnectReason::JoinFailure).await;
+        });
+    }
+}
+
 impl Room {
     pub async fn connect(
         url: &str,
@@ -894,8 +916,16 @@ impl Room {
         inner.handle.lock().await.replace(handle);
 
         let room = Self { inner };
-        if let Err(err) = room.complete_pre_publish(publish_tracks, pre_publish_receivers).await {
-            room.inner.close(DisconnectReason::JoinFailure).await?;
+        let close_on_cancel = CloseOnDrop(Some(room.inner.clone()));
+        let published = room.complete_pre_publish(publish_tracks, pre_publish_receivers).await;
+        let inner = close_on_cancel.disarm();
+        if let Err(err) = published {
+            // Spawned so that cancelling `connect` cannot interrupt the cleanup.
+            let closed =
+                tokio::spawn(async move { inner.close(DisconnectReason::JoinFailure).await });
+            if let Ok(Err(close_err)) = closed.await {
+                log::warn!("failed to close the room after a failed join: {close_err}");
+            }
             return Err(err);
         }
 
@@ -906,7 +936,7 @@ impl Room {
     async fn complete_pre_publish(
         &self,
         tracks: Vec<(LocalTrack, TrackPublishOptions)>,
-        receivers: Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+        receivers: Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
     ) -> RoomResult<()> {
         let mut receivers: HashMap<_, _> = receivers.into_iter().collect();
         let local_participant = &self.inner.local_participant;

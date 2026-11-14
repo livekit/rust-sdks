@@ -418,7 +418,7 @@ struct SessionInner {
     /// `track` events for newly-added streams.
     dispatched_streams: Mutex<HashSet<(String, String)>>,
 
-    pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
+    pending_tracks: Mutex<HashMap<String, oneshot::Sender<EngineResult<proto::TrackInfo>>>>,
 
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
@@ -559,7 +559,7 @@ impl RtcSession {
         Self,
         proto::JoinResponse,
         SessionEvents,
-        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
     )> {
         let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
@@ -761,18 +761,20 @@ impl RtcSession {
         }
 
         // Tracks without a receiver were not sent with the join and must be published normally.
-        let pre_publish_receivers: Vec<(String, oneshot::Receiver<proto::TrackInfo>)> =
-            if sent_publisher_offer {
-                publish_tracks
-                    .iter()
-                    .filter_map(|(track, _)| {
-                        let cid = track.rtc_track().id();
-                        inner.register_pending_track(&cid).ok().map(|rx| (cid, rx))
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let pre_publish_receivers: Vec<(
+            String,
+            oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        )> = if sent_publisher_offer {
+            publish_tracks
+                .iter()
+                .filter_map(|(track, _)| {
+                    let cid = track.rtc_track().id();
+                    inner.register_pending_track(&cid).ok().map(|rx| (cid, rx))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
@@ -950,7 +952,7 @@ impl RtcSession {
     pub(crate) async fn wait_track_published_by_cid(
         &self,
         cid: String,
-        rx: oneshot::Receiver<proto::TrackInfo>,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
     ) -> EngineResult<proto::TrackInfo> {
         self.inner.wait_track_published_by_cid(cid, rx).await
     }
@@ -1664,7 +1666,7 @@ impl SessionInner {
             proto::signal_response::Message::TrackPublished(publish_res) => {
                 let mut pending_tracks = self.pending_tracks.lock();
                 if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
-                    let _ = tx.send(publish_res.track.unwrap());
+                    let _ = tx.send(Ok(publish_res.track.unwrap()));
                 }
             }
             proto::signal_response::Message::RoomUpdate(room_update) => {
@@ -1684,6 +1686,12 @@ impl SessionInner {
                     dt::local::publish_result_from_request_response(&request_response)
                 {
                     _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+                    return Ok(());
+                }
+                if let Some(proto::request_response::Request::AddTrack(req)) =
+                    &request_response.request
+                {
+                    self.reject_pending_track(req, &request_response);
                     return Ok(());
                 }
                 let mut pending_requests = self.pending_requests.lock();
@@ -2104,7 +2112,7 @@ impl SessionInner {
     async fn wait_track_published_by_cid(
         &self,
         cid: String,
-        rx: oneshot::Receiver<proto::TrackInfo>,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
     ) -> EngineResult<proto::TrackInfo> {
         self.wait_track_published(cid, rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
     }
@@ -2112,7 +2120,7 @@ impl SessionInner {
     fn register_pending_track(
         &self,
         cid: &str,
-    ) -> EngineResult<oneshot::Receiver<proto::TrackInfo>> {
+    ) -> EngineResult<oneshot::Receiver<EngineResult<proto::TrackInfo>>> {
         let (tx, rx) = oneshot::channel();
         let mut pending_tracks = self.pending_tracks.lock();
         if pending_tracks.contains_key(cid) {
@@ -2125,19 +2133,43 @@ impl SessionInner {
     async fn wait_track_published(
         &self,
         cid: String,
-        rx: oneshot::Receiver<proto::TrackInfo>,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
         timeout: Duration,
     ) -> EngineResult<proto::TrackInfo> {
         tokio::select! {
-            Ok(info) = rx => Ok(info),
+            res = rx => match res {
+                Ok(res) => res,
+                Err(_) => Err(EngineError::Internal("track publication cancelled".into())),
+            },
             _ = sleep(timeout) => {
                 self.pending_tracks.lock().remove(&cid);
                 Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },
-            else => {
-                Err(EngineError::Internal("track publication cancelled".into()))
-            }
         }
+    }
+
+    /// Fails the pending publication of the track `req` added, if the server refused it.
+    fn reject_pending_track(
+        &self,
+        req: &proto::AddTrackRequest,
+        response: &proto::RequestResponse,
+    ) {
+        use proto::request_response::Reason;
+        if matches!(response.reason(), Reason::Ok | Reason::Queued) {
+            return;
+        }
+        let Some(tx) = self.pending_tracks.lock().remove(&req.cid) else {
+            return;
+        };
+        let _ = tx.send(Err(EngineError::Internal(
+            format!(
+                "track {} rejected by the server: {}: {}",
+                req.name,
+                response.reason().as_str_name(),
+                response.message
+            )
+            .into(),
+        )));
     }
 
     fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
