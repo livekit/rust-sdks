@@ -21,6 +21,8 @@ base64 = "0.22"
 serde_json = { workspace = true }
 # Server URLs are parsed, never string-matched, before a token may follow them.
 url = "2.3"
+# gzip for request bodies; the deflate backend (miniz_oxide) is already linked by data streams.
+flate2 = "1"
 # OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
 # livekit-protocol so a single prost is linked.
 opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }

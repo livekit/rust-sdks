@@ -50,8 +50,10 @@ macro_rules! counters {
 }
 
 counters! {
-    /// Records evicted from the in-memory queue (`max_queue_size`), and spans dropped from a full
-    /// span buffer (open spans abandoned, finished ones past its capacity).
+    /// Records evicted from the in-memory queue (`max_queue_size`), spans dropped from a full
+    /// span buffer (open spans abandoned, finished ones past its capacity), and tracks a session
+    /// did not wait on past `MAX_PENDING_TRACKS` (a subscribe's span, a published track's fast
+    /// polling).
     queue_full,
     /// Records lost because no cache, not even memory, could take their batch.
     cache_error,
@@ -192,7 +194,9 @@ pub enum TelemetryStatus {
     /// Uploads wait for a connect/reconnect to finish or for the device (Low Data Mode, low
     /// battery); capped at 60 s.
     Held,
-    /// The last upload failed; retrying after a jittered exponential backoff.
+    /// A failed upload waits to retry while its batch stays cached: a destination backs off
+    /// (jittered exponential backoff), or a batch that is too large and cannot be split waits
+    /// for its next attempt. Other destinations and batches can still upload meanwhile.
     Paused,
     /// The collector asked for a pause (`Retry-After`).
     Throttled,
@@ -225,7 +229,9 @@ pub struct TelemetryStats {
     pub status: TelemetryStatus,
     /// Records lost for any reason (sum of the `dropped_*` fields).
     pub dropped: u64,
-    /// Records evicted from the in-memory queue, and spans dropped from a full span buffer.
+    /// Records evicted from the in-memory queue, spans dropped from a full span buffer, and
+    /// tracks a session did not wait on past 256 at once (a subscribe loses its span, a published
+    /// track its fast polling).
     pub dropped_queue_full: u64,
     /// Records lost because no cache, not even memory, could take their batch.
     pub dropped_cache_error: u64,

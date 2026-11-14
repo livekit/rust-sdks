@@ -229,7 +229,7 @@ const JOURNAL_SEP: char = '@';
 static DIR_LOCK: Mutex<()> = Mutex::new(());
 
 /// Lock order: spill admission, file operation, directory journal, instance state. No host
-/// logger runs under these locks: `outside_gate` defers our diagnostics to the outer release.
+/// logger runs under these locks: `logged_after` defers our diagnostics to the outer release.
 /// Reentrant custom-cache calls into spill mutations fail with WouldBlock instead of waiting.
 // ponytail: process-wide serialization; use per-directory barriers if measured contention warrants it.
 static FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
@@ -279,7 +279,7 @@ fn lock_commit(lock: &'static Mutex<()>) -> std::sync::MutexGuard<'static, ()> {
 
 /// Serialize a whole file operation, including clear's listing, and release before diagnostics.
 fn file_operation<T>(operation: impl FnOnce() -> T) -> T {
-    outside_gate(|| {
+    logged_after(|| {
         let _gate = lock_commit(&FILE_WRITE_LOCK);
         operation()
     })
@@ -547,13 +547,8 @@ impl FileCache {
     /// result, so a failed sync never turns another pass's unlink into this one's. A gone
     /// directory (the OS purged it) has nothing left to sync.
     fn unlink(&self, id: &str) -> (bool, io::Result<()>) {
-        let path = self.path(id, BATCH_EXT);
-        if let Err(err) = self.step(Step::Delete, &path) {
-            return (false, Err(err));
-        }
-        let unlinked = match fs::remove_file(&path) {
-            Ok(()) => true,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => false,
+        let unlinked = match self.delete(id) {
+            Ok(unlinked) => unlinked,
             Err(err) => return (false, Err(err)),
         };
         let synced = match self.sync_dir() {
@@ -561,6 +556,18 @@ impl FileCache {
             other => other,
         };
         (unlinked, synced)
+    }
+
+    /// Delete `id`'s file without syncing the directory: the caller makes the delete durable.
+    /// `Ok(false)` when the file was already gone.
+    fn delete(&self, id: &str) -> io::Result<bool> {
+        let path = self.path(id, BATCH_EXT);
+        self.step(Step::Delete, &path)?;
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err),
+        }
     }
 
     /// The journaled section of [`BatchCache::replace`], under [`DIR_LOCK`]. `Err` only before the
@@ -689,37 +696,48 @@ impl BatchCache for FileCache {
             };
             #[cfg(test)]
             self.step(Step::ClearListed, &self.dir)?;
+            // One directory sync at the end makes this sweep's deletions durable, whatever failed
+            // before it. The listing above may have published a journaled split first, with its own
+            // sync.
             let mut first = Ok(());
             for id in ids {
-                if let Err(err) = self.unlink(&id).1 {
+                if let Err(err) = self.delete(&id) {
                     first = first.and(Err(err));
                 }
             }
-            for pend in self.journal()? {
-                if let Err(err) = fs::remove_file(&pend) {
-                    first = first.and(Err(err));
+            match self.journal() {
+                Ok(journal) => {
+                    for pend in journal {
+                        if let Err(err) = fs::remove_file(&pend) {
+                            first = first.and(Err(err));
+                        }
+                    }
                 }
+                Err(err) => first = first.and(Err(err)),
             }
             // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
             // no push or split is writing one right now.
             {
                 let _locked = lock_dir();
-                let entries = match fs::read_dir(&self.dir) {
+                match fs::read_dir(&self.dir) {
                     Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
-                    other => other?,
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == TMP_EXT) {
-                        if let Err(err) = fs::remove_file(&path) {
-                            first = first.and(Err(err));
+                    Err(err) => first = first.and(Err(err)),
+                    Ok(entries) => {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().is_some_and(|e| e == TMP_EXT) {
+                                if let Err(err) = fs::remove_file(&path) {
+                                    first = first.and(Err(err));
+                                }
+                            }
                         }
                     }
                 }
             }
-            // Nothing journaled is left to publish.
+            // After a full sweep nothing journaled is left to publish. After a failed one a journal
+            // file may remain: the next listing retries its recovery.
             self.recovery_failed.store(false, Ordering::Relaxed);
-            first.and_then(|()| self.sync_dir())
+            first.and(self.sync_dir())
         })
     }
 
@@ -731,10 +749,6 @@ impl BatchCache for FileCache {
 /// A cache that never refuses a batch: what the primary cannot store (disk full, directory
 /// gone) goes to memory instead, so it still uploads — it just no longer survives the process.
 /// Every spill is counted as `cache_write_errors`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
-)]
 pub(crate) struct SpillCache {
     primary: std::sync::Arc<dyn BatchCache>,
     spill: MemoryCache,
@@ -747,10 +761,6 @@ pub(crate) struct SpillCache {
     spilling: AtomicBool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the pipeline (`Telemetry`, `Exporter`) uses it, not in place yet")
-)]
 impl SpillCache {
     pub fn new(
         primary: std::sync::Arc<dyn BatchCache>,
@@ -779,7 +789,7 @@ impl SpillCache {
 
 impl BatchCache for SpillCache {
     fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
-        outside_gate(|| {
+        logged_after(|| {
             let gate = self.open_gate()?;
             let err = match self.primary.push(id, body) {
                 Ok(evicted) => {
@@ -803,7 +813,7 @@ impl BatchCache for SpillCache {
     /// A batch spilled to memory is split in memory; one on disk is split on disk or not at all
     /// — never moved from disk to memory, where a crash would lose it.
     fn replace(&self, old: &str, new: &[(String, Vec<u8>)]) -> io::Result<Vec<String>> {
-        outside_gate(|| {
+        logged_after(|| {
             let _gate = self.open_gate()?;
             if self.spill.pending().iter().any(|id| id == old) {
                 self.spill.replace(old, new)
@@ -830,7 +840,7 @@ impl BatchCache for SpillCache {
     }
 
     fn clear(&self) -> io::Result<()> {
-        outside_gate(|| {
+        logged_after(|| {
             let _gate = spill_gate()?;
             self.spill.clear()?;
             self.primary.clear()
@@ -843,13 +853,14 @@ impl BatchCache for SpillCache {
 }
 
 thread_local! {
-    /// Diagnostics held back while this thread holds the spill gate; `None` logs them at once.
+    /// Diagnostics held back while this thread holds a lock a host logger must not find taken
+    /// (the spill gate, the span registry); `None` logs them at once.
     static HELD_BACK: RefCell<Option<Vec<(log::Level, String)>>> = const { RefCell::new(None) };
 }
 
-/// Log `message` now, or once the spill gate this thread holds is released (see
-/// [`outside_gate`]): a host logger may call back into the cache, and must not find it locked.
-fn diagnostic(level: log::Level, message: String) {
+/// Log `message` now, or once the lock this thread holds is released (see [`logged_after`]): a
+/// host logger may call back into the pipeline, and must not find that lock taken.
+pub(crate) fn diagnostic(level: log::Level, message: String) {
     let now = HELD_BACK.with(|held| match held.borrow_mut().as_mut() {
         Some(queue) => {
             queue.push((level, message));
@@ -862,13 +873,9 @@ fn diagnostic(level: log::Level, message: String) {
     }
 }
 
-/// Run `gated`, which takes the spill gate, and log the diagnostics it raised once it returned,
-/// its gate released (into an outer `outside_gate`, if any).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`SpillCache` uses it, and the pipeline is not in place yet")
-)]
-fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
+/// Run `locked`, which takes a lock, and log the diagnostics raised under it once it returned and
+/// released that lock (into an outer `logged_after`, if any).
+pub(crate) fn logged_after<T>(locked: impl FnOnce() -> T) -> T {
     struct Release(Option<Vec<(log::Level, String)>>);
     impl Drop for Release {
         fn drop(&mut self) {
@@ -880,7 +887,7 @@ fn outside_gate<T>(gated: impl FnOnce() -> T) -> T {
         }
     }
     let _release = Release(HELD_BACK.with(|held| held.borrow_mut().replace(Vec::new())));
-    gated()
+    locked()
 }
 
 /// Create `dir` (one that exists already is fine) and, when this call created it, make its
@@ -1723,6 +1730,52 @@ mod tests {
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("chmod");
         assert_eq!(cache.pending(), [id(1)]);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `clear` makes a full cache's deletions durable with one directory sync, not one per batch.
+    #[test]
+    fn clear_syncs_the_directory_once_for_a_full_cache() {
+        let dir = temp_dir("clear-one-sync");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        for n in 0..MAX_BATCHES as u64 {
+            fs::write(cache.path(&id(n), BATCH_EXT), b"batch").expect("batch");
+        }
+        let syncs = Arc::new(Mutex::new(0));
+        let counted = syncs.clone();
+        cache.inject(move |step, _| {
+            *counted.lock().expect("lock") += usize::from(step == Step::SyncDir);
+            Ok(())
+        });
+        cache.clear().expect("clear");
+        let left = fs::read_dir(&dir).expect("dir").count();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!((left, *syncs.lock().expect("lock")), (0, 1));
+    }
+
+    /// A batch that cannot be deleted fails `clear`, yet every other file is still deleted and
+    /// the directory is synced afterwards, so the deletions that did happen are durable.
+    #[test]
+    fn clear_syncs_the_directory_after_a_failed_deletion() {
+        let dir = temp_dir("clear-sync-after-failure");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.push(&id(1), b"deleted").expect("push");
+        cache.push(&id(2), b"undeletable").expect("push");
+        fs::write(cache.path(&id(3), TMP_EXT), b"stray").expect("tmp");
+        let (kept, steps) = (cache.path(&id(2), BATCH_EXT), Arc::new(Mutex::new(Vec::new())));
+        let (undeletable, seen) = (kept.clone(), steps.clone());
+        cache.inject(move |step, path| {
+            seen.lock().expect("lock").push(step);
+            if step == Step::Delete && path == undeletable {
+                return Err(io::Error::other("undeletable"));
+            }
+            Ok(())
+        });
+        let cleared = cache.clear();
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(cleared.expect_err("the failure is reported").to_string(), "undeletable");
+        assert_eq!(left, [kept], "everything else is deleted");
+        assert_eq!(steps.lock().expect("lock").last(), Some(&Step::SyncDir));
     }
 
     /// The retention floor holds even when the older batches cannot be deleted: the newest is

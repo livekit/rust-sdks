@@ -13,27 +13,62 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     fmt,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-use crate::{Attribute, AttributeValue};
+use tokio::time::Instant;
+
+use crate::{
+    cache::logged_after, rtc::RtcStat, Attribute, AttributeValue, LogRecord, RtcStatsSample, Span,
+    SpanName, SpanOutcome, SpanStep, SpanTrack, StreamDirection, Telemetry, TelemetryEvent,
+    TrackKind,
+};
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
 /// copied into them when they are captured (`lk.room.sid`, `lk.participant.identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
+    /// The trace id as hex, formatted once: the session's owner in `Destinations`.
+    hex: String,
     /// SDK-owned attributes (`lk.room.*`, `lk.participant.*`), copied into each record when it is
     /// captured (see [`ScopeState::decorate`]).
     attributes: Mutex<Vec<Attribute>>,
     /// The app's correlation attributes, copied into each record when it is captured, so a
     /// later change never rewrites what is already queued.
     custom: Mutex<Vec<Attribute>>,
+    /// Open `lk.subscribe` spans by track sid, from intent to first media.
+    subscribes: Mutex<HashMap<String, (Arc<Span>, Instant)>>,
+    /// Published tracks awaiting their first outbound reading, and since when.
+    publishing: Mutex<HashMap<String, Instant>>,
     /// The project host this session's batches go to (`Scope::set_server`); `None` until then.
     route: Mutex<Option<String>>,
     /// The last `(url, token)` handed over, so handing the same pair again costs a comparison;
     /// `None` again once disconnected (see [`ScopeState::in_call`]).
     server: Mutex<Option<(String, String)>>,
+    /// `lk.room.disconnected` was reported; a new `lk.connect` on the session clears it.
+    disconnected: std::sync::atomic::AtomicBool,
+    /// Held across a whole server change (see `Telemetry::set_server`): the remembered pair and
+    /// the route always belong to the same change.
+    pub transition: Mutex<()>,
+    /// [`MAX_PENDING_TRACKS`] was reached and warned about since a track was last admitted:
+    /// every new track admitted clears it, so the next overflow warns again.
+    tracks_warned: std::sync::atomic::AtomicBool,
+}
+
+/// The most tracks one session waits on at once (subscribes for their first media, published
+/// tracks for their first outbound reading), like the span registry's open spans. A track past it
+/// is not tracked and is counted as `queue_full`: a subscribe loses its span, a published track
+/// its fast polling. The session warns once per overflow: an overflow ends when a new track is
+/// admitted again, and the next one warns again.
+pub(crate) const MAX_PENDING_TRACKS: usize = 256;
+
+/// Whether a track sid can be kept: within the attribute value limit, as `Span::set_track` keeps
+/// it.
+fn keepable(sid: &str) -> bool {
+    sid.len() <= crate::event::MAX_VALUE_BYTES
 }
 
 impl ScopeState {
@@ -45,26 +80,36 @@ impl ScopeState {
     pub fn with_trace_id(trace_id: [u8; 16]) -> Arc<Self> {
         Arc::new(Self {
             trace_id,
+            hex: format!("{:032x}", u128::from_be_bytes(trace_id)),
             attributes: Mutex::new(Vec::new()),
             custom: Mutex::new(Vec::new()),
+            subscribes: Mutex::new(HashMap::new()),
+            publishing: Mutex::new(HashMap::new()),
             route: Mutex::new(None),
             server: Mutex::new(None),
+            disconnected: Default::default(),
+            transition: Mutex::new(()),
+            tracks_warned: Default::default(),
         })
     }
 
-    /// In a call: it has a server and has not disconnected since.
+    /// In a call: it has a server and has not disconnected since. A server handed over after
+    /// the disconnect (a late token refresh) is not a call until the next `lk.connect`.
     pub fn in_call(&self) -> bool {
         self.server.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+            && !self.disconnected.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Whether `(url, token)` is what this session already has; remembers it if not.
+    /// Whether `(url, token)` is what this session already has.
     pub fn same_server(&self, url: &str, token: &str) -> bool {
-        let mut server = self.server.lock().unwrap_or_else(|e| e.into_inner());
-        if server.as_ref().is_some_and(|(u, t)| u == url && t == token) {
-            return true;
-        }
-        *server = Some((url.to_owned(), token.to_owned()));
-        false
+        let server = self.server.lock().unwrap_or_else(|e| e.into_inner());
+        server.as_ref().is_some_and(|(u, t)| u == url && t == token)
+    }
+
+    /// `(url, token)` is this session's server now: handing it over again is a no-op.
+    pub fn remember_server(&self, url: &str, token: &str) {
+        *self.server.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((url.to_owned(), token.to_owned()));
     }
 
     pub fn route(&self) -> Option<String> {
@@ -75,17 +120,126 @@ impl ScopeState {
         *self.route.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
     }
 
-    /// The trace id as 32 hex characters.
-    pub fn hex(&self) -> String {
-        format!("{:032x}", u128::from_be_bytes(self.trace_id))
+    /// A track was published: poll fast until its first outbound reading (at most
+    /// [`Scope::SUBSCRIBE_TIMEOUT`]). The opt-out is checked under the lock its purge clears the
+    /// table under, so nothing is kept after it. Returns `true` when the session waits on
+    /// [`MAX_PENDING_TRACKS`] tracks already and `sid` was not kept.
+    pub fn await_first_outbound(&self, sid: &str, revoked: &std::sync::atomic::AtomicBool) -> bool {
+        if !keepable(sid) {
+            return false;
+        }
+        let mut publishing = self.publishing.lock().unwrap_or_else(|e| e.into_inner());
+        if revoked.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
+        publishing.retain(|_, since| since.elapsed() < Scope::SUBSCRIBE_TIMEOUT);
+        if publishing.len() >= MAX_PENDING_TRACKS && !publishing.contains_key(sid) {
+            return true;
+        }
+        if publishing.insert(sid.to_owned(), Instant::now()).is_none() {
+            self.track_admitted();
+        }
+        false
     }
 
-    pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
-        let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        attributes.retain(|a| a.key != key);
-        if let Some(value) = value {
-            attributes.push(Attribute::new(key, value));
+    /// Warn, once per overflow, that the session waits on [`MAX_PENDING_TRACKS`] tracks already.
+    /// Called with no lock held: a log line may call into the host.
+    pub fn warn_tracks_full(&self) {
+        if !self.tracks_warned.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            log::warn!(
+                "over {MAX_PENDING_TRACKS} tracks waiting in one session: not tracking more"
+            );
         }
+    }
+
+    /// A new track was admitted: the overflow, if any, is over, and the next one warns again.
+    /// Called under the lock of the table the track went into.
+    fn track_admitted(&self) {
+        self.tracks_warned.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a published track still waits for its first outbound reading (entries older than
+    /// the subscribe timeout are forgotten, so a track that never sends cannot keep polling fast).
+    fn awaiting_outbound(&self) -> bool {
+        let mut publishing = self.publishing.lock().unwrap_or_else(|e| e.into_inner());
+        publishing.retain(|_, since| since.elapsed() < Scope::SUBSCRIBE_TIMEOUT);
+        !publishing.is_empty()
+    }
+
+    /// When the oldest pending track (a subscribe, or a published track awaiting its first
+    /// outbound reading) runs out of time.
+    pub fn subscribe_deadline(&self) -> Option<Instant> {
+        let open = self.subscribes.lock().unwrap_or_else(|e| e.into_inner());
+        let subscribe = open.values().map(|(_, since)| *since + Scope::SUBSCRIBE_TIMEOUT).min();
+        drop(open);
+        let publishing = self.publishing.lock().unwrap_or_else(|e| e.into_inner());
+        let publish = publishing.values().map(|since| *since + Scope::SUBSCRIBE_TIMEOUT).min();
+        subscribe.into_iter().chain(publish).min()
+    }
+
+    /// The pipeline stops: end every pending subscribe (`timed_out` past its deadline,
+    /// `cancelled` before) so it ships with the last batch, or, on opt-out, just let go of them.
+    /// Published tracks awaiting their first reading are forgotten either way.
+    pub fn end_subscribes(&self, export: bool) {
+        self.publishing.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        let open: Vec<_> =
+            self.subscribes.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+        if export {
+            for (_, (span, since)) in open {
+                end_unfinished(&span, since);
+            }
+        }
+    }
+
+    /// End every subscribe past its deadline as `timed_out`, and forget published tracks that
+    /// waited as long for their first reading — driven by the exporter's clock, so a track that
+    /// never produces a single RTP reading still times out, however rarely the host polls.
+    pub fn expire_subscribes(&self) {
+        self.publishing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, since| since.elapsed() < Scope::SUBSCRIBE_TIMEOUT);
+        let mut expired = Vec::new();
+        self.subscribes.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, (span, since)| {
+            let live = since.elapsed() < Scope::SUBSCRIBE_TIMEOUT;
+            if !live {
+                expired.push(span.clone());
+            }
+            live
+        });
+        for span in expired {
+            span.fail("timed_out".to_owned());
+        }
+    }
+
+    /// The trace id as 32 hex characters.
+    pub fn hex(&self) -> &str {
+        &self.hex
+    }
+
+    #[cfg(test)]
+    pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        self.set_attributes(&[(key, value)]);
+    }
+
+    /// Set (or, with `None`, remove) SDK-owned attributes as one change: a record captured
+    /// meanwhile carries all of it or none of it.
+    pub fn set_attributes(&self, changes: &[(&str, Option<AttributeValue>)]) {
+        let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        for (key, value) in changes {
+            attributes.retain(|a| a.key != *key);
+            if let Some(value) = value {
+                attributes.push(Attribute::new(*key, value.clone()));
+            }
+        }
+    }
+
+    /// Whether [`set_attributes`](Self::set_attributes) would change anything.
+    pub fn attributes_differ(&self, changes: &[(&str, Option<AttributeValue>)]) -> bool {
+        let attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        changes.iter().any(|(key, value)| {
+            attributes.iter().find(|a| a.key == *key).map(|a| &a.value) != value.as_ref()
+        })
     }
 
     /// Whether `set_custom(key, value)` would be accepted right now: within the limits, outside
@@ -114,6 +268,7 @@ impl ScopeState {
     }
 
     /// The app's correlation attributes right now.
+    #[cfg(test)]
     pub fn custom_snapshot(&self) -> Vec<Attribute> {
         self.custom.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -122,8 +277,11 @@ impl ScopeState {
     /// attributes win.
     pub fn snapshot_custom(&self, own: &mut Vec<Attribute>) {
         let custom = self.custom.lock().unwrap_or_else(|e| e.into_inner());
+        // The session's keys are unique (`set_custom`): only the record's own can collide.
+        let record = own.len();
+        own.reserve(custom.len());
         for attribute in custom.iter() {
-            if !own.iter().any(|a| a.key == attribute.key) {
+            if !own[..record].iter().any(|a| a.key == attribute.key) {
                 own.push(attribute.clone());
             }
         }
@@ -166,10 +324,685 @@ impl fmt::Debug for ScopeState {
     }
 }
 
+/// Who this session is: attached to every record captured once the room is joined. `None`
+/// clears.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RoomIdentity {
+    /// The room's sid (`RM_…`), `lk.room.sid`.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub sid: Option<String>,
+    /// The room's name, `lk.room.name`.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub name: Option<String>,
+    /// The local participant's sid (`PA_…`), `lk.participant.sid`.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub participant_sid: Option<String>,
+    /// The local participant's identity, `lk.participant.identity`.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub participant_identity: Option<String>,
+}
+
+/// Why a session ended: the protocol's `DisconnectReason`, plus the client giving up.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectReason {
+    /// No reason given, or a number this SDK does not know.
+    Unknown,
+    /// The local client hung up.
+    ClientInitiated,
+    /// Another participant joined with the same identity.
+    DuplicateIdentity,
+    /// The server shut down.
+    ServerShutdown,
+    /// The participant was removed (`RemoveParticipant`).
+    ParticipantRemoved,
+    /// The room was deleted (`DeleteRoom`).
+    RoomDeleted,
+    /// The client tried to resume a session that the server does not know.
+    StateMismatch,
+    /// The client could not join.
+    JoinFailure,
+    /// The server moved the participant to another node.
+    Migration,
+    /// The signaling connection closed unexpectedly.
+    SignalClose,
+    /// The room closed because all standard and ingress participants left.
+    RoomClosed,
+    /// A SIP callee did not answer.
+    UserUnavailable,
+    /// A SIP callee rejected the call.
+    UserRejected,
+    /// A SIP trunk failed.
+    SipTrunkFailure,
+    /// The server lost the client (connection timed out).
+    ConnectionTimeout,
+    /// The media connection failed.
+    MediaFailure,
+    /// An agent errored.
+    AgentError,
+    /// The reconnect policy ran out of attempts.
+    ReconnectFailed,
+}
+
+impl From<i32> for DisconnectReason {
+    /// The protocol's `DisconnectReason` number, so no SDK keeps its own switch; a number this SDK
+    /// does not know is `Unknown`.
+    fn from(value: i32) -> Self {
+        match value {
+            1 => Self::ClientInitiated,
+            2 => Self::DuplicateIdentity,
+            3 => Self::ServerShutdown,
+            4 => Self::ParticipantRemoved,
+            5 => Self::RoomDeleted,
+            6 => Self::StateMismatch,
+            7 => Self::JoinFailure,
+            8 => Self::Migration,
+            9 => Self::SignalClose,
+            10 => Self::RoomClosed,
+            11 => Self::UserUnavailable,
+            12 => Self::UserRejected,
+            13 => Self::SipTrunkFailure,
+            14 => Self::ConnectionTimeout,
+            15 => Self::MediaFailure,
+            16 => Self::AgentError,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// A session on the shared pipeline: its own trace id and attributes, the same queue, cache,
+/// cadence and exporter as every other session in the process.
+///
+/// The pipeline starts once, at SDK init, so nothing that happens before the first room is
+/// lost; a `Scope` is what a room — one call — gets from it, and what its spans, RTC windows
+/// and events are filed under. Everything emitted outside a session (device state, pre-room
+/// errors, self-telemetry) belongs to the pipeline's own process session. Cheap to clone.
+#[derive(Clone)]
+pub struct Scope {
+    pub(crate) telemetry: Telemetry,
+    pub(crate) state: Arc<ScopeState>,
+}
+
+impl Scope {
+    /// The session's trace id as 32 hex characters — print it (`lkt_…`) so support can find
+    /// the call.
+    pub fn trace_id(&self) -> String {
+        self.state.hex().to_owned()
+    }
+
+    /// The LiveKit server this room talks to and the participant token it holds. Call it at
+    /// connect and again with every refreshed token: the core derives the ingest URL (LiveKit
+    /// Cloud only), reads the token's grant and expiry, and routes this session's records to its
+    /// own project with its own token. Cheap and idempotent — the same pair again is a no-op.
+    pub fn set_server(&self, url: &str, token: &str) {
+        self.telemetry.set_server(&self.state, url, token);
+    }
+
+    /// Queue an event or log record under this session. It links to the span it names
+    /// (`span_id`) only when that span is this session's: a span of another session, or one the
+    /// pipeline cannot place, is no link, and the record stays in this session's trace without it.
+    pub fn emit(&self, mut event: TelemetryEvent) {
+        let own = event.span_id.is_some_and(|id| {
+            let spans = self.telemetry.shared.spans.lock().unwrap_or_else(|e| e.into_inner());
+            spans.scope_of(id).is_some_and(|session| Arc::ptr_eq(&session, &self.state))
+        });
+        if !own {
+            event.span_id = None;
+        }
+        self.telemetry.emit_in(event, &self.state);
+    }
+
+    /// An app-defined event, exported as `custom.<name>` under this session with the session's
+    /// correlation attributes (its own attributes win over them). Rejected and counted as
+    /// `invalid` — never truncated — when the name is empty or over 128 bytes, an attribute is
+    /// over the limits or in the SDK's namespace (`lk.*`, `otel.*`, `code.*`, `session.id`,
+    /// `error.type`, `network.connection.type`), or there are more than 64 attributes.
+    pub fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
+        let valid = !name.is_empty()
+            && name.len() <= crate::event::MAX_NAME_BYTES
+            && attributes.len() <= crate::event::MAX_CUSTOM_ATTRIBUTES
+            && attributes.iter().all(|a| crate::event::valid_custom(&a.key, Some(&a.value)));
+        if !valid {
+            self.telemetry.count_invalid();
+            return;
+        }
+        self.emit(TelemetryEvent::custom(name, attributes));
+    }
+
+    /// A log record filed under this session even without an ambient span — for platforms with
+    /// no task-local context (Dart outside a zone). Same floor and filters as `Telemetry::log`.
+    pub fn log(&self, record: LogRecord) {
+        if let Some(event) = self.telemetry.log_event(record) {
+            self.emit(event);
+        }
+    }
+
+    /// The session ended for good (not a reconnect): the `lk.room.disconnected` record, once. A
+    /// repeated call is a no-op until the session starts a new `lk.connect`.
+    pub fn disconnected(&self, reason: DisconnectReason) {
+        if self.state.disconnected.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        self.state.publishing.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        let open: Vec<_> =
+            self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+        for (_, (span, since)) in open {
+            end_unfinished(&span, since);
+        }
+        self.telemetry.retire_stats(&self.state, None);
+        // Out of the call: uploads no longer yield to it. Serialized with a server change
+        // (`Telemetry::set_server`), which would otherwise remember its pair after this clear.
+        {
+            let _transition = self.state.transition.lock().unwrap_or_else(|e| e.into_inner());
+            self.state.server.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
+        let severity = if reason == DisconnectReason::ClientInitiated {
+            crate::Severity::Info
+        } else {
+            crate::Severity::Warn
+        };
+        let reason = crate::device::snake_case(reason);
+        // The body repeats the reason on purpose: it is the display line a log view shows (like
+        // the device events' bodies), and it takes the place of the name a body-less event shows.
+        self.emit(
+            TelemetryEvent::new("lk.room.disconnected")
+                .with_severity(severity)
+                .with_body(format!("disconnected: {reason}"))
+                .with_attribute("lk.disconnect.reason", reason),
+        );
+    }
+
+    /// Set (or, with `None`, remove) an app correlation attribute — `app.call_id`,
+    /// `enduser.id` — on every record this session captures from now on: logs, spans, events and
+    /// RTC windows. Records already captured keep the value they had. Rejected and counted as
+    /// `invalid` when the key is empty or over 128 bytes, a string value is over 1024 bytes, the
+    /// key is the SDK's (`lk.*`, `otel.*`, `code.*`, `session.id`, `error.type`,
+    /// `network.connection.type`), or the session already has 64.
+    pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        // Under the windows lock: the open windows close under the old value and the change
+        // lands before any reading can open a new one (readings record under the same lock).
+        let check = value.clone();
+        let accepted = self.telemetry.with_windows_split(
+            &self.state,
+            || self.state.accepts_custom(key, check.as_ref()),
+            || {
+                self.state.set_custom(key, value);
+            },
+        );
+        if !accepted {
+            self.telemetry.count_invalid();
+        }
+    }
+
+    /// Push one `getStats()` reading; its window ships under this session. The first inbound
+    /// reading with bytes is a subscribed track's first media. An unstamped sample is stamped
+    /// when it is pushed, so a host that pushes one report's layers one call at a time must
+    /// give them one `timestamp_ns` to group them into one poll. Separate calls are still
+    /// admitted one at a time: an exporter close or a correlation change landing between two
+    /// of them ends the poll there. Only [`record_stats_report`](Self::record_stats_report) and
+    /// [`record_peer_stats`](Self::record_peer_stats) admit a whole report as one.
+    pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.record_samples(vec![sample]);
+    }
+
+    /// One report's samples, admitted to the windows as one: a close or a split landing between
+    /// two of its layers would end a partial poll and lose a layer's growth. What a sample means
+    /// for the session's tracks is noted first, outside the windows lock.
+    fn record_samples(&self, samples: Vec<RtcStatsSample>) {
+        for sample in &samples {
+            self.note_track(sample);
+        }
+        self.telemetry.record_stats_in(samples, &self.state);
+    }
+
+    /// The first inbound reading with bytes is a subscribed track's first media; an outbound
+    /// reading is a published track's first.
+    fn note_track(&self, sample: &RtcStatsSample) {
+        if sample.direction == StreamDirection::Inbound && sample.bytes.unwrap_or(0) > 0 {
+            self.first_media(&sample.track_id);
+        }
+        if sample.direction == StreamDirection::Outbound {
+            self.state
+                .publishing
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&sample.track_id);
+        }
+    }
+
+    /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
+    /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
+    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
+    pub fn record_stats_report(
+        &self,
+        track_id: &str,
+        kind: TrackKind,
+        direction: StreamDirection,
+        report: Vec<RtcStat>,
+        timestamp_ns: Option<u64>,
+    ) {
+        self.record_samples(crate::rtc::samples_from_report(
+            track_id,
+            kind,
+            direction,
+            &report,
+            timestamp_ns,
+        ));
+    }
+
+    /// A whole peer connection's `getStats()` report, as the platform got it, and the tracks it
+    /// carries (MediaStreamTrack id → track sid, local and remote). The core finds each track's
+    /// RTP streams and records them as [`record_stats_report`](Self::record_stats_report) would:
+    /// one call per peer connection per poll, whatever the number of participants and tracks.
+    pub fn record_peer_stats(
+        &self,
+        report: Vec<RtcStat>,
+        tracks: HashMap<String, String>,
+        timestamp_ns: Option<u64>,
+    ) {
+        self.record_samples(crate::rtc::samples_from_peer_report(&report, &tracks, timestamp_ns));
+    }
+
+    /// How long the platform should wait before its next `getStats()` poll of this room: 1 s
+    /// while a subscribe waits for its first media (the core sees first media in the readings) or
+    /// a newly published track for its first outbound reading (known from its `lk.publish`
+    /// span's `set_track` with a sid; at most 30 s), else half the current stats window — two readings per window, at the pressure-stretched
+    /// cadence. Ask again after every poll.
+    pub fn stats_poll_interval_ms(&self) -> u64 {
+        let subscribing =
+            !self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+        if subscribing || self.state.awaiting_outbound() {
+            return Self::FAST_POLL_MS;
+        }
+        self.telemetry.stats_window_ms() / 2
+    }
+
+    /// No media within this long ends `lk.subscribe` with `error.type = timed_out`.
+    pub const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// The `getStats()` poll interval while first media is awaited: the subscribe span's end is
+    /// only as precise as this.
+    const FAST_POLL_MS: u64 = 1000;
+
+    /// The intent to subscribe exists (autoSubscribe: at the remote publish; manual: at the
+    /// subscribe call; a track already in the room at join: at connect): `lk.subscribe` opens,
+    /// once per track. Its end is an RTC fact the core
+    /// sees itself — the first inbound reading with bytes — so no SDK keeps this state.
+    pub fn subscribe_started(&self, track: SpanTrack) {
+        let Some(sid) = track.sid.clone() else { return };
+        if self.telemetry.shared.revoked() {
+            return;
+        }
+        if !keepable(&sid) {
+            self.telemetry.count_invalid();
+            return;
+        }
+        // Check and insert under one lock, so two calls for a track open one span; starting the
+        // span under it takes only the span registry's lock, and the registry's warnings wait
+        // until this lock is released too (a logger may call back into the session). The opt-out
+        // is checked again under it: its purge clears the table under the same lock.
+        let full = logged_after(|| {
+            let mut open = self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner());
+            if open.contains_key(&sid) || self.telemetry.shared.revoked() {
+                return None;
+            }
+            let full = open.len() >= MAX_PENDING_TRACKS;
+            if !full {
+                let span = self.start(SpanName::Subscribe, None);
+                span.set_track(track);
+                open.insert(sid, (span, Instant::now()));
+                self.state.track_admitted();
+            }
+            Some(full)
+        });
+        let Some(full) = full else { return };
+        if full {
+            // Its span never opens: one record lost, like a span the registry cannot hold.
+            crate::stats::Counters::add(&self.telemetry.shared.counters.queue_full, 1);
+            self.state.warn_tracks_full();
+            return;
+        }
+        // The exporter owns the clock that enforces the deadline.
+        self.telemetry.wake();
+    }
+
+    /// The server confirmed the subscription: the `subscribed` step. Without an earlier intent
+    /// this is the intent (a fallback, measured from here): the span opens and
+    /// [`stats_poll_interval_ms`](Self::stats_poll_interval_ms) turns fast at once.
+    pub fn subscribed(&self, track: SpanTrack) {
+        self.subscribe_started(track.clone());
+        let Some(sid) = &track.sid else { return };
+        // The span is cloned out: its step takes the registry lock, never under `subscribes`.
+        let span = self
+            .state
+            .subscribes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(sid)
+            .map(|(span, _)| span.clone());
+        if let Some(span) = span {
+            span.step(SpanStep::Subscribed);
+        }
+    }
+
+    /// A track left this session — unpublished, unsubscribed, its publisher gone. A pending
+    /// `lk.subscribe` ends `cancelled` (or `timed_out` past its deadline), the track's last
+    /// partial RTC window ships now, and the core forgets everything it kept for the track.
+    pub fn track_ended(&self, sid: &str) {
+        self.state.publishing.lock().unwrap_or_else(|e| e.into_inner()).remove(sid);
+        if let Some((span, since)) = self.take_subscribe(sid) {
+            end_unfinished(&span, since);
+        }
+        self.telemetry.retire_stats(&self.state, Some(sid));
+    }
+
+    /// The subscription failed (`error.type` = the platform's error name).
+    pub fn subscribe_failed(&self, sid: &str, error_type: &str) {
+        if let Some((span, _)) = self.take_subscribe(sid) {
+            span.fail(error_type.to_owned());
+        }
+    }
+
+    /// First media ends the subscribe `ok` — unless its deadline already passed and the sweep
+    /// has not run yet: then it is `timed_out`, whoever looks first.
+    fn first_media(&self, sid: &str) {
+        let Some((span, since)) = self.take_subscribe(sid) else { return };
+        if since.elapsed() >= Self::SUBSCRIBE_TIMEOUT {
+            span.fail("timed_out".to_owned());
+            return;
+        }
+        span.step(SpanStep::FirstMedia);
+        span.end(SpanOutcome::Ok, None);
+    }
+
+    fn take_subscribe(&self, sid: &str) -> Option<(Arc<Span>, Instant)> {
+        self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).remove(sid)
+    }
+
+    /// Start a typed span in this session's trace, stamped now. `parent` nests it when it is a
+    /// span of this session; a span of another session's trace is not a parent here. A new
+    /// `lk.connect` starts a new connection: its end is reported again by
+    /// [`disconnected`](Self::disconnected).
+    pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
+        if name == SpanName::Connect {
+            self.state.disconnected.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        let parent = parent
+            .and_then(|p| p.context())
+            .filter(|c| c.trace_id == self.state.hex())
+            .map(|c| c.span_id);
+        Span::bound(name, parent, self.telemetry.clone(), &self.state)
+    }
+
+    /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record
+    /// captured from then on. The four fields change as one, and an RTC window open under the
+    /// identity before ships under it, as with [`set_attribute`](Self::set_attribute). The same
+    /// identity again is a no-op.
+    pub fn set_room(&self, room: RoomIdentity) {
+        let identity = [
+            ("lk.room.sid", room.sid),
+            ("lk.room.name", room.name),
+            ("lk.participant.sid", room.participant_sid),
+            ("lk.participant.identity", room.participant_identity),
+        ]
+        .map(|(key, value)| {
+            // Identifiers, not free text: an over-long one is not attached (counted as invalid).
+            if value.as_ref().is_some_and(|v| v.len() > crate::event::MAX_VALUE_BYTES) {
+                self.telemetry.count_invalid();
+                return (key, None);
+            }
+            (key, value.map(AttributeValue::Str))
+        });
+        self.telemetry.with_windows_split(
+            &self.state,
+            || self.state.attributes_differ(&identity),
+            || self.state.set_attributes(&identity),
+        );
+    }
+}
+
+/// A subscribe that ended without media: `timed_out` once past its deadline — even when the
+/// cleanup comes later — `cancelled` before.
+fn end_unfinished(span: &Span, since: Instant) {
+    if since.elapsed() >= Scope::SUBSCRIBE_TIMEOUT {
+        span.fail("timed_out".to_owned());
+    } else {
+        span.cancel();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::event::MAX_CUSTOM_ATTRIBUTES;
+
+    fn pipeline() -> (Telemetry, crate::Exporter) {
+        Telemetry::new(Default::default(), Arc::new(crate::exporter::tests::Collector::default()))
+    }
+
+    fn track(sid: String) -> SpanTrack {
+        SpanTrack {
+            sid: Some(sid),
+            kind: TrackKind::Video,
+            source: crate::TrackSource::Camera,
+            remote_identity: None,
+        }
+    }
+
+    fn lens(room: &Scope) -> (usize, usize) {
+        let subscribes = room.state.subscribes.lock().expect("lock").len();
+        (subscribes, room.state.publishing.lock().expect("lock").len())
+    }
+
+    /// However many tracks a host reports, a session waits on at most `MAX_PENDING_TRACKS` of
+    /// each kind; every refused track is counted (a subscribe loses its span, a published track
+    /// its fast polling), and each overflow warns once: the 744 refused subscribes, then the
+    /// published tracks, whose admission ended the first overflow.
+    #[tokio::test]
+    async fn a_session_waits_on_a_bounded_number_of_tracks() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        for n in 0..1000 {
+            room.subscribe_started(track(format!("TR_s{n}")));
+        }
+        let publish = room.start(SpanName::Publish, None);
+        for n in 0..10_000 {
+            publish.set_track(track(format!("TR_p{n}")));
+        }
+        assert_eq!(lens(&room), (MAX_PENDING_TRACKS, MAX_PENDING_TRACKS));
+        let refused = (1000 - MAX_PENDING_TRACKS + 10_000 - MAX_PENDING_TRACKS) as u64;
+        assert_eq!(telemetry.shared.counters.snapshot().queue_full, refused);
+        let warned =
+            crate::test_log::take().iter().filter(|l| l.contains("tracks waiting")).count();
+        assert_eq!(warned, 2, "one per overflow, however many tracks each refused");
+    }
+
+    /// The overflow warning comes once per overflow. However the tracks leave (first media, a
+    /// failed subscribe, a disconnect, an ended track, a first outbound reading), the next
+    /// overflow warns again: a new track was admitted in between.
+    #[tokio::test]
+    async fn the_track_warning_returns_with_a_new_overflow() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let warned =
+            || crate::test_log::take().iter().filter(|l| l.contains("tracks waiting")).count();
+        let subscribe = |prefix: &str| {
+            for n in 0..=MAX_PENDING_TRACKS {
+                room.subscribe_started(track(format!("{prefix}{n}")));
+            }
+            warned()
+        };
+        let sids = |prefix: &str| -> Vec<String> {
+            (0..MAX_PENDING_TRACKS).map(|n| format!("{prefix}{n}")).collect()
+        };
+        assert_eq!(subscribe("media_"), 1);
+        for sid in sids("media_") {
+            let sample = RtcStatsSample {
+                bytes: Some(1),
+                ..RtcStatsSample::new(sid, TrackKind::Video, StreamDirection::Inbound)
+            };
+            room.record_stats(sample);
+        }
+        assert_eq!(subscribe("failed_"), 1, "after first media");
+        for sid in sids("failed_") {
+            room.subscribe_failed(&sid, "failed");
+        }
+        assert_eq!(subscribe("left_"), 1, "after failed subscribes");
+        room.disconnected(DisconnectReason::ClientInitiated);
+        room.start(SpanName::Connect, None).end(SpanOutcome::Ok, None);
+        assert_eq!(subscribe("again_"), 1, "after a disconnect");
+        let publish = room.start(SpanName::Publish, None);
+        let published = |prefix: &str| {
+            for n in 0..=MAX_PENDING_TRACKS {
+                publish.set_track(track(format!("{prefix}{n}")));
+            }
+            warned()
+        };
+        assert_eq!(published("ended_"), 1, "published tracks are admitted too");
+        for sid in sids("ended_") {
+            room.track_ended(&sid);
+        }
+        assert_eq!(published("sending_"), 1, "after ended tracks");
+        for sid in sids("sending_") {
+            room.record_stats(RtcStatsSample::new(
+                sid,
+                TrackKind::Video,
+                StreamDirection::Outbound,
+            ));
+        }
+        assert_eq!(published("last_"), 1, "after first outbound readings");
+    }
+
+    /// The span registry's warning, raised while a subscribe holds the session's subscribe lock,
+    /// reaches the logger only once that lock is released too: a logger may call back into the
+    /// session, and `stats_poll_interval_ms` takes that lock.
+    #[tokio::test]
+    async fn a_subscribes_registry_warning_waits_for_the_subscribe_lock() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        // A full span registry (256 open spans): the subscribe's span drops the oldest.
+        let _open: Vec<_> =
+            (0..256).map(|_| room.start(SpanName::Custom { name: "work".into() }, None)).collect();
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            state.upgrade().is_some_and(|state| state.subscribes.try_lock().is_err())
+        });
+        room.subscribe_started(track("TR_1".into()));
+        let warnings = crate::test_log::take();
+        assert!(warnings.iter().any(|l| l.contains("open spans full")), "{warnings:?}");
+        assert!(warnings.iter().all(|l| !l.starts_with("held: ")), "{warnings:?}");
+    }
+
+    /// A track sid longer than an attribute value may be is kept nowhere, as `set_track` keeps
+    /// it nowhere either.
+    #[tokio::test]
+    async fn an_oversized_track_id_is_not_kept() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let sid = "x".repeat(100_000);
+        room.subscribe_started(track(sid.clone()));
+        room.start(SpanName::Publish, None).set_track(track(sid));
+        assert_eq!(lens(&room), (0, 0));
+    }
+
+    /// A published track that never sends stops counting as awaited on the exporter's clock,
+    /// however rarely the host asks for its poll interval.
+    #[tokio::test(start_paused = true)]
+    async fn a_published_track_stops_waiting_without_the_host_polling() {
+        let (telemetry, exporter) = pipeline();
+        tokio::spawn(exporter.run());
+        let room = telemetry.begin_scope();
+        room.start(SpanName::Publish, None).set_track(track("TR_1".into()));
+        assert_eq!(lens(&room), (0, 1));
+        tokio::time::sleep(Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
+        assert_eq!(lens(&room), (0, 0));
+    }
+
+    /// The opt-out forgets the published tracks a session waits on, and a span bound before it
+    /// keeps nothing new afterwards.
+    #[tokio::test(start_paused = true)]
+    async fn the_opt_out_forgets_published_tracks_and_keeps_no_new_one() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        room.start(SpanName::Publish, None).set_track(track("TR_1".into()));
+        let later = room.start(SpanName::Publish, None);
+        assert_eq!(lens(&room), (0, 1));
+        telemetry.purge().await;
+        assert_eq!(lens(&room), (0, 0), "forgotten");
+        later.set_track(track("TR_2".into()));
+        assert_eq!(lens(&room), (0, 0), "nothing kept after the opt-out");
+    }
+
+    /// Two server changes racing on one session: the pair it remembers and its route belong to
+    /// the same change, so handing over the newer server again is not taken for a no-op.
+    #[tokio::test]
+    async fn racing_server_changes_keep_the_route_of_the_remembered_server() {
+        let (telemetry, _exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        let barriers = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
+            let (barriers, armed) = (barriers.clone(), armed.clone());
+            move || {
+                if armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    barriers.0.wait();
+                    barriers.1.wait();
+                }
+            }
+        }));
+        std::thread::scope(|threads| {
+            let first = threads.spawn(|| room.set_server("wss://a.livekit.cloud", &token));
+            // The first change is past its no-op check.
+            barriers.0.wait();
+            let second = threads.spawn(|| room.set_server("wss://b.livekit.cloud", &token));
+            // Long enough for the second change to finish, unless it waits for the first.
+            std::thread::sleep(Duration::from_millis(200));
+            barriers.1.wait();
+            first.join().expect("first");
+            second.join().expect("second");
+        });
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        room.set_server("wss://b.livekit.cloud", &token);
+        assert_eq!(room.state.route().as_deref(), Some("b.livekit.cloud"));
+    }
+
+    #[tokio::test]
+    async fn disconnected_reports_once_per_connection() {
+        let collector = Arc::new(crate::exporter::tests::Collector::default());
+        let (telemetry, _exporter) = Telemetry::new(Default::default(), collector);
+        let room = telemetry.begin_scope();
+        let reported = || {
+            let queued = telemetry.shared.store.drain(100, usize::MAX, 0);
+            queued.iter().filter(|q| q.event.name == "lk.room.disconnected").count()
+        };
+        room.disconnected(DisconnectReason::ClientInitiated);
+        room.disconnected(DisconnectReason::ClientInitiated);
+        assert_eq!(reported(), 1);
+        room.start(SpanName::Connect, None).end(SpanOutcome::Ok, None);
+        room.disconnected(DisconnectReason::ServerShutdown);
+        assert_eq!(reported(), 1, "a new connect reports again");
+    }
+
+    /// Every reason that ships, pinned to the list in `SPEC.md`.
+    #[test]
+    fn disconnect_reasons_match_the_spec() {
+        let reasons = (1..=16)
+            .map(DisconnectReason::from)
+            .chain([DisconnectReason::ReconnectFailed, DisconnectReason::from(0)]);
+        assert_eq!(
+            reasons.map(crate::device::snake_case).collect::<Vec<_>>().join(" | "),
+            "client_initiated | duplicate_identity | server_shutdown | participant_removed \
+             | room_deleted | state_mismatch | join_failure | migration | signal_close \
+             | room_closed | user_unavailable | user_rejected | sip_trunk_failure \
+             | connection_timeout | media_failure | agent_error | reconnect_failed | unknown"
+        );
+        assert_eq!(DisconnectReason::from(99), DisconnectReason::Unknown);
+    }
 
     #[test]
     fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
@@ -219,5 +1052,369 @@ mod tests {
             assert_eq!(accepted, 1, "one slot left, one writer wins");
             assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
         }
+    }
+
+    /// Unstamped typed samples admitted as one report keep every layer's growth: the report is
+    /// stamped once, so alternating layers are one poll. End to end, from the Scope through the
+    /// pipeline to the windows (review 4487559072, wired at the cumulative integration).
+    #[tokio::test]
+    async fn unstamped_layers_admitted_together_keep_all_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let layer = |id: &str, bytes: u64| RtcStatsSample {
+            bytes: Some(bytes),
+            layer: Some(id.into()),
+            timestamp_ns: None,
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Video, StreamDirection::Outbound)
+        };
+        for bytes in [[1_000, 4_000], [5_000, 12_000]] {
+            room.record_samples(vec![layer("h", bytes[0]), layer("f", bytes[1])]);
+        }
+        let exported = |telemetry: &Telemetry| {
+            let windows = telemetry.shared.windows.lock().expect("lock").close();
+            let bytes = windows
+                .iter()
+                .find_map(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+                .map(|a| a.value.clone());
+            (bytes, windows.len())
+        };
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
+
+        // The public single-sample path, one layer per call: a host that stamps the layers of
+        // one poll with one time keeps the growth too.
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        for (poll, bytes) in [[1_000, 4_000], [5_000, 12_000]].into_iter().enumerate() {
+            let stamp = Some(1_000_000_000 * (poll as u64 + 1));
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("h", bytes[0]) });
+            room.record_stats(RtcStatsSample { timestamp_ns: stamp, ..layer("f", bytes[1]) });
+        }
+        let (bytes, count) = exported(&telemetry);
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(12_000)), "{count} window events");
+    }
+
+    /// A report's layers are admitted as one: an exporter close landing between them (the hook
+    /// stands in for its tick) ends no partial poll, so no layer's growth is lost. Two layers
+    /// growing 100 → 200 → 300 bytes are 400 bytes of growth.
+    #[tokio::test]
+    async fn a_close_between_a_reports_layers_loses_no_growth() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let report = |bytes: i64| {
+            ["f", "h"]
+                .into_iter()
+                .map(|rid| crate::rtc::RtcStat {
+                    kind: "outbound-rtp".into(),
+                    id: format!("OUT_{rid}"),
+                    members: HashMap::from([
+                        ("rid".to_owned(), crate::AttributeValue::Str(rid.into())),
+                        ("bytesSent".to_owned(), crate::AttributeValue::Int(bytes)),
+                    ]),
+                })
+                .collect::<Vec<_>>()
+        };
+        let admissions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let shared = Arc::downgrade(&telemetry.shared);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new({
+            let admissions = admissions.clone();
+            move || {
+                // The fourth admission would be the second layer of the second report.
+                if admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 3 {
+                    if let Some(shared) = shared.upgrade() {
+                        let _ = shared.windows.lock().expect("lock").close();
+                    }
+                }
+            }
+        }));
+        for (second, bytes) in [(1, 100), (2, 200), (3, 300)] {
+            room.record_stats_report(
+                "TR_1",
+                TrackKind::Video,
+                StreamDirection::Outbound,
+                report(bytes),
+                Some(second * 1_000_000_000),
+            );
+        }
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        let windows = telemetry.shared.windows.lock().expect("lock").close();
+        let bytes = windows
+            .last()
+            .and_then(|w| w.event.attributes.iter().find(|a| a.key == "lk.rtc.bytes"))
+            .map(|a| a.value.clone());
+        assert_eq!(bytes, Some(crate::AttributeValue::Int(400)));
+    }
+
+    /// A destination warning (a server that is not LiveKit Cloud) reaches the host logger once
+    /// the destinations and session transition locks are released: a logger that calls back
+    /// into the pipeline cannot deadlock on them.
+    #[tokio::test]
+    async fn destination_diagnostics_are_logged_outside_the_locks() {
+        crate::test_log::capture();
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let shared = Arc::downgrade(&telemetry.shared);
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            shared.upgrade().is_some_and(|s| s.destinations.try_lock().is_err())
+                || state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("ws://localhost:7880", "token");
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("not LiveKit Cloud")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
+    /// A disconnect that lands while a server change is between its no-op check and remembering
+    /// the pair is not undone by the change: the session is out of the call afterwards. The
+    /// stored hook captures only channel ends (never the Room, whose owner stores the hook);
+    /// the disconnect runs on a thread released by the hook, and the hook waits for it with a
+    /// bound, so with the change serialized the wait ends by the bound, not by the disconnect.
+    #[tokio::test]
+    async fn a_disconnect_during_a_server_change_is_not_undone() {
+        use std::sync::mpsc;
+        let (telemetry, exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        let (paused_tx, paused_rx) = mpsc::channel::<()>();
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let done_rx = std::sync::Mutex::new(done_rx);
+        let disconnect = {
+            let room = room.clone();
+            std::thread::spawn(move || {
+                paused_rx.recv().expect("the change paused");
+                room.disconnected(DisconnectReason::ClientInitiated);
+                let _ = done_tx.send(());
+            })
+        };
+        let fired = std::sync::atomic::AtomicBool::new(false);
+        *telemetry.shared.pause.lock().expect("lock") = Some(Arc::new(move || {
+            // Only the server change's pause releases the disconnect; the disconnect's own
+            // captures pause too and must not wait on themselves.
+            if fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let _ = paused_tx.send(());
+            let done = done_rx.lock().expect("lock");
+            let _ = done.recv_timeout(Duration::from_secs(2));
+        }));
+        room.set_server("wss://a.livekit.cloud", &token);
+        // Cleanup before any verdict: the hook goes, the thread is joined.
+        *telemetry.shared.pause.lock().expect("lock") = None;
+        disconnect.join().expect("disconnect");
+        let in_call = room.state.in_call();
+        let server = room.state.server.lock().expect("lock").clone();
+        let shared = Arc::downgrade(&telemetry.shared);
+        drop((room, telemetry, exporter));
+        assert!(shared.upgrade().is_none(), "nothing keeps the pipeline alive");
+        assert!(!in_call, "disconnected: not in a call");
+        assert!(server.is_none(), "the change did not remember its pair after the disconnect");
+    }
+
+    /// A server handed over after the disconnect (a late token refresh) does not put the session
+    /// back in a call: only the next `lk.connect` does.
+    #[tokio::test]
+    async fn a_late_server_update_after_the_disconnect_is_not_a_call() {
+        let (telemetry, _exporter) = pipeline();
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(room.state.in_call());
+        room.disconnected(DisconnectReason::ClientInitiated);
+        assert!(!room.state.in_call());
+        room.set_server("wss://a.livekit.cloud", &token);
+        assert!(!room.state.in_call(), "a late update, no new connect");
+        let _connect = room.start(SpanName::Connect, None);
+        assert!(room.state.in_call(), "the new call");
+    }
+
+    /// A project change closes the session's windows into a full queue: the queue-full warning
+    /// reaches the host logger once the session transition lock is released, like the
+    /// destination lines.
+    #[tokio::test]
+    async fn a_project_change_logs_the_queue_full_warning_outside_the_transition() {
+        crate::test_log::capture();
+        let config = crate::TelemetryConfig { max_queue_size: 1, ..Default::default() };
+        let (telemetry, _exporter) =
+            Telemetry::new(config, Arc::new(crate::exporter::tests::Collector::default()));
+        let token = crate::destination::tests::granted(600);
+        let room = telemetry.begin_scope();
+        room.set_server("wss://a.livekit.cloud", &token);
+        room.record_stats(RtcStatsSample {
+            bytes: Some(1),
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Inbound)
+        });
+        room.emit_custom("fill", Vec::new());
+        let state = Arc::downgrade(&room.state);
+        crate::test_log::mark_while(move || {
+            state.upgrade().is_some_and(|s| s.transition.try_lock().is_err())
+        });
+        room.set_server("wss://b.livekit.cloud", &token);
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|l| l.contains("queue full")), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
+    }
+
+    const IDENTITY_KEYS: [&str; 4] =
+        ["lk.room.sid", "lk.room.name", "lk.participant.sid", "lk.participant.identity"];
+
+    fn identity(tag: &str) -> RoomIdentity {
+        RoomIdentity {
+            sid: Some(format!("RM_{tag}")),
+            name: Some(format!("room-{tag}")),
+            participant_sid: Some(format!("PA_{tag}")),
+            participant_identity: Some(format!("user-{tag}")),
+        }
+    }
+
+    /// The tags (`before`, `after`) of a record's four identity attributes.
+    fn identity_tags(attributes: &[Attribute]) -> Vec<String> {
+        IDENTITY_KEYS
+            .iter()
+            .filter_map(|key| attributes.iter().find(|a| a.key == *key))
+            .filter_map(|a| match &a.value {
+                AttributeValue::Str(value) => value.rsplit(['_', '-']).next().map(str::to_owned),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Readings recorded under one identity ship under it: `set_room` closes the session's open
+    /// windows before the identity changes, as `set_attribute` does for a correlation attribute.
+    #[tokio::test]
+    async fn set_room_closes_the_windows_of_the_old_identity() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        let reading = |bytes| RtcStatsSample {
+            bytes: Some(bytes),
+            ..RtcStatsSample::new("TR_1".to_owned(), TrackKind::Audio, StreamDirection::Outbound)
+        };
+        room.set_room(identity("before"));
+        room.record_stats(reading(1_000));
+        room.record_stats(reading(2_000));
+        room.set_room(identity("after"));
+        room.record_stats(reading(3_000));
+        room.record_stats(reading(4_000));
+        // The same identity again (a refresh) changes nothing: it must not end a window.
+        room.set_room(identity("after"));
+        room.record_stats(reading(5_000));
+        let mut windows = telemetry.shared.store.drain(100, usize::MAX, 0);
+        windows.extend(telemetry.shared.windows.lock().expect("lock").close());
+        let tags: Vec<_> = windows.iter().map(|w| identity_tags(&w.event.attributes)).collect();
+        assert_eq!(tags, [vec!["before"; 4], vec!["after"; 4]]);
+    }
+
+    /// A record captured while the identity changes carries the old identity or the new one,
+    /// never two fields of each.
+    #[tokio::test]
+    async fn a_capture_racing_set_room_never_sees_a_mixed_identity() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        room.set_room(identity("before"));
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let (writer, go) = (room.clone(), start.clone());
+        let flips = std::thread::spawn(move || {
+            go.wait();
+            for n in 0..20_000 {
+                writer.set_room(identity(if n % 2 == 0 { "after" } else { "before" }));
+            }
+        });
+        start.wait();
+        let mut mixed = None;
+        while !flips.is_finished() && mixed.is_none() {
+            let mut attributes = Vec::new();
+            room.state.decorate(&mut attributes);
+            let tags = identity_tags(&attributes);
+            mixed = tags.iter().any(|tag| *tag != tags[0]).then_some(tags);
+        }
+        flips.join().expect("writer");
+        assert_eq!(mixed, None, "one capture saw two identities");
+    }
+
+    /// An over-long identifier is not attached, and the value of the identity before it does not
+    /// stay in its place.
+    #[tokio::test]
+    async fn an_oversized_identity_field_does_not_keep_the_old_value() {
+        let (telemetry, _exporter) = pipeline();
+        let room = telemetry.begin_scope();
+        room.set_room(identity("before"));
+        let oversized = Some("x".repeat(crate::event::MAX_VALUE_BYTES + 1));
+        room.set_room(RoomIdentity { participant_identity: oversized, ..identity("after") });
+        let mut attributes = Vec::new();
+        room.state.decorate(&mut attributes);
+        assert_eq!(identity_tags(&attributes), ["after"; 3]);
+        assert_eq!(telemetry.stats().dropped_invalid, 1);
+    }
+
+    /// The trace id and span id of every log record queued, as they go on the wire.
+    fn wire_links(telemetry: &Telemetry) -> Vec<(Vec<u8>, Vec<u8>)> {
+        use prost::Message;
+        telemetry
+            .shared
+            .store
+            .drain(100, usize::MAX, 0)
+            .into_iter()
+            .map(|queued| {
+                let bytes = crate::otlp::encode_logs(&[], &[], vec![queued]);
+                let request =
+                    opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest::decode(&bytes[..])
+                        .expect("valid OTLP");
+                let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+                (record.trace_id.clone(), record.span_id.clone())
+            })
+            .collect()
+    }
+
+    /// A record emitted or logged under a session stays in that session's trace, and links only to
+    /// a span of that session: a span of another session, or one the pipeline does not know, is no
+    /// link (as in `Telemetry::emit`).
+    #[tokio::test]
+    async fn a_scoped_record_links_only_to_a_span_of_its_own_session() {
+        let (telemetry, _exporter) = pipeline();
+        let (a, b) = (telemetry.begin_scope(), telemetry.begin_scope());
+        let id = |span: &Span| span.context().expect("bound").span_id;
+        let (span_a, span_b) = (a.start(SpanName::Publish, None), b.start(SpanName::Publish, None));
+        let ended_b = b.start(SpanName::Publish, None);
+        ended_b.end(SpanOutcome::Ok, None);
+        let unknown = id(&span_b) + 1_000;
+        let line = |span_id| LogRecord {
+            severity: crate::Severity::Warn,
+            source: crate::LogSource::Sdk,
+            body: "line".to_owned(),
+            logger: None,
+            function: None,
+            file: None,
+            line: None,
+            timestamp_ns: None,
+            span_id: Some(span_id),
+        };
+        for span_id in [id(&span_a), unknown, id(&span_b), id(&ended_b)] {
+            b.emit(TelemetryEvent::new("app.event").in_span(span_id));
+            b.log(line(span_id));
+        }
+        let trace_b = b.state.trace_id.to_vec();
+        let link = |span_id: Option<u64>| {
+            (trace_b.clone(), span_id.map(|id| id.to_be_bytes().to_vec()).unwrap_or_default())
+        };
+        let expected = [None, None, Some(id(&span_b)), Some(id(&ended_b))].map(link);
+        let expected: Vec<_> = expected.iter().flat_map(|l| [l.clone(), l.clone()]).collect();
+        assert_eq!(wire_links(&telemetry), expected);
+    }
+
+    /// A span started under a session nests only under a span of that session: a parent from
+    /// another session's trace is left out.
+    #[tokio::test]
+    async fn a_span_takes_no_parent_from_another_session() {
+        let (telemetry, _exporter) = pipeline();
+        let (a, b) = (telemetry.begin_scope(), telemetry.begin_scope());
+        let (parent_a, parent_b) =
+            (a.start(SpanName::Connect, None), b.start(SpanName::Connect, None));
+        let own = parent_b.context().expect("bound").span_id;
+        b.start(SpanName::Publish, Some(parent_a.clone())).end(SpanOutcome::Ok, None);
+        b.start(SpanName::Publish, Some(parent_b.clone())).end(SpanOutcome::Ok, None);
+        let ended = telemetry.shared.spans.lock().expect("lock").drain(10, usize::MAX, 0);
+        let parents: Vec<_> =
+            ended.iter().map(|s| (s.session.trace_id, s.parent_span_id)).collect();
+        assert_eq!(parents, [(b.state.trace_id, None), (b.state.trace_id, Some(own))]);
     }
 }
