@@ -539,7 +539,13 @@ impl EngineInner {
                             publish_tracks,
                         )
                         .await?;
-                    session.wait_pc_connection().await?;
+                    if let Err(err) = session.wait_pc_connection().await {
+                        session.close(DisconnectReason::JoinFailure).await;
+                        for (track, _) in publish_tracks {
+                            track.set_transceiver(None);
+                        }
+                        return Err(err);
+                    }
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
                     let inner = Arc::new(Self {

@@ -25,6 +25,7 @@ use futures_util::StreamExt;
 use libwebrtc::{
     audio_source::native::NativeAudioSource,
     native::create_random_uuid,
+    peer_connection_factory::IceTransportsType,
     prelude::{
         AudioFrame, AudioSourceOptions, I420Buffer, RtcAudioSource, RtcVideoSource, VideoFrame,
         VideoResolution, VideoRotation,
@@ -723,4 +724,33 @@ async fn test_publish_with_join_cancelled_connect_closes_room() -> Result<()> {
     .map_err(|_| anyhow!("participant left behind after the cancelled connect"))?;
 
     wait_released(released).await
+}
+
+/// When the peer connection cannot connect, `connect` fails without leaving the join-time tracks
+/// attached to the failed attempt's senders.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_ice_failure_detaches_tracks() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+
+    let mut options = publisher_options(true);
+    let tracks: Vec<LocalTrack> = options.publish_tracks.iter().map(|(t, _)| t.clone()).collect();
+    // Relay only, and the dev server offers no TURN: ICE can never connect.
+    options.rtc_config.ice_transport_type = IceTransportsType::Relay;
+    options.join_retries = 0;
+    if Room::connect(&server.url, &token, options).await.is_ok() {
+        bail!("connect succeeded without a usable ICE candidate");
+    }
+    assert!(tracks.iter().all(|t| !t.has_sender()), "a track kept the failed attempt's sender");
+
+    let http_url = server.url.replacen("ws", "http", 1);
+    let rooms = RoomClient::with_api_key(&http_url, &server.key, &server.secret);
+    timeout(Duration::from_secs(10), async {
+        while !rooms.list_participants(&room_name).await.unwrap_or_default().is_empty() {
+            time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("participant left behind after the failed connect"))
 }
