@@ -524,20 +524,25 @@ impl RtcEngine {
     }
 }
 
-/// Detaches the join-time tracks from their senders when a connect attempt is cancelled, so they
-/// do not keep the abandoned peer connection alive.
-struct DetachOnDrop<'a>(Option<&'a [(LocalTrack, TrackPublishOptions)]>);
+/// Restores the join-time tracks' transceivers when a connect attempt fails or is cancelled, so
+/// the tracks neither keep the abandoned peer connection alive nor lose a sender that another
+/// room publishes them with.
+struct RestoreOnDrop(Option<Vec<(LocalTrack, Option<RtpTransceiver>)>>);
 
-impl DetachOnDrop<'_> {
+impl RestoreOnDrop {
+    fn new(tracks: &[(LocalTrack, TrackPublishOptions)]) -> Self {
+        Self(Some(tracks.iter().map(|(track, _)| (track.clone(), track.transceiver())).collect()))
+    }
+
     fn disarm(mut self) {
         self.0 = None;
     }
 }
 
-impl Drop for DetachOnDrop<'_> {
+impl Drop for RestoreOnDrop {
     fn drop(&mut self) {
-        for (track, _) in self.0.unwrap_or_default() {
-            track.set_transceiver(None);
+        for (track, transceiver) in self.0.take().unwrap_or_default() {
+            track.set_transceiver(transceiver);
         }
     }
 }
@@ -557,7 +562,7 @@ impl EngineInner {
     )> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
-        let detach_on_cancel = DetachOnDrop(Some(publish_tracks));
+        let restore_on_failure = RestoreOnDrop::new(publish_tracks);
 
         let try_connect = {
             move || {
@@ -628,7 +633,7 @@ impl EngineInner {
         for i in 0..(max_retries + 1) {
             match try_connect().await {
                 Ok(res) => {
-                    detach_on_cancel.disarm();
+                    restore_on_failure.disarm();
                     return Ok(res);
                 }
                 Err(e) => {

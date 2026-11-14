@@ -818,3 +818,35 @@ async fn test_publish_with_join_cancelled_during_ice_detaches_tracks() -> Result
     })
     .await
 }
+
+/// A failed join listing a track that another room already publishes leaves that room's sender
+/// attached to the track.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_failure_keeps_other_rooms_sender() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
+    let (room, _) = Room::connect(&server.url, &token, RoomOptions::default()).await?;
+    let ((track, options), _) = single_audio_track();
+    room.local_participant().publish_track(track.clone(), options.clone()).await?;
+
+    // Signed with the wrong secret, so the server refuses the join.
+    let refused_token = AccessToken::with_api_key(&server.key, "wrong-secret")
+        .with_grants(VideoGrants { room: room_name.clone(), room_join: true, ..Default::default() })
+        .with_identity("refused")
+        .to_jwt()?;
+    for single_peer_connection in [false, true] {
+        let mut refused = RoomOptions::default();
+        refused.single_peer_connection = single_peer_connection;
+        refused.join_retries = 0;
+        refused.publish_tracks = vec![(track.clone(), options.clone())];
+        if Room::connect(&server.url, &refused_token, refused).await.is_ok() {
+            bail!("connect succeeded with a token signed with the wrong secret");
+        }
+        track.get_stats().await.map_err(|err| {
+            anyhow!("the published track lost its sender (single_peer_connection={single_peer_connection}): {err}")
+        })?;
+    }
+    room.close().await?;
+    Ok(())
+}
