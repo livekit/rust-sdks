@@ -35,13 +35,20 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
 CVPixelBufferRef native_buffer_to_platform_image_buffer(
     const std::unique_ptr<VideoFrameBuffer> &buffer
 ) {
-    id<RTC_OBJC_TYPE(RTCVideoFrameBuffer)> rtc_pixel_buffer = webrtc::NativeToObjCVideoFrameBuffer(buffer->get());
+    // NativeToObjCVideoFrameBuffer returns its buffer autoreleased, and callers
+    // may be on threads that never drain an autorelease pool, such as tokio
+    // workers: without a pool here, every frame asked for stays alive until
+    // the thread exits. The returned pixel buffer stays valid for as long as
+    // `buffer` does, which holds the RTCCVPixelBuffer itself.
+    @autoreleasepool {
+        id<RTC_OBJC_TYPE(RTCVideoFrameBuffer)> rtc_pixel_buffer = webrtc::NativeToObjCVideoFrameBuffer(buffer->get());
 
-    if ([rtc_pixel_buffer isKindOfClass:[RTC_OBJC_TYPE(RTCCVPixelBuffer) class]]) {
-        RTC_OBJC_TYPE(RTCCVPixelBuffer) *cv_pixel_buffer = (RTC_OBJC_TYPE(RTCCVPixelBuffer) *)rtc_pixel_buffer;
-        return [cv_pixel_buffer pixelBuffer];
-    } else {
-        return nullptr;
+        if ([rtc_pixel_buffer isKindOfClass:[RTC_OBJC_TYPE(RTCCVPixelBuffer) class]]) {
+            RTC_OBJC_TYPE(RTCCVPixelBuffer) *cv_pixel_buffer = (RTC_OBJC_TYPE(RTCCVPixelBuffer) *)rtc_pixel_buffer;
+            return [cv_pixel_buffer pixelBuffer];
+        } else {
+            return nullptr;
+        }
     }
 }
 
