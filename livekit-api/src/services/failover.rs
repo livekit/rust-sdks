@@ -128,7 +128,11 @@ fn region_cache() -> &'static RegionCache {
 /// cached list when available, otherwise an empty list (the caller then stops
 /// failing over). Forwards the caller's headers so a valid token — and any test
 /// directives — reach the discovery endpoint.
-pub(crate) async fn region_urls(base: &Url, headers: &HeaderMap) -> Vec<String> {
+pub(crate) async fn region_urls(
+    client: &crate::http_client::Client,
+    base: &Url,
+    headers: &HeaderMap,
+) -> Vec<String> {
     let key = host_key(base);
     let cache = region_cache();
 
@@ -138,7 +142,7 @@ pub(crate) async fn region_urls(base: &Url, headers: &HeaderMap) -> Vec<String> 
         Cached::Miss => None,
     };
 
-    match fetch(base, headers).await {
+    match fetch(client, base, headers).await {
         Ok((urls, max_age)) => {
             // A zero max-age (e.g. `Cache-Control: max-age=0`) means "do not
             // cache"; skip the insert so the next call re-fetches rather than
@@ -174,11 +178,15 @@ fn max_age_from_cache_control(value: Option<&str>) -> Option<Duration> {
     value.and_then(parse_max_age)
 }
 
-async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
+async fn fetch(
+    client: &crate::http_client::Client,
+    base: &Url,
+    headers: &HeaderMap,
+) -> Result<(Vec<String>, Option<Duration>), ()> {
     let mut url = base.clone();
     url.set_path("/settings/regions");
 
-    let resp = crate::http_client::client()
+    let resp = client
         .get(url)
         .headers(forward_headers(headers))
         .timeout(DISCOVERY_TIMEOUT)
@@ -193,4 +201,49 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
     );
     let list: RegionsResponse = resp.json().await.map_err(|_| ())?;
     Ok((normalize(list), max_age))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::HeaderValue;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    #[tokio::test]
+    async fn discovery_uses_the_supplied_clients_configuration() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let mut chunk = [0; 1024];
+                let n = connection.read(&mut chunk).await.unwrap();
+                assert_ne!(n, 0);
+                request.extend_from_slice(&chunk[..n]);
+            }
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.starts_with("GET /settings/regions "));
+            let configured = request.lines().any(|line| line == "x-client-config: required");
+            let (status, body) = if configured {
+                ("200 OK", r#"{"regions":[{"url":"wss://fallback.livekit.cloud"}]}"#)
+            } else {
+                ("403 Forbidden", "{}")
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncache-control: max-age=0\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            connection.write_all(response.as_bytes()).await.unwrap();
+        });
+        let mut defaults = HeaderMap::new();
+        defaults.insert("x-client-config", HeaderValue::from_static("required"));
+        let client = crate::http_client::builder().default_headers(defaults).build().unwrap();
+        let urls = region_urls(&client, &base, &HeaderMap::new()).await;
+        server.await.unwrap();
+        assert_eq!(urls, ["https://fallback.livekit.cloud"]);
+    }
 }
