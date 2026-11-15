@@ -311,8 +311,9 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
-    // Held for a whole device switch, so concurrent switches can't interleave and
-    // one's rollback can't undo another's successful switch.
+    // Held for a whole device switch and for each selection, so a selection can't
+    // land between a switch's steps and one switch's rollback can't undo another
+    // selection.
     recording_switch: Mutex<()>,
     playout_switch: Mutex<()>,
 }
@@ -716,6 +717,7 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
 
+        let _switching = self.handle.recording_switch.lock();
         let guid = id.as_str();
         let success = if let Some(idx_str) = guid.strip_prefix("index:") {
             if let Ok(idx) = idx_str.parse::<u16>() {
@@ -805,6 +807,7 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
 
+        let _switching = self.handle.playout_switch.lock();
         let runtime = &self.handle.runtime;
         let guid = id.as_str();
         let success = if let Some(idx_str) = guid.strip_prefix("index:") {
