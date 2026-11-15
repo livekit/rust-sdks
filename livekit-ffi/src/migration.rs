@@ -119,7 +119,10 @@ macro_rules! migrate_from_ffi {
 ///
 /// What cannot live here is the `handle_id` field the bridge needs, and the `pub(crate)`
 /// on whatever internals these files reach. Both go the same way.
+// `pub(crate)` only where a file defines a type the protobuf surface names: `requests.rs`
+// resolves a subscription handle as `migration::data_track::DataTrackSubscription`.
 pub(crate) mod data_track;
+mod video_stream;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {

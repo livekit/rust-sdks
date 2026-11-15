@@ -17,10 +17,7 @@ use livekit::{
     webrtc::{prelude::*, video_source::VideoResolution as VideoSourceResolution},
 };
 
-use crate::{
-    proto,
-    server::{video_source::FfiVideoSource, video_stream::FfiVideoStream},
-};
+use crate::{proto, server::video_source::FfiVideoSource};
 
 impl From<proto::VideoSourceResolution> for VideoSourceResolution {
     fn from(res: proto::VideoSourceResolution) -> Self {
@@ -31,12 +28,6 @@ impl From<proto::VideoSourceResolution> for VideoSourceResolution {
 impl From<&FfiVideoSource> for proto::VideoSourceInfo {
     fn from(source: &FfiVideoSource) -> Self {
         Self { r#type: source.source_type as i32 }
-    }
-}
-
-impl From<&FfiVideoStream> for proto::VideoStreamInfo {
-    fn from(stream: &FfiVideoStream) -> Self {
-        Self { r#type: stream.stream_type as i32 }
     }
 }
 
