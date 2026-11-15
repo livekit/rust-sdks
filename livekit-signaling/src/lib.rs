@@ -1018,6 +1018,7 @@ fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
         "unityweb" => proto::client_info::Sdk::UnityWeb,
         "node" => proto::client_info::Sdk::Node,
         "esp32" => proto::client_info::Sdk::Esp32,
+        "dotnet" => proto::client_info::Sdk::Dotnet,
         _ => {
             log::warn!("unknown SDK name in signal options: {}", sdk);
             proto::client_info::Sdk::Unknown
@@ -1258,6 +1259,8 @@ pub(crate) fn check_token_format(token: &str) -> SignalResult<()> {
 /// - `Http { status }` → `Client` for 4xx, `Server` for 5xx (empty body — caller
 ///   may have already read the body separately)
 /// - `Connection` / `Other` → `SignalError::Connection` (network/TLS/transport failure)
+/// - `ResponseTooLarge` → `SignalError::Connection`; signaling sets no response limit, so only a
+///   host client that enforces one of its own returns it
 /// - `Closed` → `SignalError::Closed` (peer/transport closed)
 ///
 /// Every variant except `LeaveRequest` drives the engine's full-reconnect path.
@@ -1274,6 +1277,7 @@ impl From<livekit_net::TransportError> for SignalError {
             TE::Closed => SignalError::Closed,
             TE::Connection(m) => SignalError::Connection(m),
             TE::Other(m) => SignalError::Connection(m),
+            e @ TE::ResponseTooLarge { .. } => SignalError::Connection(e.to_string()),
         }
     }
 }
@@ -1474,6 +1478,7 @@ mod tests {
         assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
         assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
         assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
+        assert_eq!(client_info_sdk_for_name("dotnet"), proto::client_info::Sdk::Dotnet);
         assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
     }
 
@@ -2277,6 +2282,17 @@ mod tests {
         let err = SignalError::from(TransportError::Other("something went wrong".into()));
         assert!(
             matches!(&err, SignalError::Connection(m) if m == "something went wrong"),
+            "expected Connection, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn from_transport_err_response_too_large_yields_connection() {
+        use livekit_net::TransportError;
+        let err = SignalError::from(TransportError::ResponseTooLarge { headers: Vec::new() });
+        assert!(
+            matches!(&err, SignalError::Connection(m) if m == "response body exceeds requested limit"),
             "expected Connection, got {:?}",
             err
         );

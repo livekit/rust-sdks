@@ -59,7 +59,8 @@ pub(crate) struct Store {
     queue: Mutex<Queue>,
     /// The opt-out, checked under the queue lock `clear` also takes: nothing lands after a purge.
     revoked: Arc<AtomicBool>,
-    /// Test-only: runs at the start of `push`, before the lock (to hold a producer there).
+    /// Test-only: runs at the start of `push`, before the lock, so the opt-out race test
+    /// (`a_capture_racing_the_opt_out_leaves_nothing_behind`) can hold a producer exactly there.
     #[cfg(test)]
     pub(crate) pause: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     capacity: usize,
@@ -110,23 +111,27 @@ impl Store {
         if self.revoked.load(Ordering::SeqCst) {
             return false;
         }
+        let mut warn = false;
         if queue.events.len() >= self.capacity {
             if let Some(oldest) = queue.events.pop_front() {
                 queue.bytes = queue.bytes.saturating_sub(oldest.event.size_hint());
             }
             Counters::add(&self.counters.queue_full, 1);
-            if !queue.full_warned {
-                queue.full_warned = true;
-                log::warn!(
-                    "queue full ({} records): dropping oldest until the exporter drains",
-                    self.capacity
-                );
-            }
+            warn = !std::mem::replace(&mut queue.full_warned, true);
         }
         let before = queue.bytes;
         queue.bytes += queued.event.size_hint();
         queue.events.push_back(queued);
-        before < self.flush_threshold && queue.bytes >= self.flush_threshold
+        let crossed = before < self.flush_threshold && queue.bytes >= self.flush_threshold;
+        // Logged after the lock: a log line may call into the host.
+        drop(queue);
+        if warn {
+            log::warn!(
+                "queue full ({} records): dropping oldest until the exporter drains",
+                self.capacity
+            );
+        }
+        crossed
     }
 
     /// Remove and return the oldest events: at most `min(max, len)` of them and about `max_bytes`
@@ -170,6 +175,23 @@ mod tests {
 
     fn queued(event: TelemetryEvent) -> QueuedEvent {
         QueuedEvent::new(event, ScopeState::new())
+    }
+
+    /// The queue-full warning reaches the logger once the queue's lock is released: a host logger
+    /// that calls back into the pipeline cannot block on it.
+    #[test]
+    fn the_queue_full_warning_is_logged_outside_the_queue_lock() {
+        crate::test_log::capture();
+        let store = Arc::new(Store::new(1, usize::MAX, Arc::new(Counters::default())));
+        let held = Arc::downgrade(&store);
+        crate::test_log::mark_while(move || {
+            held.upgrade().is_some_and(|store| store.queue.try_lock().is_err())
+        });
+        store.push(queued(TelemetryEvent::new("a")));
+        store.push(queued(TelemetryEvent::new("b")));
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|line| line.contains("queue full")), "{lines:?}");
+        assert!(lines.iter().all(|line| !line.starts_with("held: ")), "{lines:?}");
     }
 
     #[test]

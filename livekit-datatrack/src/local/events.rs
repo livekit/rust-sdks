@@ -35,6 +35,7 @@ pub enum InputEvent {
     ///
     /// This must be sent after a full reconnect in order for existing publications
     /// to be recognized by the SFU. Each republished track will be assigned a new SID.
+    /// Tracks the SFU rejects are unpublished.
     ///
     RepublishTracks,
     /// Shutdown the manager and all associated tracks.

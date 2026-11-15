@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.10.2 (2026-11-13)
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+- Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
+- Report the .NET SDK as `ClientInfo.SDK.DOTNET` in the join request. The `dotnet` SDK name fell through to `UNKNOWN` on the single peer connection path. - #1669 (@MaxHeimbrock)
+
 ## 0.10.1 (2026-11-04)
 
 ### Fixes

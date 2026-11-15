@@ -165,6 +165,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.54 (2026-11-13)
+
+### Fixes
+
+- Handle out-of-range key indices gracefully in `KeyProvider` and clamp `key_ring_size` to valid bounds.
+
 ## 0.3.53 (2026-11-04)
 
 ### Fixes

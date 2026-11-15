@@ -62,6 +62,12 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.8.3 (2026-11-13)
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+
 ## 0.8.2 (2026-10-20)
 
 ### Fixes

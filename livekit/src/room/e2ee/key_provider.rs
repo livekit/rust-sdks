@@ -22,11 +22,12 @@ use crate::id::ParticipantIdentity;
 
 pub use libwebrtc::native::frame_cryptor::KeyDerivationAlgorithm;
 
-const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
-const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
-const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
-const DEFAULT_KEY_RING_SIZE: i32 = 16;
-const DEFAULT_KEY_DERIVATION_ALGORITHM: KeyDerivationAlgorithm = KeyDerivationAlgorithm::PBKDF2;
+pub const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
+pub const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
+pub const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
+pub const DEFAULT_KEY_RING_SIZE: i32 = 16;
+pub const MAX_KEY_RING_SIZE: i32 = fc::MAX_KEY_RING_SIZE;
+pub const DEFAULT_KEY_DERIVATION_ALGORITHM: KeyDerivationAlgorithm = KeyDerivationAlgorithm::PBKDF2;
 
 #[derive(Clone)]
 pub struct KeyProviderOptions {
@@ -84,9 +85,17 @@ impl KeyProvider {
         Self { handle, latest_key_index: Arc::new(AtomicI32::new(0)) }
     }
 
-    pub fn set_shared_key(&self, shared_key: Vec<u8>, key_index: i32) {
-        self.latest_key_index.store(key_index, Ordering::Relaxed);
-        self.handle.set_shared_key(key_index, shared_key);
+    pub fn key_ring_size(&self) -> i32 {
+        self.handle.key_ring_size()
+    }
+
+    pub fn set_shared_key(&self, shared_key: Vec<u8>, key_index: i32) -> bool {
+        if self.handle.set_shared_key(key_index, shared_key) {
+            self.latest_key_index.store(key_index, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn ratchet_shared_key(&self, key_index: i32) -> Option<Vec<u8>> {
@@ -98,8 +107,12 @@ impl KeyProvider {
     }
 
     pub fn set_key(&self, identity: &ParticipantIdentity, key_index: i32, key: Vec<u8>) -> bool {
-        self.latest_key_index.store(key_index, Ordering::Relaxed);
-        self.handle.set_key(identity.to_string(), key_index, key)
+        if self.handle.set_key(identity.to_string(), key_index, key) {
+            self.latest_key_index.store(key_index, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn ratchet_key(&self, identity: &ParticipantIdentity, key_index: i32) -> Option<Vec<u8>> {
@@ -116,5 +129,18 @@ impl KeyProvider {
 
     pub fn get_latest_key_index(&self) -> i32 {
         self.latest_key_index.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_provider_options_defaults() {
+        let options = KeyProviderOptions::default();
+        assert_eq!(options.key_ring_size, DEFAULT_KEY_RING_SIZE);
+        assert_eq!(options.ratchet_window_size, DEFAULT_RATCHET_WINDOW_SIZE);
+        assert_eq!(MAX_KEY_RING_SIZE, 255);
     }
 }
