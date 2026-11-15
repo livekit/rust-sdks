@@ -57,3 +57,9 @@ protoc \
     $PROTOCOL/livekit_token_source.proto \
     $PROTOCOL/logger/options.proto \
     $PROTOCOL/roomrpc/siprpc/roomrpc_sip_v1.proto
+
+# The serde generator can leave trailing spaces on wrapped assignments.
+for generated in "$OUT_RUST"/*.serde.rs; do
+    sed -i.bak 's/[[:blank:]]*$//' "$generated"
+    rm "$generated.bak"
+done
