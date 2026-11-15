@@ -4,7 +4,7 @@
 /// during dev-mode hot reload.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentDevMessage {
-    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3")]
+    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3, 4")]
     pub message: ::core::option::Option<agent_dev_message::Message>,
 }
 /// Nested message and enum types in `AgentDevMessage`.
@@ -17,6 +17,8 @@ pub mod agent_dev_message {
         GetRunningJobsResponse(super::GetRunningAgentJobsResponse),
         #[prost(message, tag = "3")]
         ServerInfo(super::ServerInfo),
+        #[prost(message, tag = "4")]
+        Credentials(super::Credentials),
     }
 }
 /// ServerInfo is sent by the agent to the CLI when the dev-reload channel opens,
@@ -26,6 +28,22 @@ pub struct ServerInfo {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub url: ::prost::alloc::string::String,
+    /// set by an agent SDK that runs on LIVEKIT_TOKEN without an API key and secret
+    /// (token mode) and accepts Credentials
+    #[prost(bool, tag = "3")]
+    pub supports_token_mode: bool,
+}
+/// Credentials is sent by the CLI to an agent in token mode: a new worker token that
+/// replaces the one the agent runs with.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Credentials {
+    #[prost(string, tag = "1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
+    /// Unix seconds
+    #[prost(int64, tag = "3")]
+    pub expires_at: i64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetRunningAgentJobsRequest {
@@ -139,10 +157,10 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    /// Framework metadata recorded on the call, kept with the history. A delegating call records
-    /// where the request went: lk.delegation.task_id, lk.delegation.endpoint,
-    /// lk.delegation.transport and lk.delegation.profile.
-    #[prost(map = "string, string", tag = "6")]
+    /// Framework and provider metadata, including approval identities and resumable
+    /// tool/delegation state. Each value is JSON text, including quoted strings.
+    /// Readers may treat a value that is not valid JSON as a legacy plain string.
+    #[prost(map = "string, string", tag = "7")]
     pub extra: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

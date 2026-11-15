@@ -39,6 +39,24 @@ pub mod agent {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use prost::Message as _;
+
+        #[test]
+        fn function_call_metadata_uses_field_seven_and_ignores_legacy_field_six() {
+            let call = FunctionCall {
+                extra: [
+                    ("lk.approval".into(), "\"granted\"".into()),
+                    ("lk.delegation.state".into(), "{\"pending_task_id\":\"task-1\"}".into()),
+                ]
+                .into(),
+                ..Default::default()
+            };
+            let encoded = call.encode_to_vec();
+            assert_eq!(encoded[0], 0x3a, "metadata belongs to length-delimited field 7");
+            assert_eq!(FunctionCall::decode(encoded.as_slice()).unwrap().extra, call.extra);
+            let legacy: &[u8] = &[0x32, 0x04, b't', b'u', b'r', b'n'];
+            assert!(FunctionCall::decode(legacy).unwrap().extra.is_empty());
+        }
 
         #[test]
         fn the_thread_schema_matches_protocol() {

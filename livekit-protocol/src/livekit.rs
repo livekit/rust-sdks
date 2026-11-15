@@ -10044,6 +10044,8 @@ pub struct SimulationRun {
     /// Absent when the run ran each scenario once and required it to pass.
     #[prost(message, optional, tag = "23")]
     pub sampling: ::core::option::Option<simulation_run::SamplingOptions>,
+    #[prost(string, tag = "24")]
+    pub persona_model: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `SimulationRun`.
 pub mod simulation_run {
@@ -10604,6 +10606,8 @@ pub mod simulation_run {
             /// Named deployment of agent_name to dispatch to; empty is production.
             #[prost(string, tag = "18")]
             pub deployment: ::prost::alloc::string::String,
+            #[prost(string, tag = "19")]
+            pub persona_model: ::prost::alloc::string::String,
         }
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Response {
@@ -11244,6 +11248,7 @@ pub enum NodeType {
     Director = 6,
     HostedAgent = 7,
     Settings = 8,
+    Signal = 9,
 }
 impl NodeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -11260,6 +11265,7 @@ impl NodeType {
             Self::Director => "DIRECTOR",
             Self::HostedAgent => "HOSTED_AGENT",
             Self::Settings => "SETTINGS",
+            Self::Signal => "SIGNAL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -11273,6 +11279,7 @@ impl NodeType {
             "DIRECTOR" => Some(Self::Director),
             "HOSTED_AGENT" => Some(Self::HostedAgent),
             "SETTINGS" => Some(Self::Settings),
+            "SIGNAL" => Some(Self::Signal),
             _ => None,
         }
     }
