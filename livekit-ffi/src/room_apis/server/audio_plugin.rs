@@ -23,10 +23,6 @@ use livekit::{
     AudioFilterAudioStream,
 };
 
-pub trait AudioStream: Stream<Item = AudioFrame<'static>> + Send + Sync + Unpin {
-    fn close(&mut self);
-}
-
 pub enum AudioStreamKind {
     Native(NativeAudioStream),
     Filtered(AudioFilterAudioStream),

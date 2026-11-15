@@ -16,17 +16,15 @@ use std::{slice, sync::Arc};
 
 use colorcvt::cvtimpl;
 use livekit::{
-    prelude::*,
-    register_audio_filter_plugin,
-    webrtc::{native::apm, native::audio_resampler, prelude::*},
-    AudioFilterPlugin, SimulateScenario,
+    prelude::*, register_audio_filter_plugin, webrtc::native::apm, AudioFilterPlugin,
+    SimulateScenario,
 };
 use parking_lot::Mutex;
 
 #[cfg(feature = "capture")]
 use super::capture;
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    audio_resampler, audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
     platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -600,7 +598,7 @@ fn on_new_audio_stream(
     server: &'static FfiServer,
     new_stream: proto::NewAudioStreamRequest,
 ) -> FfiResult<proto::NewAudioStreamResponse> {
-    let stream_info = audio_stream::FfiAudioStream::from_track(server, new_stream)?;
+    let stream_info = audio_stream::AudioStream::from_track(server, new_stream)?;
     Ok(proto::NewAudioStreamResponse { stream: stream_info })
 }
 
@@ -609,7 +607,7 @@ fn on_audio_stream_from_participant_stream(
     server: &'static FfiServer,
     request: proto::AudioStreamFromParticipantRequest,
 ) -> FfiResult<proto::AudioStreamFromParticipantResponse> {
-    let stream_info = audio_stream::FfiAudioStream::from_participant(server, request)?;
+    let stream_info = audio_stream::AudioStream::from_participant(server, request)?;
     Ok(proto::AudioStreamFromParticipantResponse { stream: stream_info })
 }
 
@@ -643,21 +641,10 @@ fn on_clear_audio_buffer(
 
 /// Create a new audio resampler
 fn new_audio_resampler(
-    server: &'static FfiServer,
+    _: &'static FfiServer,
     _: proto::NewAudioResamplerRequest,
 ) -> FfiResult<proto::NewAudioResamplerResponse> {
-    let resampler = audio_resampler::AudioResampler::default();
-    let resampler = Arc::new(Mutex::new(resampler));
-
-    let handle_id = server.next_id();
-    server.store_handle(handle_id, resampler);
-
-    Ok(proto::NewAudioResamplerResponse {
-        resampler: proto::OwnedAudioResampler {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: proto::AudioResamplerInfo {},
-        },
-    })
+    Ok(audio_resampler::AudioResampler::new_ffi())
 }
 
 /// Remix and resample an audio frame
@@ -666,47 +653,7 @@ fn remix_and_resample(
     server: &'static FfiServer,
     remix: proto::RemixAndResampleRequest,
 ) -> FfiResult<proto::RemixAndResampleResponse> {
-    let resampler = server
-        .retrieve_handle::<Arc<Mutex<audio_resampler::AudioResampler>>>(remix.resampler_handle)?
-        .clone();
-
-    let buffer = remix.buffer;
-
-    let data = unsafe {
-        let len = (buffer.num_channels * buffer.samples_per_channel) as usize;
-        slice::from_raw_parts_mut(buffer.data_ptr as *mut i16, len)
-    };
-
-    let data = resampler
-        .lock()
-        .remix_and_resample(
-            data,
-            buffer.samples_per_channel,
-            buffer.num_channels,
-            buffer.sample_rate,
-            remix.num_channels,
-            remix.sample_rate,
-        )
-        .to_owned();
-
-    let data_len = (data.len() / remix.num_channels as usize) as u32;
-    let audio_frame = AudioFrame {
-        data: data.into(),
-        num_channels: remix.num_channels,
-        samples_per_channel: data_len,
-        sample_rate: remix.sample_rate,
-    };
-
-    let handle_id = server.next_id();
-    let buffer_info = proto::AudioFrameBufferInfo::from(&audio_frame);
-    server.store_handle(handle_id, audio_frame);
-
-    Ok(proto::RemixAndResampleResponse {
-        buffer: proto::OwnedAudioFrameBuffer {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: buffer_info,
-        },
-    })
+    audio_resampler::AudioResampler::remix_and_resample_ffi(server, remix)
 }
 
 // Manage e2ee
