@@ -23,6 +23,10 @@ include!("livekit.rs");
 pub mod agent {
     include!("livekit.agent.rs");
 
+    /// The protocol default when an application omits its partition key.
+    /// Frameworks resolve it before writing, since SQL requires an explicit key.
+    pub const DEFAULT_PARTITION_KEY: &str = "default";
+
     /// The newest conversation schema a thread's database can hold (protocol's
     /// `livekit/agent/thread_schema.go`).
     pub const THREAD_SCHEMA_VERSION: i64 = 1;
@@ -41,6 +45,9 @@ pub mod agent {
             let go = include_str!("../protocol/livekit/agent/thread_schema.go");
             assert!(go.contains(&format!("const ThreadSchemaVersion = {THREAD_SCHEMA_VERSION}")));
             assert!(THREAD_SCHEMA_V1.contains("CREATE TABLE schema_version"));
+            assert!(
+                go.contains(&format!("const DefaultPartitionKey = \"{DEFAULT_PARTITION_KEY}\""))
+            );
         }
     }
 }

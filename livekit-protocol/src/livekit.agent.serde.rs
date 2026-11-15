@@ -4465,10 +4465,13 @@ impl serde::Serialize for agent_task::Status {
     {
         let variant = match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::Running => "RUNNING",
+            Self::Working => "WORKING",
             Self::Completed => "COMPLETED",
             Self::Failed => "FAILED",
             Self::Canceled => "CANCELED",
+            Self::Submitted => "SUBMITTED",
+            Self::InputRequired => "INPUT_REQUIRED",
+            Self::Rejected => "REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -4481,10 +4484,13 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
     {
         const FIELDS: &[&str] = &[
             "UNSPECIFIED",
-            "RUNNING",
+            "WORKING",
             "COMPLETED",
             "FAILED",
             "CANCELED",
+            "SUBMITTED",
+            "INPUT_REQUIRED",
+            "REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -4526,10 +4532,13 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
             {
                 match value {
                     "UNSPECIFIED" => Ok(agent_task::Status::Unspecified),
-                    "RUNNING" => Ok(agent_task::Status::Running),
+                    "WORKING" => Ok(agent_task::Status::Working),
                     "COMPLETED" => Ok(agent_task::Status::Completed),
                     "FAILED" => Ok(agent_task::Status::Failed),
                     "CANCELED" => Ok(agent_task::Status::Canceled),
+                    "SUBMITTED" => Ok(agent_task::Status::Submitted),
+                    "INPUT_REQUIRED" => Ok(agent_task::Status::InputRequired),
+                    "REJECTED" => Ok(agent_task::Status::Rejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -4551,7 +4560,7 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             len += 1;
         }
-        if !self.name.is_empty() {
+        if self.name.is_some() {
             len += 1;
         }
         if self.status != 0 {
@@ -4567,8 +4576,8 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
         }
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
+        if let Some(v) = self.name.as_ref() {
+            struct_ser.serialize_field("name", v)?;
         }
         if self.status != 0 {
             let v = agent_task::Status::try_from(self.status)
@@ -4674,7 +4683,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                             if name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
-                            name__ = Some(map_.next_value()?);
+                            name__ = map_.next_value()?;
                         }
                         GeneratedField::Status => {
                             if status__.is_some() {
@@ -4696,7 +4705,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                 Ok(agent_task::Task {
                     task_id: task_id__.unwrap_or_default(),
                     thread_id: thread_id__.unwrap_or_default(),
-                    name: name__.unwrap_or_default(),
+                    name: name__,
                     status: status__.unwrap_or_default(),
                     updated_at: updated_at__,
                 })
