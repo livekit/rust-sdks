@@ -124,6 +124,7 @@ mod audio_stream;
 // `pub(crate)` only where a file defines a type the protobuf surface names: `requests.rs`
 // resolves a subscription handle as `migration::data_track::DataTrackSubscription`.
 pub(crate) mod data_track;
+mod track;
 mod video_stream;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]

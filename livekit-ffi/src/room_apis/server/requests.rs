@@ -27,7 +27,7 @@ use super::{
     audio_resampler, audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
     platform_audio, resampler,
-    room::{self, FfiPublication, FfiTrack},
+    room::{self, FfiPublication, Track},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
 use crate::proto;
@@ -339,113 +339,32 @@ fn on_send_stream_trailer(
 
 /// Create a new video track from a source
 fn on_create_video_track(
-    server: &'static FfiServer,
+    _: &'static FfiServer,
     create: proto::CreateVideoTrackRequest,
 ) -> FfiResult<proto::CreateVideoTrackResponse> {
-    let source = server
-        .retrieve_handle::<video_source::FfiVideoSource>(create.source_handle)?
-        .source
-        .clone();
-
-    let handle_id = server.next_id();
-    let video_track = LocalVideoTrack::create_video_track(&create.name, source);
-    let ffi_track =
-        FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track), room_handle: None };
-
-    let track_info = proto::TrackInfo::from(&ffi_track);
-    server.store_handle(handle_id, ffi_track);
-
-    Ok(proto::CreateVideoTrackResponse {
-        track: proto::OwnedTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: track_info,
-        },
-    })
+    Track::create_video_track_ffi(create)
 }
 
 /// Create a new audio track from a source
 fn on_create_audio_track(
-    server: &'static FfiServer,
+    _: &'static FfiServer,
     create: proto::CreateAudioTrackRequest,
 ) -> FfiResult<proto::CreateAudioTrackResponse> {
-    let source = server
-        .retrieve_handle::<audio_source::FfiAudioSource>(create.source_handle)?
-        .source
-        .clone();
-
-    let handle_id = server.next_id();
-    let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
-    let ffi_track =
-        FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track), room_handle: None };
-    let track_info = proto::TrackInfo::from(&ffi_track);
-    server.store_handle(handle_id, ffi_track);
-
-    Ok(proto::CreateAudioTrackResponse {
-        track: proto::OwnedTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: track_info,
-        },
-    })
+    Track::create_audio_track_ffi(create)
 }
 
 fn on_local_track_mute(
     server: &'static FfiServer,
     request: proto::LocalTrackMuteRequest,
 ) -> FfiResult<proto::LocalTrackMuteResponse> {
-    let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
-
-    let mut muted = false;
-    match ffi_track.track {
-        Track::LocalAudio(track) => {
-            if request.mute {
-                track.mute();
-            } else {
-                track.unmute();
-            }
-            muted = track.is_muted();
-        }
-        Track::LocalVideo(track) => {
-            if request.mute {
-                track.mute();
-            } else {
-                track.unmute();
-            }
-            muted = track.is_muted();
-        }
-        _ => return Err(FfiError::InvalidRequest("track is not a local track".into())),
-    }
-
-    Ok(proto::LocalTrackMuteResponse { muted: muted })
+    Track::mute_ffi(server, request)
 }
 
 fn on_enable_remote_track(
     server: &'static FfiServer,
     request: proto::EnableRemoteTrackRequest,
 ) -> FfiResult<proto::EnableRemoteTrackResponse> {
-    let ffi_track = server.retrieve_handle::<FfiTrack>(request.track_handle)?.clone();
-
-    let mut enabled = false;
-    match ffi_track.track {
-        Track::RemoteAudio(track) => {
-            if request.enabled {
-                track.enable();
-            } else {
-                track.disable();
-            }
-            enabled = track.is_enabled();
-        }
-        Track::RemoteVideo(track) => {
-            if request.enabled {
-                track.enable();
-            } else {
-                track.disable();
-            }
-            enabled = track.is_enabled();
-        }
-        _ => return Err(FfiError::InvalidRequest("track is not a remote track".into())),
-    }
-
-    Ok(proto::EnableRemoteTrackResponse { enabled: enabled })
+    Track::enable_ffi(server, request)
 }
 
 /// Retrieve the stats from a track
@@ -453,34 +372,7 @@ fn on_get_stats(
     server: &'static FfiServer,
     get_stats: proto::GetStatsRequest,
 ) -> FfiResult<proto::GetStatsResponse> {
-    let ffi_track = server.retrieve_handle::<FfiTrack>(get_stats.track_handle)?.clone();
-    let async_id = server.resolve_async_id(get_stats.request_async_id);
-    let handle = server.async_runtime.spawn(async move {
-        match ffi_track.track.get_stats().await {
-            Ok(stats) => {
-                let _ = server.send_event(
-                    proto::GetStatsCallback {
-                        async_id,
-                        error: None,
-                        stats: stats.into_iter().map(Into::into).collect(),
-                    }
-                    .into(),
-                );
-            }
-            Err(err) => {
-                let _ = server.send_event(
-                    proto::GetStatsCallback {
-                        async_id,
-                        error: Some(err.to_string()),
-                        stats: Vec::default(),
-                    }
-                    .into(),
-                );
-            }
-        }
-    });
-    server.watch_panic(handle);
-    Ok(proto::GetStatsResponse { async_id })
+    Track::get_stats_ffi(server, get_stats)
 }
 
 /// Create a new VideoStream, a video stream is used to receive frames from a Track
@@ -488,7 +380,7 @@ fn on_new_video_stream(
     server: &'static FfiServer,
     new_stream: proto::NewVideoStreamRequest,
 ) -> FfiResult<proto::NewVideoStreamResponse> {
-    let stream_info = video_stream::VideoStream::from_track(server, new_stream)?;
+    let stream_info = video_stream::VideoStream::from_track_ffi(server, new_stream)?;
     Ok(proto::NewVideoStreamResponse { stream: stream_info })
 }
 
@@ -598,7 +490,7 @@ fn on_new_audio_stream(
     server: &'static FfiServer,
     new_stream: proto::NewAudioStreamRequest,
 ) -> FfiResult<proto::NewAudioStreamResponse> {
-    let stream_info = audio_stream::AudioStream::from_track(server, new_stream)?;
+    let stream_info = audio_stream::AudioStream::from_track_ffi(server, new_stream)?;
     Ok(proto::NewAudioStreamResponse { stream: stream_info })
 }
 

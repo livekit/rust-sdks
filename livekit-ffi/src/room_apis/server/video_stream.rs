@@ -21,7 +21,7 @@ use livekit::webrtc::{
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
-use super::{colorcvt, room::FfiTrack};
+use super::{colorcvt, room::Track};
 use crate::{proto, FfiHandleId};
 
 /// Capture-side metadata travelling with a frame.
@@ -145,8 +145,6 @@ pub struct VideoFrame {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum VideoStreamError {
-    #[error("no track behind that handle")]
-    InvalidTrackHandle,
     #[error("not a video track")]
     NotVideoTrack,
 }
@@ -167,24 +165,15 @@ pub struct VideoStream {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl VideoStream {
-    /// Opens a stream over a video track the FFI side owns.
-    ///
-    /// The track arrives as a handle id rather than an object because `Track` has not
-    /// migrated yet. An inbound handle is the cheap direction: it costs one untyped
-    /// parameter, re-signed when `Track` lands.
+    /// Opens a stream over a video track.
     #[uniffi::constructor]
-    pub fn from_track_handle(
-        track_handle: FfiHandleId,
+    pub fn from_track(
+        track: Arc<Track>,
         format: Option<VideoBufferType>,
         normalize_stride: bool,
         queue_size_frames: Option<u32>,
     ) -> Result<Arc<Self>, VideoStreamError> {
-        let ffi_track = crate::FFI_SERVER
-            .retrieve_handle::<FfiTrack>(track_handle)
-            .map_err(|_| VideoStreamError::InvalidTrackHandle)?
-            .clone();
-
-        let MediaStreamTrack::Video(rtc_track) = ffi_track.track.rtc_track() else {
+        let MediaStreamTrack::Video(rtc_track) = track.inner.rtc_track() else {
             return Err(VideoStreamError::NotVideoTrack);
         };
 
