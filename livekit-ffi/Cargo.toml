@@ -18,6 +18,13 @@ default = ["room-apis", "rustls-tls-native-roots"]
 # client sdks like python, node, unity, and c++.
 room-apis = [
   "dep:livekit",
+  # Direct dependencies so the `uniffi` features can be enabled: the data track
+  # handles are exported over uniffi, and `use_remote_type!` names the crate that
+  # owns the shared `bytes::Bytes` registration.
+  "dep:livekit-datatrack",
+  "livekit-datatrack/uniffi",
+  "dep:livekit-common",
+  "livekit-common/uniffi",
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",
@@ -93,7 +100,8 @@ thiserror = { workspace = true }
 livekit = { workspace = true, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
-# core-modules only.
+# core-modules only, except livekit-common and livekit-datatrack, which room-apis
+# also uses.
 livekit-common = { workspace = true, optional = true }
 livekit-token = { workspace = true, optional = true }
 livekit-datatrack = { workspace = true, optional = true }
