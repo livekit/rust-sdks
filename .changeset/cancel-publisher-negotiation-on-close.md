@@ -4,4 +4,4 @@ livekit-capture: patch
 livekit-ffi: patch
 ---
 
-Cancel pending publisher negotiations when a room closes so peer connection factories, media threads, and encoder resources are released promptly.
+Cancel and join pending publisher negotiations when a room closes, including the debounce wait, so negotiation tasks no longer retain peer connection factories, media threads, and encoder resources after teardown.
