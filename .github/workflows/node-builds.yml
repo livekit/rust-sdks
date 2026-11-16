@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      dist_tag:
+        description: "npm dist-tag. Empty: `next` for a pre-release version (e.g. 0.15.0-rc.1), else `latest`."
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       dry_run:
@@ -19,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      dist_tag:
+        description: "npm dist-tag. Empty: `next` for a pre-release version (e.g. 0.15.0-rc.1), else `latest`."
+        required: false
+        type: string
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
@@ -231,6 +241,27 @@ jobs:
           git status
           git diff
 
+      # A pre-release must not take the `latest` dist-tag. The version in
+      # package.json is the livekit-ffi version that verwalter wrote.
+      - name: Resolve npm dist-tag
+        id: dist-tag
+        working-directory: livekit-ffi-node-bindings
+        env:
+          DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version package.json)
+          if [ -z "$DIST_TAG" ]; then
+            case "$VERSION" in
+              *-*) DIST_TAG=next ;;
+              *) DIST_TAG=latest ;;
+            esac
+          fi
+          echo "Publishing ${VERSION} under the dist-tag '${DIST_TAG}'"
+          echo "tag=${DIST_TAG}" >> "$GITHUB_OUTPUT"
+
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish -r ${{ inputs.dry_run == true && '--dry-run --no-git-checks' || '' }}
+        env:
+          DIST_TAG: ${{ steps.dist-tag.outputs.tag }}
+        run: pnpm publish -r --tag "$DIST_TAG" ${{ inputs.dry_run == true && '--dry-run --no-git-checks' || '' }}
