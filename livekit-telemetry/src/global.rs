@@ -507,6 +507,47 @@ mod tests {
         assert_eq!(left, 0, "a later opt-out must retry the refused configuration");
     }
 
+    /// An entry the opt-out cannot delete keeps its storage directory pending. With no pipeline
+    /// left alive, only that pending directory leads a later opt-out back to the disk: it erases
+    /// a stray and a batch that arrived in the meantime.
+    #[tokio::test]
+    async fn a_stray_entry_keeps_its_directory_for_the_next_opt_out() {
+        let _global = TEST_LOCK.lock().await;
+        reset_for_test();
+        let dir = crate::cache::temp_dir("stray-retry");
+        let config = crate::TelemetryConfig {
+            storage_dir: Some(dir.to_string_lossy().into_owned()),
+            ..test_config()
+        };
+        let (telemetry, exporter) = Telemetry::new(config, FakeTransport::scripted([]));
+        drop(exporter);
+        let generation = Arc::downgrade(&telemetry.shared);
+        drop(install(telemetry, Vec::new()));
+        fs::write(dir.join("garbage.otlp"), b"cached").unwrap();
+        let sub = dir.join("sub");
+        fs::create_dir(&sub).unwrap();
+        let first = disable().await;
+        let gone = generation.upgrade().is_none();
+        let pending = GENERATIONS.lock().unwrap().stored.contains(&dir);
+        let after_first: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        fs::remove_dir(&sub).unwrap();
+        fs::write(dir.join("garbage.otlp"), b"cached again").unwrap();
+        // A batch too: opening the directory keeps it, only an erase deletes it.
+        fs::write(dir.join("00000000000000000002-000001-1-l.otlp"), b"cached").unwrap();
+        let second = disable().await;
+        let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        let still_pending = GENERATIONS.lock().unwrap().stored.contains(&dir);
+        reset_for_test();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(!first, "the subdirectory stays");
+        assert_eq!(after_first, [sub], "the first opt-out deleted the stray file");
+        assert!(gone, "no generation is alive for the second opt-out to purge");
+        assert!(second);
+        assert!(left.is_empty(), "the second opt-out erased the pending directory: {left:?}");
+        assert!(pending, "the directory stays pending after a failed erase");
+        assert!(!still_pending);
+    }
+
     struct CaptureOnDrop;
 
     impl TelemetryInstrument for CaptureOnDrop {
