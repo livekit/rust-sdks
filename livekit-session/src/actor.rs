@@ -222,9 +222,8 @@ impl SessionActor {
     ) -> Self {
         let state = match connection.room.connection_state() {
             ConnectionState::Reconnecting => SessionConnectionState::Reconnecting,
-            ConnectionState::Connected | ConnectionState::Disconnected => {
-                SessionConnectionState::Connected
-            }
+            ConnectionState::Connected => SessionConnectionState::Connected,
+            ConnectionState::Disconnected => SessionConnectionState::Disconnected
         };
         Self {
             generation,
