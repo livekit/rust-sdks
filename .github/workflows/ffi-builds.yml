@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-ffi/v0.12.49). Run the workflow on that tag. Without a release for the tag, a draft release is created."
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). The release must exist. verwalter creates it."
         required: false
         type: string
       dry_run:
@@ -83,16 +83,16 @@ jobs:
   get-tag:
     runs-on: ubuntu-latest
     permissions:
+      # Write, not read: a token with read access cannot see a draft release.
       contents: write
     steps:
-      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
-        with:
-          ref: ${{ inputs.ref }}
+      # No checkout: the step reads the release through the API only, so a
+      # tag that does not exist fails with the message below.
       - name: "Resolve tag"
         # A push to main is a build only. A release run comes from release.yml,
         # which calls this workflow with the tag of the draft release that
-        # verwalter created. A run by hand for a tag without a release creates
-        # the draft.
+        # verwalter created. This workflow fills and publishes that release.
+        # It never creates a release or a tag.
         run: |
           set -euo pipefail
           if [ -z "$MANUAL_TAG" ]; then
@@ -109,8 +109,10 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             exit 0
           fi
-          gh release view "$MANUAL_TAG" >/dev/null 2>&1 \
-            || gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
+          if ! gh release view "$MANUAL_TAG" >/dev/null 2>&1; then
+            echo "::error::no release for ${MANUAL_TAG}. verwalter creates the tag and the draft: run release.yml."
+            exit 1
+          fi
 
           # A release that is public and has every required file is complete:
           # this run builds and uploads nothing, and publishes no package again.
@@ -126,6 +128,7 @@ jobs:
           echo "complete=${complete}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           MANUAL_TAG: ${{ inputs.tag_name }}
           DRY_RUN: ${{ inputs.dry_run }}
           REF_TYPE: ${{ github.ref_type }}
@@ -226,7 +229,8 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
-          ref: ${{ inputs.ref }}
+          # The tag for a run by hand, whatever ref the operator selected.
+          ref: ${{ inputs.ref || inputs.tag_name }}
           submodules: true
 
       - name: Setup Rust toolchain
@@ -449,7 +453,21 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || inputs.tag_name }}
+
+      # Before the upload, so a mismatch fails before `--clobber` replaces
+      # anything. A run by hand can name any tag, and files built from a
+      # commit with another version must not go on that release.
+      - name: Check the version
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
+            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at $(git rev-parse HEAD)"
+            exit 1
+          fi
 
       - name: Download artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -496,32 +514,6 @@ jobs:
           fi
           echo "Checked ${count} artifacts on ${TAG}."
           exit "$missing"
-
-      - name: Create release tag
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          SHA=$(git rev-parse HEAD)
-
-          # A run by hand can name any tag. Tagging a commit whose Cargo.toml
-          # says a different version would publish mismatched packages, and
-          # uniffi-dart-publish.yml would reject it later anyway.
-          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
-          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
-            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at ${SHA}"
-            exit 1
-          fi
-
-          existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
-          if [ -n "$existing" ]; then
-            # The usual case: verwalter created the tag with the draft release.
-            echo "tag ${TAG} already exists at ${existing}; not re-creating it."
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref="refs/tags/${TAG}" \
-              -f sha="${SHA}"
-          fi
 
       - name: Publish release
         env:
