@@ -4018,18 +4018,24 @@ impl serde::Serialize for agent_db::wire::Error {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.code.is_empty() {
+        if self.code != 0 {
             len += 1;
         }
-        if !self.message.is_empty() {
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        if !self.description.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.Wire.Error", len)?;
-        if !self.code.is_empty() {
+        if self.code != 0 {
             struct_ser.serialize_field("code", &self.code)?;
         }
-        if !self.message.is_empty() {
-            struct_ser.serialize_field("message", &self.message)?;
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        if !self.description.is_empty() {
+            struct_ser.serialize_field("description", &self.description)?;
         }
         struct_ser.end()
     }
@@ -4042,13 +4048,15 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Error {
     {
         const FIELDS: &[&str] = &[
             "code",
-            "message",
+            "name",
+            "description",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Code,
-            Message,
+            Name,
+            Description,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4072,7 +4080,8 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Error {
                     {
                         match value {
                             "code" => Ok(GeneratedField::Code),
-                            "message" => Ok(GeneratedField::Message),
+                            "name" => Ok(GeneratedField::Name),
+                            "description" => Ok(GeneratedField::Description),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4093,20 +4102,29 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Error {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut code__ = None;
-                let mut message__ = None;
+                let mut name__ = None;
+                let mut description__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Code => {
                             if code__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("code"));
                             }
-                            code__ = Some(map_.next_value()?);
+                            code__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
                         }
-                        GeneratedField::Message => {
-                            if message__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("message"));
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
                             }
-                            message__ = Some(map_.next_value()?);
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Description => {
+                            if description__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("description"));
+                            }
+                            description__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -4115,7 +4133,8 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Error {
                 }
                 Ok(agent_db::wire::Error {
                     code: code__.unwrap_or_default(),
-                    message: message__.unwrap_or_default(),
+                    name: name__.unwrap_or_default(),
+                    description: description__.unwrap_or_default(),
                 })
             }
         }
@@ -4298,12 +4317,18 @@ impl serde::Serialize for agent_db::wire::Hello {
         if !self.database_id.is_empty() {
             len += 1;
         }
+        if !self.client_version.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.Wire.Hello", len)?;
         if !self.token.is_empty() {
             struct_ser.serialize_field("token", &self.token)?;
         }
         if !self.database_id.is_empty() {
             struct_ser.serialize_field("databaseId", &self.database_id)?;
+        }
+        if !self.client_version.is_empty() {
+            struct_ser.serialize_field("clientVersion", &self.client_version)?;
         }
         struct_ser.end()
     }
@@ -4318,12 +4343,15 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Hello {
             "token",
             "database_id",
             "databaseId",
+            "client_version",
+            "clientVersion",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Token,
             DatabaseId,
+            ClientVersion,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4348,6 +4376,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Hello {
                         match value {
                             "token" => Ok(GeneratedField::Token),
                             "databaseId" | "database_id" => Ok(GeneratedField::DatabaseId),
+                            "clientVersion" | "client_version" => Ok(GeneratedField::ClientVersion),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4369,6 +4398,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Hello {
             {
                 let mut token__ = None;
                 let mut database_id__ = None;
+                let mut client_version__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Token => {
@@ -4383,6 +4413,12 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Hello {
                             }
                             database_id__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ClientVersion => {
+                            if client_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientVersion"));
+                            }
+                            client_version__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4391,6 +4427,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Hello {
                 Ok(agent_db::wire::Hello {
                     token: token__.unwrap_or_default(),
                     database_id: database_id__.unwrap_or_default(),
+                    client_version: client_version__.unwrap_or_default(),
                 })
             }
         }
