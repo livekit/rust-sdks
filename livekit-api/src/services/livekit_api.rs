@@ -50,7 +50,16 @@ impl LiveKitApi {
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
         // One HTTP client shared across every service, so they reuse a single
         // connection pool instead of each opening its own.
-        let http = http_client::client();
+        Self::with_api_key_and_client(host, api_key, api_secret, http_client::client())
+    }
+
+    /// Uses the supplied HTTP client for every service, preserving its TLS and connection pool.
+    pub fn with_api_key_and_client(
+        host: &str,
+        api_key: &str,
+        api_secret: &str,
+        http: http_client::Client,
+    ) -> Self {
         let base = || ServiceBase::with_api_key(api_key, api_secret);
         Self {
             room: RoomClient::build(host, base(), http.clone()),
