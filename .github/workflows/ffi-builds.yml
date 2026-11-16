@@ -557,6 +557,8 @@ jobs:
     name: UniFFI Dart package
     needs: [get-tag, release]
     runs-on: ubuntu-latest
+    # A Dart run takes 10 to 30 minutes.
+    timeout-minutes: 120
     permissions:
       # Scoped to this job: it also grants cancelling and re-running
       # workflows and deleting runs, artifacts and caches.
@@ -566,28 +568,56 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.get-tag.outputs.tag_name }}
     steps:
-      - name: Dispatch uniffi-dart-publish.yml and wait for it
+      # Safe to run again: the step uses the newest Dart run at the tag. It
+      # waits for a run in progress, accepts a run that passed, and starts a
+      # new run only if there is none or the newest one failed.
+      - name: Start uniffi-dart-publish.yml at the tag and wait for it
         run: |
           set -euo pipefail
-          # One minute back, for a difference between the clocks.
-          since=$(date -u -d '1 minute ago' +%Y-%m-%dT%H:%M:%SZ)
-          gh workflow run uniffi-dart-publish.yml --ref "$TAG" -f tag_name="$TAG"
+
+          newest_run() {
+            gh run list --workflow uniffi-dart-publish.yml --branch "$TAG" --limit 1 "$@" \
+              --json databaseId,status,conclusion --jq '.[0] | select(. != null) | "\(.databaseId) \(.status) \(.conclusion)"'
+          }
 
           run_id=""
-          for _ in $(seq 1 30); do
-            run_id=$(gh run list --workflow uniffi-dart-publish.yml --event workflow_dispatch \
-              --branch "$TAG" --created ">=${since}" --json databaseId --jq '.[0].databaseId // empty')
-            [ -z "$run_id" ] || break
-            sleep 10
-          done
-          if [ -z "$run_id" ]; then
-            echo "::error::uniffi-dart-publish.yml did not start for ${TAG}. Dispatch it by hand at the tag."
+          read -r id status conclusion <<<"$(newest_run || true)"
+          if [ -n "${id:-}" ] && [ "$status" != "completed" ]; then
+            echo "A Dart run is in progress at ${TAG}."
+            run_id=$id
+          elif [ -n "${id:-}" ] && [ "$conclusion" = "success" ]; then
+            echo "The Dart run ${id} passed for ${TAG} already."
+            exit 0
+          else
+            # One minute back, for a difference between the clocks.
+            since=$(date -u -d '1 minute ago' +%Y-%m-%dT%H:%M:%SZ)
+            gh workflow run uniffi-dart-publish.yml --ref "$TAG" -f tag_name="$TAG"
+            for _ in $(seq 1 30); do
+              read -r run_id _ <<<"$(newest_run --event workflow_dispatch --created ">=${since}" || true)"
+              [ -z "${run_id:-}" ] || break
+              sleep 10
+            done
+          fi
+          if [ -z "${run_id:-}" ]; then
+            echo "::error::uniffi-dart-publish.yml did not start for ${TAG}. Run this job again."
             exit 1
           fi
           echo "Waiting for ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
 
+          # One failed request must not fail the release run: only five in a
+          # row do.
+          failures=0
           while true; do
-            state=$(gh run view "$run_id" --json status,conclusion --jq '"\(.status) \(.conclusion)"')
+            if ! state=$(gh run view "$run_id" --json status,conclusion --jq '"\(.status) \(.conclusion)"'); then
+              failures=$((failures + 1))
+              if [ "$failures" -ge 5 ]; then
+                echo "::error::could not read the state of the Dart run ${run_id}. Run this job again: it waits for the same run."
+                exit 1
+              fi
+              sleep 60
+              continue
+            fi
+            failures=0
             case "$state" in
               "completed success") echo "The Dart package run passed."; exit 0 ;;
               completed*) echo "::error::the Dart package run ended as: ${state#completed }"; exit 1 ;;

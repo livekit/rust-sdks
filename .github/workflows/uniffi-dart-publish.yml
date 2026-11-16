@@ -71,6 +71,12 @@ env:
 permissions:
   contents: read
 
+# One run for each tag. ffi-builds.yml waits for this run, and a second run of
+# that job must not publish at the same time as the first one.
+concurrency:
+  group: uniffi-dart-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
