@@ -715,20 +715,26 @@ impl BatchCache for FileCache {
                 }
                 Err(err) => first = first.and(Err(err)),
             }
-            // A `.tmp` that a failed write could not remove still holds a batch. Under `DIR_LOCK`, so
-            // no push or split is writing one right now.
+            // Everything else in the directory goes too: the cache owns it (see `storage_dir`), and
+            // `open` only tried. A `.tmp` that a failed write could not remove still holds a batch;
+            // a stray or mangled file may hold one. Batches were tried above. Under `DIR_LOCK`, so
+            // no push or split is writing a `.tmp` right now.
             {
                 let _locked = lock_dir();
                 match fs::read_dir(&self.dir) {
                     Err(err) if err.kind() == io::ErrorKind::NotFound => return first,
                     Err(err) => first = first.and(Err(err)),
                     Ok(entries) => {
-                        for entry in entries.flatten() {
-                            let path = entry.path();
-                            if path.extension().is_some_and(|e| e == TMP_EXT) {
-                                if let Err(err) = fs::remove_file(&path) {
-                                    first = first.and(Err(err));
-                                }
+                        for entry in entries {
+                            let removed = entry.and_then(|entry| match entry.path() {
+                                path if is_batch(&path) => Ok(()),
+                                path => match fs::remove_file(path) {
+                                    Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+                                    other => other,
+                                },
+                            });
+                            if let Err(err) = removed {
+                                first = first.and(Err(err));
                             }
                         }
                     }
@@ -1336,6 +1342,66 @@ mod tests {
         cache.clear().expect("clear");
         let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
         let _ = fs::remove_dir_all(&dir);
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    /// Files that appear after `open` swept the directory are not batches, yet `clear` deletes
+    /// them: the cache owns the directory, and an opt-out leaves nothing in it.
+    #[test]
+    fn clear_deletes_stray_files() {
+        let dir = temp_dir("clear-stray");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.push(&id(1), b"batch").expect("push");
+        for stray in ["garbage.otlp", "notes", "copy.json"] {
+            fs::write(dir.join(stray), b"telemetry bytes").expect("stray");
+        }
+        let cleared = cache.clear();
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        cleared.expect("clear");
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    /// A stray entry that cannot be deleted fails `clear`, like a batch: here a subdirectory,
+    /// which `clear` reports and never deletes recursively. Everything else is deleted, and the
+    /// directory is still synced afterwards.
+    #[test]
+    fn clear_reports_a_stray_it_cannot_delete() {
+        let dir = temp_dir("clear-stray-kept");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        cache.push(&id(1), b"batch").expect("push");
+        fs::write(dir.join("garbage.otlp"), b"telemetry bytes").expect("stray");
+        let sub = dir.join("sub");
+        fs::create_dir(&sub).expect("subdirectory");
+        fs::write(sub.join("1-a.otlp"), b"telemetry bytes").expect("nested");
+        let steps = Arc::new(Mutex::new(Vec::new()));
+        let seen = steps.clone();
+        cache.inject(move |step, _| {
+            seen.lock().expect("lock").push(step);
+            Ok(())
+        });
+        let cleared = cache.clear();
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let nested = sub.join("1-a.otlp").exists();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(cleared.is_err(), "a kept entry is reported");
+        assert_eq!(left, [sub], "everything else is deleted");
+        assert!(nested, "no recursive delete");
+        assert_eq!(steps.lock().expect("lock").last(), Some(&Step::SyncDir));
+    }
+
+    /// A journal file with a mangled half name is published under a name that is not a batch.
+    /// `clear` on a cache that is already open deletes it too.
+    #[test]
+    fn clear_deletes_a_malformed_journal_on_an_open_cache() {
+        let dir = temp_dir("clear-malformed-journal");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        fs::write(dir.join(format!("1-parent{JOURNAL_SEP}not-a-timestamp.{JOURNAL_EXT}")), b"half")
+            .expect("journal");
+        let cleared = cache.clear();
+        let left: Vec<_> = fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        cleared.expect("clear");
         assert!(left.is_empty(), "{left:?}");
     }
 

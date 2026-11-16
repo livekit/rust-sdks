@@ -2039,6 +2039,32 @@ pub(crate) mod tests {
         assert!(names.iter().all(|name| !name.contains(refused)), "{names:?}");
     }
 
+    /// The opt-out reports `false` while anything stays in the storage directory, and a later
+    /// purge succeeds once it can delete everything: a stray file is no exception.
+    #[tokio::test]
+    async fn a_purge_reports_a_stray_entry_it_cannot_delete_and_a_retry_clears_it() {
+        let dir = crate::cache::temp_dir("purge-stray");
+        let storage_dir = Some(dir.to_string_lossy().into_owned());
+        let (telemetry, exporter) = Telemetry::new(
+            TelemetryConfig { storage_dir, ..Default::default() },
+            Arc::new(Busy::default()),
+        );
+        drop(exporter);
+        std::fs::write(dir.join("garbage.otlp"), b"telemetry bytes").expect("stray");
+        let sub = dir.join("sub");
+        std::fs::create_dir(&sub).expect("subdirectory");
+        let first = telemetry.purge().await;
+        let after_first = std::fs::read_dir(&dir).expect("dir").count();
+        std::fs::remove_dir(&sub).expect("the host removes the obstacle");
+        let retry = telemetry.purge().await;
+        let after_retry = std::fs::read_dir(&dir).expect("dir").count();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!first, "the subdirectory stays");
+        assert_eq!(after_first, 1, "the stray file is gone, only the subdirectory stays");
+        assert!(retry);
+        assert_eq!(after_retry, 0);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn a_flush_interval_longer_than_the_clock_has_run_does_not_panic() {
         const CENTURY_MS: u64 = 100 * 365 * 24 * 60 * 60 * 1000;
