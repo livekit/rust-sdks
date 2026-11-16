@@ -206,8 +206,12 @@ impl PeerTransport {
         offer: SessionDescription,
         options: AnswerOptions,
     ) -> EngineResult<SessionDescription> {
+        let offer_sdp = offer.to_string();
         self.set_remote_description(offer).await?;
         let answer = self.peer_connection().create_answer(options).await?;
+        let sdp = answer.to_string();
+        let answer =
+            Self::reparse_munged(answer, &sdp, Self::munge_opus_nack_for_answer(&sdp, &offer_sdp));
         self.peer_connection().set_local_description(answer.clone()).await?;
 
         Ok(answer)
@@ -240,6 +244,9 @@ impl PeerTransport {
             .peer_connection
             .create_offer(Self::single_pc_offer_options(OfferOptions::default()))
             .await?;
+        // The server takes audio feedback from this first offer only, so NACK must be on it.
+        let sdp = offer.to_string();
+        let offer = Self::reparse_munged(offer, &sdp, Self::munge_opus_nack_for_offer(&sdp));
 
         let mut inner = self.inner.lock().await;
         inner.pending_initial_offer = Some(offer.clone());
@@ -392,6 +399,105 @@ impl PeerTransport {
         munged
     }
 
+    /// Returns `munged` parsed as a description of `desc`'s type, or `desc` itself if the munge
+    /// changed nothing or the result does not parse.
+    fn reparse_munged(desc: SessionDescription, sdp: &str, munged: String) -> SessionDescription {
+        if munged == sdp {
+            return desc;
+        }
+        match SessionDescription::parse(&munged, desc.sdp_type()) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                log::warn!("Failed to parse munged SDP, using original: {e}");
+                desc
+            }
+        }
+    }
+
+    /// Returns the Opus payload type of an audio m-section, and whether that payload type
+    /// already has `nack` feedback.
+    fn opus_nack_state<'a>(section: &[&'a str]) -> Option<(&'a str, bool)> {
+        if !section.first()?.starts_with("m=audio") {
+            return None;
+        }
+        let pt = section.iter().find_map(|line| {
+            let (pt, codec) = line.trim().strip_prefix("a=rtpmap:")?.split_once(' ')?;
+            codec.split('/').next()?.eq_ignore_ascii_case("opus").then_some(pt)
+        })?;
+        let nack = format!("a=rtcp-fb:{pt} nack");
+        Some((pt, section.iter().any(|line| line.trim() == nack)))
+    }
+
+    /// Splits SDP lines into the session section followed by one slice per m-section.
+    fn sdp_sections<'a, 'b>(lines: &'b [&'a str]) -> impl Iterator<Item = &'b [&'a str]> {
+        lines.chunk_by(|_, next| !next.starts_with("m="))
+    }
+
+    /// Adds `a=rtcp-fb:<opus pt> nack` to every audio m-section that lacks it and for which
+    /// `wants_nack` holds.
+    ///
+    /// libwebrtc advertises only `transport-cc` feedback for Opus, so without this no audio
+    /// NACK is negotiated, and lost audio packets are never retransmitted when RED is off
+    /// (for example with E2EE).
+    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(&[&str]) -> bool) -> String {
+        let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
+        let lines: Vec<&str> = sdp.split(eol).collect();
+
+        let mut changed = false;
+        let mut out: Vec<String> = Vec::with_capacity(lines.len() + 3);
+        for section in Self::sdp_sections(&lines) {
+            let start = out.len();
+            out.extend(section.iter().map(|line| line.to_string()));
+
+            let Some((pt, false)) = Self::opus_nack_state(section) else { continue };
+            if !wants_nack(section) {
+                continue;
+            }
+            let rtpmap = format!("a=rtpmap:{pt} ");
+            let Some(i) = section.iter().position(|line| line.trim().starts_with(&rtpmap)) else {
+                continue;
+            };
+            out.insert(start + i + 1, format!("a=rtcp-fb:{pt} nack"));
+            changed = true;
+        }
+
+        if !changed {
+            return sdp.to_string();
+        }
+        let mut munged = out.join(eol);
+        if !munged.ends_with(eol) {
+            munged.push_str(eol);
+        }
+        munged
+    }
+
+    /// Adds Opus NACK to the `recvonly` audio sections of a single PC offer, so subscribed
+    /// audio is retransmitted. The client's own `sendonly`/`sendrecv` sections are untouched.
+    fn munge_opus_nack_for_offer(sdp: &str) -> String {
+        Self::munge_opus_nack(sdp, |section| section.iter().any(|line| line.trim() == "a=recvonly"))
+    }
+
+    /// Adds Opus NACK to each audio section of a dual PC answer whose counterpart in `offer`
+    /// (matched by mid) has it. libwebrtc drops it from the answer otherwise.
+    fn munge_opus_nack_for_answer(answer: &str, offer: &str) -> String {
+        fn section_mid<'a>(section: &[&'a str]) -> Option<&'a str> {
+            section.iter().find_map(|line| line.trim().strip_prefix("a=mid:"))
+        }
+
+        let offer_lines: Vec<&str> = offer.lines().collect();
+        let nack_mids: Vec<&str> = Self::sdp_sections(&offer_lines)
+            .filter(|section| matches!(Self::opus_nack_state(section), Some((_, true))))
+            .filter_map(section_mid)
+            .collect();
+        if nack_mids.is_empty() {
+            return answer.to_string();
+        }
+
+        Self::munge_opus_nack(answer, |section| {
+            section_mid(section).is_some_and(|mid| nack_mids.contains(&mid))
+        })
+    }
+
     /// Check if a codec string represents a video codec that should get start bitrate hint.
     fn is_video_codec(codec: &str) -> bool {
         codec.starts_with("VP8/90000")
@@ -542,19 +648,10 @@ impl PeerTransport {
         let mut sdp = offer.to_string();
 
         if inner.single_pc_mode {
-            // Apply stereo munging for single PC mode
-            let stereo_munged = Self::munge_stereo_for_audio(&sdp);
-            if stereo_munged != sdp {
-                match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
-                    Ok(parsed) => {
-                        offer = parsed;
-                        sdp = stereo_munged;
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
-                    }
-                }
-            }
+            // Apply stereo and Opus NACK munging for single PC mode
+            let munged = Self::munge_opus_nack_for_offer(&Self::munge_stereo_for_audio(&sdp));
+            offer = Self::reparse_munged(offer, &sdp, munged);
+            sdp = offer.to_string();
         }
 
         // Apply x-google-start-bitrate for all video codecs to improve initial quality.
@@ -1112,5 +1209,65 @@ a=rtpmap:111 opus/48000/2\n\
 a=fmtp:111 minptime=10;stereo=1\n";
         let out = PeerTransport::munge_stereo_for_audio(sdp);
         assert_eq!(out.matches("stereo=1").count(), 1);
+    }
+
+    /// An audio m-section with Opus on payload type 111, as libwebrtc writes it.
+    fn audio_section(mid: &str, direction: &str, extra: &str) -> String {
+        format!(
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111 0\r\n\
+a=mid:{mid}\r\n\
+a={direction}\r\n\
+a=rtpmap:111 OPUS/48000/2\r\n\
+{extra}\
+a=rtcp-fb:111 transport-cc\r\n\
+a=fmtp:111 minptime=10;useinbandfec=1\r\n\
+a=rtpmap:0 PCMU/8000\r\n"
+        )
+    }
+
+    fn sdp(sections: &[String]) -> String {
+        format!("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n{}", sections.concat())
+    }
+
+    const NACK: &str = "a=rtcp-fb:111 nack\r\n";
+
+    #[test]
+    fn offer_nack_only_on_recvonly_audio() {
+        let offer = sdp(&[
+            audio_section("0", "sendonly", ""),
+            audio_section("1", "recvonly", ""),
+            audio_section("2", "sendrecv", ""),
+        ]);
+        let out = PeerTransport::munge_opus_nack_for_offer(&offer);
+        let expected = sdp(&[
+            audio_section("0", "sendonly", ""),
+            audio_section("1", "recvonly", NACK),
+            audio_section("2", "sendrecv", ""),
+        ]);
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn offer_nack_not_duplicated() {
+        let offer = sdp(&[audio_section("0", "recvonly", NACK)]);
+        assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), offer);
+    }
+
+    #[test]
+    fn answer_nack_mirrors_offer_by_mid() {
+        let offer =
+            sdp(&[audio_section("0", "sendonly", NACK), audio_section("1", "sendonly", "")]);
+        let answer = sdp(&[audio_section("0", "recvonly", ""), audio_section("1", "recvonly", "")]);
+        let out = PeerTransport::munge_opus_nack_for_answer(&answer, &offer);
+        let expected =
+            sdp(&[audio_section("0", "recvonly", NACK), audio_section("1", "recvonly", "")]);
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn answer_untouched_when_offer_has_no_nack() {
+        let offer = sdp(&[audio_section("0", "sendonly", "")]);
+        let answer = sdp(&[audio_section("0", "recvonly", "")]);
+        assert_eq!(PeerTransport::munge_opus_nack_for_answer(&answer, &offer), answer);
     }
 }
