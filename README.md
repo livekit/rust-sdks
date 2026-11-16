@@ -63,6 +63,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Data channels
 - [x] Simulcast
 - [x] SVC codecs (AV1/VP9)
+- [x] Aggregated PR CI (`ci.yml`) with path-based change detection
 - [ ] Adaptive Streaming
 - [x] Dynacast
 - [x] Hardware video enc/dec
