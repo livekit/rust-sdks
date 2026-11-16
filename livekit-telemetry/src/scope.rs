@@ -19,6 +19,7 @@ use std::{
     time::Duration,
 };
 
+use livekit_protocol::semconv::{self, event, lk_disconnect_reason as reason, upstream};
 use tokio::time::Instant;
 
 use crate::{
@@ -28,12 +29,12 @@ use crate::{
 };
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
-/// copied into them when they are captured (`lk.room.sid`, `lk.participant.identity`, …).
+/// copied into them when they are captured (`lk.room_id`, `lk.pii.participant_identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
     /// The trace id as hex, formatted once: the session's owner in `Destinations`.
     hex: String,
-    /// SDK-owned attributes (`lk.room.*`, `lk.participant.*`), copied into each record when it is
+    /// SDK-owned attributes (the room and local participant), copied into each record when it is
     /// captured (see [`ScopeState::decorate`]).
     attributes: Mutex<Vec<Attribute>>,
     /// The app's correlation attributes, copied into each record when it is captured, so a
@@ -300,8 +301,8 @@ impl ScopeState {
             own.push(attribute.clone());
         }
         drop(session);
-        own.retain(|a| a.key != "session.id");
-        own.push(Attribute::new("session.id", self.hex()));
+        own.retain(|a| a.key != upstream::SESSION_ID);
+        own.push(Attribute::new(upstream::SESSION_ID, self.hex()));
     }
 }
 
@@ -329,16 +330,16 @@ impl fmt::Debug for ScopeState {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RoomIdentity {
-    /// The room's sid (`RM_…`), `lk.room.sid`.
+    /// The room's sid (`RM_…`), `lk.room_id`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub sid: Option<String>,
-    /// The room's name, `lk.room.name`.
+    /// The room's name, `lk.pii.room_name`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub name: Option<String>,
-    /// The local participant's sid (`PA_…`), `lk.participant.sid`.
+    /// The local participant's sid (`PA_…`), `lk.participant_id`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub participant_sid: Option<String>,
-    /// The local participant's identity, `lk.participant.identity`.
+    /// The local participant's identity, `lk.pii.participant_identity`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub participant_identity: Option<String>,
 }
@@ -383,6 +384,33 @@ pub enum DisconnectReason {
     AgentError,
     /// The reconnect policy ran out of attempts.
     ReconnectFailed,
+}
+
+impl DisconnectReason {
+    /// The protobuf `DisconnectReason` name, the spelling Agents sends; `RECONNECT_FAILED` is the
+    /// one client-only value.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => reason::UNKNOWN_REASON,
+            Self::ClientInitiated => reason::CLIENT_INITIATED,
+            Self::DuplicateIdentity => reason::DUPLICATE_IDENTITY,
+            Self::ServerShutdown => reason::SERVER_SHUTDOWN,
+            Self::ParticipantRemoved => reason::PARTICIPANT_REMOVED,
+            Self::RoomDeleted => reason::ROOM_DELETED,
+            Self::StateMismatch => reason::STATE_MISMATCH,
+            Self::JoinFailure => reason::JOIN_FAILURE,
+            Self::Migration => reason::MIGRATION,
+            Self::SignalClose => reason::SIGNAL_CLOSE,
+            Self::RoomClosed => reason::ROOM_CLOSED,
+            Self::UserUnavailable => reason::USER_UNAVAILABLE,
+            Self::UserRejected => reason::USER_REJECTED,
+            Self::SipTrunkFailure => reason::SIP_TRUNK_FAILURE,
+            Self::ConnectionTimeout => reason::CONNECTION_TIMEOUT,
+            Self::MediaFailure => reason::MEDIA_FAILURE,
+            Self::AgentError => reason::AGENT_ERROR,
+            Self::ReconnectFailed => reason::RECONNECT_FAILED,
+        }
+    }
 }
 
 impl From<i32> for DisconnectReason {
@@ -502,14 +530,13 @@ impl Scope {
         } else {
             crate::Severity::Warn
         };
-        let reason = crate::device::snake_case(reason);
         // The body repeats the reason on purpose: it is the display line a log view shows (like
         // the device events' bodies), and it takes the place of the name a body-less event shows.
         self.emit(
-            TelemetryEvent::new("lk.room.disconnected")
+            TelemetryEvent::new(event::LK_ROOM_DISCONNECTED)
                 .with_severity(severity)
-                .with_body(format!("disconnected: {reason}"))
-                .with_attribute("lk.disconnect.reason", reason),
+                .with_body(format!("disconnected: {}", crate::device::snake_case(reason)))
+                .with_attribute(semconv::LK_DISCONNECT_REASON, reason.as_str()),
         );
     }
 
@@ -573,7 +600,8 @@ impl Scope {
 
     /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
     /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
-    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
+    /// ones tagged with their layer), so no SDK maps stats fields itself. `track_id` is the
+    /// LiveKit track identifier (`TR_…`), not the WebRTC track identifier.
     pub fn record_stats_report(
         &self,
         track_id: &str,
@@ -735,16 +763,17 @@ impl Scope {
         Span::bound(name, parent, self.telemetry.clone(), &self.state)
     }
 
-    /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record
-    /// captured from then on. The four fields change as one, and an RTC window open under the
-    /// identity before ships under it, as with [`set_attribute`](Self::set_attribute). The same
-    /// identity again is a no-op.
+    /// The room and local participant, as `lk.room_id`, `lk.pii.room_name`,
+    /// `lk.participant_id` and `lk.pii.participant_identity` on every record captured from then
+    /// on. The four fields change as one, and an RTC window open under the identity before ships
+    /// under it, as with [`set_attribute`](Self::set_attribute). The same identity again is a
+    /// no-op.
     pub fn set_room(&self, room: RoomIdentity) {
         let identity = [
-            ("lk.room.sid", room.sid),
-            ("lk.room.name", room.name),
-            ("lk.participant.sid", room.participant_sid),
-            ("lk.participant.identity", room.participant_identity),
+            (semconv::LK_ROOM_ID, room.sid),
+            (semconv::LK_PII_ROOM_NAME, room.name),
+            (semconv::LK_PARTICIPANT_ID, room.participant_sid),
+            (semconv::LK_PII_PARTICIPANT_IDENTITY, room.participant_identity),
         ]
         .map(|(key, value)| {
             // Identifiers, not free text: an over-long one is not attached (counted as invalid).
@@ -995,11 +1024,11 @@ mod tests {
             .map(DisconnectReason::from)
             .chain([DisconnectReason::ReconnectFailed, DisconnectReason::from(0)]);
         assert_eq!(
-            reasons.map(crate::device::snake_case).collect::<Vec<_>>().join(" | "),
-            "client_initiated | duplicate_identity | server_shutdown | participant_removed \
-             | room_deleted | state_mismatch | join_failure | migration | signal_close \
-             | room_closed | user_unavailable | user_rejected | sip_trunk_failure \
-             | connection_timeout | media_failure | agent_error | reconnect_failed | unknown"
+            reasons.map(DisconnectReason::as_str).collect::<Vec<_>>().join(" | "),
+            "CLIENT_INITIATED | DUPLICATE_IDENTITY | SERVER_SHUTDOWN | PARTICIPANT_REMOVED \
+             | ROOM_DELETED | STATE_MISMATCH | JOIN_FAILURE | MIGRATION | SIGNAL_CLOSE \
+             | ROOM_CLOSED | USER_UNAVAILABLE | USER_REJECTED | SIP_TRUNK_FAILURE \
+             | CONNECTION_TIMEOUT | MEDIA_FAILURE | AGENT_ERROR | RECONNECT_FAILED | UNKNOWN_REASON"
         );
         assert_eq!(DisconnectReason::from(99), DisconnectReason::Unknown);
     }
@@ -1007,7 +1036,7 @@ mod tests {
     #[test]
     fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
         for key in [
-            "lk.room.sid",
+            "lk.room_id",
             "otel.event.name",
             "otel.scope.name",
             "code.function.name",
@@ -1255,8 +1284,12 @@ mod tests {
         assert!(lines.iter().all(|l| !l.starts_with("held: ")), "{lines:?}");
     }
 
-    const IDENTITY_KEYS: [&str; 4] =
-        ["lk.room.sid", "lk.room.name", "lk.participant.sid", "lk.participant.identity"];
+    const IDENTITY_KEYS: [&str; 4] = [
+        semconv::LK_ROOM_ID,
+        semconv::LK_PII_ROOM_NAME,
+        semconv::LK_PARTICIPANT_ID,
+        semconv::LK_PII_PARTICIPANT_IDENTITY,
+    ];
 
     fn identity(tag: &str) -> RoomIdentity {
         RoomIdentity {
