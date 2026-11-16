@@ -49,9 +49,35 @@ versioning.files = [
   "../livekit-ffi-node-bindings/npm/win32-x64-msvc/package.json",
 ]
 release.draft = true
-# The release is not made public without these files. Keep the list equal to
-# the `name` of each build target in ffi-builds.yml, plus the Python bindings.
+# The release is not made public without these files: the FFI libraries of
+# ffi-builds.yml with the Python bindings, and a host library with its
+# checksum for each target of uniffi-cdylib.yml. Keep the list equal to what
+# those two workflows build. release.yml and uniffi-dart-publish.yml read it.
 release.required_assets = [
+  "build-aarch64-apple-darwin.zip",
+  "build-aarch64-apple-darwin.zip.sha256",
+  "build-aarch64-apple-ios-sim.zip",
+  "build-aarch64-apple-ios-sim.zip.sha256",
+  "build-aarch64-apple-ios.zip",
+  "build-aarch64-apple-ios.zip.sha256",
+  "build-aarch64-linux-android.zip",
+  "build-aarch64-linux-android.zip.sha256",
+  "build-aarch64-pc-windows-msvc.zip",
+  "build-aarch64-pc-windows-msvc.zip.sha256",
+  "build-aarch64-unknown-linux-gnu.zip",
+  "build-aarch64-unknown-linux-gnu.zip.sha256",
+  "build-armv7-linux-androideabi.zip",
+  "build-armv7-linux-androideabi.zip.sha256",
+  "build-x86_64-apple-darwin.zip",
+  "build-x86_64-apple-darwin.zip.sha256",
+  "build-x86_64-apple-ios.zip",
+  "build-x86_64-apple-ios.zip.sha256",
+  "build-x86_64-linux-android.zip",
+  "build-x86_64-linux-android.zip.sha256",
+  "build-x86_64-pc-windows-msvc.zip",
+  "build-x86_64-pc-windows-msvc.zip.sha256",
+  "build-x86_64-unknown-linux-gnu.zip",
+  "build-x86_64-unknown-linux-gnu.zip.sha256",
   "ffi-android-arm64.zip",
   "ffi-android-armv7.zip",
   "ffi-android-x86_64.zip",

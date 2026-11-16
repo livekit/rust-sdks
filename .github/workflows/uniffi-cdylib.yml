@@ -1,32 +1,25 @@
 name: UniFFI cdylib builds
 
 # Builds the livekit-ffi core-modules dynamic library for every Dart/Flutter
-# target and attaches them to the livekit-ffi release as `build-<triple>.zip` (+ a
-# `.sha256` sidecar). The Dart build hook (support/dart/hook/build.dart.tera)
-# downloads these at consumer build time.
+# target as `build-<triple>.zip` (+ a `.sha256` sidecar). The Dart build hook
+# (support/dart/hook/build.dart.tera) and client-sdk-android download these
+# from the livekit-ffi release.
 #
-# Reusable workflow, invoked from uniffi-dart-publish.yml once the release tag
-# has been resolved, so the Dart publish job can depend on the assets being
-# attached. Mirrors the structure of ffi-builds.yml. Not triggered directly.
+# Reusable workflow, called from release.yml before the tag exists. It only
+# builds: the files are workflow artifacts (`cdylib-*`), and release.yml
+# attaches them to the release. Not triggered directly.
 
 on:
   workflow_call:
     inputs:
-      version:
-        description: Release version (e.g. 0.13.0)
-        required: true
+      ref:
+        description: "Commit to build. Default: the commit of the run."
+        required: false
         type: string
-      tag_name:
-        description: Source release tag (e.g. livekit-ffi/v0.13.0)
-        required: true
-        type: string
-      dry_run:
-        description: Build artifacts but skip release upload
-        type: boolean
-        default: false
+        default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -78,10 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # Build the tagged source, not the ref the workflow was dispatched
-          # from. A manual re-run for an older release would otherwise upload
-          # libraries built from main under that release's version.
-          ref: ${{ inputs.tag_name }}
+          ref: ${{ inputs.ref }}
           submodules: true
 
       - name: Setup Rust toolchain
@@ -187,25 +177,3 @@ jobs:
           path: |
             build-${{ matrix.target }}.zip
             build-${{ matrix.target }}.zip.sha256
-
-  release:
-    name: Attach cdylibs to release
-    needs: build
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: cdylib-*
-          merge-multiple: true
-          path: cdylibs
-
-      - name: Upload to release
-        # TAG_NAME is bound through env rather than template-expanded into the
-        # script: tag names may contain shell metacharacters (Actions script
-        # injection). GITHUB_REPOSITORY is provided by the runner already.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ inputs.tag_name }}
-        run: gh release upload "$TAG_NAME" cdylibs/* --repo "$GITHUB_REPOSITORY" --clobber
