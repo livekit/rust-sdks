@@ -243,13 +243,17 @@ jobs:
           args: --package livekit-ffi --asset dist --publish
 
   # ---------------------------------------------------------------- stage 3
+  #
+  # Only livekit/rust-sdks publishes to a registry. In a fork, stages 1 and 2
+  # run as they are, the npm publish is a dry run, and the other jobs of this
+  # stage are skipped. A fork can therefore test a release without a publish.
 
   # Runs `cargo publish --no-verify` for each released crate, dependencies
   # first. A version that crates.io has is skipped, so a second run is safe.
   # A failure blocks the dependents of that crate and nothing else.
   publish-crates:
     needs: release
-    if: ${{ !cancelled() && needs.release.result == 'success' && (needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && github.repository == 'livekit/rust-sdks' && (needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     # One crates.io publish at a time, across runs. A second release run
     # reports the drafts of the first one too, so both would publish the same
@@ -303,14 +307,14 @@ jobs:
     with:
       ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
       build: false
-      dry_run: ${{ inputs.dry_run || false }}
+      dry_run: ${{ inputs.dry_run || github.repository != 'livekit/rust-sdks' }}
 
   # The Swift and Android packages. They build from the tag and publish.
   # Each one asks its registry first and skips a version that is there.
   uniffi-packages:
     name: UniFFI packages
     needs: [plan, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
     permissions:
       contents: read
     uses: ./.github/workflows/uniffi-packages.yml
@@ -327,7 +331,7 @@ jobs:
   uniffi-dart:
     name: UniFFI Dart package
     needs: [plan, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
     runs-on: ubuntu-latest
     # A Dart run takes 10 to 30 minutes.
     timeout-minutes: 120
@@ -412,7 +416,7 @@ jobs:
   verify:
     name: Check the end state
     needs: [release, publish-crates, node-publish, uniffi-packages, uniffi-dart]
-    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # reads only. A draft release is visible only with write access
