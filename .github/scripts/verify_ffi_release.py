@@ -159,7 +159,9 @@ def check_zip(path: Path, members: set[str]) -> None:
             bad = archive.testzip()
             if bad is not None:
                 error(f"{path.name}: {bad} is corrupt")
-            names = {Path(n).name for n in archive.namelist() if not n.endswith("/")}
+            # Full paths, not base names: consumers (the Dart build hook among
+            # them) read each file at the root of the archive.
+            names = {n for n in archive.namelist() if not n.endswith("/")}
     except zipfile.BadZipFile as e:
         error(f"{path.name}: not a zip ({e})")
         return
