@@ -1,24 +1,85 @@
 # LiveKit Telemetry
 
 **Important**:
-This is an internal crate for client telemetry in LiveKit client SDKs and is not meant to be
-used directly.
+This is an internal crate that powers client telemetry in LiveKit client SDKs (through the
+`livekit-ffi` core modules: Swift, Kotlin, Dart) and is not meant to be used directly.
 
-It currently holds the shared data model and its encoding:
+The core buffers records on the device and ships them out-of-band as standard
+[OTLP/HTTP](https://opentelemetry.io/docs/specs/otlp/) logs and traces to the LiveKit Cloud
+project a room belongs to. Everything hard lives here once — destination and credentials,
+batching, encoding, retry, persistence, holds, loss accounting — while platforms provide only
+what they are uniquely placed to: OS signals (instruments) and the byte-moving transport.
 
-- **Records.** `TelemetryEvent`, `LogRecord`, `Attribute` / `AttributeValue`, `Severity` and
-  `SpanOutcome`: the events, log lines and span outcomes a platform SDK hands over.
-- **Buffers.** Bounded, drop-oldest queues for records and spans, each filed under the session
-  (trace) it belongs to; every drop is counted.
-- **Encoding.** [OTLP/HTTP](https://opentelemetry.io/docs/specs/otlp/) protobuf logs and traces,
-  using the `opentelemetry-proto` message types only (no gRPC stack).
-- **Transport and destinations.** `TelemetryTransport`, the seam that moves an encoded batch off
-  the device (`NetTransport` over `livekit-net` with the `net` feature), and the routing that
-  turns a Room's server URL and token into its LiveKit Cloud ingest URL and credential.
+```text
+ SDK / instruments ──emit()──▶ Telemetry ──▶ Store ──drain──▶ Exporter ──push──▶ BatchCache ──upload oldest-first──▶ TelemetryTransport
+                              (source)      (records)         (tick · encode)   (MemoryCache | FileCache)            (NetTransport | host HTTP)
+```
 
-The pipeline that batches, caches and uploads records is not part of the crate yet.
+| Layer | OTel equivalent | Type |
+|---|---|---|
+| source | `Logger.emit`, `Tracer.start` | [`Telemetry`], [`Scope`] (one per room), [`Span`] |
+| store | `BatchLogRecordProcessor` queue | `Store` (in-memory, drop-oldest, bounded) |
+| exporter | batch processor timer + exporter | [`Exporter`] (actor, spawn `run()`) |
+| cache | disk buffering | [`BatchCache`]: [`MemoryCache`], [`FileCache`] (`storage_dir`) |
+| transport | exporter's HTTP client | [`TelemetryTransport`]; `NetTransport` over `livekit-net` (feature `net`) |
 
-Event names, attributes and span rules are defined in [`SPEC.md`](SPEC.md). It is the contract
-for the whole crate, including the parts not implemented yet.
+## Usage
+
+```rust
+# use std::sync::Arc;
+# use livekit_telemetry::*;
+# struct Discard;
+# #[async_trait::async_trait]
+# impl TelemetryTransport for Discard {
+#     async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+#         Ok(ExportResponse::accepted())
+#     }
+# }
+# #[tokio::main(flavor = "current_thread")] async fn main() {
+let config = TelemetryConfig { storage_dir: None, ..Default::default() };
+let (telemetry, exporter) = Telemetry::new(config, Arc::new(Discard));
+tokio::spawn(exporter.run());
+
+// One scope per room. Its server URL and token decide where its records go; hand the token
+// over again on every refresh.
+let room = telemetry.begin_scope();
+room.set_server("wss://my-project.livekit.cloud", "<participant token>");
+room.set_attribute("app.call_id", Some("c-42".into()));
+room.emit_custom("checkout", vec![Attribute::new("plan", "pro")]);
+
+let connect = room.start(SpanName::Connect, None);
+connect.step(SpanStep::WsOpen);
+connect.end(SpanOutcome::Ok, None);
+
+telemetry.set_device_state(DeviceState { thermal: ThermalState::Serious, ..Default::default() });
+telemetry.shutdown().await; // cache, then upload what the network allows
+println!("{}", telemetry.stats()); // drops by reason, uploads, cached batches
+# }
+```
+
+Event names, attributes, cadences and the upload policy are defined in [`SPEC.md`](SPEC.md).
+
+## Design notes
+
+- **The room decides the destination.** A platform passes only the server URL and the token
+  ([`Scope::set_server`]). The core derives the ingest URL (LiveKit Cloud hosts only), reads
+  the token's unverified claims (observability grant, expiry) and routes each batch by its
+  owner — project and session — so two rooms on two projects never share a token.
+- **Write-ahead cache.** Every batch is encoded, gzipped and cached *before* the network is
+  tried, then uploaded oldest-first and removed on an answer. Tokens are attached at upload
+  time and never persisted.
+- **The core reads every answer.** Transports return status, headers and body; the core alone
+  classifies OTLP partial success, 4xx, 413 (split), 429/503 `Retry-After` and `RetryInfo`,
+  and Cloud's disabled and credential answers.
+- **Loss is counted, never silent.** Every way a record can be lost has a counter; the deltas
+  ride along with the next batch as `lk.telemetry.report` and are readable locally through
+  [`Telemetry::stats`].
+- **Device state comes from the host; the policy lives here.** Thermal, power, memory,
+  network and lifecycle are OS APIs the host watches and pushes through
+  [`Telemetry::set_device_state`]; the core stretches its cadence and holds uploads.
+- **Size.** OTLP types come from `opentelemetry-proto` (`gen-tonic-messages`, no tonic); JWT
+  claims are read with `base64` and `serde_json`, both already linked by the UniFFI library.
 
 Collector responses are limited to 65,536 decoded body bytes. Overflow is retryable and preserves a valid Retry-After delay; no truncated body is used to classify acceptance or a project refusal. NetTransport uses livekit-net's opt-in bounded client view. Its native backend stops during the read, including gzip decoding; ordinary HTTP requests remain uncapped. A host TelemetryTransport must enforce the same limit in its reader. The core also checks already-buffered custom/FFI/pulled responses, but this cannot bound allocation that already occurred in the host.
+
+Cached 413 recovery stores at most 8 MiB of decoded input in one buffer. Larger batches use streaming recovery when they contain one resource and one scope. New encoded batches split without another complete protobuf object. Splits preserve record order and raw resource, scope, schema and unknown fields. The original stays cached until the replacement commits. Children retain the original age. Unsupported or malformed framing stays cached until a later retry or normal cache removal. Other batches can proceed during the delay. Existing cache eviction, expiry and opt-out rules still apply. This input budget does not bound compressed input, temporary child outputs, total allocated memory or resident memory (RSS). Recovery runs on the exporter task. A batch above the threshold costs three full decompressions after the first 8 MiB is read, and one compression of its records into the two halves. A smaller batch is decompressed once and read three times in memory.
