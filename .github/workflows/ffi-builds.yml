@@ -64,7 +64,7 @@ env:
   CARGO_TERM_COLOR: always
   # The files that a livekit-ffi release must have before it becomes public.
   # Keep this list equal to the `name` of each build target, plus the Python
-  # bindings.
+  # bindings. The verify-release job fails a release run when it is not.
   REQUIRED_ASSETS: >-
     ffi-android-arm64.zip
     ffi-android-armv7.zip
@@ -621,3 +621,47 @@ jobs:
             esac
             sleep 60
           done
+
+  # The last job: checks the release as its users get it, after every
+  # workflow that attaches files to it has finished. That is this run's
+  # ffi-*.zip and Python bindings, and the build-*.zip files of the Dart run.
+  # The expected files come from the build matrices of this workflow and of
+  # uniffi-cdylib.yml, and each zip is opened and each build-*.zip checked
+  # against its .sha256. See .github/scripts/verify_ffi_release.py.
+  #
+  # The release is public by now, so a failure here unpublishes nothing: it
+  # makes the run red and says what to fix. `!cancelled()`: it also runs
+  # after a failed job, and for a release that get-tag found complete, so a
+  # release run always ends with a report of the release.
+  verify-release:
+    name: Verify the release
+    needs: [get-tag, release, uniffi-dart, uniffi-packages]
+    if: ${{ !cancelled() && needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    permissions:
+      # Read on purpose: a draft is invisible to this token, so the job sees
+      # the release as a user does.
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.get-tag.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        with:
+          ref: ${{ inputs.ref || inputs.tag_name }}
+
+      - name: Check the release
+        run: |
+          set -euo pipefail
+          # yq is on the GitHub-hosted Ubuntu image; the script itself needs
+          # only the Python standard library.
+          query='.jobs.build.strategy.matrix.include'
+          yq -o=json "$query" .github/workflows/ffi-builds.yml > "$RUNNER_TEMP/ffi-matrix.json"
+          yq -o=json "$query" .github/workflows/uniffi-cdylib.yml > "$RUNNER_TEMP/cdylib-matrix.json"
+          python3 -I .github/scripts/verify_ffi_release.py \
+            --tag "$TAG" \
+            --ffi-matrix "$RUNNER_TEMP/ffi-matrix.json" \
+            --cdylib-matrix "$RUNNER_TEMP/cdylib-matrix.json" \
+            --required-assets "$REQUIRED_ASSETS" \
+            --expected-sha "$(git rev-parse HEAD)"
