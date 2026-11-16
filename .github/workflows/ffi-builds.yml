@@ -391,7 +391,34 @@ jobs:
       - name: Upload artifacts
         env:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/*
+        # --clobber: a second run for the same tag replaces the assets.
+        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/* --clobber
+
+      # The release must not become public without its binaries: the SDKs
+      # that download them fail on a release that has none. Each built file
+      # must be on the release, with its size.
+      - name: Check that the release has every artifact
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"' | sort > on-release.txt
+          missing=0
+          count=0
+          for file in "${GITHUB_WORKSPACE}"/ffi-builds/*; do
+            count=$((count + 1))
+            entry="$(basename "$file") $(wc -c < "$file" | tr -d ' ')"
+            if ! grep -qxF "$entry" on-release.txt; then
+              echo "::error::release ${TAG} does not have ${entry}"
+              missing=1
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no build artifacts were downloaded"
+            exit 1
+          fi
+          echo "Checked ${count} artifacts on ${TAG}."
+          exit "$missing"
 
       - name: Create release tag
         env:
