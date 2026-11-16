@@ -93,6 +93,18 @@ Several crates export items to Swift/Kotlin/Python through UniFFI — `livekit-f
   - Applies to the error type of any `#[uniffi::export(with_foreign)]` trait or callback interface, since foreign code implements the method. `flat_error` is correct only for an error that travels Rust → foreign exclusively, e.g. `PublishError` in `livekit-datatrack/src/local/mod.rs`
   - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-ffi/src/core_modules/data_stream/common.rs`
 
+## CI workflow structure
+
+`.github/workflows/ci.yml` is the pull request, `main` push, and manual-dispatch aggregator. It computes path changes once and calls the validation workflows through `workflow_call`; repository rulesets should require only its final `CI` job.
+
+- Keep build and test implementation details in their reusable workflows. The aggregator owns event handling, path filters, and the final dependency list.
+- Manual runs intentionally execute every aggregated stage, including stages skipped by normal path filters.
+- Pull requests use path filters, while every `main` push runs builds, tests, feature-combination checks, and Dart tests.
+- Formatting, API tests, and license checks retain their broad existing coverage. The changeset check runs only for pull requests and responds to label changes.
+- The protobuf generation workflows remain standalone because they write generated changes back to pull request branches. Release and package-publishing workflows are also outside the review aggregate.
+- When adding or renaming files that affect a filtered stage, update the corresponding filter in `ci.yml` in the same change.
+- When adding a new pull request validation workflow, make it reusable, call it from `ci.yml`, and add it to the final `CI` job's `needs` list. Retain `workflow_dispatch` when standalone diagnostics are useful.
+
 ## Feature combinations
 
 `.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that.
