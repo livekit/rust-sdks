@@ -8,7 +8,7 @@ name: UniFFI Dart package
 # a *tag* matching the pattern configured on the package
 # (livekit-ffi/v{{version}}); a release-event-triggered workflow is rejected.
 #
-# livekit-ffi uses knope's draft-release flow, and the tag ffi-builds.yml
+# The livekit-ffi release starts as a draft, and the tag that release.yml
 # creates with GITHUB_TOKEN emits no push event (#1256). So the normal trigger
 # is ffi-builds.yml dispatching this workflow with `--ref <tag>` once the
 # release is published: workflow_dispatch is exempt from GitHub's recursion

@@ -4,11 +4,9 @@ name: UniFFI packages
 # xcframework → livekit/livekit-ffi-xcframework; Android AAR → Maven
 # Central) when a livekit-ffi release tag is pushed.
 #
-# Trigger note: this used to react to `release: published`, which worked only
-# because knope-bot (a GitHub App) published the livekit-uniffi release and its
-# tag directly. livekit-ffi uses knope's `assets = "marker"` draft flow, and a
-# draft carries no tag until it is published — with GITHUB_TOKEN, whose refs
-# and releases never start a workflow run (see #1256). So ffi-builds.yml
+# Trigger note: verwalter creates the livekit-ffi tag and a draft release in
+# release.yml with GITHUB_TOKEN, whose refs and releases never start a
+# workflow run (see #1256). So ffi-builds.yml
 # dispatches this workflow explicitly once its build matrix is green and the
 # release is published; workflow_dispatch is exempt from that recursion guard.
 # A run therefore still implies a green 11-target build, the same guarantee the

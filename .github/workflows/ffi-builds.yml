@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-ffi/v0.12.49). Takes precedence over draft release lookup and creates a draft release."
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). release.yml passes the tag of the draft release. Without a release for the tag, a draft release is created."
         required: false
         type: string
       dry_run:
@@ -46,19 +46,22 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
       - name: "Resolve tag"
+        # A push to main is a build only. A release run comes from release.yml,
+        # which dispatches this workflow at the tag of the draft release that
+        # verwalter created. A run by hand for a tag without a release creates
+        # the draft.
         run: |
-          MANUAL_TAG="${{ inputs.tag_name }}"
-          if [ -n "$MANUAL_TAG" ]; then
-            echo "Using manually provided tag: '${MANUAL_TAG}'"
-            gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
-            echo "tag_name=${MANUAL_TAG}" >> $GITHUB_OUTPUT
-          else
-            TAG=$(gh release list --repo ${{ github.repository }} --json 'isDraft,tagName' --jq '[.[] | select(.isDraft and (.tagName | startswith("livekit-ffi/")))] | first | .tagName // empty')
-            echo "Resolved FFI draft release tag: '${TAG:-}'"
-            echo "tag_name=${TAG:-}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [ -z "$MANUAL_TAG" ]; then
+            echo "No tag: build only."
+            exit 0
           fi
+          gh release view "$MANUAL_TAG" >/dev/null 2>&1 \
+            || gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
+          echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
+          MANUAL_TAG: ${{ inputs.tag_name }}
         id: get-tag
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
@@ -397,10 +400,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # This workflow runs on every push to main and adopts whatever draft
-          # release it finds, which may be several commits old. Tagging a commit
-          # whose Cargo.toml says a different version would publish mismatched
-          # packages, and uniffi-dart-publish.yml would reject it later anyway.
+          # A run by hand can name any tag. Tagging a commit whose Cargo.toml
+          # says a different version would publish mismatched packages, and
+          # uniffi-dart-publish.yml would reject it later anyway.
           crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
           if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
             echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at ${SHA}"
@@ -409,9 +411,8 @@ jobs:
 
           existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
           if [ -n "$existing" ]; then
-            # A re-run. Carry on rather than failing: the tag is only needed as
-            # the ref to publish and dispatch against, and it already exists.
-            echo "::warning::tag ${TAG} already exists at ${existing}; not re-creating it."
+            # The usual case: verwalter created the tag with the draft release.
+            echo "tag ${TAG} already exists at ${existing}; not re-creating it."
           else
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref="refs/tags/${TAG}" \
