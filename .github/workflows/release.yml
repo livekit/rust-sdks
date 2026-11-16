@@ -61,10 +61,6 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           fetch-depth: 0
 
-      # No GitHub App here, on purpose. A tag that github.token pushes starts
-      # no workflow. uniffi-packages.yml and uniffi-dart-publish.yml trigger
-      # on the livekit-ffi tag, and they must not start before ffi-builds.yml
-      # attached the assets.
       - id: verwalter
         uses: livekit/verwalter@359985c1e5567b17ae84db0241fbb305c383f89e # v0.30.0
         with:

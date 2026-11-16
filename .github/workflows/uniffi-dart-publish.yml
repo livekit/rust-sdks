@@ -13,7 +13,9 @@ name: UniFFI Dart package
 # is ffi-builds.yml dispatching this workflow with `--ref <tag>` once the
 # release is published: workflow_dispatch is exempt from GitHub's recursion
 # guard, and dispatching at the tag still gives the run refType "tag". The
-# push trigger below stays for a tag pushed by hand.
+# tag exists before the FFI build, so there is no tag-push trigger: it would
+# publish before that build is green. For a run by hand, dispatch this workflow
+# at the tag (select the tag as the ref) with `tag_name`.
 #
 # The package's hook/build.dart downloads build-<triple>.zip assets from the
 # GitHub release at consumer build time, so a pub.dev version whose assets are
@@ -48,8 +50,6 @@ name: UniFFI Dart package
 # only exercising the workflow.
 
 on:
-  push:
-    tags: ["livekit-ffi/v*"]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -85,10 +85,9 @@ jobs:
         # injection), and the outputs feed jobs that write release assets and
         # can mint the pub.dev publish token.
         env:
-          PUSHED_TAG: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag_name }}
         run: |
-          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          TAG="$INPUT_TAG"
           case "$TAG" in
             livekit-ffi/v*) ;;
             *) echo "Unexpected tag: $TAG"; exit 1 ;;
