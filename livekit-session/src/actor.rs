@@ -143,6 +143,7 @@ pub(crate) struct Connection {
 }
 
 /// An incoming text stream the session reads.
+#[non_exhaustive]
 enum ReaderEvent {
     TranscriptChunk(Arc<Transcript>, StreamResult<String>),
     TranscriptEnd(Arc<Transcript>),
@@ -160,6 +161,7 @@ struct Transcript {
     info: TextStreamInfo,
 }
 
+#[non_exhaustive]
 enum Event {
     Stop,
     Room(RoomEvent),
@@ -167,6 +169,7 @@ enum Event {
     AgentDeadline,
 }
 
+#[non_exhaustive]
 /// How the actor stopped.
 enum Exit {
     /// [`Session::end`](crate::Session::end) was called, or every
