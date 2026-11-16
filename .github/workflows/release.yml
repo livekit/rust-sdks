@@ -71,7 +71,9 @@ jobs:
       # The livekit-ffi release is a draft (`release.draft` in verwalter.toml).
       # ffi-builds.yml builds the libraries, attaches them, publishes the
       # release, and starts the UniFFI package workflows. The dispatch is at
-      # the tag, so the build is of the tagged commit.
+      # the tag, so the build is of the tagged commit. A release that is
+      # already published has its assets: it gets no second build. `tag` is
+      # set for both, for the Node bindings job.
       - name: Start the FFI build for the livekit-ffi release
         id: ffi
         if: steps.verwalter.outputs.released == 'true' && inputs.dry_run != true
@@ -86,6 +88,11 @@ jobs:
             exit 0
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          STATUS=$(jq -r '.[] | select(.package == "livekit-ffi") | .status' <<<"$RELEASES")
+          if [ "$STATUS" != "drafted" ]; then
+            echo "The livekit-ffi release is ${STATUS}, not a draft: no FFI build."
+            exit 0
+          fi
           gh workflow run ffi-builds.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag_name="$TAG"
 
   # Runs `cargo publish --no-verify` for each released crate, dependencies
@@ -127,11 +134,13 @@ jobs:
           releases: ${{ needs.release.outputs.releases }}
 
   # The npm packages carry the livekit-ffi version. `pnpm publish -r` skips a
-  # version that npm has.
+  # version that npm has. A run by hand without `package` is the recovery of
+  # a whole release, so it includes the Node bindings. To publish them again
+  # alone, run node-builds.yml, or this workflow with `package: livekit-ffi`.
   call-node-ffi:
     name: Call Node FFI Builds
     needs: release
-    if: needs.release.outputs.ffi_tag != '' || github.event_name == 'workflow_dispatch'
+    if: needs.release.outputs.ffi_tag != '' || (github.event_name == 'workflow_dispatch' && inputs.package == '')
     uses: ./.github/workflows/node-builds.yml
     with:
       dry_run: ${{ inputs.dry_run || false }}
