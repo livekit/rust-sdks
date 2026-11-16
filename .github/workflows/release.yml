@@ -164,9 +164,15 @@ jobs:
 
   release:
     needs: [plan, ffi-build, cdylib-build, node-build]
-    # The builds are skipped when livekit-ffi is complete: `!failure()`
-    # lets this job run then. A failed build stops the run here.
-    if: ${{ !cancelled() && !failure() && needs.plan.result == 'success' }}
+    # Each build must have passed, or been skipped because livekit-ffi is
+    # complete. The results are named one by one: `!failure()` is not enough,
+    # because a build with a cancelled leg has the result `cancelled`, which
+    # `failure()` does not count.
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.ffi-build.result)
+      && contains(fromJSON('["success", "skipped"]'), needs.cdylib-build.result)
+      && contains(fromJSON('["success", "skipped"]'), needs.node-build.result) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -124,7 +124,7 @@ jobs:
             target: x86_64-linux-android
             name: ffi-android-x86_64
 
-    name: Build (${{ matrix.target }}${{ github.event_name == 'workflow_dispatch' && format(' [{0}]', github.event.inputs.build_profile) || '' }})
+    name: Build (${{ matrix.target }}${{ github.event.inputs.build_profile && format(' [{0}]', github.event.inputs.build_profile) || '' }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
