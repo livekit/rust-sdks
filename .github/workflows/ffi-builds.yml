@@ -560,22 +560,27 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.get-tag.outputs.tag_name }}
     steps:
-      # Safe to run again: the step uses the newest Dart run at the tag. It
-      # waits for a run in progress, accepts a run that passed, and starts a
-      # new run only if there is none or the newest one failed.
+      # Safe to run again: the step uses the newest publishing Dart run at the
+      # tag. It waits for a run in progress, accepts a run that passed, and
+      # starts a new run only if there is none or the newest one failed. A dry
+      # run of the Dart workflow has another run name and never counts: it
+      # ends as a success, but uploads and publishes nothing.
       - name: Start uniffi-dart-publish.yml at the tag and wait for it
         run: |
           set -euo pipefail
 
+          # The run name that uniffi-dart-publish.yml gives a publishing run.
+          title="Publish Dart package ${TAG}"
           newest_run() {
-            gh run list --workflow uniffi-dart-publish.yml --branch "$TAG" --limit 1 "$@" \
-              --json databaseId,status,conclusion --jq '.[0] | select(. != null) | "\(.databaseId) \(.status) \(.conclusion)"'
+            gh run list --workflow uniffi-dart-publish.yml --branch "$TAG" --limit 20 "$@" \
+              --json databaseId,status,conclusion,displayTitle \
+              --jq "[.[] | select(.displayTitle == \"${title}\")][0] | select(. != null) | \"\(.databaseId) \(.status) \(.conclusion)\""
           }
 
           run_id=""
           read -r id status conclusion <<<"$(newest_run || true)"
           if [ -n "${id:-}" ] && [ "$status" != "completed" ]; then
-            echo "A Dart run is in progress at ${TAG}."
+            echo "A publishing Dart run is in progress at ${TAG}."
             run_id=$id
           elif [ -n "${id:-}" ] && [ "$conclusion" = "success" ]; then
             echo "The Dart run ${id} passed for ${TAG} already."

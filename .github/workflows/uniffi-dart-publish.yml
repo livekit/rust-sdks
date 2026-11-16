@@ -1,4 +1,8 @@
 name: UniFFI Dart package
+# ffi-builds.yml finds a run by this exact name. Only a run named
+# "Publish Dart package <tag>" counts as the publish for that tag: a dry run
+# uploads and publishes nothing, but ends as a success too.
+run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ inputs.tag_name }}
 
 # Publishes the generated livekit_ffi Dart package to pub.dev on a
 # livekit-ffi release, together with the native libraries it loads.
