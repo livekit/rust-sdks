@@ -530,9 +530,16 @@ jobs:
 
   # The Swift and Android packages. A job of this run, so a failure makes the
   # run red. It starts only after the release is public with its assets.
+  #
+  # It also waits for `uniffi-dart`, whose run attaches the `build-*.zip`
+  # host libraries to the release. client-sdk-android learns a new version
+  # from Maven and then downloads those files, so Maven must not have the
+  # version first. The cost: a failed Dart run blocks these packages. After
+  # such a failure, dispatch uniffi-packages.yml with `tag_name` by hand
+  # once the `build-*.zip` files are on the release.
   uniffi-packages:
     name: UniFFI packages
-    needs: [get-tag, release]
+    needs: [get-tag, release, uniffi-dart]
     permissions:
       contents: read
     uses: ./.github/workflows/uniffi-packages.yml
