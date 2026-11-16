@@ -13,8 +13,10 @@
 # limitations under the License.
 
 # After the release PR merges: tag and create the GitHub releases, then
-# publish the crates and the Node bindings. verwalter reads the tags and the
-# releases and finishes what is missing, so a failed run is run again.
+# publish the crates, the FFI libraries and the Node bindings. verwalter
+# reads the tags and the releases and finishes what is missing, so a failed
+# run is run again. Use "Re-run failed jobs" first: it keeps the merge commit.
+# A new run by hand needs `ref`, else it releases from the head of the branch.
 name: Release
 
 on:
@@ -30,8 +32,13 @@ on:
         required: false
         type: string
         default: ""
+      ref:
+        description: "Commit to release from. Use the merge commit of the release PR. Default: the head of the selected branch, which is correct only if it did not move since the release PR merged."
+        required: false
+        type: string
+        default: ""
       dry_run:
-        description: "Dry run: print every tag, release and publish step instead of doing it."
+        description: "Dry run: print every tag, release and publish step instead of doing it. The FFI and Node builds run without an upload."
         required: false
         type: boolean
         default: false
@@ -48,7 +55,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write # the `gh workflow run` dispatch in the last step
     outputs:
       released: ${{ steps.verwalter.outputs.released }}
       releases: ${{ steps.verwalter.outputs.releases }}
@@ -57,8 +63,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The merge commit itself: a push to main right after the merge
-          # must not move the tags.
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          # must not move the tags. A run by hand has no merge commit: it
+          # takes `ref`, else the head of the branch.
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
           fetch-depth: 0
 
       - id: verwalter
@@ -68,32 +75,38 @@ jobs:
           dry-run: ${{ inputs.dry_run || false }}
           args: ${{ inputs.package && format('--package {0}', inputs.package) || '' }}
 
-      # The livekit-ffi release is a draft (`release.draft` in verwalter.toml).
-      # ffi-builds.yml builds the libraries, attaches them, publishes the
-      # release, and starts the UniFFI package workflows. The dispatch is at
-      # the tag, so the build is of the tagged commit. A release that is
-      # already published has its assets: it gets no second build. `tag` is
-      # set for both, for the Node bindings job.
-      - name: Start the FFI build for the livekit-ffi release
+      # The tag of the livekit-ffi release, for the `ffi` and Node jobs.
+      # Empty when livekit-ffi is not in this release.
+      - name: Find the livekit-ffi release
         id: ffi
         if: steps.verwalter.outputs.released == 'true' && inputs.dry_run != true
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASES: ${{ steps.verwalter.outputs.releases }}
         run: |
           set -euo pipefail
           TAG=$(jq -r '.[] | select(.package == "livekit-ffi") | .tag' <<<"$RELEASES")
-          if [ -z "$TAG" ]; then
-            echo "livekit-ffi is not in this release."
-            exit 0
-          fi
+          echo "livekit-ffi release: '${TAG}'"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          STATUS=$(jq -r '.[] | select(.package == "livekit-ffi") | .status' <<<"$RELEASES")
-          if [ "$STATUS" != "drafted" ]; then
-            echo "The livekit-ffi release is ${STATUS}, not a draft: no FFI build."
-            exit 0
-          fi
-          gh workflow run ffi-builds.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f tag_name="$TAG"
+
+  # The livekit-ffi release is a draft (`release.draft` in verwalter.toml).
+  # ffi-builds.yml builds the libraries, attaches them, makes the release
+  # public, and publishes the UniFFI packages. It is a job of this run, not
+  # a dispatch: a failed build makes this run red, and "Re-run failed jobs"
+  # runs it again on the same commit. A release that is already public and
+  # complete is left alone. A dry run builds and uploads nothing.
+  ffi:
+    name: FFI
+    needs: release
+    if: needs.release.outputs.ffi_tag != '' || inputs.dry_run == true
+    permissions:
+      contents: write # release assets
+      actions: write # the dispatch of uniffi-dart-publish.yml
+    uses: ./.github/workflows/ffi-builds.yml
+    with:
+      tag_name: ${{ needs.release.outputs.ffi_tag }}
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
 
   # Runs `cargo publish --no-verify` for each released crate, dependencies
   # first. A version that crates.io has is skipped, so a second run is safe.
@@ -105,7 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
           fetch-depth: 0 # the tags decide what is published
           submodules: recursive
 
@@ -143,4 +156,5 @@ jobs:
     if: needs.release.outputs.ffi_tag != '' || (github.event_name == 'workflow_dispatch' && inputs.package == '')
     uses: ./.github/workflows/node-builds.yml
     with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
       dry_run: ${{ inputs.dry_run || false }}

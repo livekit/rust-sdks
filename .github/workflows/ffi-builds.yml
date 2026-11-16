@@ -16,10 +16,28 @@ name: FFI
 on:
   push:
     branches: ["main"]
+  # release.yml calls this workflow as a job for a livekit-ffi release.
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Empty: build only."
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Commit to build. Default: the commit of the run."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: build artifacts but skip release upload/publish."
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-ffi/v0.12.49). release.yml passes the tag of the draft release. Without a release for the tag, a draft release is created."
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Run the workflow on that tag. Without a release for the tag, a draft release is created."
         required: false
         type: string
       dry_run:
@@ -35,8 +53,31 @@ on:
           - debug
         default: release
 
+# One release run for each tag. A second run for the same tag waits. It then
+# finds the release public and complete, and does nothing. A run without a
+# tag is a build only and has a group of its own.
+concurrency:
+  group: ffi-${{ inputs.tag_name || github.run_id }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
+  # The files that a livekit-ffi release must have before it becomes public.
+  # Keep this list equal to the `name` of each build target, plus the Python
+  # bindings.
+  REQUIRED_ASSETS: >-
+    ffi-android-arm64.zip
+    ffi-android-armv7.zip
+    ffi-android-x86_64.zip
+    ffi-ios-arm64.zip
+    ffi-ios-sim-arm64.zip
+    ffi-linux-arm64.zip
+    ffi-linux-x86_64.zip
+    ffi-macos-arm64.zip
+    ffi-macos-x86_64.zip
+    ffi-python-bindings.zip
+    ffi-windows-arm64.zip
+    ffi-windows-x86_64.zip
 
 jobs:
   get-tag:
@@ -45,28 +86,58 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        with:
+          ref: ${{ inputs.ref }}
       - name: "Resolve tag"
         # A push to main is a build only. A release run comes from release.yml,
-        # which dispatches this workflow at the tag of the draft release that
+        # which calls this workflow with the tag of the draft release that
         # verwalter created. A run by hand for a tag without a release creates
         # the draft.
         run: |
           set -euo pipefail
           if [ -z "$MANUAL_TAG" ]; then
+            # A run on a tag without `tag_name` looks like a release run, but
+            # it uploads nothing. Only a dry run may do that.
+            if [ "$REF_TYPE" = "tag" ] && [ "$DRY_RUN" != "true" ]; then
+              echo "::error::this run is on the tag ${REF_NAME}, but tag_name is empty. Set tag_name to release, or dry_run to build only."
+              exit 1
+            fi
             echo "No tag: build only."
+            exit 0
+          fi
+          echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "true" ]; then
             exit 0
           fi
           gh release view "$MANUAL_TAG" >/dev/null 2>&1 \
             || gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
-          echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+
+          # A release that is public and has every required file is complete:
+          # this run builds and uploads nothing, and publishes no package again.
+          complete=true
+          if [ "$(gh release view "$MANUAL_TAG" --json isDraft --jq .isDraft)" != "false" ]; then
+            complete=false
+          fi
+          gh release view "$MANUAL_TAG" --json assets --jq '.assets[].name' > on-release.txt
+          for asset in $REQUIRED_ASSETS; do
+            grep -qxF "$asset" on-release.txt || complete=false
+          done
+          echo "Release ${MANUAL_TAG} complete: ${complete}"
+          echo "complete=${complete}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
           MANUAL_TAG: ${{ inputs.tag_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         id: get-tag
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
+      complete: ${{ steps.get-tag.outputs.complete }}
 
   build:
+    needs: get-tag
+    if: needs.get-tag.outputs.complete != 'true'
     env:
       CARGO_PROFILE_DIR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'debug' || 'release' }}
       CARGO_RUST_PROFILE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'dev' || 'release' }}
@@ -155,6 +226,7 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
+          ref: ${{ inputs.ref }}
           submodules: true
 
       - name: Setup Rust toolchain
@@ -371,15 +443,13 @@ jobs:
     needs: [get-tag, build]
     permissions:
       contents: write
-      # Only for the `gh workflow run` dispatches in the last step. Scoped to
-      # this job rather than the workflow: it also grants cancelling and
-      # re-running workflows and deleting runs, artifacts and caches.
-      actions: write
     if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Download artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -391,12 +461,13 @@ jobs:
       - name: Upload artifacts
         env:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
-        # --clobber: a second run for the same tag replaces the assets.
+        # --clobber: a run after a failed upload replaces the partial assets.
+        # A release that is public and complete does not get here (get-tag).
         run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/* --clobber
 
       # The release must not become public without its binaries: the SDKs
-      # that download them fail on a release that has none. Each built file
-      # must be on the release, with its size.
+      # that download them fail on a release that has none. Each required
+      # file must be on the release, and each built file with its size.
       - name: Check that the release has every artifact
         env:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
@@ -404,6 +475,12 @@ jobs:
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"' | sort > on-release.txt
           missing=0
+          for asset in $REQUIRED_ASSETS; do
+            if ! grep -q "^${asset} " on-release.txt; then
+              echo "::error::release ${TAG} does not have the required ${asset}"
+              missing=1
+            fi
+          done
           count=0
           for file in "${GITHUB_WORKSPACE}"/ffi-builds/*; do
             count=$((count + 1))
@@ -423,9 +500,9 @@ jobs:
       - name: Create release tag
         env:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
-          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          SHA=$(git rev-parse HEAD)
 
           # A run by hand can name any tag. Tagging a commit whose Cargo.toml
           # says a different version would publish mismatched packages, and
@@ -451,28 +528,62 @@ jobs:
           TAG: ${{ needs.get-tag.outputs.tag_name }}
         run: gh release edit "$TAG" --draft=false
 
-      # A ref created with GITHUB_TOKEN emits no push event -- GitHub's guard
-      # against recursive workflow runs -- so the UniFFI package publishes
-      # cannot be tag-push triggered from here. `workflow_dispatch` is the
-      # documented exception to that guard: it "always creates workflow runs",
-      # GITHUB_TOKEN included.
-      #
-      # Dispatching *against the tag* is what keeps pub.dev happy. The run then
-      # carries `ref: refs/tags/<tag>`, so its OIDC token has refType "tag",
-      # which pub.dev's trusted publishing requires alongside the tag matching
-      # the pattern configured on the package (see the eventName / refType
-      # checks in dart-lang/pub-dev, app/lib/package/backend.dart).
-      #
-      # Last step on purpose: the release is already published by now, so if a
-      # dispatch fails the FFI artifacts are unaffected and only the UniFFI
-      # packages need the manual re-dispatch the failure tells you to do.
-      - name: Dispatch the UniFFI package publishes
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
+  # The Swift and Android packages. A job of this run, so a failure makes the
+  # run red. It starts only after the release is public with its assets.
+  uniffi-packages:
+    name: UniFFI packages
+    needs: [get-tag, release]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/uniffi-packages.yml
+    with:
+      tag_name: ${{ needs.get-tag.outputs.tag_name }}
+    secrets: inherit
+
+  # The Dart package cannot be a called job: pub.dev accepts only a run whose
+  # ref is the tag (its OIDC token then has refType "tag"; see the eventName
+  # and refType checks in dart-lang/pub-dev, app/lib/package/backend.dart).
+  # So this job dispatches uniffi-dart-publish.yml at the tag.
+  # `workflow_dispatch` always creates a run, GITHUB_TOKEN included. The job
+  # then waits for that run, so its failure makes this run red.
+  uniffi-dart:
+    name: UniFFI Dart package
+    needs: [get-tag, release]
+    runs-on: ubuntu-latest
+    permissions:
+      # Scoped to this job: it also grants cancelling and re-running
+      # workflows and deleting runs, artifacts and caches.
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.get-tag.outputs.tag_name }}
+    steps:
+      - name: Dispatch uniffi-dart-publish.yml and wait for it
         run: |
           set -euo pipefail
-          for workflow in uniffi-packages.yml uniffi-dart-publish.yml; do
-            echo "dispatching ${workflow} at ${TAG}"
-            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" \
-              --ref "$TAG" -f tag_name="$TAG"
+          # One minute back, for a difference between the clocks.
+          since=$(date -u -d '1 minute ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run uniffi-dart-publish.yml --ref "$TAG" -f tag_name="$TAG"
+
+          run_id=""
+          for _ in $(seq 1 30); do
+            run_id=$(gh run list --workflow uniffi-dart-publish.yml --event workflow_dispatch \
+              --branch "$TAG" --created ">=${since}" --json databaseId --jq '.[0].databaseId // empty')
+            [ -z "$run_id" ] || break
+            sleep 10
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::uniffi-dart-publish.yml did not start for ${TAG}. Dispatch it by hand at the tag."
+            exit 1
+          fi
+          echo "Waiting for ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+
+          while true; do
+            state=$(gh run view "$run_id" --json status,conclusion --jq '"\(.status) \(.conclusion)"')
+            case "$state" in
+              "completed success") echo "The Dart package run passed."; exit 0 ;;
+              completed*) echo "::error::the Dart package run ended as: ${state#completed }"; exit 1 ;;
+            esac
+            sleep 60
           done
