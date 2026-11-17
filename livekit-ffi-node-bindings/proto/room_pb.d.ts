@@ -171,6 +171,31 @@ export declare enum DegradationPreference {
 }
 
 /**
+ * @generated from enum livekit.proto.FecProtection
+ */
+export declare enum FecProtection {
+  /**
+   * @generated from enum value: FEC_PROTECTION_DISABLED = 0;
+   */
+  DISABLED = 0,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_LOW = 1;
+   */
+  LOW = 1,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_MEDIUM = 2;
+   */
+  MEDIUM = 2,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_HIGH = 3;
+   */
+  HIGH = 3,
+}
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 export declare enum IceTransportType {
@@ -1923,6 +1948,11 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    * @generated from field: optional livekit.proto.DegradationPreference degradation_preference = 13;
    */
   degradationPreference?: DegradationPreference;
+
+  /**
+   * @generated from field: optional livekit.proto.FecProtection fec = 14;
+   */
+  fec?: FecProtection;
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 

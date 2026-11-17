@@ -62,6 +62,27 @@ pub mod ffi {
         Balanced,
     }
 
+    /// Mirrors `webrtc::RtpFecProtection::Mode`.
+    #[derive(Debug)]
+    #[repr(i32)]
+    pub enum FecProtectionMode {
+        Adaptive,
+        Fixed,
+        Minimum,
+        Disabled,
+    }
+
+    /// Mirrors `webrtc::RtpFecProtection`.
+    #[derive(Debug)]
+    pub struct RtpFecProtection {
+        pub mode: FecProtectionMode,
+        pub protection_factor: f64,
+        pub has_key_frame_protection_factor: bool,
+        pub key_frame_protection_factor: f64,
+        pub has_max_fec_frames: bool,
+        pub max_fec_frames: i32,
+    }
+
     #[derive(Debug)]
     pub struct RtcpFeedback {
         pub feedback_type: RtcpFeedbackType,
@@ -189,6 +210,8 @@ pub mod ffi {
         pub rtcp: RtcpParameters,
         pub has_degradation_preference: bool,
         pub degradation_preference: DegradationPreference,
+        pub has_fec_protection: bool,
+        pub fec_protection: RtpFecProtection,
     }
 
     extern "C++" {

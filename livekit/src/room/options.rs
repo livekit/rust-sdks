@@ -126,6 +126,53 @@ impl AudioPreset {
     }
 }
 
+/// Proactive FlexFEC protection applied to a published video track.
+///
+/// FlexFEC is negotiated for every published video track. [`Self::Disabled`] sends no repair
+/// packets. Any other level requests a fixed ratio of repair packets to media packets, with each
+/// frame protected on its own, regardless of observed loss. The ratio is a request rather than a
+/// cap: repair packets are rounded up to whole packets per frame, so frames that span only a few
+/// packets get proportionally more overhead. libwebrtc does not send FlexFEC for simulcast
+/// senders, so disable simulcast on tracks that need protection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FecProtection {
+    /// Do not generate FEC for this track.
+    #[default]
+    Disabled,
+    /// Request one repair packet per ~6.7 media packets (ratio 0.15).
+    Low,
+    /// Request one repair packet per 4 media packets (ratio 0.25).
+    Medium,
+    /// Request one repair packet per ~2.9 media packets (ratio 0.35).
+    High,
+}
+
+impl FecProtection {
+    /// Fraction of media packets requested as FEC packets for this level.
+    const fn protection_factor(self) -> f64 {
+        match self {
+            Self::Disabled => 0.0,
+            Self::Low => 0.15,
+            Self::Medium => 0.25,
+            Self::High => 0.35,
+        }
+    }
+}
+
+impl From<FecProtection> for RtpFecProtection {
+    fn from(value: FecProtection) -> Self {
+        // Pin every level, including `Disabled`, so libwebrtc's adaptive FEC
+        // never turns on by itself for a published track. `Fixed` protects each
+        // frame in its own block, which keeps recovery delay at one frame.
+        let mode = match value {
+            FecProtection::Disabled => FecProtectionMode::Disabled,
+            _ => FecProtectionMode::Fixed,
+        };
+        Self { mode, protection_factor: value.protection_factor(), ..Default::default() }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     // If the encodings aren't set, LiveKit will compute the most appropriate ones
@@ -148,6 +195,8 @@ pub struct TrackPublishOptions {
     /// If the requested backend is unavailable, the SDK logs a warning and
     /// falls back to another compatible encoder.
     pub video_encoder: VideoEncoderBackend,
+    /// Proactive FlexFEC protection for this video track.
+    pub fec: FecProtection,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -181,9 +230,40 @@ impl Default for TrackPublishOptions {
             preconnect_buffer: false,
             frame_metadata_features: FrameMetadataFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
+            fec: FecProtection::Disabled,
             scalability_mode: None,
             degradation_preference: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod fec_tests {
+    use libwebrtc::rtp_parameters::{FecProtectionMode, RtpFecProtection};
+
+    use super::{FecProtection, TrackPublishOptions};
+
+    #[test]
+    fn fec_protection_maps_to_rtp_policy() {
+        let cases = [
+            (FecProtection::Disabled, FecProtectionMode::Disabled, 0.0),
+            (FecProtection::Low, FecProtectionMode::Fixed, 0.15),
+            (FecProtection::Medium, FecProtectionMode::Fixed, 0.25),
+            (FecProtection::High, FecProtectionMode::Fixed, 0.35),
+        ];
+
+        for (level, mode, protection_factor) in cases {
+            let policy = RtpFecProtection::from(level);
+            assert_eq!(policy.mode, mode);
+            assert_eq!(policy.protection_factor, protection_factor);
+            assert_eq!(policy.key_frame_protection_factor, None);
+            assert_eq!(policy.max_fec_frames, None);
+        }
+    }
+
+    #[test]
+    fn fec_is_disabled_by_default() {
+        assert_eq!(TrackPublishOptions::default().fec, FecProtection::Disabled);
     }
 }
 
