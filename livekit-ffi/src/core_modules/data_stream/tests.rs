@@ -1028,35 +1028,73 @@ fn polled_close_fails_a_pending_send() {
     });
 }
 
+/// Starts a `send_text` on `manager` in its own task.
+fn spawn_polled_send(
+    manager: Arc<OutgoingDataStreamManager>,
+) -> tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>> {
+    tokio::spawn(async move {
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            destination_identities: vec!["bob".to_string()],
+            ..Default::default()
+        };
+        manager.send_text("hello".to_string(), options).await
+    })
+}
+
+/// A polled manager and queue with a send that was cancelled after its batch reached the queue.
+/// The forwarding task owns the sink, so the sink going away shows that the task finished.
+async fn polled_with_an_abandoned_batch() -> (
+    std::sync::Weak<super::polled::OutgoingPacketSink>,
+    Arc<OutgoingDataStreamManager>,
+    Arc<super::polled::OutgoingPacketQueue>,
+) {
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let (sink, queue) = super::polled::OutgoingPacketQueue::pair(shutdown.clone());
+    let sink_alive = Arc::downgrade(&sink);
+    let manager = OutgoingDataStreamManager::with_shutdown(sink, Arc::new(AllV2Registry), shutdown);
+    let send = spawn_polled_send(manager.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    send.abort();
+    assert!(send.await.unwrap_err().is_cancelled());
+    (sink_alive, manager, queue)
+}
+
+async fn assert_forwarding_task_finished(sink: std::sync::Weak<super::polled::OutgoingPacketSink>) {
+    for _ in 0..100 {
+        if sink.upgrade().is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the forwarding task is still waiting on a batch");
+}
+
 #[test]
 fn polled_released_queue_frees_an_unpulled_batch() {
     crate::runtime::runtime().block_on(async {
-        let (sink, queue) = super::polled::OutgoingPacketQueue::pair();
-        let sink_alive = Arc::downgrade(&sink);
-        let manager = OutgoingDataStreamManager::new(sink, Arc::new(AllV2Registry));
-        let sender = manager.clone();
-        let send = tokio::spawn(async move {
-            let options = StreamTextOptions {
-                topic: "chat".to_string(),
-                destination_identities: vec!["bob".to_string()],
-                ..Default::default()
-            };
-            sender.send_text("hello".to_string(), options).await
-        });
-        // Let the batch reach the queue, then cancel the send without ever pulling it.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        send.abort();
-        assert!(send.await.unwrap_err().is_cancelled());
-
+        let (sink, manager, queue) = polled_with_an_abandoned_batch().await;
         drop(manager);
         drop(queue);
-        // The forwarding task owns the sink, so the sink going away shows the task finished.
-        for _ in 0..100 {
-            if sink_alive.upgrade().is_none() {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("the forwarding task is still waiting on a batch nobody can pull");
+        assert_forwarding_task_finished(sink).await;
+    });
+}
+
+#[test]
+fn polled_manager_drop_ends_the_wait_for_an_unpulled_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, manager, _queue) = polled_with_an_abandoned_batch().await;
+        drop(manager);
+        assert_forwarding_task_finished(sink).await;
+    });
+}
+
+#[test]
+fn polled_manager_drop_ends_the_wait_for_a_held_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, manager, queue) = polled_with_an_abandoned_batch().await;
+        let _batch = queue.next_batch().await.expect("the abandoned batch is still queued");
+        drop(manager);
+        assert_forwarding_task_finished(sink).await;
     });
 }

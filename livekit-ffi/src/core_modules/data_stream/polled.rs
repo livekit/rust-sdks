@@ -155,23 +155,32 @@ pub struct OutgoingPacketQueue {
 ///
 /// The halves are separate objects so that the manager's forwarding task, which holds this one,
 /// does not keep the receiving half alive. Releasing the queue then drops any batch nobody pulled,
-/// which fails its send and lets the task finish.
+/// which fails its send and lets the task finish. The task also finishes when the manager is
+/// dropped, whatever the foreign side still holds.
 pub(super) struct OutgoingPacketSink {
     tx: UnboundedSender<PendingBatch>,
     shutdown: CancellationToken,
+    manager_shutdown: CancellationToken,
 }
 
 impl OutgoingPacketQueue {
-    pub(super) fn pair() -> (Arc<OutgoingPacketSink>, Arc<Self>) {
+    /// `manager_shutdown` is the token the manager cancels when it is dropped.
+    pub(super) fn pair(
+        manager_shutdown: CancellationToken,
+    ) -> (Arc<OutgoingPacketSink>, Arc<Self>) {
         let (tx, rx) = unbounded_channel();
         let shutdown = CancellationToken::new();
-        let sink = OutgoingPacketSink { tx, shutdown: shutdown.clone() };
+        let sink = OutgoingPacketSink { tx, shutdown: shutdown.clone(), manager_shutdown };
         (Arc::new(sink), Arc::new(Self { rx: Mutex::new(rx), shutdown }))
     }
 }
 
 fn queue_closed() -> PacketDeliveryError {
     PacketDeliveryError::Failed { reason: "outgoing packet queue closed".to_string() }
+}
+
+fn manager_closed() -> PacketDeliveryError {
+    PacketDeliveryError::Failed { reason: "outgoing data stream manager closed".to_string() }
 }
 
 #[async_trait::async_trait]
@@ -181,6 +190,7 @@ impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
         self.tx.send(PendingBatch { packets, outcome: outcome_tx }).map_err(|_| queue_closed())?;
         tokio::select! {
             _ = self.shutdown.cancelled() => Err(queue_closed()),
+            _ = self.manager_shutdown.cancelled() => Err(manager_closed()),
             // The sender is dropped unused only when the queue goes away with the batch unpulled.
             outcome = outcome_rx => outcome.unwrap_or_else(|_| Err(queue_closed())),
         }
@@ -233,8 +243,9 @@ pub struct PolledOutgoingDataStreamManager {
 pub fn polled_outgoing_data_stream_manager(
     registry: Arc<dyn RemoteParticipantRegistryDelegate>,
 ) -> PolledOutgoingDataStreamManager {
-    let (sink, packets) = OutgoingPacketQueue::pair();
-    let manager = OutgoingDataStreamManager::new(sink, registry);
+    let manager_shutdown = CancellationToken::new();
+    let (sink, packets) = OutgoingPacketQueue::pair(manager_shutdown.clone());
+    let manager = OutgoingDataStreamManager::with_shutdown(sink, registry, manager_shutdown);
     PolledOutgoingDataStreamManager { manager, packets }
 }
 
