@@ -1,12 +1,18 @@
 # Client telemetry spec
 
-Source of truth for event names, attributes and cadences emitted by LiveKit client SDKs.
-Additive-only by convention; LiveKit-defined names carry the `lk.` prefix, everything else
-follows [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions).
+Event names, attributes and cadences emitted by LiveKit client SDKs. Every fixed name and every
+enum value that the protocol's telemetry registry (`otel/` in livekit/protocol) defines comes from
+the generated `livekit_protocol::semconv`, and `src/wire_tests.rs` pins what the core sends. Four
+values stay literals until the registry defines them: the `network.connection.type` values `vpn`,
+`bluetooth` and `other`, and the `error.type` value `timed_out`. Names that the app chooses, such
+as custom event names, and the checkpoint name patterns are not registry constants. The registry
+records each rename as `renamed_from` on the new name. LiveKit-defined names
+carry the `lk.` prefix, everything else follows
+[OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions).
 
 Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamped when it is
 captured (queued), never at export; an explicit `timestamp_ns` is kept. Its attributes, like its
-owner and timestamp, are taken at capture, its session's (`lk.room.*`, `lk.participant.*`,
+owner and timestamp, are taken at capture, its session's (`lk.room_id`, `lk.participant_id`, …,
 `session.id`) included, so a record captured before a disconnect keeps its room; only
 pipeline-wide attributes are added at export. A record ships each key once: of a key it repeats,
 the last value supplied wins, and its session's keys replace its own. Attribute keys the SDK
@@ -30,8 +36,8 @@ Set once per pipeline (`TelemetryConfig.resource`):
 
 One pipeline per process — started at SDK init, so audio pre-initialization, permission failures
 and connect attempts that never reach a server are captured — and one **scope** per room (one
-call). A scope is a trace id plus the attributes attached to its records (`lk.room.sid`,
-`lk.participant.identity`, …); spans, RTC windows and events are filed under the scope that
+call). A scope is a trace id plus the attributes attached to its records (`lk.room_id`,
+`lk.pii.participant_identity`, …); spans, RTC windows and events are filed under the scope that
 produced them, and `session.id` (OTel semconv) is written on every record as an attribute. A log
 record emitted inside a room's span is filed under that room's scope; anything emitted outside
 a scope — device state, pre-room errors, self-telemetry — belongs to the pipeline's own process
@@ -250,7 +256,7 @@ cadence: one per track and direction per stats window (default 60 s, stretched b
          (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
          track keep two windows.
 attributes:
-  lk.track.sid: string
+  lk.track_id: string
   lk.track.kind: enum(audio | video)
   lk.track.direction: enum(inbound | outbound)
   lk.rtc.codec: string                      # mimeType, when known
@@ -425,13 +431,18 @@ never. Only plain records at or above `log_severity` (default `warn`) leave the 
 are dropped in `emit`.
 
 The core's own warnings and errors (Rust `log` records from `livekit*` targets, never
-`livekit_telemetry*`) reach the pipeline by themselves through `livekit-uniffi`'s log forwarder:
-it copies them as `ffi` records — every JWT-shaped substring (`eyJ…` `.` … `.` …) masked as
-`<jwt>`, so a token quoted in an error never leaves the device — and forwards the console entry
-unchanged. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
+`livekit_telemetry*`) reach the pipeline by themselves through `livekit-ffi`'s log forwarder:
+it copies them as `ffi` records, with credentials masked so a token quoted in an error never
+leaves the device: every compact JWT (three base64url segments whose header and payload decode
+to JSON objects, wherever it sits) becomes `<jwt>`, and the value after `Bearer` or after a
+`token` key (`token=`, `access_token=`, `"token": …`) becomes `<redacted>`. The console entry is
+forwarded unchanged. Platform lines handed to `telemetry_log` or `TelemetryScope.log` are masked
+the same way. Only log bodies are masked: event bodies and attributes (`emit`, `emit_custom`,
+`set_attribute`, span attributes) are exported as given. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
 default `OSLogger` with `ffi: true` does), whatever level it passes: that level filters only what
-is forwarded to the platform's console (the global `log` level is kept at `warn` or looser) — Rust allows one logger per process, and without the
-forwarder the core's records go nowhere. Platforms must not feed forwarded Rust log entries
+is forwarded to the platform's console (the global `log` level is kept at `warn` or looser), so
+`log_forward_bootstrap(Off)` forwards nothing to the console while the telemetry copy stays on —
+Rust allows one logger per process, and without the forwarder the core's records go nowhere. Platforms must not feed forwarded Rust log entries
 (what `log_forward_receive` returns) to `telemetry_log` / `log(record)`: the core already copied
 them, so they would be counted twice. `telemetry_log` is for the platform's own and WebRTC's
 lines.
@@ -490,10 +501,10 @@ exempt.
 ```yaml
 event: lk.room.disconnected
 area: session
-severity: info (client_initiated) | warn (anything else)
+severity: info (CLIENT_INITIATED) | warn (anything else)
 cadence: once, when the Room leaves connected for good — never on a reconnect
 attributes:
-  lk.disconnect.reason: enum(client_initiated | duplicate_identity | server_shutdown | participant_removed | room_deleted | state_mismatch | join_failure | migration | signal_close | room_closed | user_unavailable | user_rejected | sip_trunk_failure | connection_timeout | media_failure | agent_error | reconnect_failed | unknown)   # the protocol's DisconnectReason, plus the client giving up
+  lk.disconnect_reason: enum(CLIENT_INITIATED | DUPLICATE_IDENTITY | SERVER_SHUTDOWN | PARTICIPANT_REMOVED | ROOM_DELETED | STATE_MISMATCH | JOIN_FAILURE | MIGRATION | SIGNAL_CLOSE | ROOM_CLOSED | USER_UNAVAILABLE | USER_REJECTED | SIP_TRUNK_FAILURE | CONNECTION_TIMEOUT | MEDIA_FAILURE | AGENT_ERROR | RECONNECT_FAILED | UNKNOWN_REASON)   # the protobuf DisconnectReason names, as Agents sends them, plus RECONNECT_FAILED (the client giving up); the body keeps snake case (`disconnected: client_initiated`)
 platforms: all
 ```
 
@@ -547,8 +558,8 @@ parent: the ambient span, when any; a pre-connect publish (a microphone publishe
         connect completes) is its own span in the session's trace — `lk.connect` has ended by then
 attributes:
   lk.track.kind: enum(audio | video)
-  lk.track.source: enum(camera | microphone | screen_share | screen_share_audio | unknown)
-  lk.track.sid: string            # on success
+  lk.track_source: enum(SOURCE_CAMERA | SOURCE_MICROPHONE | SOURCE_SCREENSHARE | SOURCE_SCREENSHARE_AUDIO | SOURCE_UNKNOWN)   # the RTC FFI TrackSource names, as Agents sends them
+  lk.track_id: string            # on success
 outcome: ok | error (error.type) | cancelled
 ```
 
@@ -567,10 +578,10 @@ ends:   at first media (the first inbound stats reading with bytes; the core see
 owner:  the core (`Scope::subscribe_started / subscribed / track_ended / subscribe_failed`);
         an SDK only reports the remote track's lifecycle
 attributes:
-  lk.track.sid: string
+  lk.track_id: string
   lk.track.kind: enum(audio | video)
-  lk.track.source: enum(camera | microphone | screen_share | screen_share_audio | unknown)
-  lk.participant.remote_identity: string
+  lk.track_source: enum(SOURCE_CAMERA | SOURCE_MICROPHONE | SOURCE_SCREENSHARE | SOURCE_SCREENSHARE_AUDIO | SOURCE_UNKNOWN)
+  lk.pii.remote_participant_identity: string
 checkpoints: subscribed, first_media
 ```
 
@@ -587,10 +598,10 @@ the policy. `Attribute { key, value }` survives only as the open bag: `emit_cust
 | `telemetry_disable()` | the opt-out, in effect when it returns: capture stops; everything unsent is then deleted |
 | `TelemetryConfig.sdk: TelemetryResource { sdk: Sdk, sdk_version, os_name, os_version, device_model }` | `service.name = livekit-client-<sdk>`, `service.version`, `os.*`, `device.model.identifier`, plus `telemetry.sdk.*` |
 | `log(LogRecord { severity, source: LogSource, body, logger, function, file, line, timestamp_ns, span_id })` | a record with `code.function.name`, `code.file.path`, `code.line.number`, `lk.log.source`, `lk.log.logger`; the per-source floor (WebRTC at `error`, own module never) |
-| `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room.*`, `lk.participant.*` on every record the scope captures from then on |
+| `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room_id`, `lk.pii.room_name`, `lk.participant_id`, `lk.pii.participant_identity` on every record the scope captures from then on |
 | `Scope::start(SpanName, parent) -> Span`; `Span::detached(name)` | an OTLP span (`lk.connect` / `lk.reconnect` are `client`, the rest `internal`); `Reconnect { reason }` sets `lk.reconnect.reason` |
 | `Span::step(SpanStep)` | a span event named `ws_open` … `room_connected`, `subscribed`, `first_media`, `attempt N quick|full` (which also sets `lk.reconnect.attempts` / `.mode`) |
-| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track.sid`, `lk.track.kind`, `lk.track.source`, `lk.participant.remote_identity` |
+| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track_id`, `lk.track.kind`, `lk.track_source`, `lk.pii.remote_participant_identity` |
 | `Span::end(outcome, error)` / `fail(error)` / `cancel()` | status, `lk.outcome`, and `error.type` when it failed; ending twice is a no-op |
 | `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
 | `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |
@@ -602,7 +613,7 @@ the policy. `Attribute { key, value }` survives only as the open bag: `emit_cust
 | `Scope::record_stats_report(sid, kind, direction, Vec<RtcStat>, ts)` | the same mapping for one track's report (platforms that poll per track) |
 | `DisconnectReason::from(i32)`, `ReconnectReason::from(i32)` | the protocol numbers → the shared enums (an unknown number is `Unknown`) |
 | `Scope::log(LogRecord)` | a record filed under the session without an ambient span (Dart has no task-local outside a zone); same floor and filters as `Telemetry::log` |
-| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason`, once — info when the client hung up, warn otherwise; pending subscribes end, the session's RTC windows ship and its state is retired; a repeated call is a no-op until a new `lk.connect` |
+| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect_reason`, once — info when the client hung up, warn otherwise; pending subscribes end, the session's RTC windows ship and its state is retired; a repeated call is a no-op until a new `lk.connect` |
 | `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
 
 Timing rule: span calls are synchronous and stamp the clock inside the core, so the only skew is

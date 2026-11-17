@@ -66,6 +66,7 @@ jobs:
               - 'livekit-net/**'
               - 'livekit-region/**'
               - 'livekit-signaling/**'
+              - 'livekit-telemetry/**'
               - 'livekit-token/**'
               - 'device-info/**'
               - 'livekit-api/**'
