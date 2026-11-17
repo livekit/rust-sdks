@@ -86,6 +86,8 @@ pub struct PcGenerationSnapshot {
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+/// The server confirms join-time tracks before it answers the join offer, so the confirmation
+/// has normally arrived once the connection is up; this only bounds a missing one.
 const JOIN_TRACK_CONFIRM_TIMEOUT: Duration = Duration::from_secs(1);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
