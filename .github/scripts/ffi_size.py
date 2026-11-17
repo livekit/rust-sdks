@@ -109,7 +109,11 @@ def load_rows(directory):
     rows = []
     for path in sorted(glob.glob(os.path.join(directory, "**", "*.json"), recursive=True)):
         with open(path) as f:
-            rows.append(json.load(f))
+            data = json.load(f)
+        # Anything but a measured row, such as a merged summary from an
+        # earlier attempt of the report job, is not an input.
+        if isinstance(data, dict) and "row" in data:
+            rows.append(data)
     rows.sort(key=lambda r: (r["row"], r["target"]))
     return rows
 

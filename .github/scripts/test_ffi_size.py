@@ -127,6 +127,20 @@ class MeasureAndSummaryTest(unittest.TestCase):
             with open(md) as f:
                 self.assertIn("no builds were measured", f.read())
 
+    def test_merged_summary_in_input_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sizes = os.path.join(tmp, "sizes")
+            os.makedirs(sizes)
+            row = {"row": "room-apis", "target": "aarch64-linux-android", "crate_type": "cdylib",
+                   "bytes": 10, "gzip_bytes": 5}
+            with open(os.path.join(sizes, "room-apis-aarch64-linux-android.json"), "w") as f:
+                json.dump(row, f)
+            # What an earlier attempt of the report job uploaded.
+            with open(os.path.join(sizes, "size-summary.json"), "w") as f:
+                json.dump({"sha": "0123456789", "rows": [row]}, f)
+
+            self.assertEqual(ffi_size.load_rows(sizes), [row])
+
 
 if __name__ == "__main__":
     unittest.main()
