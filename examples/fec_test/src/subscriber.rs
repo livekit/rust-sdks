@@ -24,7 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 use livekit::{
-    options::{FecProtection, SubscriptionFecProtection},
+    options::{SubscriptionFecLevel, SubscriptionFecProtection},
     track::RemoteTrack,
     webrtc::{stats::RtcStats, video_stream::native::NativeVideoStream},
     Room, RoomEvent, RoomOptions,
@@ -67,10 +67,10 @@ fn parse_fec_schedule(value: &str) -> Result<FecSchedule, String> {
         let (secs, protection) = step.split_once(':').ok_or(format!("invalid step {step:?}"))?;
         let secs = secs.parse().map_err(|_| format!("invalid seconds in {step:?}"))?;
         let level = |level: &str| match level {
-            "default" => Ok(FecProtection::Disabled),
-            "low" => Ok(FecProtection::Low),
-            "medium" => Ok(FecProtection::Medium),
-            "high" => Ok(FecProtection::High),
+            "default" => Ok(SubscriptionFecLevel::Default),
+            "low" => Ok(SubscriptionFecLevel::Low),
+            "medium" => Ok(SubscriptionFecLevel::Medium),
+            "high" => Ok(SubscriptionFecLevel::High),
             _ => Err(format!("invalid level in {step:?}")),
         };
         let protection = match protection {
