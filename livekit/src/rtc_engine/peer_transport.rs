@@ -170,6 +170,8 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
 
         if let Some(pending) = inner.pending_initial_offer.take() {
+            // Apply the exact offer sent with join. Parse failures fall back before signaling
+            // in `munge_offer`; application failures propagate, as they do for ordinary offers.
             self.peer_connection.set_local_description(pending.offer).await?;
             // Only consume the one-shot hint once the offer carrying it is accepted locally.
             if pending.has_start_bitrate {
@@ -391,6 +393,59 @@ impl PeerTransport {
         munged
     }
 
+    /// Adds plain NACK feedback to every Opus payload in each audio section.
+    /// Existing per-payload or wildcard NACK is preserved; `nack pli` does not imply plain NACK.
+    fn munge_opus_nack(sdp: &str) -> String {
+        let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
+        let lines: Vec<_> = sdp.lines().collect();
+        let mut output = String::with_capacity(sdp.len());
+        let mut section_start = 0;
+        let mut changed = false;
+
+        for section_end in 1..=lines.len() {
+            if section_end < lines.len() && !lines[section_end].starts_with("m=") {
+                continue;
+            }
+            let section = &lines[section_start..section_end];
+            section_start = section_end;
+            for line in section {
+                output.push_str(line);
+                output.push_str(eol);
+            }
+            if !section[0].starts_with("m=audio ") {
+                continue;
+            }
+
+            let opus_payloads = section.iter().filter_map(|line| {
+                let mut fields = line.strip_prefix("a=rtpmap:")?.split_whitespace();
+                let payload = fields.next()?;
+                let codec = fields.next()?.split('/').next()?;
+                codec.eq_ignore_ascii_case("opus").then_some(payload)
+            });
+            for payload in opus_payloads {
+                let has_nack = section
+                    .iter()
+                    .filter_map(|line| line.strip_prefix("a=rtcp-fb:"))
+                    .any(|feedback| {
+                        let mut fields = feedback.split_whitespace();
+                        matches!(fields.next(), Some(pt) if pt == payload || pt == "*")
+                            && fields.next() == Some("nack")
+                            && fields.next().is_none()
+                    });
+                if !has_nack {
+                    output.push_str(&format!("a=rtcp-fb:{payload} nack{eol}"));
+                    changed = true;
+                }
+            }
+        }
+
+        if changed {
+            output
+        } else {
+            sdp.to_owned()
+        }
+    }
+
     /// Check if a codec string represents a video codec that should get start bitrate hint.
     fn is_video_codec(codec: &str) -> bool {
         codec.starts_with("VP8/90000")
@@ -512,16 +567,18 @@ impl PeerTransport {
         let mut sdp = offer.to_string();
 
         if inner.single_pc_mode {
-            // Apply stereo munging for single PC mode
-            let stereo_munged = Self::munge_stereo_for_audio(&sdp);
-            if stereo_munged != sdp {
-                match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
+            // The SFU negotiates audio feedback from the first audio section. Include NACK
+            // even on send-only sections, so publishing before subscribing does not disable
+            // retransmission for the entire connection. Dual-PC offers keep their defaults.
+            let audio_munged = Self::munge_opus_nack(&Self::munge_stereo_for_audio(&sdp));
+            if audio_munged != sdp {
+                match SessionDescription::parse(&audio_munged, offer.sdp_type()) {
                     Ok(parsed) => {
                         offer = parsed;
-                        sdp = stereo_munged;
+                        sdp = audio_munged;
                     }
                     Err(e) => {
-                        log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
+                        log::warn!("Failed to parse audio-munged SDP, using original: {e}");
                     }
                 }
             }
@@ -630,9 +687,209 @@ impl PeerTransport {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
+
+    use libwebrtc::prelude::SessionDescription;
+    use parking_lot::Mutex;
 
     use super::PeerTransport;
+
+    /// Captures signaled offers without retaining the transport in its own callback.
+    fn capture_offers(transport: &PeerTransport) -> Arc<Mutex<Vec<SessionDescription>>> {
+        let offers = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&offers);
+        transport.on_offer(Some(Box::new(move |offer| captured.lock().push(offer))));
+        offers
+    }
+
+    /// Checks feedback against each generated audio section's negotiated Opus payload IDs.
+    fn assert_opus_nack(sdp: &str, expected_audio_sections: usize, enabled: bool) {
+        let mut audio_sections = 0;
+        for section in sdp.split("\nm=").filter(|section| section.starts_with("audio ")) {
+            audio_sections += 1;
+            let payloads: Vec<_> = section
+                .lines()
+                .filter_map(|line| {
+                    let mut fields = line.strip_prefix("a=rtpmap:")?.split_whitespace();
+                    let payload = fields.next()?;
+                    let codec = fields.next()?.split('/').next()?;
+                    codec.eq_ignore_ascii_case("opus").then_some(payload)
+                })
+                .collect();
+            assert!(!payloads.is_empty(), "audio section omitted Opus: {section}");
+            for payload in payloads {
+                let nack = format!("a=rtcp-fb:{payload} nack");
+                assert_eq!(
+                    section.lines().filter(|line| *line == nack).count(),
+                    usize::from(enabled),
+                    "unexpected feedback for Opus payload {payload}: {section}",
+                );
+            }
+        }
+        assert_eq!(audio_sections, expected_audio_sections);
+    }
+
+    /// Payload types are scoped to media sections, and PLI is not plain NACK feedback.
+    #[test]
+    fn opus_nack_is_scoped_to_audio_sections() {
+        for eol in ["\n", "\r\n"] {
+            let sdp = [
+                "v=0",
+                "m=audio 9 UDP/TLS/RTP/SAVPF 109 112",
+                "a=sendonly",
+                "a=rtpmap:109 OPUS/48000/2",
+                "a=rtpmap:112 opus/48000/2",
+                "a=rtcp-fb:109 nack pli",
+                "m=video 9 UDP/TLS/RTP/SAVPF 109",
+                "a=rtpmap:109 VP8/90000",
+                "m=audio 9 UDP/TLS/RTP/SAVPF 109",
+                "a=rtpmap:109 PCMU/8000",
+                "",
+            ]
+            .join(eol);
+            let expected = sdp.replacen(
+                "m=video ",
+                &format!("a=rtcp-fb:109 nack{eol}a=rtcp-fb:112 nack{eol}m=video "),
+                1,
+            );
+            let munged = PeerTransport::munge_opus_nack(&sdp);
+            assert_eq!(munged, expected);
+            assert_eq!(PeerTransport::munge_opus_nack(&munged), munged);
+        }
+    }
+
+    /// Existing NACK feedback, including wildcard feedback, must not be duplicated.
+    #[test]
+    fn opus_nack_preserves_existing_feedback() {
+        for feedback in ["a=rtcp-fb:111 nack", "a=rtcp-fb:* nack", "a=rtcp-fb:111\tnack"] {
+            let sdp = format!(
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n{feedback}\r\n"
+            );
+            assert_eq!(PeerTransport::munge_opus_nack(&sdp), sdp);
+        }
+        let sdp = "m=audio 9 UDP/TLS/RTP/SAVPF 0\na=rtpmap:0 PCMU/8000\n";
+        assert_eq!(PeerTransport::munge_opus_nack(sdp), sdp);
+        assert_eq!(PeerTransport::munge_opus_nack(""), "");
+    }
+
+    /// Every single-PC audio direction must offer NACK before the first server answer.
+    #[tokio::test]
+    async fn single_pc_initial_offer_applies_opus_nack() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let remote = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        for direction in [
+            RtpTransceiverDirection::SendOnly,
+            RtpTransceiverDirection::RecvOnly,
+            RtpTransceiverDirection::SendRecv,
+        ] {
+            pc.add_transceiver_for_media(
+                MediaType::Audio,
+                RtpTransceiverInit { direction, stream_ids: vec![], send_encodings: vec![] },
+            )
+            .unwrap();
+        }
+        let transport = PeerTransport::new(pc, proto::SignalTarget::Publisher, true);
+        let offer = transport.create_initial_offer().await.unwrap().unwrap();
+        assert_opus_nack(&offer.to_string(), 3, true);
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::Stable);
+        assert_eq!(
+            transport.inner.lock().await.pending_initial_offer.as_ref().unwrap().offer.to_string(),
+            offer.to_string(),
+        );
+
+        remote.set_remote_description(offer).await.unwrap();
+        let answer = remote.create_answer(AnswerOptions::default()).await.unwrap();
+        remote.set_local_description(answer.clone()).await.unwrap();
+        transport.set_remote_description(answer).await.unwrap();
+        let applied = transport.peer_connection().current_local_description().unwrap().to_string();
+        assert_opus_nack(&applied, 3, true);
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::Stable);
+        transport.close();
+        remote.close();
+    }
+
+    /// Ordinary offers enable audio NACK only for the shared publisher/subscriber transport.
+    #[tokio::test]
+    async fn opus_nack_offers_preserve_dual_pc_behavior() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        for single_pc in [true, false] {
+            let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+            for direction in [
+                RtpTransceiverDirection::SendOnly,
+                RtpTransceiverDirection::RecvOnly,
+                RtpTransceiverDirection::SendRecv,
+            ] {
+                pc.add_transceiver_for_media(
+                    MediaType::Audio,
+                    RtpTransceiverInit { direction, stream_ids: vec![], send_encodings: vec![] },
+                )
+                .unwrap();
+            }
+            let transport = PeerTransport::new(pc, proto::SignalTarget::Publisher, single_pc);
+            let offers = capture_offers(&transport);
+            transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+            let offer = offers.lock().last().unwrap().to_string();
+            assert_opus_nack(&offer, 3, single_pc);
+            transport.close();
+        }
+    }
+
+    /// Publishing first must advertise NACK even before receive-only sections exist.
+    #[tokio::test]
+    async fn opus_nack_with_send_only_audio_before_subscription() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let remote = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        pc.add_transceiver_for_media(
+            MediaType::Audio,
+            RtpTransceiverInit {
+                direction: RtpTransceiverDirection::SendOnly,
+                stream_ids: vec![],
+                send_encodings: vec![],
+            },
+        )
+        .unwrap();
+        let transport = PeerTransport::new(pc, proto::SignalTarget::Publisher, true);
+        let offers = capture_offers(&transport);
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        let offer = offers.lock().last().unwrap().clone();
+        assert_eq!(offer.to_string().matches("m=audio ").count(), 1);
+        assert!(offer.to_string().contains("a=sendonly\r\n"));
+        assert_opus_nack(&offer.to_string(), 1, true);
+
+        remote.set_remote_description(offer).await.unwrap();
+        let answer = remote.create_answer(AnswerOptions::default()).await.unwrap();
+        remote.set_local_description(answer.clone()).await.unwrap();
+        transport.set_remote_description(answer).await.unwrap();
+
+        transport
+            .peer_connection()
+            .add_transceiver_for_media(
+                MediaType::Audio,
+                RtpTransceiverInit {
+                    direction: RtpTransceiverDirection::RecvOnly,
+                    stream_ids: vec![],
+                    send_encodings: vec![],
+                },
+            )
+            .unwrap();
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        let offer = offers.lock().last().unwrap().to_string();
+        assert_eq!(offer.matches("m=audio ").count(), 2);
+        assert_opus_nack(&offer, 2, true);
+        transport.close();
+        remote.close();
+    }
 
     /// Reproduces the publisher-transport self-deadlock.
     ///

@@ -52,6 +52,7 @@ use libwebrtc::prelude::{AudioSourceOptions, RtcAudioSource, RtcVideoSource, Vid
 use libwebrtc::video_source::native::NativeVideoSource;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
+use livekit::rtc_engine::{EngineOptions, RtcEngine};
 use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
 use livekit_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
@@ -66,6 +67,45 @@ use crate::common::{
     audio::{SineParameters, SineTrack},
     test_rooms_with_options,
 };
+
+/// The first single-PC offer must negotiate Opus retransmission with the SFU.
+#[test_log::test(tokio::test)]
+async fn v1_opus_nack_negotiates_initial_offer() -> Result<()> {
+    let (url, key, secret) = get_env_for_mode(SignalingMode::SinglePC);
+    let room_name = format!("test_opus_nack_{}", create_random_uuid());
+    let token = create_token(&key, &secret, &room_name, "publisher")?;
+    let mut options = EngineOptions::default();
+    options.single_peer_connection = true;
+    options.signal_options.single_peer_connection = true;
+    let (engine, ..) = RtcEngine::connect(&url, &token, options, None, &[]).await?;
+    let session = engine.session();
+    let single_pc = session.is_single_pc_mode();
+    let pc = session.publisher().peer_connection();
+    let offer = pc.current_local_description().map(|sd| sd.to_string());
+    let answer = pc.current_remote_description().map(|sd| sd.to_string());
+    engine.close(livekit::DisconnectReason::ClientInitiated).await;
+
+    assert!(single_pc, "this regression test needs a server supporting single PC mode");
+    let offer = offer.expect("connected publisher has a local offer");
+    let answer = answer.expect("connected publisher has a remote answer");
+    for (description, sdp) in [("initial offer", offer), ("SFU answer", answer)] {
+        let payloads: Vec<_> = sdp
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.strip_prefix("a=rtpmap:")?.split_whitespace();
+                let payload = fields.next()?;
+                let codec = fields.next()?.split('/').next()?;
+                codec.eq_ignore_ascii_case("opus").then_some(payload)
+            })
+            .collect();
+        assert!(!payloads.is_empty(), "{description} omitted Opus");
+        for payload in payloads {
+            let nack = format!("a=rtcp-fb:{payload} nack");
+            assert!(sdp.lines().any(|line| line == nack), "{description} omitted Opus NACK");
+        }
+    }
+    Ok(())
+}
 
 /// Signaling mode for tests
 #[derive(Debug, Clone, Copy, PartialEq)]
