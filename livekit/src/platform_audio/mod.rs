@@ -608,12 +608,14 @@ impl PlatformAudio {
         (0..count).filter_map(move |index| self.playout_device_info(index))
     }
 
+    // The ADM reports -1 when it can't list devices. A plain cast turns that
+    // into usize::MAX and the device iterators never end.
     fn recording_device_count(&self) -> usize {
-        self.handle.runtime.recording_devices() as usize
+        usize::try_from(self.handle.runtime.recording_devices()).unwrap_or(0)
     }
 
     fn playout_device_count(&self) -> usize {
-        self.handle.runtime.playout_devices() as usize
+        usize::try_from(self.handle.runtime.playout_devices()).unwrap_or(0)
     }
 
     fn recording_device_info(&self, index: usize) -> Option<RecordingDeviceInfo> {
