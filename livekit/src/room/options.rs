@@ -163,6 +163,9 @@ impl FecProtectionLevel {
 /// frame, so frames that span only a few packets get proportionally more overhead. libwebrtc does
 /// not send FlexFEC for simulcast senders, so disable simulcast on tracks that need protection.
 ///
+/// The same settings select the repairs the SFU sends for a subscribed video track, see
+/// [`RemoteTrackPublication::set_fec_protection`](crate::prelude::RemoteTrackPublication::set_fec_protection).
+///
 /// ```
 /// use livekit::options::{FecProtection, FecProtectionLevel, FecProtectionMode};
 ///
@@ -212,6 +215,36 @@ impl From<FecProtection> for RtpFecProtection {
             FecProtectionMode::Minimum => (RtpMode::Minimum, value.level.protection_factor()),
         };
         Self { mode, protection_factor, ..Default::default() }
+    }
+}
+
+impl From<FecProtectionMode> for proto::FecProtectionMode {
+    fn from(mode: FecProtectionMode) -> Self {
+        match mode {
+            FecProtectionMode::Disabled => Self::FecModeDisabled,
+            FecProtectionMode::Adaptive => Self::FecModeAdaptive,
+            FecProtectionMode::Fixed => Self::FecModeFixed,
+            FecProtectionMode::Minimum => Self::FecModeMinimum,
+        }
+    }
+}
+
+impl From<FecProtectionLevel> for proto::FecProtectionLevel {
+    fn from(level: FecProtectionLevel) -> Self {
+        match level {
+            FecProtectionLevel::Low => Self::FecLevelLow,
+            FecProtectionLevel::Medium => Self::FecLevelMedium,
+            FecProtectionLevel::High => Self::FecLevelHigh,
+        }
+    }
+}
+
+impl From<FecProtection> for proto::FecProtection {
+    fn from(fec: FecProtection) -> Self {
+        Self {
+            mode: proto::FecProtectionMode::from(fec.mode).into(),
+            level: proto::FecProtectionLevel::from(fec.level).into(),
+        }
     }
 }
 
@@ -312,6 +345,30 @@ mod fec_tests {
     fn fec_is_disabled_by_default() {
         assert_eq!(TrackPublishOptions::default().fec, FecProtection::DISABLED);
         assert_eq!(FecProtection::default(), FecProtection::DISABLED);
+    }
+
+    #[test]
+    fn fec_protection_maps_to_proto() {
+        use livekit_protocol::{
+            FecProtection as Proto, FecProtectionLevel as Level, FecProtectionMode as Mode,
+        };
+        use FecProtectionLevel::*;
+
+        let proto = |mode: Mode, level: Level| Proto { mode: mode.into(), level: level.into() };
+        let cases = [
+            (FecProtection::DISABLED, proto(Mode::FecModeDisabled, Level::FecLevelLow)),
+            (FecProtection::adaptive(), proto(Mode::FecModeAdaptive, Level::FecLevelLow)),
+            (FecProtection::fixed(Low), proto(Mode::FecModeFixed, Level::FecLevelLow)),
+            (FecProtection::fixed(Medium), proto(Mode::FecModeFixed, Level::FecLevelMedium)),
+            (FecProtection::fixed(High), proto(Mode::FecModeFixed, Level::FecLevelHigh)),
+            (FecProtection::minimum(Low), proto(Mode::FecModeMinimum, Level::FecLevelLow)),
+            (FecProtection::minimum(Medium), proto(Mode::FecModeMinimum, Level::FecLevelMedium)),
+            (FecProtection::minimum(High), proto(Mode::FecModeMinimum, Level::FecLevelHigh)),
+        ];
+
+        for (fec, expected) in cases {
+            assert_eq!(Proto::from(fec), expected, "{fec:?}");
+        }
     }
 }
 
