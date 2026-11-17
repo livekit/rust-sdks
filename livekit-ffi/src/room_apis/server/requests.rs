@@ -580,7 +580,7 @@ unsafe fn on_video_convert(
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
     // One-off conversion, so there is no stream to reuse a buffer from.
-    let mut dst = Vec::new();
+    let mut dst = colorcvt::FrameBuffer::default();
     match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false), &mut dst) {
         Ok(info) => {
             let id = server.next_id();

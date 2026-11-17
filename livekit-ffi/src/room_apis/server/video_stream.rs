@@ -24,7 +24,7 @@ use livekit::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use super::{colorcvt, room::FfiTrack, FfiHandle};
+use super::{colorcvt, colorcvt::FrameBuffer, room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::video_frame::FrameMetadata;
@@ -66,7 +66,7 @@ const MAX_FRAME_BUFFERS: usize = 3;
 /// of the buffers is free, [`acquire`](Self::acquire) adds one.
 #[derive(Default)]
 struct FrameBuffers {
-    buffers: Vec<Arc<Vec<u8>>>,
+    buffers: Vec<Arc<FrameBuffer>>,
 }
 
 impl FrameBuffers {
@@ -75,20 +75,20 @@ impl FrameBuffers {
     /// The slot always has a strong count of 1, so the caller can take
     /// `Arc::get_mut` on it. Returning the slot rather than a clone is what
     /// makes that true -- a clone would be the second owner itself.
-    fn acquire(&mut self) -> &mut Arc<Vec<u8>> {
+    fn acquire(&mut self) -> &mut Arc<FrameBuffer> {
         if let Some(index) = self.buffers.iter().position(|buffer| Arc::strong_count(buffer) == 1) {
             return &mut self.buffers[index];
         }
 
         if self.buffers.len() < MAX_FRAME_BUFFERS {
-            self.buffers.push(Arc::new(Vec::new()));
-            return self.buffers.last_mut().unwrap();
+            self.buffers.push(Arc::new(FrameBuffer::default()));
+            return self.buffers.last_mut().expect("a buffer was just pushed");
         }
 
         // Every buffer is still out and we are at the cap. Give up this slot:
         // the binding owns that buffer now and frees it on release, and we
         // start a fresh one here rather than block or overwrite it.
-        self.buffers[0] = Arc::new(Vec::new());
+        self.buffers[0] = Arc::new(FrameBuffer::default());
         &mut self.buffers[0]
     }
 }
@@ -395,7 +395,7 @@ mod tests {
 
     /// Stands in for the FFI handle map: holding this clone is what marks a
     /// buffer as still out with the binding.
-    fn handed_to_binding(slot: &Arc<Vec<u8>>) -> Arc<Vec<u8>> {
+    fn handed_to_binding(slot: &Arc<FrameBuffer>) -> Arc<FrameBuffer> {
         slot.clone()
     }
 
@@ -404,7 +404,7 @@ mod tests {
         let mut buffers = FrameBuffers::default();
 
         let first = buffers.acquire();
-        Arc::get_mut(first).expect("unshared").extend_from_slice(&[1, 2, 3]);
+        Arc::get_mut(first).expect("unshared").fit(3).copy_from_slice(&[1, 2, 3]);
         let allocation = Arc::as_ptr(first);
         let held = handed_to_binding(first);
         drop(held); // the binding released the frame
@@ -412,7 +412,7 @@ mod tests {
         let second = buffers.acquire();
 
         assert_eq!(Arc::as_ptr(second), allocation, "the same allocation came back");
-        assert_eq!(second.as_slice(), &[1, 2, 3], "and it is the same storage");
+        assert_eq!(&second[..], &[1, 2, 3], "and it is the same storage");
         assert_eq!(buffers.buffers.len(), 1, "no second buffer was needed");
     }
 
@@ -514,11 +514,11 @@ mod tests {
         let mut buffers = FrameBuffers::default();
 
         let first = buffers.acquire();
-        Arc::get_mut(first).expect("unshared").resize(1024, 0);
+        Arc::get_mut(first).expect("unshared").fit(1024);
         drop(handed_to_binding(first));
 
         let second = buffers.acquire();
-        Arc::get_mut(second).expect("unshared").resize(2048, 0);
+        Arc::get_mut(second).expect("unshared").fit(2048);
 
         assert_eq!(buffers.buffers.len(), 1);
         assert_eq!(buffers.buffers[0].len(), 2048);
