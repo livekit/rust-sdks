@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use livekit_common as lk_common;
@@ -20,11 +20,13 @@ use livekit_data_stream::{api as ds_api, backend as ds};
 use prost::Message as _;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use super::common::{
-    ByteStreamInfo, ClientCapability, DataStreamError, PacketDeliveryError, StreamByteOptions,
-    StreamProgress, StreamTextOptions, TextStreamInfo,
+use super::common::{ClientCapability, PacketDeliveryError};
+use crate::data_stream::{
+    common::{
+        ByteStreamInfo, DataStreamError, StreamByteOptions, StreamTextOptions, TextStreamInfo,
+    },
+    outgoing::{ByteStreamWriter, TextStreamWriter},
 };
-use ds_api::StreamWriter as _;
 
 /// Sends data streams, choosing v2 single-packet/compression or legacy multi-packet framing based
 /// on recipient capabilities. Outbound packets are handed to a foreign delegate for transport.
@@ -47,8 +49,8 @@ pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
     /// Return only once the packets have been handed to the transport: the originating
     /// `send_*`/`write` call stays pending until then, which is what bounds how fast a producer
     /// can enqueue. Throwing [`PacketDeliveryError`] fails that call with
-    /// [`DataStreamError::SendFailed`](super::common::DataStreamError::SendFailed) and closes the
-    /// affected stream (`is_open` becomes false for writers).
+    /// [`DataStreamError::SendFailed`](crate::data_stream::common::DataStreamError::SendFailed)
+    /// and closes the affected stream (`is_open` becomes false for writers).
     async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError>;
 }
 
@@ -65,23 +67,6 @@ pub trait RemoteParticipantRegistryDelegate: Send + Sync {
 
     /// The identities of every remote participant, used to resolve a broadcast send.
     fn remote_identities(&self) -> Vec<String>;
-}
-
-/// Receives the progress of an outgoing send, implemented by the foreign side.
-#[uniffi::export(with_foreign)]
-pub trait StreamProgressDelegate: Send + Sync {
-    /// Reports how much of the payload was sent. Called on the thread that polls the send, so it
-    /// must return quickly.
-    ///
-    /// It must not throw. The method returns no error, so UniFFI turns an exception from a Kotlin
-    /// or Dart implementation into a Rust panic, and the release profile aborts the process.
-    fn on_progress(&self, progress: StreamProgress);
-}
-
-impl std::fmt::Debug for dyn StreamProgressDelegate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("StreamProgressDelegate")
-    }
 }
 
 /// Adapts the foreign [`RemoteParticipantRegistryDelegate`] to the crate-internal
@@ -193,7 +178,7 @@ impl OutgoingDataStreamManager {
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
         let writer = self.manager.stream_text(options.into()).await?;
-        Ok(TextStreamWriter(writer))
+        Ok(TextStreamWriter::new(writer))
     }
 
     /// Opens an incremental byte stream writer (never compressed or inlined).
@@ -201,82 +186,6 @@ impl OutgoingDataStreamManager {
         &self,
         options: StreamByteOptions,
     ) -> Result<ByteStreamWriter, DataStreamError> {
-        Ok(ByteStreamWriter(self.manager.stream_bytes(options.into()).await?))
-    }
-}
-
-/// Writer for an open text data stream.
-#[derive(uniffi::Object)]
-pub struct TextStreamWriter(ds_api::TextStreamWriter);
-
-#[uniffi::export(async_runtime = "tokio")]
-impl TextStreamWriter {
-    /// Information about the underlying stream.
-    pub fn info(&self) -> TextStreamInfo {
-        self.0.info().clone().into()
-    }
-
-    /// Whether the stream is still open — false once it has been closed locally or a send has failed.
-    pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
-    }
-
-    /// Appends text to the stream.
-    pub async fn write(&self, text: String) -> Result<(), DataStreamError> {
-        Ok(self.0.write(&text).await?)
-    }
-
-    /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
-    /// where the receiver merges them into the stream's attributes.
-    #[uniffi::method(default(reason = None, attributes))]
-    pub async fn close(
-        &self,
-        reason: Option<String>,
-        attributes: HashMap<String, String>,
-    ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
-    }
-
-    /// Closes the stream abnormally with a reason.
-    pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
-    }
-}
-
-/// Writer for an open byte data stream.
-#[derive(uniffi::Object)]
-pub struct ByteStreamWriter(ds_api::ByteStreamWriter);
-
-#[uniffi::export(async_runtime = "tokio")]
-impl ByteStreamWriter {
-    /// Information about the underlying stream.
-    pub fn info(&self) -> ByteStreamInfo {
-        self.0.info().clone().into()
-    }
-
-    /// Whether the stream is still open — false once it has been closed locally or a send has failed.
-    pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
-    }
-
-    /// Appends bytes to the stream.
-    pub async fn write(&self, data: Bytes) -> Result<(), DataStreamError> {
-        Ok(self.0.write(data.as_ref()).await?)
-    }
-
-    /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
-    /// where the receiver merges them into the stream's attributes.
-    #[uniffi::method(default(reason = None, attributes))]
-    pub async fn close(
-        &self,
-        reason: Option<String>,
-        attributes: HashMap<String, String>,
-    ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
-    }
-
-    /// Closes the stream abnormally with a reason.
-    pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
+        Ok(ByteStreamWriter::new(self.manager.stream_bytes(options.into()).await?))
     }
 }

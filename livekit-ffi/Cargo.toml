@@ -41,14 +41,12 @@ room-apis = [
 # downstream language and is a transitional step to migrating eventually someday to the full
 # room-apis mode - swift, android, flutter, etc.
 core-modules = [
-  "dep:livekit-data-stream",
   "dep:livekit-net",
   "dep:livekit-signaling",
   "dep:livekit-token",
   "dep:prost",
   "dep:async-trait",
   "dep:once_cell",
-  "dep:tokio-util",
   "livekit-net/uniffi",
   "uniffi/tokio",
 ]
@@ -89,6 +87,8 @@ log = { workspace = true }
 thiserror = { workspace = true }
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
+livekit-data-stream = { workspace = true }
+tokio-util = { workspace = true }
 
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.
@@ -98,11 +98,9 @@ livekit-capture = { workspace = true, optional = true, default-features = false 
 # core-modules only.
 livekit-token = { workspace = true, optional = true }
 livekit-net = { workspace = true, optional = true }
-livekit-data-stream = { workspace = true, optional = true }
 # Default features, so the signalling client stays transport-blind and uses
 # whatever the host registered with livekit-net.
 livekit-signaling = { workspace = true, optional = true }
-tokio-util = { workspace = true, optional = true }
 once_cell = { version = "1.21.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 

@@ -44,13 +44,11 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use super::common::PacketDeliveryError;
-use super::incoming::{
-    ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
-    TextStreamReader,
-};
+use super::incoming::{IncomingDataStreamManager, IncomingDataStreamManagerDelegate};
 use super::outgoing::{
     OutgoingDataStreamManager, OutgoingDataStreamManagerDelegate, RemoteParticipantRegistryDelegate,
 };
+use crate::data_stream::incoming::{ByteStreamReader, TextStreamReader};
 
 /// Queue depth at which we start warning. The channels are unbounded so a stalled consumer can't
 /// deadlock the manager, which means the only backstop against unbounded growth is noticing.

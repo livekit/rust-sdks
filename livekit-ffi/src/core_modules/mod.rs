@@ -30,8 +30,9 @@
 /// `data_track` would silently shadow it.
 pub mod data_track_manager;
 
-/// Data streams v2 core from [`livekit-data-stream`].
-pub mod data_stream;
+/// Data stream managers from [`livekit-data-stream`]. The readers and writers themselves are
+/// shared by both surfaces; see [`crate::data_stream`].
+pub mod data_stream_manager;
 
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
@@ -41,9 +42,6 @@ pub mod signaling;
 
 /// Forward log messages from Rust.
 pub mod log_forward;
-
-/// Global async runtime.
-pub mod runtime;
 
 // Forces livekit-net's UniFFI scaffolding into the cdylib. Nothing in this
 // crate names livekit-net by path, so without this its exports go missing.
