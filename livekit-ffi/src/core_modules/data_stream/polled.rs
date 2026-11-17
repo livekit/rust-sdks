@@ -126,20 +126,32 @@ impl OutgoingPacketBatch {
 
 /// Hands outbound packets to the foreign side one batch at a time.
 ///
-/// Implements [`OutgoingDataStreamManagerDelegate`] in Rust; see the module docs. The manager
-/// awaits each delegate call before making the next, and each call waits for its batch's outcome,
-/// so at most one batch is pending at a time.
+/// This is the receiving half, held by the foreign side. The manager holds the sending half,
+/// [`OutgoingPacketSink`]. The manager awaits each delegate call before making the next, and each
+/// call waits for its batch's outcome, so at most one batch is pending at a time.
 #[derive(uniffi::Object)]
 pub struct OutgoingPacketQueue {
-    tx: UnboundedSender<OutgoingPacketBatch>,
     rx: Mutex<UnboundedReceiver<OutgoingPacketBatch>>,
     shutdown: CancellationToken,
 }
 
+/// The sending half of an [`OutgoingPacketQueue`], which implements
+/// [`OutgoingDataStreamManagerDelegate`] in Rust; see the module docs.
+///
+/// The halves are separate objects so that the manager's forwarding task, which holds this one,
+/// does not keep the receiving half alive. Releasing the queue then drops any batch nobody pulled,
+/// which fails its send and lets the task finish.
+pub(super) struct OutgoingPacketSink {
+    tx: UnboundedSender<OutgoingPacketBatch>,
+    shutdown: CancellationToken,
+}
+
 impl OutgoingPacketQueue {
-    fn new() -> Self {
+    pub(super) fn pair() -> (Arc<OutgoingPacketSink>, Arc<Self>) {
         let (tx, rx) = unbounded_channel();
-        Self { tx, rx: Mutex::new(rx), shutdown: CancellationToken::new() }
+        let shutdown = CancellationToken::new();
+        let sink = OutgoingPacketSink { tx, shutdown: shutdown.clone() };
+        (Arc::new(sink), Arc::new(Self { rx: Mutex::new(rx), shutdown }))
     }
 }
 
@@ -148,7 +160,7 @@ fn queue_closed() -> PacketDeliveryError {
 }
 
 #[async_trait::async_trait]
-impl OutgoingDataStreamManagerDelegate for OutgoingPacketQueue {
+impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
     async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         let (outcome_tx, outcome_rx) = oneshot::channel();
         let batch =
@@ -204,8 +216,8 @@ pub struct PolledOutgoingDataStreamManager {
 pub fn polled_outgoing_data_stream_manager(
     registry: Arc<dyn RemoteParticipantRegistryDelegate>,
 ) -> PolledOutgoingDataStreamManager {
-    let packets = Arc::new(OutgoingPacketQueue::new());
-    let manager = OutgoingDataStreamManager::new(packets.clone(), registry);
+    let (sink, packets) = OutgoingPacketQueue::pair();
+    let manager = OutgoingDataStreamManager::new(sink, registry);
     PolledOutgoingDataStreamManager { manager, packets }
 }
 
