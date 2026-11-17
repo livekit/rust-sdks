@@ -161,19 +161,21 @@ async fn main() -> Result<()> {
 
 ### Publish video with FlexFEC
 
-Set the protection level when publishing each video track. Assuming
-`video_track` is a `LocalVideoTrack`:
+Set the protection mode and level when publishing each video track. Use
+`FecProtection::fixed` for constant protection, `FecProtection::minimum` for
+adaptive protection with a floor, or `FecProtection::adaptive` to follow
+observed packet loss. Assuming `video_track` is a `LocalVideoTrack`:
 
 ```rust
 use livekit::{
-    options::{FecProtection, TrackPublishOptions},
+    options::{FecProtection, FecProtectionLevel, TrackPublishOptions},
     prelude::{LocalTrack, Room, RoomOptions},
 };
 
 let (room, mut room_events) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
 let publish_options = TrackPublishOptions {
-    fec: FecProtection::Medium,
+    fec: FecProtection::fixed(FecProtectionLevel::Medium),
     // libwebrtc does not send FlexFEC for simulcast senders.
     simulcast: false,
     ..Default::default()

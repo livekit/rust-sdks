@@ -85,15 +85,34 @@ const DegradationPreference = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
- * @generated from enum livekit.proto.FecProtection
+ * How proactive FlexFEC protection is controlled for a published video track.
+ * Values match livekit.FECProtectionMode in the LiveKit protocol.
+ *
+ * @generated from enum livekit.proto.FecProtectionMode
  */
-const FecProtection = /*@__PURE__*/ proto2.makeEnum(
-  "livekit.proto.FecProtection",
+const FecProtectionMode = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.FecProtectionMode",
   [
-    {no: 0, name: "FEC_PROTECTION_DISABLED", localName: "DISABLED"},
-    {no: 1, name: "FEC_PROTECTION_LOW", localName: "LOW"},
-    {no: 2, name: "FEC_PROTECTION_MEDIUM", localName: "MEDIUM"},
-    {no: 3, name: "FEC_PROTECTION_HIGH", localName: "HIGH"},
+    {no: 0, name: "FEC_MODE_DISABLED"},
+    {no: 1, name: "FEC_MODE_ADAPTIVE"},
+    {no: 2, name: "FEC_MODE_FIXED"},
+    {no: 3, name: "FEC_MODE_MINIMUM"},
+  ],
+);
+
+/**
+ * Proactive FlexFEC presets. Values match livekit.FECProtectionLevel in the
+ * LiveKit protocol.
+ *
+ * @generated from enum livekit.proto.FecProtectionLevel
+ */
+const FecProtectionLevel = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.FecProtectionLevel",
+  [
+    {no: 0, name: "FEC_LEVEL_UNSPECIFIED"},
+    {no: 1, name: "FEC_LEVEL_LOW"},
+    {no: 2, name: "FEC_LEVEL_MEDIUM"},
+    {no: 3, name: "FEC_LEVEL_HIGH"},
   ],
 );
 
@@ -763,7 +782,18 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 12, name: "video_encoder", kind: "enum", T: proto2.getEnumType(VideoEncoderBackend), opt: true },
     { no: 13, name: "degradation_preference", kind: "enum", T: proto2.getEnumType(DegradationPreference), opt: true },
-    { no: 14, name: "fec", kind: "enum", T: proto2.getEnumType(FecProtection), opt: true },
+    { no: 14, name: "fec", kind: "message", T: FecProtection, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.FecProtection
+ */
+const FecProtection = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.FecProtection",
+  () => [
+    { no: 1, name: "mode", kind: "enum", T: proto2.getEnumType(FecProtectionMode), opt: true },
+    { no: 2, name: "level", kind: "enum", T: proto2.getEnumType(FecProtectionLevel), opt: true },
   ],
 );
 
@@ -1682,7 +1712,8 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 exports.SimulateScenarioKind = SimulateScenarioKind;
 exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.DegradationPreference = DegradationPreference;
-exports.FecProtection = FecProtection;
+exports.FecProtectionMode = FecProtectionMode;
+exports.FecProtectionLevel = FecProtectionLevel;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
@@ -1739,6 +1770,7 @@ exports.GetSessionStatsCallback_Result = GetSessionStatsCallback_Result;
 exports.VideoEncoding = VideoEncoding;
 exports.AudioEncoding = AudioEncoding;
 exports.TrackPublishOptions = TrackPublishOptions;
+exports.FecProtection = FecProtection;
 exports.IceServer = IceServer;
 exports.RtcConfig = RtcConfig;
 exports.RoomDataStreamOptions = RoomDataStreamOptions;

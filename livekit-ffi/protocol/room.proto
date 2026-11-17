@@ -326,6 +326,7 @@ message TrackPublishOptions {
   // Controls how the encoder trades off between resolution and framerate
   // when bandwidth is constrained. Default is MAINTAIN_RESOLUTION.
   optional DegradationPreference degradation_preference = 13;
+  // Proactive FlexFEC protection for a video track. Defaults to disabled.
   optional FecProtection fec = 14;
 }
 
@@ -353,11 +354,36 @@ enum DegradationPreference {
   DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE_AND_RESOLUTION = 4;
 }
 
-enum FecProtection {
-  FEC_PROTECTION_DISABLED = 0;
-  FEC_PROTECTION_LOW = 1;
-  FEC_PROTECTION_MEDIUM = 2;
-  FEC_PROTECTION_HIGH = 3;
+// How proactive FlexFEC protection is controlled for a published video track.
+// Values match livekit.FECProtectionMode in the LiveKit protocol.
+enum FecProtectionMode {
+  // No proactive FEC.
+  FEC_MODE_DISABLED = 0;
+  // Protection follows observed packet loss. Level is ignored.
+  FEC_MODE_ADAPTIVE = 1;
+  // Constant protection at the given level, regardless of packet loss.
+  FEC_MODE_FIXED = 2;
+  // Protection never drops below the given level; it rises adaptively under
+  // higher packet loss and returns to that floor once loss subsides.
+  FEC_MODE_MINIMUM = 3;
+}
+
+// Proactive FlexFEC presets. Values match livekit.FECProtectionLevel in the
+// LiveKit protocol.
+enum FecProtectionLevel {
+  // SDK default, currently FEC_LEVEL_LOW.
+  FEC_LEVEL_UNSPECIFIED = 0;
+  FEC_LEVEL_LOW = 1; // approximately 15% repair packet overhead
+  FEC_LEVEL_MEDIUM = 2; // approximately 25% repair packet overhead
+  FEC_LEVEL_HIGH = 3; // approximately 35% repair packet overhead
+}
+
+message FecProtection {
+  // Unset or unknown modes are treated as FEC_MODE_DISABLED.
+  optional FecProtectionMode mode = 1;
+  // Used by FEC_MODE_FIXED and FEC_MODE_MINIMUM; ignored otherwise.
+  // Unset or unknown levels are treated as FEC_LEVEL_UNSPECIFIED.
+  optional FecProtectionLevel level = 2;
 }
 
 enum IceTransportType {

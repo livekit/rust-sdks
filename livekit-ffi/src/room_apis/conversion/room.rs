@@ -19,8 +19,8 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     options::{
-        AudioEncoding, DegradationPreference, FecProtection, FrameMetadataFeatures,
-        TrackPublishOptions, VideoEncoderBackend, VideoEncoding,
+        AudioEncoding, DegradationPreference, FecProtection, FecProtectionLevel, FecProtectionMode,
+        FrameMetadataFeatures, TrackPublishOptions, VideoEncoderBackend, VideoEncoding,
     },
     prelude::*,
     webrtc::{
@@ -84,12 +84,23 @@ fn degradation_preference_from_proto(pref: Option<i32>) -> Option<DegradationPre
     }
 }
 
-fn fec_protection_from_proto(fec: Option<i32>) -> Option<FecProtection> {
-    match fec.and_then(|value| proto::FecProtection::try_from(value).ok())? {
-        proto::FecProtection::Disabled => Some(FecProtection::Disabled),
-        proto::FecProtection::Low => Some(FecProtection::Low),
-        proto::FecProtection::Medium => Some(FecProtection::Medium),
-        proto::FecProtection::High => Some(FecProtection::High),
+impl From<proto::FecProtection> for FecProtection {
+    fn from(value: proto::FecProtection) -> Self {
+        // The generated getters fall back to the zero value for unset or
+        // unknown enum values, which is DISABLED and UNSPECIFIED respectively.
+        let mode = match value.mode() {
+            proto::FecProtectionMode::FecModeDisabled => FecProtectionMode::Disabled,
+            proto::FecProtectionMode::FecModeAdaptive => FecProtectionMode::Adaptive,
+            proto::FecProtectionMode::FecModeFixed => FecProtectionMode::Fixed,
+            proto::FecProtectionMode::FecModeMinimum => FecProtectionMode::Minimum,
+        };
+        let level = match value.level() {
+            proto::FecProtectionLevel::FecLevelUnspecified => FecProtectionLevel::default(),
+            proto::FecProtectionLevel::FecLevelLow => FecProtectionLevel::Low,
+            proto::FecProtectionLevel::FecLevelMedium => FecProtectionLevel::Medium,
+            proto::FecProtectionLevel::FecLevelHigh => FecProtectionLevel::High,
+        };
+        Self { mode, level }
     }
 }
 
@@ -374,7 +385,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             ),
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
-            fec: fec_protection_from_proto(opts.fec).unwrap_or(default_publish_options.fec),
+            fec: opts.fec.map(Into::into).unwrap_or(default_publish_options.fec),
             scalability_mode: opts.scalability_mode,
             degradation_preference: degradation_preference_from_proto(opts.degradation_preference),
         }
@@ -396,13 +407,14 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 #[cfg(test)]
 mod tests {
     use livekit::{
-        options::{FecProtection, TrackPublishOptions, VideoEncoderBackend},
+        options::{
+            FecProtection, FecProtectionLevel, FecProtectionMode, TrackPublishOptions,
+            VideoEncoderBackend,
+        },
         prelude::RoomOptions,
     };
 
-    use super::{
-        fec_protection_from_proto, frame_metadata_features_from_proto, video_encoder_from_proto,
-    };
+    use super::{frame_metadata_features_from_proto, video_encoder_from_proto};
     use crate::proto;
 
     #[test]
@@ -471,22 +483,62 @@ mod tests {
     #[test]
     fn fec_defaults_to_disabled() {
         let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
+        assert_eq!(options.fec, FecProtection::DISABLED);
 
-        assert_eq!(options.fec, FecProtection::Disabled);
+        let empty = FecProtection::from(proto::FecProtection::default());
+        assert_eq!(empty, FecProtection::DISABLED);
     }
 
     #[test]
-    fn fec_maps_known_values() {
+    fn fec_maps_mode_and_level() {
+        use proto::{FecProtectionLevel as L, FecProtectionMode as M};
         let cases = [
-            (proto::FecProtection::Disabled, FecProtection::Disabled),
-            (proto::FecProtection::Low, FecProtection::Low),
-            (proto::FecProtection::Medium, FecProtection::Medium),
-            (proto::FecProtection::High, FecProtection::High),
+            (
+                M::FecModeDisabled,
+                L::FecLevelHigh,
+                FecProtectionMode::Disabled,
+                FecProtectionLevel::High,
+            ),
+            (
+                M::FecModeAdaptive,
+                L::FecLevelUnspecified,
+                FecProtectionMode::Adaptive,
+                FecProtectionLevel::Low,
+            ),
+            (M::FecModeFixed, L::FecLevelLow, FecProtectionMode::Fixed, FecProtectionLevel::Low),
+            (
+                M::FecModeFixed,
+                L::FecLevelMedium,
+                FecProtectionMode::Fixed,
+                FecProtectionLevel::Medium,
+            ),
+            (
+                M::FecModeMinimum,
+                L::FecLevelHigh,
+                FecProtectionMode::Minimum,
+                FecProtectionLevel::High,
+            ),
         ];
 
-        for (proto_fec, expected) in cases {
-            assert_eq!(fec_protection_from_proto(Some(proto_fec as i32)), Some(expected));
+        for (mode, level, expected_mode, expected_level) in cases {
+            let fec = FecProtection::from(proto::FecProtection {
+                mode: Some(mode as i32),
+                level: Some(level as i32),
+            });
+            assert_eq!(fec, FecProtection { mode: expected_mode, level: expected_level });
         }
+    }
+
+    #[test]
+    fn fec_unknown_values_fall_back() {
+        let fec = FecProtection::from(proto::FecProtection { mode: Some(99), level: Some(99) });
+        assert_eq!(fec, FecProtection::DISABLED);
+
+        let fec = FecProtection::from(proto::FecProtection {
+            mode: Some(proto::FecProtectionMode::FecModeFixed as i32),
+            level: Some(99),
+        });
+        assert_eq!(fec, FecProtection::fixed(FecProtectionLevel::Low));
     }
 }
 
