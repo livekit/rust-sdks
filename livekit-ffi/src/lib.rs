@@ -63,6 +63,14 @@ pub use core_modules::*;
 /// exports at all (ffi-builds.yml greps the generated Python for it).
 pub mod build_info;
 
+/// Shared UniFFI type registrations.
+pub mod common;
+
+/// Data track objects from [`livekit-datatrack`].
+///
+/// Shared by both surfaces, so either one hands client SDKs the same track and stream objects.
+pub mod data_track;
+
 // Must sit at the crate root: this defines `crate::UniFfiTag`, which every
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
 // may exist per crate, which is why the two surfaces are mutually exclusive;

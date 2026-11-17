@@ -13,137 +13,17 @@
 // limitations under the License.
 
 use super::{FfiHandle, FfiServer};
-use crate::{proto, FfiHandleId, FfiResult};
+use crate::{proto, FfiHandleId};
 use futures_util::StreamExt;
 use livekit::data_track::{
-    DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
-    LocalDataTrack, RemoteDataTrack,
+    self as lk, DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
 };
 use std::sync::{Arc, OnceLock};
 use tokio::sync::{oneshot, Notify};
 
-/// FFI wrapper around [`LocalDataTrack`].
-#[derive(Clone)]
-pub struct FfiLocalDataTrack {
-    pub handle_id: FfiHandleId,
-    pub inner: LocalDataTrack,
-}
-
-/// FFI wrapper around [`RemoteDataTrack`].
-#[derive(Clone)]
-pub struct FfiRemoteDataTrack {
-    pub handle_id: FfiHandleId,
-    pub inner: RemoteDataTrack,
-}
-
-impl FfiHandle for FfiLocalDataTrack {}
-impl FfiHandle for FfiRemoteDataTrack {}
-
-impl FfiLocalDataTrack {
-    pub fn from_track(
-        server: &'static FfiServer,
-        track: LocalDataTrack,
-    ) -> proto::OwnedLocalDataTrack {
-        let handle_id = server.next_id();
-        let info = track.info().clone();
-        let track = Self { handle_id, inner: track };
-        server.store_handle(handle_id, track);
-        proto::OwnedLocalDataTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: info.into(),
-        }
-    }
-
-    pub fn is_published(
-        self,
-        _server: &'static FfiServer,
-        _request: proto::LocalDataTrackIsPublishedRequest,
-    ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
-        let is_published = self.inner.is_published();
-        Ok(proto::LocalDataTrackIsPublishedResponse { is_published })
-    }
-
-    pub fn unpublish(
-        self,
-        _server: &'static FfiServer,
-        _request: proto::LocalDataTrackUnpublishRequest,
-    ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
-        self.inner.unpublish();
-        Ok(proto::LocalDataTrackUnpublishResponse::default())
-    }
-
-    pub fn try_push(
-        self,
-        _server: &'static FfiServer,
-        request: proto::LocalDataTrackTryPushRequest,
-    ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
-        let frame: DataTrackFrame = request.frame.into();
-        let error = self.inner.try_push(frame).err().map(Into::into);
-        Ok(proto::LocalDataTrackTryPushResponse { error })
-    }
-}
-
-impl FfiRemoteDataTrack {
-    pub fn from_track(
-        server: &'static FfiServer,
-        track: RemoteDataTrack,
-    ) -> proto::OwnedRemoteDataTrack {
-        let handle_id = server.next_id();
-        let info = track.info().clone();
-        let publisher_identity = track.publisher_identity().to_string();
-        let track = Self { handle_id, inner: track };
-        server.store_handle(handle_id, track);
-        proto::OwnedRemoteDataTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            publisher_identity,
-            info: info.into(),
-        }
-    }
-
-    pub fn is_published(
-        self,
-        _server: &'static FfiServer,
-        _request: proto::RemoteDataTrackIsPublishedRequest,
-    ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
-        let is_published = self.inner.is_published();
-        Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
-    }
-
-    pub fn set_pipeline_options(
-        self,
-        _server: &'static FfiServer,
-        request: proto::RemoteDataTrackSetPipelineOptionsRequest,
-    ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
-        self.inner.set_pipeline_options(request.options.into());
-        Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
-    }
-
-    pub fn subscribe(
-        self,
-        server: &'static FfiServer,
-        request: proto::SubscribeDataTrackRequest,
-    ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-        let handle_id = server.next_id();
-        let (drop_tx, drop_rx) = oneshot::channel();
-        let notify_read = Arc::new(Notify::new());
-        let eos_event = Arc::new(OnceLock::new());
-
-        let stream = FfiDataTrackStream {
-            notify_read: notify_read.clone(),
-            eos_event: eos_event.clone(),
-            drop_tx,
-        };
-        server.store_handle(handle_id, stream);
-
-        let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
-        let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
-        server.watch_panic(task_handle);
-
-        let stream =
-            proto::OwnedDataTrackStream { handle: proto::FfiOwnedHandle { id: handle_id } };
-        Ok(proto::SubscribeDataTrackResponse { stream })
-    }
-}
+/// The shared uniffi objects. The handle map stores tracks as `Arc`s of these, so that
+/// `from_ffi_handle_id` can hand the same track to the uniffi side.
+pub use crate::data_track::{local::LocalDataTrack, remote::RemoteDataTrack};
 
 pub struct FfiDataTrackStream {
     notify_read: Arc<Notify>,
@@ -157,6 +37,32 @@ pub struct FfiDataTrackStream {
 impl FfiHandle for FfiDataTrackStream {}
 
 impl FfiDataTrackStream {
+    /// Subscribes to `track`, storing the stream in the handle map. The subscription itself is set
+    /// up asynchronously; a failure arrives as the end-of-stream event.
+    pub fn subscribe(
+        server: &'static FfiServer,
+        track: lk::RemoteDataTrack,
+        options: DataTrackSubscribeOptions,
+    ) -> proto::OwnedDataTrackStream {
+        let handle_id = server.next_id();
+        let (drop_tx, drop_rx) = oneshot::channel();
+        let notify_read = Arc::new(Notify::new());
+        let eos_event = Arc::new(OnceLock::new());
+
+        let stream = FfiDataTrackStream {
+            notify_read: notify_read.clone(),
+            eos_event: eos_event.clone(),
+            drop_tx,
+        };
+        server.store_handle(handle_id, stream);
+
+        let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
+        let task_handle = server.async_runtime.spawn(task.run(track, options));
+        server.watch_panic(task_handle);
+
+        proto::OwnedDataTrackStream { handle: proto::FfiOwnedHandle { id: handle_id } }
+    }
+
     pub fn read(
         &self,
         _request: proto::DataTrackStreamReadRequest,
@@ -178,7 +84,7 @@ struct SubscriptionTask {
 }
 
 impl SubscriptionTask {
-    async fn run(mut self, track: RemoteDataTrack, options: DataTrackSubscribeOptions) {
+    async fn run(mut self, track: lk::RemoteDataTrack, options: DataTrackSubscribeOptions) {
         let Some(mut stream) = self.wait_for_subscription(track, options).await else {
             return;
         };
@@ -190,7 +96,7 @@ impl SubscriptionTask {
 
     async fn wait_for_subscription(
         &mut self,
-        track: RemoteDataTrack,
+        track: lk::RemoteDataTrack,
         options: DataTrackSubscribeOptions,
     ) -> Option<DataTrackStream> {
         tokio::select! {

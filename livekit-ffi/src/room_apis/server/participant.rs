@@ -22,7 +22,7 @@ use crate::{
     proto,
     server::{
         data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
-        data_track::FfiLocalDataTrack,
+        data_track,
         room::RoomInner,
         FfiHandle, FfiServer,
     },
@@ -295,8 +295,12 @@ impl FfiParticipant {
         let handle = server.async_runtime.spawn(async move {
             let result = match local.publish_data_track(request.options).await {
                 Ok(track) => {
-                    let ffi_track = FfiLocalDataTrack::from_track(server, track);
-                    proto::publish_data_track_callback::Result::Track(ffi_track)
+                    let info = track.info().clone();
+                    let track = Arc::new(data_track::LocalDataTrack::new(track));
+                    proto::publish_data_track_callback::Result::Track(proto::OwnedLocalDataTrack {
+                        handle: proto::FfiOwnedHandle { id: track.ffi_handle_id() },
+                        info: info.into(),
+                    })
                 }
                 Err(err) => proto::publish_data_track_callback::Result::Error(err.into()),
             };

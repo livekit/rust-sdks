@@ -15,7 +15,7 @@
 //! Types that cross the FFI boundary for data streams: info/option records, enums, the error
 //! wrapper, and the wire-packet decode helper.
 //!
-//! `Bytes` is already registered as a custom type by [`crate::data_track::common`]; it is reused
+//! `Bytes` is already registered as a remote type by [`crate::common`]; it is reused
 //! here rather than redefined (a second `custom_type!` in the same crate would conflict).
 //! Participant identities cross as plain `String`.
 
