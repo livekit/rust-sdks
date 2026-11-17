@@ -18,9 +18,7 @@ use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::{
-    e2ee::EncryptionType, options::SubscriptionFecProtection, prelude::*, track::VideoQuality,
-};
+use crate::{e2ee::EncryptionType, options::FecProtection, prelude::*, track::VideoQuality};
 
 type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
 type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
@@ -32,8 +30,7 @@ type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) 
 type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
 type VideoDimensionsChangedHandler = Box<dyn Fn(RemoteTrackPublication, TrackDimension) + Send>;
 type VideoQualityChangedHandler = Box<dyn Fn(RemoteTrackPublication, VideoQuality) + Send>;
-type FecProtectionChangedHandler =
-    Box<dyn Fn(RemoteTrackPublication, SubscriptionFecProtection) + Send>;
+type FecProtectionChangedHandler = Box<dyn Fn(RemoteTrackPublication, FecProtection) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -240,7 +237,7 @@ impl RemoteTrackPublication {
 
     pub(crate) fn on_fec_protection_changed(
         &self,
-        f: impl Fn(RemoteTrackPublication, SubscriptionFecProtection) + Send + 'static,
+        f: impl Fn(RemoteTrackPublication, FecProtection) + Send + 'static,
     ) {
         *self.remote.events.fec_protection_changed.lock() = Some(Box::new(f));
     }
@@ -297,8 +294,8 @@ impl RemoteTrackPublication {
     /// The SFU only sends repairs when downstream FlexFEC is enabled on the server and
     /// `flexfec-03` was negotiated for the subscription; otherwise the request has no effect.
     /// The setting is kept across resubscriptions and changes without renegotiation.
-    /// [`SubscriptionFecProtection::Disabled`], the default, stops the repairs.
-    pub fn set_fec_protection(&self, protection: SubscriptionFecProtection) {
+    /// [`FecProtection::DISABLED`], the default, stops the repairs.
+    pub fn set_fec_protection(&self, protection: FecProtection) {
         if self.kind() != TrackKind::Video {
             log::warn!("Cannot set FEC protection for a track that is not video");
             return;

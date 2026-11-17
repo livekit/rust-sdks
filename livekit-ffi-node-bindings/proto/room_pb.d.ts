@@ -171,28 +171,76 @@ export declare enum DegradationPreference {
 }
 
 /**
- * @generated from enum livekit.proto.FecProtection
+ * How proactive FlexFEC protection is controlled for a published video track.
+ * Values match livekit.FECProtectionMode in the LiveKit protocol.
+ *
+ * @generated from enum livekit.proto.FecProtectionMode
  */
-export declare enum FecProtection {
+export declare enum FecProtectionMode {
   /**
-   * @generated from enum value: FEC_PROTECTION_DISABLED = 0;
+   * No proactive FEC.
+   *
+   * @generated from enum value: FEC_MODE_DISABLED = 0;
    */
-  DISABLED = 0,
+  FEC_MODE_DISABLED = 0,
 
   /**
-   * @generated from enum value: FEC_PROTECTION_LOW = 1;
+   * Protection follows observed packet loss. Level is ignored.
+   *
+   * @generated from enum value: FEC_MODE_ADAPTIVE = 1;
    */
-  LOW = 1,
+  FEC_MODE_ADAPTIVE = 1,
 
   /**
-   * @generated from enum value: FEC_PROTECTION_MEDIUM = 2;
+   * Constant protection at the given level, regardless of packet loss.
+   *
+   * @generated from enum value: FEC_MODE_FIXED = 2;
    */
-  MEDIUM = 2,
+  FEC_MODE_FIXED = 2,
 
   /**
-   * @generated from enum value: FEC_PROTECTION_HIGH = 3;
+   * Protection never drops below the given level; it rises adaptively under
+   * higher packet loss and returns to that floor once loss subsides.
+   *
+   * @generated from enum value: FEC_MODE_MINIMUM = 3;
    */
-  HIGH = 3,
+  FEC_MODE_MINIMUM = 3,
+}
+
+/**
+ * Proactive FlexFEC presets. Values match livekit.FECProtectionLevel in the
+ * LiveKit protocol.
+ *
+ * @generated from enum livekit.proto.FecProtectionLevel
+ */
+export declare enum FecProtectionLevel {
+  /**
+   * SDK default, currently FEC_LEVEL_LOW.
+   *
+   * @generated from enum value: FEC_LEVEL_UNSPECIFIED = 0;
+   */
+  FEC_LEVEL_UNSPECIFIED = 0,
+
+  /**
+   * approximately 15% repair packet overhead
+   *
+   * @generated from enum value: FEC_LEVEL_LOW = 1;
+   */
+  FEC_LEVEL_LOW = 1,
+
+  /**
+   * approximately 25% repair packet overhead
+   *
+   * @generated from enum value: FEC_LEVEL_MEDIUM = 2;
+   */
+  FEC_LEVEL_MEDIUM = 2,
+
+  /**
+   * approximately 35% repair packet overhead
+   *
+   * @generated from enum value: FEC_LEVEL_HIGH = 3;
+   */
+  FEC_LEVEL_HIGH = 3,
 }
 
 /**
@@ -1950,6 +1998,8 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
   degradationPreference?: DegradationPreference;
 
   /**
+   * Proactive FlexFEC protection for a video track. Defaults to disabled.
+   *
    * @generated from field: optional livekit.proto.FecProtection fec = 14;
    */
   fec?: FecProtection;
@@ -1967,6 +2017,40 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TrackPublishOptions;
 
   static equals(a: TrackPublishOptions | PlainMessage<TrackPublishOptions> | undefined, b: TrackPublishOptions | PlainMessage<TrackPublishOptions> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.FecProtection
+ */
+export declare class FecProtection extends Message<FecProtection> {
+  /**
+   * Unset or unknown modes are treated as FEC_MODE_DISABLED.
+   *
+   * @generated from field: optional livekit.proto.FecProtectionMode mode = 1;
+   */
+  mode?: FecProtectionMode;
+
+  /**
+   * Used by FEC_MODE_FIXED and FEC_MODE_MINIMUM; ignored otherwise.
+   * Unset or unknown levels are treated as FEC_LEVEL_UNSPECIFIED.
+   *
+   * @generated from field: optional livekit.proto.FecProtectionLevel level = 2;
+   */
+  level?: FecProtectionLevel;
+
+  constructor(data?: PartialMessage<FecProtection>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.FecProtection";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FecProtection;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FecProtection;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FecProtection;
+
+  static equals(a: FecProtection | PlainMessage<FecProtection> | undefined, b: FecProtection | PlainMessage<FecProtection> | undefined): boolean;
 }
 
 /**

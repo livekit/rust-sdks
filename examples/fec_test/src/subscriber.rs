@@ -24,7 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 use livekit::{
-    options::{SubscriptionFecLevel, SubscriptionFecProtection},
+    options::{FecProtection, FecProtectionLevel},
     track::RemoteTrack,
     webrtc::{stats::RtcStats, video_stream::native::NativeVideoStream},
     Room, RoomEvent, RoomOptions,
@@ -50,16 +50,16 @@ struct Args {
     /// CSV output for 1 Hz per-track receive statistics
     #[arg(long, default_value = "subscriber_stats.csv")]
     stats_out: String,
-    /// downstream FEC levels to request from the SFU, as comma separated
+    /// downstream FEC protection to request from the SFU, as comma separated
     /// `seconds:protection` steps relative to the subscription, e.g.
-    /// `0:none,20:fixed-high,40:adaptive,60:min-low`; protections are none,
-    /// adaptive, fixed-<level> and min-<level>, levels are default, low,
+    /// `0:none,20:fixed-high,40:adaptive,60:minimum-low`; protections are
+    /// none, adaptive, fixed-<level> and minimum-<level>, levels are low,
     /// medium and high
     #[arg(long, value_parser = parse_fec_schedule, default_value = "")]
     fec_schedule: FecSchedule,
 }
 
-type FecSchedule = Vec<(u64, SubscriptionFecProtection)>;
+type FecSchedule = Vec<(u64, FecProtection)>;
 
 fn parse_fec_schedule(value: &str) -> Result<FecSchedule, String> {
     let mut schedule = FecSchedule::new();
@@ -67,20 +67,19 @@ fn parse_fec_schedule(value: &str) -> Result<FecSchedule, String> {
         let (secs, protection) = step.split_once(':').ok_or(format!("invalid step {step:?}"))?;
         let secs = secs.parse().map_err(|_| format!("invalid seconds in {step:?}"))?;
         let level = |level: &str| match level {
-            "default" => Ok(SubscriptionFecLevel::Default),
-            "low" => Ok(SubscriptionFecLevel::Low),
-            "medium" => Ok(SubscriptionFecLevel::Medium),
-            "high" => Ok(SubscriptionFecLevel::High),
+            "low" => Ok(FecProtectionLevel::Low),
+            "medium" => Ok(FecProtectionLevel::Medium),
+            "high" => Ok(FecProtectionLevel::High),
             _ => Err(format!("invalid level in {step:?}")),
         };
         let protection = match protection {
-            "none" => SubscriptionFecProtection::Disabled,
-            "adaptive" => SubscriptionFecProtection::Adaptive,
+            "none" => FecProtection::DISABLED,
+            "adaptive" => FecProtection::adaptive(),
             _ => {
                 if let Some(l) = protection.strip_prefix("fixed-") {
-                    SubscriptionFecProtection::Fixed(level(l)?)
-                } else if let Some(l) = protection.strip_prefix("min-") {
-                    SubscriptionFecProtection::Minimum(level(l)?)
+                    FecProtection::fixed(level(l)?)
+                } else if let Some(l) = protection.strip_prefix("minimum-") {
+                    FecProtection::minimum(level(l)?)
                 } else {
                     return Err(format!("invalid protection in {step:?}"));
                 }
@@ -138,7 +137,7 @@ async fn main() -> Result<()> {
                         log::info!("subscribed to video track from {}", publisher);
 
                         // the FEC level currently requested, for the CSV
-                        let fec_level = Arc::new(std::sync::Mutex::new(SubscriptionFecProtection::Disabled));
+                        let fec_level = Arc::new(std::sync::Mutex::new(FecProtection::DISABLED));
                         let schedule = args.fec_schedule.clone();
                         let level = fec_level.clone();
                         tokio::spawn(async move {

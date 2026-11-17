@@ -24,7 +24,8 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use livekit::{
     options::{
-        FecProtection, FrameMetadataFeatures, TrackPublishOptions, VideoCodec, VideoEncoding,
+        FecProtection, FecProtectionLevel, FrameMetadataFeatures, TrackPublishOptions, VideoCodec,
+        VideoEncoding,
     },
     track::{LocalTrack, LocalVideoTrack, TrackSource},
     webrtc::{
@@ -42,12 +43,34 @@ enum FecLevel {
     High,
 }
 
-impl From<FecLevel> for FecProtection {
+impl From<FecLevel> for FecProtectionLevel {
     fn from(level: FecLevel) -> Self {
         match level {
             FecLevel::Low => Self::Low,
             FecLevel::Medium => Self::Medium,
             FecLevel::High => Self::High,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum FecMode {
+    Adaptive,
+    Fixed,
+    Minimum,
+}
+
+impl Args {
+    /// FEC protection selected on the command line.
+    fn fec_protection(&self) -> FecProtection {
+        if !self.fec {
+            return FecProtection::DISABLED;
+        }
+        let level = self.fec_level.into();
+        match self.fec_mode {
+            FecMode::Adaptive => FecProtection::adaptive(),
+            FecMode::Fixed => FecProtection::fixed(level),
+            FecMode::Minimum => FecProtection::minimum(level),
         }
     }
 }
@@ -68,7 +91,10 @@ struct Args {
     /// enable FlexFEC protection for the published video
     #[arg(long)]
     fec: bool,
-    /// FlexFEC protection level for the published video
+    /// FlexFEC protection mode for the published video
+    #[arg(long, value_enum, default_value_t = FecMode::Fixed)]
+    fec_mode: FecMode,
+    /// FlexFEC protection level for the fixed and minimum modes
     #[arg(long, value_enum, default_value_t = FecLevel::Low)]
     fec_level: FecLevel,
     #[arg(long, default_value_t = 640)]
@@ -159,7 +185,7 @@ async fn main() -> Result<()> {
                     max_framerate: args.fps as f64,
                 }),
                 frame_metadata_features,
-                fec: if args.fec { args.fec_level.into() } else { FecProtection::Disabled },
+                fec: args.fec_protection(),
                 ..Default::default()
             },
         )
