@@ -30,8 +30,8 @@
 //! is Rust.
 //!
 //! The outgoing side also keeps the delegate's acknowledgement contract. Each delegate call becomes
-//! an [`OutgoingPacketBatch`] that the foreign side resolves once its packets are on the wire, so a
-//! send still waits for the transport and still fails when the transport does.
+//! an [`OutgoingPacketBatch`] whose outcome the foreign side reports once its packets are handed to
+//! the transport, so a send still waits for the transport and still fails when the transport does.
 //!
 //! Note that [`RemoteParticipantRegistryDelegate`] needs no adapter: it is only ever called
 //! synchronously inside a `send_*` future, so it already runs on the polling thread.
@@ -199,10 +199,10 @@ impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl OutgoingPacketQueue {
-    /// Awaits the next batch of packets to put on the wire.
+    /// Awaits the next batch of packets to hand to the transport.
     ///
-    /// Report the outcome on the returned batch once its packets are sent (or have failed); the
-    /// next batch is not produced until then. Returns `None` once the queue is closed, which ends
+    /// Report on the batch's `outcome` once its packets are sent (or have failed); the next batch
+    /// is not produced until then. Returns `None` once the queue is closed, which ends
     /// the caller's drain loop.
     pub async fn next_batch(&self) -> Option<OutgoingPacketBatch> {
         let mut rx = self.rx.lock().await;
@@ -332,7 +332,7 @@ impl IncomingStreamQueue {
     /// Awaits the next stream opened by a remote participant.
     ///
     /// Returns `None` once the manager has shut down, which ends the caller's drain loop. Unlike
-    /// [`OutgoingPacketQueue::next_packets`] this yields one at a time: each carries a reader the
+    /// [`OutgoingPacketQueue::next_batch`] this yields one at a time: each carries a reader the
     /// caller has to route to a handler, so batching would only defer that work.
     pub async fn next_opened_stream(&self) -> Option<OpenedStream> {
         let mut rx = self.rx.lock().await;
