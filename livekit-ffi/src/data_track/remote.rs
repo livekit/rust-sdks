@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use super::common::{DataTrackFrame, DataTrackInfo};
+use std::sync::Arc;
+
 use futures_util::StreamExt;
 use livekit_datatrack::api::{DataTrack, DataTrackSubscribeError, Remote};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 /// Data track published by the remote participant.
 #[derive(uniffi::Object)]
@@ -74,7 +77,7 @@ impl RemoteDataTrack {
 
     /// Subscribes to the data track.
     pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.inner.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
+        self.inner.subscribe().await.map(DataTrackStream::new)
     }
 
     /// Subscribes to the data track with custom options.
@@ -82,10 +85,7 @@ impl RemoteDataTrack {
         &self,
         options: DataTrackSubscribeOptions,
     ) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.inner
-            .subscribe_with_options(options.into())
-            .await
-            .map(|stream| DataTrackStream(Mutex::new(stream)))
+        self.inner.subscribe_with_options(options.into()).await.map(DataTrackStream::new)
     }
 
     /// Configures options for the pipeline handling incoming packets for this track.
@@ -137,13 +137,47 @@ impl From<RemoteDataTrackPipelineOptions>
 
 /// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
 #[derive(uniffi::Object)]
-pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
+pub struct DataTrackStream {
+    /// The core stream, or `None` once the stream was closed.
+    inner: Arc<Mutex<Option<livekit_datatrack::api::DataTrackStream>>>,
+    closed: CancellationToken,
+}
+
+impl DataTrackStream {
+    fn new(stream: livekit_datatrack::api::DataTrackStream) -> Self {
+        Self { inner: Arc::new(Mutex::new(Some(stream))), closed: CancellationToken::new() }
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl DataTrackStream {
-    /// Returns the next received frame or `None` if the subscription has ended.
+    /// Returns the next received frame, or `None` once the subscription has ended or the stream
+    /// was closed.
     pub async fn next(&self) -> Option<DataTrackFrame> {
-        // TODO: avoid mutex?
-        self.0.lock().await.next().await.map(Into::into)
+        let mut stream = self.inner.lock().await;
+        let stream = stream.as_mut()?;
+        tokio::select! {
+            biased;
+            _ = self.closed.cancelled() => None,
+            frame = stream.next() => frame.map(Into::into),
+        }
+    }
+
+    /// Stops reading the stream and drops it, which ends the subscription once no other stream
+    /// of the track remains.
+    ///
+    /// A pending or later `next()` returns `None`. Idempotent, and returns at once, so it is safe
+    /// to call from a cancellation handler.
+    pub fn close(&self) {
+        if self.closed.is_cancelled() {
+            return;
+        }
+        self.closed.cancel();
+        // A read in progress holds the lock until it sees the cancellation. Drop the stream after
+        // it in a task, because `close` must not block its caller.
+        let inner = self.inner.clone();
+        crate::runtime::runtime().spawn(async move {
+            inner.lock().await.take();
+        });
     }
 }
