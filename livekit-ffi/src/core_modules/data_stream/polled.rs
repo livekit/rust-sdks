@@ -73,20 +73,31 @@ fn warn_if_deep(kind: &str, depth: usize) {
 
 /// One delegate call's worth of outbound packets, pulled by the foreign side.
 ///
-/// The `send_*`/`write` call that produced it stays pending until the foreign side reports the
-/// outcome with [`Self::complete`] or [`Self::fail`], which keeps the delegate contract: a send
-/// resolves only once its packets are on the transport, and a transport failure fails it. A batch
-/// released without an outcome fails the send, so dropping one can never acknowledge packets that
-/// were not sent.
-#[derive(uniffi::Object)]
+/// The `send_*`/`write` call that produced it stays pending until the foreign side reports on
+/// [`Self::outcome`], which keeps the delegate contract: a send resolves only once its packets are
+/// handed to the transport, and a transport failure fails it.
+#[derive(uniffi::Record)]
 pub struct OutgoingPacketBatch {
-    packets: Vec<Bytes>,
-    outcome: std::sync::Mutex<Option<oneshot::Sender<Result<(), PacketDeliveryError>>>>,
+    /// Encoded `livekit.DataPacket`s to hand to the transport, in order.
+    pub packets: Vec<Bytes>,
+    /// Where to report what happened to them.
+    pub outcome: Arc<OutgoingBatchOutcome>,
 }
 
-impl OutgoingPacketBatch {
+type OutcomeSender = oneshot::Sender<Result<(), PacketDeliveryError>>;
+
+/// Reports what happened to the packets of an [`OutgoingPacketBatch`].
+///
+/// Released without an outcome it fails the send, so dropping a batch can never acknowledge packets
+/// that were not sent.
+#[derive(uniffi::Object)]
+pub struct OutgoingBatchOutcome {
+    sender: std::sync::Mutex<Option<OutcomeSender>>,
+}
+
+impl OutgoingBatchOutcome {
     fn resolve(&self, result: Result<(), PacketDeliveryError>) {
-        let sender = self.outcome.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        let sender = self.sender.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(sender) = sender {
             // The send may already be gone (its manager shut down), in which case nobody is waiting.
             let _ = sender.send(result);
@@ -94,21 +105,19 @@ impl OutgoingPacketBatch {
     }
 }
 
-impl Drop for OutgoingPacketBatch {
+impl Drop for OutgoingBatchOutcome {
     fn drop(&mut self) {
-        self.resolve(Err(PacketDeliveryError::Failed {
-            reason: "packet batch released without an outcome".to_string(),
-        }));
+        let sender = self.sender.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(sender) = sender {
+            let _ = sender.send(Err(PacketDeliveryError::Failed {
+                reason: "packet batch released without an outcome".to_string(),
+            }));
+        }
     }
 }
 
 #[uniffi::export]
-impl OutgoingPacketBatch {
-    /// Encoded `livekit.DataPacket`s to put on the wire, in order.
-    pub fn packets(&self) -> Vec<Bytes> {
-        self.packets.clone()
-    }
-
+impl OutgoingBatchOutcome {
     /// Reports every packet as handed to the transport, resolving the originating send.
     ///
     /// Only the first of [`Self::complete`] and [`Self::fail`] counts.
@@ -124,6 +133,12 @@ impl OutgoingPacketBatch {
     }
 }
 
+/// A batch on its way from the sink to the queue, before the foreign side has pulled it.
+struct PendingBatch {
+    packets: Vec<Bytes>,
+    outcome: OutcomeSender,
+}
+
 /// Hands outbound packets to the foreign side one batch at a time.
 ///
 /// This is the receiving half, held by the foreign side. The manager holds the sending half,
@@ -131,7 +146,7 @@ impl OutgoingPacketBatch {
 /// call waits for its batch's outcome, so at most one batch is pending at a time.
 #[derive(uniffi::Object)]
 pub struct OutgoingPacketQueue {
-    rx: Mutex<UnboundedReceiver<OutgoingPacketBatch>>,
+    rx: Mutex<UnboundedReceiver<PendingBatch>>,
     shutdown: CancellationToken,
 }
 
@@ -142,7 +157,7 @@ pub struct OutgoingPacketQueue {
 /// does not keep the receiving half alive. Releasing the queue then drops any batch nobody pulled,
 /// which fails its send and lets the task finish.
 pub(super) struct OutgoingPacketSink {
-    tx: UnboundedSender<OutgoingPacketBatch>,
+    tx: UnboundedSender<PendingBatch>,
     shutdown: CancellationToken,
 }
 
@@ -163,13 +178,10 @@ fn queue_closed() -> PacketDeliveryError {
 impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
     async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         let (outcome_tx, outcome_rx) = oneshot::channel();
-        let batch =
-            OutgoingPacketBatch { packets, outcome: std::sync::Mutex::new(Some(outcome_tx)) };
-        self.tx.send(batch).map_err(|_| queue_closed())?;
+        self.tx.send(PendingBatch { packets, outcome: outcome_tx }).map_err(|_| queue_closed())?;
         tokio::select! {
             _ = self.shutdown.cancelled() => Err(queue_closed()),
-            // An error here means the batch was dropped without resolving, which its `Drop`
-            // already turns into a failure, so this only covers the queue itself going away.
+            // The sender is dropped unused only when the queue goes away with the batch unpulled.
             outcome = outcome_rx => outcome.unwrap_or_else(|_| Err(queue_closed())),
         }
     }
@@ -182,12 +194,17 @@ impl OutgoingPacketQueue {
     /// Report the outcome on the returned batch once its packets are sent (or have failed); the
     /// next batch is not produced until then. Returns `None` once the queue is closed, which ends
     /// the caller's drain loop.
-    pub async fn next_batch(&self) -> Option<Arc<OutgoingPacketBatch>> {
+    pub async fn next_batch(&self) -> Option<OutgoingPacketBatch> {
         let mut rx = self.rx.lock().await;
-        tokio::select! {
-            _ = self.shutdown.cancelled() => None,
-            received = rx.recv() => received.map(Arc::new),
-        }
+        let pending = tokio::select! {
+            _ = self.shutdown.cancelled() => return None,
+            received = rx.recv() => received?,
+        };
+        let sender = std::sync::Mutex::new(Some(pending.outcome));
+        Some(OutgoingPacketBatch {
+            packets: pending.packets,
+            outcome: Arc::new(OutgoingBatchOutcome { sender }),
+        })
     }
 
     /// Wakes a pending [`Self::next_batch`] with `None` so the caller's drain loop can exit, and

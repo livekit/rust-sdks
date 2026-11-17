@@ -931,11 +931,11 @@ async fn polled_roundtrip(
         )
         .await
         {
-            for packet in batch.packets() {
+            for packet in batch.packets {
                 packet_count += 1;
                 incoming.manager.handle_packet_received(packet, EncryptionType::None);
             }
-            batch.complete();
+            batch.outcome.complete();
         }
         packet_count
     };
@@ -970,7 +970,7 @@ fn polled_falls_back_to_legacy_framing_for_pre_v2_recipients() {
 async fn polled_send_and_pull() -> (
     super::polled::PolledOutgoingDataStreamManager,
     tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>>,
-    Arc<super::polled::OutgoingPacketBatch>,
+    super::polled::OutgoingPacketBatch,
 ) {
     let outgoing = super::polled::polled_outgoing_data_stream_manager(Arc::new(AllV2Registry));
     let manager = outgoing.manager.clone();
@@ -993,7 +993,7 @@ fn polled_send_waits_for_the_batch_outcome() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(!send.is_finished(), "send_text must stay pending until the batch is resolved");
 
-        batch.complete();
+        batch.outcome.complete();
         send.await.unwrap().expect("a completed batch should resolve the send");
     });
 }
@@ -1002,9 +1002,9 @@ fn polled_send_waits_for_the_batch_outcome() {
 fn polled_failed_batch_fails_the_send() {
     crate::runtime::runtime().block_on(async {
         let (_outgoing, send, batch) = polled_send_and_pull().await;
-        batch.fail("wire down".to_string());
+        batch.outcome.fail("wire down".to_string());
         // Resolving twice must not panic, and only the first outcome counts.
-        batch.complete();
+        batch.outcome.complete();
         assert!(send.await.unwrap().is_err(), "a failed batch should fail the send");
     });
 }
