@@ -54,7 +54,7 @@ use crate::{
 };
 use crate::{
     id::ParticipantSid,
-    options::TrackPublishOptions,
+    options::{TrackPublishOptions, VideoCodec},
     prelude::TrackKind,
     room::{e2ee::manager::E2eeManager, DisconnectReason},
     rtc_engine::{
@@ -2079,38 +2079,11 @@ impl SessionInner {
             let is_producible = |mime_type: &str| {
                 producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
             };
-            let requested_mime_type = format!("video/{}", options.video_codec.as_str());
-
-            let mut matched = Vec::new();
-            let mut partial_matched = Vec::new();
-            let mut producible_codecs = Vec::new();
-
-            for codec in pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs {
-                let mime_type = codec.mime_type.to_lowercase();
-                if mime_type == requested_mime_type {
-                    if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
-                        // for h264 codecs that have sdpFmtpLine available, use only if the
-                        // profile-level-id is 42e01f for cross-browser compatibility
-                        if sdp_fmtp_line.contains("profile-level-id=42e01f") {
-                            matched.push(codec);
-                            continue;
-                        }
-                    }
-                    partial_matched.push(codec);
-                } else if is_producible(&mime_type) {
-                    producible_codecs.push(codec);
-                }
-            }
-
-            matched.append(&mut partial_matched);
-            if matched.is_empty() {
-                log::warn!(
-                    "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
-                );
-                matched = producible_codecs;
-            }
-
-            transceiver.set_codec_preferences(matched)?;
+            transceiver.set_codec_preferences(preferred_video_codecs(
+                pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs,
+                options.video_codec,
+                is_producible,
+            ))?;
         }
 
         Ok(transceiver)
@@ -2904,6 +2877,45 @@ macro_rules! make_rtc_config {
 make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
 make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
+/// Selects the requested codec, preferring browser-compatible H264 profiles.
+fn preferred_video_codecs(
+    codecs: Vec<RtpCodecCapability>,
+    video_codec: VideoCodec,
+    is_producible: impl Fn(&str) -> bool,
+) -> Vec<RtpCodecCapability> {
+    let mut matched = Vec::new();
+    let mut partial_matched = Vec::new();
+    let mut producible_codecs = Vec::new();
+    let requested_mime_type = format!("video/{}", video_codec.as_str());
+
+    for codec in codecs {
+        let mime_type = codec.mime_type.to_lowercase();
+        if mime_type == requested_mime_type {
+            if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
+                // Prefer Constrained Baseline Level 3.1 for cross-browser compatibility.
+                if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                    matched.push(codec);
+                    continue;
+                }
+            }
+            partial_matched.push(codec);
+        } else if is_producible(&mime_type) {
+            producible_codecs.push(codec);
+        }
+    }
+
+    if matched.is_empty() {
+        matched.append(&mut partial_matched);
+    }
+    if matched.is_empty() {
+        log::warn!(
+            "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
+        );
+        matched = producible_codecs;
+    }
+    matched
+}
+
 /// Whether the data channels are created as negotiated rather than opened in-band.
 ///
 /// Both sides must speak [`NEGOTIATED_DATA_CHANNELS_PROTOCOL`]: the server decides from the
@@ -2921,10 +2933,82 @@ fn uses_negotiated_data_channels(
 
 #[cfg(test)]
 mod tests {
+    use libwebrtc::rtp_parameters::RtpCodecCapability;
+
+    use crate::options::VideoCodec;
+
     use super::{
-        parse_sdp_max_message_size, recovery_decision, uses_negotiated_data_channels,
-        DEFAULT_MAX_MESSAGE_SIZE,
+        parse_sdp_max_message_size, preferred_video_codecs, recovery_decision,
+        uses_negotiated_data_channels, DEFAULT_MAX_MESSAGE_SIZE,
     };
+
+    fn codec(mime_type: &str, fmtp: Option<&str>) -> RtpCodecCapability {
+        RtpCodecCapability {
+            channels: None,
+            clock_rate: Some(90_000),
+            mime_type: mime_type.into(),
+            sdp_fmtp_line: fmtp.map(String::from),
+        }
+    }
+
+    #[test]
+    fn h264_preferences_exclude_other_profiles_when_baseline_is_available() {
+        let baseline = [
+            "packetization-mode=0;profile-level-id=42e01f",
+            "packetization-mode=1;profile-level-id=42e01f",
+        ];
+        let selected = preferred_video_codecs(
+            vec![
+                codec("video/H264", Some("profile-level-id=64001f")),
+                codec("video/VP8", None),
+                codec("video/H264", Some(baseline[0])),
+                codec("video/h264", Some("profile-level-id=42001f")),
+                codec("video/H264", Some(baseline[1])),
+                codec("video/H264", None),
+            ],
+            VideoCodec::H264,
+            |_| false,
+        );
+        assert_eq!(
+            selected.iter().map(|c| c.sdp_fmtp_line.as_deref()).collect::<Vec<_>>(),
+            baseline.map(Some),
+        );
+    }
+
+    #[test]
+    fn h264_preferences_fall_back_when_baseline_is_unavailable() {
+        let selected = preferred_video_codecs(
+            vec![
+                codec("video/H264", Some("profile-level-id=64001f")),
+                codec("video/VP8", None),
+                codec("video/H264", None),
+            ],
+            VideoCodec::H264,
+            |_| false,
+        );
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].sdp_fmtp_line.as_deref(), Some("profile-level-id=64001f"));
+        assert_eq!(selected[1].sdp_fmtp_line, None);
+    }
+
+    #[test]
+    fn video_preferences_keep_other_codec_profiles_and_empty_fallback() {
+        let codecs = vec![
+            codec("video/VP9", Some("profile-id=0")),
+            codec("video/H264", Some("profile-level-id=42e01f")),
+            codec("video/VP8", None),
+            codec("video/vp9", Some("profile-id=2")),
+        ];
+        let vp9 = preferred_video_codecs(codecs.clone(), VideoCodec::VP9, |_| false);
+        assert_eq!(vp9.len(), 2);
+        assert_eq!(vp9[0].sdp_fmtp_line.as_deref(), Some("profile-id=0"));
+        assert_eq!(vp9[1].sdp_fmtp_line.as_deref(), Some("profile-id=2"));
+        assert_eq!(preferred_video_codecs(codecs.clone(), VideoCodec::VP8, |_| false).len(), 1);
+        assert!(preferred_video_codecs(codecs.clone(), VideoCodec::H265, |_| false).is_empty());
+        let fallback = preferred_video_codecs(codecs, VideoCodec::H265, |mime| mime == "video/vp8");
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].mime_type, "video/VP8");
+    }
 
     /// The server picks negotiated data channels from the protocol the client advertised, so a
     /// client advertising 16 to a protocol 18 server must open them in-band, as the server does.
