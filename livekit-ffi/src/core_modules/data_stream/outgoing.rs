@@ -129,11 +129,14 @@ impl OutgoingDataStreamManager {
                                 .iter()
                                 .map(|packet| Bytes::from(packet.encode_to_vec()))
                                 .collect();
-                            let result = delegate
-                                .on_packets_available(encoded)
-                                .await
-                                .map_err(|_| ds_api::SendError);
-                            let _ = responder.respond(result);
+                            // A delegate may wait on the host for as long as it likes, so the
+                            // call is raced against shutdown. Otherwise a manager dropped mid
+                            // call would leave this task holding the delegate forever.
+                            let result = tokio::select! {
+                                _ = forward_token.cancelled() => break,
+                                result = delegate.on_packets_available(encoded) => result,
+                            };
+                            let _ = responder.respond(result.map_err(|_| ds_api::SendError));
                         }
                         Err(_) => break,
                     }
