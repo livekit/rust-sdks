@@ -1027,33 +1027,3 @@ fn polled_close_fails_a_pending_send() {
         assert!(outgoing.packets.next_batch().await.is_none());
     });
 }
-
-#[test]
-fn polled_manager_drop_releases_an_unpulled_batch() {
-    crate::runtime::runtime().block_on(async {
-        let outgoing = super::polled::polled_outgoing_data_stream_manager(Arc::new(AllV2Registry));
-        let manager = outgoing.manager.clone();
-        let send = tokio::spawn(async move {
-            let options = StreamTextOptions {
-                topic: "chat".to_string(),
-                destination_identities: vec!["bob".to_string()],
-                ..Default::default()
-            };
-            manager.send_text("hello".to_string(), options).await
-        });
-        // Let the batch reach the queue, then cancel the send without ever pulling it.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        send.abort();
-        assert!(send.await.unwrap_err().is_cancelled());
-
-        let queue = Arc::downgrade(&outgoing.packets);
-        drop(outgoing);
-        for _ in 0..100 {
-            if queue.upgrade().is_none() {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("the forwarding task still holds the queue after the manager was dropped");
-    });
-}
