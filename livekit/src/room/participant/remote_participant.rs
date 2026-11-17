@@ -483,14 +483,14 @@ impl RemoteParticipant {
                 let rtc_engine = rtc_engine.clone();
                 tokio::spawn(async move {
                     // The SFU replaces every setting but FEC on each update, so
-                    // repeat the current state alongside the new level.
+                    // repeat the current state alongside the new protection.
                     let TrackDimension(width, height) = publication.dimension();
                     let update_track_settings = proto::UpdateTrackSettings {
                         track_sids: vec![publication.sid().into()],
                         disabled: !publication.is_enabled(),
                         width,
                         height,
-                        fec: Some(proto::FecProtection::from(protection).into()),
+                        fec: Some(protection.into()),
                         ..Default::default()
                     };
 

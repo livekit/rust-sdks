@@ -24,7 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 use livekit::{
-    options::FecProtection,
+    options::{FecProtection, SubscriptionFecProtection},
     track::RemoteTrack,
     webrtc::{stats::RtcStats, video_stream::native::NativeVideoStream},
     Room, RoomEvent, RoomOptions,
@@ -51,27 +51,42 @@ struct Args {
     #[arg(long, default_value = "subscriber_stats.csv")]
     stats_out: String,
     /// downstream FEC levels to request from the SFU, as comma separated
-    /// `seconds:level` steps relative to the subscription, e.g.
-    /// `0:none,20:high,40:none`; levels are none, low, medium and high
+    /// `seconds:protection` steps relative to the subscription, e.g.
+    /// `0:none,20:fixed-high,40:adaptive,60:min-low`; protections are none,
+    /// adaptive, fixed-<level> and min-<level>, levels are default, low,
+    /// medium and high
     #[arg(long, value_parser = parse_fec_schedule, default_value = "")]
     fec_schedule: FecSchedule,
 }
 
-type FecSchedule = Vec<(u64, FecProtection)>;
+type FecSchedule = Vec<(u64, SubscriptionFecProtection)>;
 
 fn parse_fec_schedule(value: &str) -> Result<FecSchedule, String> {
     let mut schedule = FecSchedule::new();
     for step in value.split(',').filter(|step| !step.is_empty()) {
-        let (secs, level) = step.split_once(':').ok_or(format!("invalid step {step:?}"))?;
+        let (secs, protection) = step.split_once(':').ok_or(format!("invalid step {step:?}"))?;
         let secs = secs.parse().map_err(|_| format!("invalid seconds in {step:?}"))?;
-        let level = match level {
-            "none" => FecProtection::Disabled,
-            "low" => FecProtection::Low,
-            "medium" => FecProtection::Medium,
-            "high" => FecProtection::High,
-            _ => return Err(format!("invalid level in {step:?}")),
+        let level = |level: &str| match level {
+            "default" => Ok(FecProtection::Disabled),
+            "low" => Ok(FecProtection::Low),
+            "medium" => Ok(FecProtection::Medium),
+            "high" => Ok(FecProtection::High),
+            _ => Err(format!("invalid level in {step:?}")),
         };
-        schedule.push((secs, level));
+        let protection = match protection {
+            "none" => SubscriptionFecProtection::Disabled,
+            "adaptive" => SubscriptionFecProtection::Adaptive,
+            _ => {
+                if let Some(l) = protection.strip_prefix("fixed-") {
+                    SubscriptionFecProtection::Fixed(level(l)?)
+                } else if let Some(l) = protection.strip_prefix("min-") {
+                    SubscriptionFecProtection::Minimum(level(l)?)
+                } else {
+                    return Err(format!("invalid protection in {step:?}"));
+                }
+            }
+        };
+        schedule.push((secs, protection));
     }
     schedule.sort_by_key(|(secs, _)| *secs);
     Ok(schedule)
@@ -123,7 +138,7 @@ async fn main() -> Result<()> {
                         log::info!("subscribed to video track from {}", publisher);
 
                         // the FEC level currently requested, for the CSV
-                        let fec_level = Arc::new(std::sync::Mutex::new(FecProtection::Disabled));
+                        let fec_level = Arc::new(std::sync::Mutex::new(SubscriptionFecProtection::Disabled));
                         let schedule = args.fec_schedule.clone();
                         let level = fec_level.clone();
                         tokio::spawn(async move {
@@ -194,7 +209,7 @@ async fn main() -> Result<()> {
                                     let mut csv = csv.lock().await;
                                     let _ = writeln!(
                                         csv,
-                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{},{:.3},{},{:.3},{:.2},{},{:?}",
+                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{},{:.3},{},{:.3},{:.2},{},\"{:?}\"",
                                         common::unix_time_secs(),
                                         publisher,
                                         inbound.stream.ssrc,

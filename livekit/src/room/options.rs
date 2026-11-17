@@ -123,7 +123,7 @@ impl AudioPreset {
 /// senders, so disable simulcast on tracks that need protection.
 ///
 /// The same levels select the repairs the SFU sends for a subscribed track, see
-/// [`RemoteTrackPublication::set_fec_protection`](crate::prelude::RemoteTrackPublication::set_fec_protection).
+/// [`SubscriptionFecProtection`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FecProtection {
@@ -163,14 +163,44 @@ impl From<FecProtection> for RtpFecProtection {
     }
 }
 
-impl From<FecProtection> for proto::FecProtection {
-    fn from(protection: FecProtection) -> Self {
-        match protection {
-            FecProtection::Disabled => Self::FecNone,
-            FecProtection::Low => Self::FecLow,
-            FecProtection::Medium => Self::FecMedium,
-            FecProtection::High => Self::FecHigh,
-        }
+/// FlexFEC repairs the SFU sends for a subscribed video track, see
+/// [`RemoteTrackPublication::set_fec_protection`](crate::prelude::RemoteTrackPublication::set_fec_protection).
+///
+/// The level of [`Self::Fixed`] and [`Self::Minimum`] uses the ratios of [`FecProtection`];
+/// [`FecProtection::Disabled`] there selects the server default level.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SubscriptionFecProtection {
+    /// No repairs.
+    #[default]
+    Disabled,
+    /// Protection follows the loss the subscriber reports, as libwebrtc's adaptive FEC.
+    Adaptive,
+    /// Constant protection at the given level, regardless of loss.
+    Fixed(FecProtection),
+    /// Protection at the given level, rising adaptively under higher loss.
+    Minimum(FecProtection),
+}
+
+fn proto_fec_level(level: FecProtection) -> proto::FecProtectionLevel {
+    match level {
+        FecProtection::Disabled => proto::FecProtectionLevel::FecLevelUnspecified,
+        FecProtection::Low => proto::FecProtectionLevel::FecLevelLow,
+        FecProtection::Medium => proto::FecProtectionLevel::FecLevelMedium,
+        FecProtection::High => proto::FecProtectionLevel::FecLevelHigh,
+    }
+}
+
+impl From<SubscriptionFecProtection> for proto::FecProtection {
+    fn from(protection: SubscriptionFecProtection) -> Self {
+        use proto::FecProtectionMode as Mode;
+        let (mode, level) = match protection {
+            SubscriptionFecProtection::Disabled => (Mode::FecModeDisabled, FecProtection::Disabled),
+            SubscriptionFecProtection::Adaptive => (Mode::FecModeAdaptive, FecProtection::Disabled),
+            SubscriptionFecProtection::Fixed(level) => (Mode::FecModeFixed, level),
+            SubscriptionFecProtection::Minimum(level) => (Mode::FecModeMinimum, level),
+        };
+        Self { mode: mode.into(), level: proto_fec_level(level).into() }
     }
 }
 
@@ -242,7 +272,7 @@ impl Default for TrackPublishOptions {
 mod fec_tests {
     use libwebrtc::rtp_parameters::{FecProtectionMode, RtpFecProtection};
 
-    use super::{FecProtection, TrackPublishOptions};
+    use super::{FecProtection, SubscriptionFecProtection, TrackPublishOptions};
 
     #[test]
     fn fec_protection_maps_to_rtp_policy() {
@@ -268,13 +298,28 @@ mod fec_tests {
     }
 
     #[test]
-    fn fec_protection_maps_to_subscription_presets() {
-        use livekit_protocol::FecProtection as Proto;
+    fn subscription_fec_protection_maps_to_proto() {
+        use livekit_protocol::{
+            FecProtection as Proto, FecProtectionLevel as Level, FecProtectionMode as Mode,
+        };
 
-        assert_eq!(Proto::from(FecProtection::Disabled), Proto::FecNone);
-        assert_eq!(Proto::from(FecProtection::Low), Proto::FecLow);
-        assert_eq!(Proto::from(FecProtection::Medium), Proto::FecMedium);
-        assert_eq!(Proto::from(FecProtection::High), Proto::FecHigh);
+        let proto = |mode: Mode, level: Level| Proto { mode: mode.into(), level: level.into() };
+        assert_eq!(
+            Proto::from(SubscriptionFecProtection::Disabled),
+            proto(Mode::FecModeDisabled, Level::FecLevelUnspecified)
+        );
+        assert_eq!(
+            Proto::from(SubscriptionFecProtection::Adaptive),
+            proto(Mode::FecModeAdaptive, Level::FecLevelUnspecified)
+        );
+        assert_eq!(
+            Proto::from(SubscriptionFecProtection::Fixed(FecProtection::High)),
+            proto(Mode::FecModeFixed, Level::FecLevelHigh)
+        );
+        assert_eq!(
+            Proto::from(SubscriptionFecProtection::Minimum(FecProtection::Medium)),
+            proto(Mode::FecModeMinimum, Level::FecLevelMedium)
+        );
     }
 }
 
