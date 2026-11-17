@@ -34,7 +34,7 @@ use livekit_rpc::backend::{
 use livekit_signaling::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
 use std::{
@@ -546,6 +546,16 @@ pub(crate) struct RoomSession {
     disconnected: AtomicBool,
     /// Set under the remote participant map's write lock before teardown drains it.
     closing: AtomicBool,
+    /// Publication events received while `connect` registers the join-time publications they
+    /// may refer to; `None` once they are handled directly.
+    deferred_publication_events: Mutex<Option<Vec<PublicationEvent>>>,
+}
+
+/// A server event about a local track publication.
+enum PublicationEvent {
+    Subscribed { track_sid: String },
+    Muted { sid: String, muted: bool },
+    QualityUpdate { update: proto::SubscribedQualityUpdate },
 }
 
 struct Handle {
@@ -838,6 +848,7 @@ impl Room {
             handle: Default::default(),
             disconnected: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            deferred_publication_events: Mutex::new((!publish_tracks.is_empty()).then(Vec::new)),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
@@ -969,6 +980,7 @@ impl Room {
             return Err(err);
         }
         restore_on_failure.disarm();
+        room.inner.replay_deferred_publication_events();
 
         Ok((room, events))
     }
@@ -1291,7 +1303,7 @@ impl RoomSession {
                 self.handle_connection_quality_update(updates)
             }
             EngineEvent::LocalTrackSubscribed { track_sid } => {
-                self.handle_track_subscribed(track_sid)
+                self.handle_publication_event(PublicationEvent::Subscribed { track_sid })
             }
             EngineEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
                 self.handle_data_stream_header(header, participant_identity, encryption_type);
@@ -1309,10 +1321,10 @@ impl RoomSession {
                 self.handle_refresh_token(url, token);
             }
             EngineEvent::TrackMuted { sid, muted } => {
-                self.handle_server_initiated_mute_track(sid, muted);
+                self.handle_publication_event(PublicationEvent::Muted { sid, muted });
             }
             EngineEvent::SubscribedQualityUpdate { update } => {
-                self.handle_subscribed_quality_update(update);
+                self.handle_publication_event(PublicationEvent::QualityUpdate { update });
             }
             EngineEvent::RefreshPublishingLayers => {
                 if self.options.dynacast {
@@ -1655,6 +1667,38 @@ impl RoomSession {
 
             participant.set_connection_quality(quality);
             self.dispatcher.dispatch(&RoomEvent::ConnectionQualityChanged { participant, quality });
+        }
+    }
+
+    /// Handles `event`, or defers it while `connect` registers the join-time publications.
+    fn handle_publication_event(&self, event: PublicationEvent) {
+        let mut deferred = self.deferred_publication_events.lock();
+        if let Some(deferred) = deferred.as_mut() {
+            deferred.push(event);
+            return;
+        }
+        drop(deferred);
+        self.dispatch_publication_event(event);
+    }
+
+    /// Handles the events deferred during `connect` and stops deferring.
+    fn replay_deferred_publication_events(&self) {
+        // Held while replaying so that newer events are handled after the deferred ones.
+        let mut deferred = self.deferred_publication_events.lock();
+        for event in deferred.take().unwrap_or_default() {
+            self.dispatch_publication_event(event);
+        }
+    }
+
+    fn dispatch_publication_event(&self, event: PublicationEvent) {
+        match event {
+            PublicationEvent::Subscribed { track_sid } => self.handle_track_subscribed(track_sid),
+            PublicationEvent::Muted { sid, muted } => {
+                self.handle_server_initiated_mute_track(sid, muted)
+            }
+            PublicationEvent::QualityUpdate { update } => {
+                self.handle_subscribed_quality_update(update)
+            }
         }
     }
 

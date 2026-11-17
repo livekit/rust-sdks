@@ -296,6 +296,42 @@ async fn test_publish_with_join_releases_unpublished_track() -> Result<()> {
     Ok(())
 }
 
+/// A participant already in the room can subscribe to a join-time track before `connect` has
+/// registered its publication; the publisher must still get `LocalTrackSubscribed`.
+#[test_log::test(tokio::test)]
+async fn test_publish_with_join_subscribed_while_connecting() -> Result<()> {
+    let server = ServerEnv::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let grants = VideoGrants { room_join: true, ..Default::default() };
+    let (subscriber, _) = Room::connect(
+        &server.url,
+        &server.token_for(&room_name, "subscriber", grants.clone())?,
+        RoomOptions::default(),
+    )
+    .await?;
+
+    let mut options = RoomOptions::default();
+    options.publish_tracks = join_tracks();
+    let (publisher, mut events) =
+        Room::connect(&server.url, &server.token_for(&room_name, "publisher", grants)?, options)
+            .await?;
+
+    timeout(Duration::from_secs(10), async {
+        while let Some(event) = events.recv().await {
+            if matches!(event, RoomEvent::LocalTrackSubscribed { .. }) {
+                return Ok(());
+            }
+        }
+        Err(anyhow!("room closed"))
+    })
+    .await
+    .map_err(|_| anyhow!("LocalTrackSubscribed was never received"))??;
+
+    publisher.close().await?;
+    subscriber.close().await?;
+    Ok(())
+}
+
 /// Accepts connections on a local port and forwards them to `target`, except WebSocket upgrades
 /// to `/rtc/v1`, which get a 404 as from a server without the v1 signalling path.
 async fn start_v1_rejecting_proxy(target: String) -> Result<SocketAddr> {
