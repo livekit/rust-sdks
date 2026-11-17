@@ -19,6 +19,7 @@
 
 use std::{
     collections::BTreeSet,
+    fs, io,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -104,6 +105,7 @@ impl Generations {
 /// something stays, or when `dir` could not be inspected.
 fn erase(dir: &Path) -> bool {
     let erased = match dir.try_exists() {
+        Ok(false) if behind_a_file(dir) => Err(io::ErrorKind::NotADirectory.into()),
         Ok(false) => Ok(()),
         Ok(true) => FileCache::open(dir, u64::MAX).and_then(|cache| cache.clear()),
         Err(err) => Err(err),
@@ -112,6 +114,13 @@ fn erase(dir: &Path) -> bool {
         log::warn!("opt-out: cached telemetry could not all be deleted ({err})");
     }
     erased.is_ok()
+}
+
+/// Whether the nearest existing ancestor of `dir` is not a directory, so `dir` is unreachable
+/// rather than absent. Unix reports such a path as `ENOTDIR`, but Windows reports it as not found
+/// (`STATUS_OBJECT_PATH_NOT_FOUND`), which [`Path::try_exists`] turns into `Ok(false)`.
+fn behind_a_file(dir: &Path) -> bool {
+    dir.ancestors().skip(1).find_map(|a| fs::metadata(a).ok()).is_some_and(|m| !m.is_dir())
 }
 
 static GENERATIONS: Mutex<Generations> =
@@ -548,6 +557,22 @@ mod tests {
         reset_for_test();
         fs::remove_dir_all(root).unwrap();
         assert_eq!(left, 0, "a later opt-out must retry the refused configuration");
+    }
+
+    /// Windows reports a path through a file as not found, so there only `behind_a_file` keeps
+    /// it pending. Unix fails earlier with `ENOTDIR`, so this test exercises the check off
+    /// Windows. A path under a missing directory stays absent.
+    #[test]
+    fn a_path_through_a_file_is_unreachable_not_absent() {
+        let root = crate::cache::temp_dir("behind-a-file");
+        fs::write(&root, b"file").unwrap();
+        let through_file = behind_a_file(&root.join("a").join("cache"));
+        let erased = erase(&root.join("cache"));
+        fs::remove_file(&root).unwrap();
+        let under_missing = behind_a_file(&root.join("cache"));
+        assert!(through_file, "a file two levels up was not found");
+        assert!(!erased, "a path through a file counted as erased");
+        assert!(!under_missing, "a missing parent leaves nothing to erase");
     }
 
     /// An entry the opt-out cannot delete keeps its storage directory pending. With no pipeline
