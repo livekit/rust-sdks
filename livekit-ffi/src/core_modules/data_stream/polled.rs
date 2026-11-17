@@ -30,7 +30,7 @@
 //! is Rust.
 //!
 //! The outgoing side also keeps the delegate's acknowledgement contract. Each delegate call becomes
-//! an [`OutgoingPacketBatch`] whose outcome the foreign side reports once its packets are handed to
+//! an [`OutgoingPacketBatch`] that the foreign side acknowledges once its packets are handed to
 //! the transport, so a send still waits for the transport and still fails when the transport does.
 //!
 //! Note that [`RemoteParticipantRegistryDelegate`] needs no adapter: it is only ever called
@@ -74,14 +74,14 @@ fn warn_if_deep(kind: &str, depth: usize) {
 /// One delegate call's worth of outbound packets, pulled by the foreign side.
 ///
 /// The `send_*`/`write` call that produced it stays pending until the foreign side reports on
-/// [`Self::outcome`], which keeps the delegate contract: a send resolves only once its packets are
+/// [`Self::ack`], which keeps the delegate contract: a send resolves only once its packets are
 /// handed to the transport, and a transport failure fails it.
 #[derive(uniffi::Record)]
 pub struct OutgoingPacketBatch {
     /// Encoded `livekit.DataPacket`s to hand to the transport, in order.
     pub packets: Vec<Bytes>,
     /// Where to report what happened to them.
-    pub outcome: Arc<OutgoingBatchOutcome>,
+    pub ack: Arc<OutgoingBatchAck>,
 }
 
 type OutcomeSender = oneshot::Sender<Result<(), PacketDeliveryError>>;
@@ -91,11 +91,11 @@ type OutcomeSender = oneshot::Sender<Result<(), PacketDeliveryError>>;
 /// Released without an outcome it fails the send, so dropping a batch can never acknowledge packets
 /// that were not sent.
 #[derive(uniffi::Object)]
-pub struct OutgoingBatchOutcome {
+pub struct OutgoingBatchAck {
     sender: std::sync::Mutex<Option<OutcomeSender>>,
 }
 
-impl OutgoingBatchOutcome {
+impl OutgoingBatchAck {
     fn resolve(&self, result: Result<(), PacketDeliveryError>) {
         let sender = self.sender.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(sender) = sender {
@@ -105,7 +105,7 @@ impl OutgoingBatchOutcome {
     }
 }
 
-impl Drop for OutgoingBatchOutcome {
+impl Drop for OutgoingBatchAck {
     fn drop(&mut self) {
         let sender = self.sender.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
         if let Some(sender) = sender {
@@ -117,7 +117,7 @@ impl Drop for OutgoingBatchOutcome {
 }
 
 #[uniffi::export]
-impl OutgoingBatchOutcome {
+impl OutgoingBatchAck {
     /// Reports every packet as handed to the transport, resolving the originating send.
     ///
     /// Only the first of [`Self::complete`] and [`Self::fail`] counts.
@@ -201,7 +201,7 @@ impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
 impl OutgoingPacketQueue {
     /// Awaits the next batch of packets to hand to the transport.
     ///
-    /// Report on the batch's `outcome` once its packets are sent (or have failed); the next batch
+    /// Report on the batch's `ack` once its packets are sent (or have failed); the next batch
     /// is not produced until then. Returns `None` once the queue is closed, which ends
     /// the caller's drain loop.
     pub async fn next_batch(&self) -> Option<OutgoingPacketBatch> {
@@ -213,7 +213,7 @@ impl OutgoingPacketQueue {
         let sender = std::sync::Mutex::new(Some(pending.outcome));
         Some(OutgoingPacketBatch {
             packets: pending.packets,
-            outcome: Arc::new(OutgoingBatchOutcome { sender }),
+            ack: Arc::new(OutgoingBatchAck { sender }),
         })
     }
 
