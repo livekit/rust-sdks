@@ -91,6 +91,12 @@ jobs:
     name: Builds
     needs: changes
     if: ${{ needs.changes.outputs.core == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    # Only builds.yml's size report job uses these: it reads the baseline
+    # run's artifacts and keeps a size comment on the pull request.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
     uses: ./.github/workflows/builds.yml
 
   tests:

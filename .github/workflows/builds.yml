@@ -28,6 +28,11 @@ env:
   # where wrapping is fragile.
   SCCACHE_GHA_ENABLED: "true"
 
+# The report job asks for more on its own. Everything else, including the
+# build jobs that run the pull request's code, stays read-only.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -288,9 +293,10 @@ jobs:
           path: sizes/
           if-no-files-found: ignore
 
-  # Merges the per-target sizes into one table on the run summary, and keeps
-  # them as the `ffi-size-summary` artifact so later runs can compare against
-  # the build on main.
+  # Merges the per-target sizes into one table and keeps them as the
+  # `ffi-size-summary` artifact. On a pull request, it compares them with the
+  # newest measured commit on the base branch and keeps one comment on the PR
+  # up to date with the result.
   ffi-size:
     name: livekit-ffi sizes
     needs: build
@@ -298,6 +304,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -317,9 +327,13 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           mkdir -p sizes
+          markdown=()
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            markdown=(--markdown "$GITHUB_STEP_SUMMARY")
+          fi
           python3 .github/scripts/ffi_size.py summary sizes \
             --sha "$GITHUB_SHA" --pr-head-sha "$PR_HEAD_SHA" \
-            --json size-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+            --json size-summary.json "${markdown[@]}"
 
       - name: Upload summary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -327,3 +341,51 @@ jobs:
           name: ffi-size-summary
           path: size-summary.json
           retention-days: 90
+
+      # Baselines come from runs of the workflow that called this one (ci.yml)
+      # on pushes to the base branch. A missing baseline is reported in the
+      # comment rather than failing the job.
+      - name: Find baseline
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          workflow_ref="${GITHUB_WORKFLOW_REF%%@*}"
+          python3 .github/scripts/ffi_size.py baseline --repo "$GITHUB_REPOSITORY" \
+            --workflow "${workflow_ref##*/}" --base-ref "$BASE_REF" \
+            --head-sha "$PR_HEAD_SHA" --out baseline.json
+
+          run_id=$(jq -r '.run_id // empty' baseline.json)
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              -n ffi-size-summary -D base || echo "::warning::could not download the baseline sizes"
+          fi
+
+      - name: Compare
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python3 .github/scripts/ffi_size.py compare --head size-summary.json \
+            --baseline baseline.json --base-summary base/size-summary.json \
+            --markdown report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # A pull request from a fork gets a read-only token, so it only has the
+      # run summary above.
+      - name: Update pull request comment
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          marker=$(head -n1 report.md)
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id")
+          id=${ids%%$'\n'*}
+          jq -n --rawfile body report.md '{body: $body}' > body.json
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" --input body.json > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input body.json > /dev/null
+          fi
