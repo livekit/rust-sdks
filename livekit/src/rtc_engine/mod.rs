@@ -524,29 +524,6 @@ impl RtcEngine {
     }
 }
 
-/// Restores the join-time tracks' transceivers when a connect attempt fails or is cancelled, so
-/// the tracks neither keep the abandoned peer connection alive nor lose a sender that another
-/// room publishes them with.
-struct RestoreOnDrop(Option<Vec<(LocalTrack, Option<RtpTransceiver>)>>);
-
-impl RestoreOnDrop {
-    fn new(tracks: &[(LocalTrack, TrackPublishOptions)]) -> Self {
-        Self(Some(tracks.iter().map(|(track, _)| (track.clone(), track.transceiver())).collect()))
-    }
-
-    fn disarm(mut self) {
-        self.0 = None;
-    }
-}
-
-impl Drop for RestoreOnDrop {
-    fn drop(&mut self) {
-        for (track, transceiver) in self.0.take().unwrap_or_default() {
-            track.set_transceiver(transceiver);
-        }
-    }
-}
-
 impl EngineInner {
     async fn connect(
         url: &str,
@@ -562,7 +539,6 @@ impl EngineInner {
     )> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
-        let restore_on_failure = RestoreOnDrop::new(publish_tracks);
 
         let try_connect = {
             move || {
@@ -632,10 +608,7 @@ impl EngineInner {
         let mut last_error = None;
         for i in 0..(max_retries + 1) {
             match try_connect().await {
-                Ok(res) => {
-                    restore_on_failure.disarm();
-                    return Ok(res);
-                }
+                Ok(res) => return Ok(res),
                 Err(e) => {
                     // A validated auth failure (401/403) will not succeed on
                     // retry with the same token — surface it immediately instead

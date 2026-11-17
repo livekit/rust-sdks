@@ -571,24 +571,49 @@ impl Debug for RoomSession {
     }
 }
 
-/// Closes a room whose `connect` is cancelled before returning it to the caller.
-struct CloseOnDrop(Option<Arc<RoomSession>>);
+/// Restores the join-time tracks' transceivers when `connect` fails or is cancelled, so the
+/// tracks neither keep the abandoned peer connection alive nor lose a sender that another room
+/// publishes them with.
+struct RestoreOnDrop(Option<Vec<(LocalTrack, Option<RtpTransceiver>)>>);
+
+impl RestoreOnDrop {
+    fn new(tracks: &[(LocalTrack, TrackPublishOptions)]) -> Self {
+        Self(Some(tracks.iter().map(|(track, _)| (track.clone(), track.transceiver())).collect()))
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RestoreOnDrop {
+    fn drop(&mut self) {
+        for (track, transceiver) in self.0.take().unwrap_or_default() {
+            track.set_transceiver(transceiver);
+        }
+    }
+}
+
+/// Closes a room whose `connect` is cancelled before returning it to the caller, restoring the
+/// join-time tracks once the room is closed.
+struct CloseOnDrop(Option<(Arc<RoomSession>, RestoreOnDrop)>);
 
 impl CloseOnDrop {
-    fn disarm(mut self) -> Arc<RoomSession> {
+    fn disarm(mut self) -> (Arc<RoomSession>, RestoreOnDrop) {
         self.0.take().expect("CloseOnDrop disarmed twice")
     }
 }
 
 impl Drop for CloseOnDrop {
     fn drop(&mut self) {
-        let Some(inner) = self.0.take() else { return };
+        let Some((inner, restore)) = self.0.take() else { return };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             log::error!("connect cancelled outside a tokio runtime, cannot close the room");
             return;
         };
         runtime.spawn(async move {
             let _ = inner.close(DisconnectReason::JoinFailure).await;
+            drop(restore);
         });
     }
 }
@@ -627,6 +652,7 @@ impl Room {
             }
         }
 
+        let restore_on_failure = RestoreOnDrop::new(&publish_tracks);
         // A join-time sender can send media as soon as the connection is up, before the E2EE
         // frame cryptor (which needs the identity from the join response) is attached. Encrypted
         // rooms therefore publish these tracks normally instead.
@@ -926,18 +952,23 @@ impl Room {
         inner.handle.lock().await.replace(handle);
 
         let room = Self { inner };
-        let close_on_cancel = CloseOnDrop(Some(room.inner.clone()));
+        let close_on_cancel = CloseOnDrop(Some((room.inner.clone(), restore_on_failure)));
         let published = room.complete_pre_publish(publish_tracks, pre_publish_receivers).await;
-        let inner = close_on_cancel.disarm();
+        let (inner, restore_on_failure) = close_on_cancel.disarm();
         if let Err(err) = published {
-            // Spawned so that cancelling `connect` cannot interrupt the cleanup.
-            let closed =
-                tokio::spawn(async move { inner.close(DisconnectReason::JoinFailure).await });
+            // Spawned so that cancelling `connect` cannot interrupt the cleanup. Restored after
+            // the close, which detaches the tracks it unpublishes.
+            let closed = tokio::spawn(async move {
+                let closed = inner.close(DisconnectReason::JoinFailure).await;
+                drop(restore_on_failure);
+                closed
+            });
             if let Ok(Err(close_err)) = closed.await {
                 log::warn!("failed to close the room after a failed join: {close_err}");
             }
             return Err(err);
         }
+        restore_on_failure.disarm();
 
         Ok((room, events))
     }

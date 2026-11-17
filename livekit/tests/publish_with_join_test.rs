@@ -639,19 +639,22 @@ fn microphone_only() -> VideoGrants {
 }
 
 /// A join-time track the server explicitly refuses fails `connect` with the refusal, without
-/// waiting for a confirmation that will never come.
+/// waiting for a confirmation that will never come, and detaches every join-time track.
 #[test_log::test(tokio::test)]
 async fn test_publish_with_join_rejected_track() -> Result<()> {
     let server = ServerEnv::from_env_or_defaults();
     let room_name = format!("test_room_{}", create_random_uuid());
     let token = server.token(&room_name, microphone_only())?;
+    let options = publisher_options(true);
+    let tracks: Vec<_> = options.publish_tracks.iter().map(|(track, _)| track.clone()).collect();
 
-    let connected = Room::connect(&server.url, &token, publisher_options(true)).await;
+    let connected = Room::connect(&server.url, &token, options).await;
     let Err(err) = connected else {
         bail!("connect succeeded although the camera is not allowed");
     };
     let err = err.to_string();
     assert!(err.contains("join-video") && err.contains("NOT_ALLOWED"), "unexpected error: {err}");
+    assert!(tracks.iter().all(|t| !t.has_sender()), "a track kept the failed join's sender");
     Ok(())
 }
 
@@ -690,9 +693,10 @@ async fn test_publish_with_join_cancelled_connect_closes_room() -> Result<()> {
     let token = server.token(&room_name, VideoGrants { room_join: true, ..Default::default() })?;
 
     let (microphone, released) = single_audio_track();
+    let camera = join_tracks().pop().expect("join tracks include a camera");
+    let camera_track = camera.0.clone();
     let mut options = RoomOptions::default();
-    options.publish_tracks =
-        vec![microphone, join_tracks().pop().expect("join tracks include a camera")];
+    options.publish_tracks = vec![microphone, camera];
     let url = format!("ws://{proxy}");
     let connect = tokio::spawn(async move { Room::connect(&url, &token, options).await });
 
@@ -723,7 +727,14 @@ async fn test_publish_with_join_cancelled_connect_closes_room() -> Result<()> {
     .await
     .map_err(|_| anyhow!("participant left behind after the cancelled connect"))?;
 
-    wait_released(released).await
+    wait_released(released).await?;
+    timeout(Duration::from_secs(10), async {
+        while camera_track.has_sender() {
+            time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("camera kept the cancelled connect's sender"))
 }
 
 /// When the peer connection cannot connect, `connect` fails without leaving the join-time tracks
