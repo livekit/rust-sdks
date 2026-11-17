@@ -966,6 +966,20 @@ fn polled_falls_back_to_legacy_framing_for_pre_v2_recipients() {
     });
 }
 
+/// Starts a `send_text` on `manager` in its own task.
+fn spawn_polled_send(
+    manager: Arc<OutgoingDataStreamManager>,
+) -> tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>> {
+    tokio::spawn(async move {
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            destination_identities: vec!["bob".to_string()],
+            ..Default::default()
+        };
+        manager.send_text("hello".to_string(), options).await
+    })
+}
+
 /// Starts a `send_text` through a polled outgoing manager and returns the first batch it produces.
 async fn polled_send_and_pull() -> (
     super::polled::PolledOutgoingDataStreamManager,
@@ -973,15 +987,7 @@ async fn polled_send_and_pull() -> (
     super::polled::OutgoingPacketBatch,
 ) {
     let outgoing = super::polled::polled_outgoing_data_stream_manager(Arc::new(AllV2Registry));
-    let manager = outgoing.manager.clone();
-    let send = tokio::spawn(async move {
-        let options = StreamTextOptions {
-            topic: "chat".to_string(),
-            destination_identities: vec!["bob".to_string()],
-            ..Default::default()
-        };
-        manager.send_text("hello".to_string(), options).await
-    });
+    let send = spawn_polled_send(outgoing.manager.clone());
     let batch = outgoing.packets.next_batch().await.expect("send_text should produce a batch");
     (outgoing, send, batch)
 }
@@ -1026,20 +1032,6 @@ fn polled_close_fails_a_pending_send() {
         assert!(send.await.unwrap().is_err(), "closing the queue should fail a pending send");
         assert!(outgoing.packets.next_batch().await.is_none());
     });
-}
-
-/// Starts a `send_text` on `manager` in its own task.
-fn spawn_polled_send(
-    manager: Arc<OutgoingDataStreamManager>,
-) -> tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>> {
-    tokio::spawn(async move {
-        let options = StreamTextOptions {
-            topic: "chat".to_string(),
-            destination_identities: vec!["bob".to_string()],
-            ..Default::default()
-        };
-        manager.send_text("hello".to_string(), options).await
-    })
 }
 
 /// A polled manager and queue with a send that was cancelled after its batch reached the queue.
