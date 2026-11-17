@@ -142,5 +142,101 @@ class MeasureAndSummaryTest(unittest.TestCase):
             self.assertEqual(ffi_size.load_rows(sizes), [row])
 
 
+def row(name, target, size):
+    return {"row": name, "target": target, "crate_type": "cdylib", "bytes": size, "gzip_bytes": size // 2}
+
+
+class FindBaselineTest(unittest.TestCase):
+    def fake_api(self, measured):
+        """main is c3 <- c2 <- c1 (oldest); `measured` maps a sha to whether
+        its run kept the summary artifact."""
+        def api(path):
+            if path.startswith("repos/o/r/compare/main...head"):
+                return {"merge_base_commit": {"sha": "c3"}}
+            if path.startswith("repos/o/r/commits?sha=c3"):
+                return [{"sha": "c3"}, {"sha": "c2"}, {"sha": "c1"}]
+            if "/actions/workflows/ci.yml/runs?head_sha=" in path:
+                sha = path.split("head_sha=")[1].split("&")[0]
+                return {"workflow_runs": [{"id": int(sha[1:])}] if sha in measured else []}
+            if "/artifacts?name=ffi-size-summary" in path:
+                sha = "c" + path.split("/runs/")[1].split("/")[0]
+                return {"artifacts": [{"expired": not measured[sha]}]}
+            raise AssertionError(path)
+        return api
+
+    def test_merge_base_measured(self):
+        found = ffi_size.find_baseline(self.fake_api({"c3": True}), "o/r", "ci.yml", "main", "head")
+        self.assertEqual((found["sha"], found["walked"], found["run_id"]), ("c3", 0, 3))
+
+    def test_walks_back_past_unmeasured_and_expired(self):
+        api = self.fake_api({"c3": False, "c1": True})
+        found = ffi_size.find_baseline(api, "o/r", "ci.yml", "main", "head")
+        self.assertEqual((found["sha"], found["walked"], found["merge_base"]), ("c1", 2, "c3"))
+
+    def test_nothing_measured(self):
+        self.assertIsNone(ffi_size.find_baseline(self.fake_api({}), "o/r", "ci.yml", "main", "head"))
+
+
+class RenderComparisonTest(unittest.TestCase):
+    found = {"run_id": 1, "sha": "b" * 40, "merge_base": "m" * 40, "walked": 0, "base_ref": "main"}
+
+    def test_flags_growth_missing_and_new_rows(self):
+        base = {"rows": [
+            row("room-apis", "aarch64-linux-android", 1000000),
+            row("room-apis", "x86_64-apple-darwin", 1000000),
+            row("room-apis", "aarch64-apple-ios", 1000000),
+        ]}
+        head = {"sha": "a" * 40, "rows": [
+            row("room-apis", "aarch64-linux-android", 1050000),
+            row("room-apis", "x86_64-apple-darwin", 1000000),
+            row("core-modules", "aarch64-linux-android", 500),
+        ]}
+        text = ffi_size.render_comparison(head, base, self.found)
+        self.assertTrue(text.startswith(ffi_size.COMMENT_MARKER))
+        self.assertIn("Largest change: room-apis `aarch64-linux-android` +48.83 KiB (+5.00%).", text)
+        self.assertIn("| ⚠️ | room-apis | `aarch64-linux-android` |", text)
+        self.assertIn("|  | room-apis | `x86_64-apple-darwin` | 976.56 KiB | 976.56 KiB | 0 B | +0.00% |", text)
+        self.assertIn("| ❌ | room-apis | `aarch64-apple-ios` | 976.56 KiB | _not measured_ |", text)
+        self.assertIn("| 🆕 | core-modules | `aarch64-linux-android` |", text)
+        self.assertIn("Compared with `main` at `bbbbbbb`, the merge-base.", text)
+
+    def test_shrink_is_not_flagged(self):
+        base = {"rows": [row("room-apis", "t", 1000)]}
+        head = {"sha": "a" * 40, "rows": [row("room-apis", "t", 900)]}
+        text = ffi_size.render_comparison(head, base, self.found)
+        self.assertIn("|  | room-apis | `t` | 1000 B | 900 B | -100 B | -10.00% |", text)
+
+    def test_no_changes(self):
+        rows = [row("room-apis", "t", 1000)]
+        text = ffi_size.render_comparison({"sha": "a" * 40, "rows": rows}, {"rows": rows}, self.found)
+        self.assertIn("No size changes.", text)
+
+    def test_walked_back(self):
+        found = dict(self.found, walked=3)
+        rows = [row("room-apis", "t", 1000)]
+        text = ffi_size.render_comparison({"sha": "a" * 40, "rows": rows}, {"rows": rows}, found)
+        self.assertIn("the nearest measured ancestor of the merge-base `mmmmmmm` (3 commits back)", text)
+
+    def test_no_baseline(self):
+        head = {"sha": "a" * 40, "rows": [row("room-apis", "t", 1000)]}
+        text = ffi_size.render_comparison(head, None, None)
+        self.assertIn("nothing to compare against yet", text)
+        self.assertIn("| 🆕 | room-apis | `t` |", text)
+
+    def test_compare_command_reads_null_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head = os.path.join(tmp, "head.json")
+            found = os.path.join(tmp, "baseline.json")
+            md = os.path.join(tmp, "report.md")
+            with open(head, "w") as f:
+                json.dump({"sha": "a" * 40, "rows": [row("room-apis", "t", 1000)]}, f)
+            with open(found, "w") as f:
+                f.write("null\n")
+            ffi_size.main(["compare", "--head", head, "--baseline", found,
+                           "--base-summary", os.path.join(tmp, "missing.json"), "--markdown", md])
+            with open(md) as f:
+                self.assertIn("nothing to compare against yet", f.read())
+
+
 if __name__ == "__main__":
     unittest.main()

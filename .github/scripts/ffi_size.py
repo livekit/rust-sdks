@@ -31,6 +31,14 @@ On a pull request, $GITHUB_SHA is the merge commit that was checked out and
 measured, not the PR head; pass the head as --pr-head-sha so the summary can
 name both.
 
+On a pull request, the report job also finds the newest measured commit on the
+base branch at or before the PR's merge-base, and compares against it:
+
+    $ ffi_size.py baseline --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+          --base-ref main --head-sha "$PR_HEAD_SHA" --out baseline.json
+    $ ffi_size.py compare --head size-summary.json --baseline baseline.json \
+          --base-summary base/size-summary.json --markdown report.md
+
 Only the standard library is used, so this runs on every CI runner as is.
 """
 
@@ -40,7 +48,22 @@ import gzip
 import json
 import os
 import shlex
+import subprocess
 import sys
+
+# A row whose size grows by more than this is flagged in the comparison.
+WARN_PERCENT = 1.0
+
+# How far back from the merge-base to look for a measured commit. Pushes to
+# main always run the builds, so this only needs to cover a few cancelled or
+# failed runs.
+MAX_WALK_BACK = 20
+
+SUMMARY_ARTIFACT = "ffi-size-summary"
+
+# Marks the pull request comment, so later runs update it instead of adding
+# another one.
+COMMENT_MARKER = "<!-- ffi-size-report -->"
 
 # The file cargo writes for each crate type, by target OS.
 ARTIFACT_NAMES = {
@@ -169,6 +192,127 @@ def summary(args):
         sys.stdout.write(markdown)
 
 
+def gh_api(path):
+    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
+def find_baseline(api, repo, workflow, base_ref, head_sha, max_walk_back=MAX_WALK_BACK):
+    """Find the newest run on `base_ref` that measured the PR's merge-base or
+    one of its ancestors. Returns None if there is none within reach."""
+    merge_base = api(f"repos/{repo}/compare/{base_ref}...{head_sha}")["merge_base_commit"]["sha"]
+    commits = api(f"repos/{repo}/commits?sha={merge_base}&per_page={max_walk_back}")
+    for walked, commit in enumerate(commits):
+        sha = commit["sha"]
+        runs = api(
+            f"repos/{repo}/actions/workflows/{workflow}/runs"
+            f"?head_sha={sha}&branch={base_ref}&event=push&per_page=10"
+        )["workflow_runs"]
+        for run in runs:
+            artifacts = api(f"repos/{repo}/actions/runs/{run['id']}/artifacts?name={SUMMARY_ARTIFACT}")
+            if any(not a["expired"] for a in artifacts["artifacts"]):
+                return {
+                    "run_id": run["id"],
+                    "sha": sha,
+                    "merge_base": merge_base,
+                    "walked": walked,
+                    "base_ref": base_ref,
+                }
+    return None
+
+
+def baseline(args):
+    try:
+        found = find_baseline(gh_api, args.repo, args.workflow, args.base_ref, args.head_sha)
+    except (subprocess.CalledProcessError, KeyError, ValueError) as e:
+        # A missing baseline only weakens the report; it must not fail CI.
+        print(f"baseline lookup failed: {e}", file=sys.stderr)
+        found = None
+    with open(args.out, "w") as f:
+        json.dump(found, f, indent=2)
+        f.write("\n")
+    print(json.dumps(found, indent=2))
+
+
+def signed(n):
+    return ("+" if n > 0 else "-" if n < 0 else "") + human(abs(n))
+
+
+def render_comparison(head, base, found):
+    base_rows = {(r["row"], r["target"]): r for r in (base or {}).get("rows", [])}
+    head_rows = {(r["row"], r["target"]): r for r in head["rows"]}
+    base_label = f"`{found['base_ref']}` `{found['sha'][:7]}`" if found else "base"
+
+    table = [
+        f"| | Build | Target | {base_label} | This PR | Δ | Δ% |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    largest = None
+    for key in sorted(set(base_rows) | set(head_rows)):
+        b, h = base_rows.get(key), head_rows.get(key)
+        row, target = key
+        if h is None:
+            table.append(f"| ❌ | {row} | `{target}` | {human(b['bytes'])} | _not measured_ | | |")
+            continue
+        if b is None:
+            table.append(f"| 🆕 | {row} | `{target}` | | {human(h['bytes'])} | | |")
+            continue
+        delta = h["bytes"] - b["bytes"]
+        percent = 100.0 * delta / b["bytes"] if b["bytes"] else 0.0
+        flag = "⚠️" if percent > WARN_PERCENT else ""
+        table.append(
+            f"| {flag} | {row} | `{target}` | {human(b['bytes'])} | {human(h['bytes'])} "
+            f"| {signed(delta)} | {percent:+.2f}% |"
+        )
+        if delta and (largest is None or abs(delta) > abs(largest[0])):
+            largest = (delta, percent, row, target)
+
+    lines = [COMMENT_MARKER, "## livekit-ffi build sizes", ""]
+    if not found or base is None:
+        lines.append(
+            f"No measured commit found on the base branch within {MAX_WALK_BACK} commits "
+            f"of the merge-base, so there is nothing to compare against yet."
+        )
+    elif largest is None:
+        lines.append("No size changes.")
+    else:
+        delta, percent, row, target = largest
+        lines.append(f"Largest change: {row} `{target}` {signed(delta)} ({percent:+.2f}%).")
+    lines += ["", *table, ""]
+
+    measured = describe_commit(head)
+    if found:
+        note = f"Compared with `{found['base_ref']}` at `{found['sha'][:7]}`"
+        if found["walked"]:
+            note += (
+                f", the nearest measured ancestor of the merge-base `{found['merge_base'][:7]}` "
+                f"({found['walked']} commits back)"
+            )
+        else:
+            note += ", the merge-base"
+        measured = f"{measured}. {note}." if measured else f"{note}."
+    if measured:
+        lines.append(f"<sub>{measured} Raw file sizes; ⚠️ marks growth over {WARN_PERCENT:g}%.</sub>")
+    return "\n".join(lines) + "\n"
+
+
+def compare(args):
+    with open(args.head) as f:
+        head = json.load(f)
+    found = None
+    if args.baseline and os.path.isfile(args.baseline):
+        with open(args.baseline) as f:
+            found = json.load(f)
+    base = None
+    if args.base_summary and os.path.isfile(args.base_summary):
+        with open(args.base_summary) as f:
+            base = json.load(f)
+    markdown = render_comparison(head, base, found)
+    with open(args.markdown, "w") as f:
+        f.write(markdown)
+    sys.stdout.write(markdown)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
@@ -189,6 +333,21 @@ def main(argv=None):
     s.add_argument("--json", help="write the merged rows here")
     s.add_argument("--markdown", help="append the markdown here instead of printing it")
     s.set_defaults(func=summary)
+
+    b = sub.add_parser("baseline", help="find the base branch run to compare a PR against")
+    b.add_argument("--repo", required=True)
+    b.add_argument("--workflow", required=True, help="file name of the workflow whose runs hold the sizes")
+    b.add_argument("--base-ref", required=True)
+    b.add_argument("--head-sha", required=True)
+    b.add_argument("--out", required=True, help="where to write the run found, or null")
+    b.set_defaults(func=baseline)
+
+    c = sub.add_parser("compare", help="render a PR's sizes against a baseline")
+    c.add_argument("--head", required=True, help="this run's merged summary")
+    c.add_argument("--baseline", help="output of `baseline`")
+    c.add_argument("--base-summary", help="the baseline run's merged summary")
+    c.add_argument("--markdown", required=True, help="write the comment body here")
+    c.set_defaults(func=compare)
 
     args = ap.parse_args(argv)
     args.func(args)
