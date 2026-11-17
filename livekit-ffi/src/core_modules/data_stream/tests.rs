@@ -1027,3 +1027,36 @@ fn polled_close_fails_a_pending_send() {
         assert!(outgoing.packets.next_batch().await.is_none());
     });
 }
+
+#[test]
+fn polled_released_queue_frees_an_unpulled_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, queue) = super::polled::OutgoingPacketQueue::pair();
+        let sink_alive = Arc::downgrade(&sink);
+        let manager = OutgoingDataStreamManager::new(sink, Arc::new(AllV2Registry));
+        let sender = manager.clone();
+        let send = tokio::spawn(async move {
+            let options = StreamTextOptions {
+                topic: "chat".to_string(),
+                destination_identities: vec!["bob".to_string()],
+                ..Default::default()
+            };
+            sender.send_text("hello".to_string(), options).await
+        });
+        // Let the batch reach the queue, then cancel the send without ever pulling it.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        send.abort();
+        assert!(send.await.unwrap_err().is_cancelled());
+
+        drop(manager);
+        drop(queue);
+        // The forwarding task owns the sink, so the sink going away shows the task finished.
+        for _ in 0..100 {
+            if sink_alive.upgrade().is_none() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the forwarding task is still waiting on a batch nobody can pull");
+    });
+}
