@@ -1599,6 +1599,10 @@ impl SessionInner {
                 let event: dt::local::SfuUnpublishResponse = unpublish_res.try_into()?;
                 _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
             }
+            proto::signal_response::Message::DataTrackDemandUpdate(demand_update) => {
+                let event: dt::local::SfuDemandUpdate = demand_update.try_into()?;
+                _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+            }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
                 let event: dt::remote::SfuSubscriberHandles = subscriber_handles.try_into()?;
                 _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
