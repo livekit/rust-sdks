@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+clap = { workspace = true, features = ["derive", "env"] }
 env_logger = { workspace = true }
 livekit-session = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-token-source = { workspace = true }
