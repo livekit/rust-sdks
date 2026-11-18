@@ -1,0 +1,52 @@
+#:schema https://raw.githubusercontent.com/livekit/verwalter/main/schemas/v1.json
+[workspace]
+members = [
+  "device-info",
+  "imgproc",
+  "libwebrtc",
+  "livekit",
+  "livekit-api",
+  "livekit-capture",
+  "livekit-common",
+  "livekit-data-stream",
+  "livekit-datatrack",
+  "livekit-ffi",
+  "livekit-net",
+  "livekit-protocol",
+  "livekit-region",
+  "livekit-rpc",
+  "livekit-signaling",
+  "livekit-telemetry",
+  "livekit-token",
+  "livekit-token-source",
+  "livekit-wakeword",
+  "soxr-sys",
+  "webrtc-sys",
+  "webrtc-sys/build",
+  "yuv-sys",
+]
+pin_files = ["Cargo.toml"]
+
+[versioning]
+files = ["Cargo.toml"]
+
+[release]
+tag = "{package}/v{version}"
+
+[publish]
+registry = "crates"
+command = "cargo publish --no-verify"
+
+[packages.livekit-ffi]
+path = "livekit-ffi"
+versioning.files = [
+  "Cargo.toml",
+  "../livekit-ffi-node-bindings/package.json",
+  "../livekit-ffi-node-bindings/npm/darwin-arm64/package.json",
+  "../livekit-ffi-node-bindings/npm/darwin-x64/package.json",
+  "../livekit-ffi-node-bindings/npm/linux-arm64-gnu/package.json",
+  "../livekit-ffi-node-bindings/npm/linux-x64-gnu/package.json",
+  "../livekit-ffi-node-bindings/npm/win32-x64-msvc/package.json",
+]
+release.draft = true
+publish.registry = "none"
