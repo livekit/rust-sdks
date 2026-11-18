@@ -28,7 +28,7 @@ use livekit::{
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Sleep;
 
-use crate::agent::{AgentTracker, AgentTracks};
+use crate::agent::{Agent, AgentTracker};
 use crate::constants::{TOPIC_CHAT, TOPIC_TRANSCRIPTION};
 use crate::dispatcher::Dispatcher;
 use crate::messages::{
@@ -81,6 +81,8 @@ impl Shared {
     }
 
     fn set(&self, state: SessionState) {
+        #[cfg(test)]
+        lock(&self.history).push(state.clone());
         self.state.send_if_modified(|current| {
             if *current == state {
                 return false;
@@ -88,8 +90,6 @@ impl Shared {
             *current = state;
             true
         });
-        #[cfg(test)]
-        lock(&self.history).push(state);
     }
 
     pub(crate) fn watch(&self) -> watch::Receiver<SessionState> {
@@ -226,7 +226,7 @@ impl SessionActor {
         let state = match connection.room.connection_state() {
             ConnectionState::Reconnecting => SessionConnectionState::Reconnecting,
             ConnectionState::Connected => SessionConnectionState::Connected,
-            ConnectionState::Disconnected => SessionConnectionState::Disconnected
+            ConnectionState::Disconnected => SessionConnectionState::Disconnected,
         };
         Self {
             generation,
@@ -245,20 +245,16 @@ impl SessionActor {
         }
     }
 
-    /// Projects the agent state and tracks, and publishes the session state.
+    /// Projects the agent state, and publishes the session state.
     pub(crate) fn refresh(&mut self) {
-        let participants = self.room.remote_participants();
-        let agent_state = self.tracker.project(self.connection, participants.values());
+        let agent = Agent::find(self.room.remote_participants().values());
+        let agent_state = self.tracker.project(self.connection, agent);
         if agent_state.is_connected() {
             self.agent_deadline = None;
         }
         self.shared.publish(
             self.generation,
-            SessionState {
-                connection: self.connection,
-                agent: agent_state,
-                agent_tracks: AgentTracks::project(participants.values()),
-            },
+            SessionState { connection: self.connection, agent: agent_state },
         );
     }
 
@@ -462,8 +458,8 @@ impl SessionActor {
 
     fn on_agent_deadline(&mut self) {
         self.agent_deadline = None;
-        let participants = self.room.remote_participants();
-        if self.tracker.time_out(self.connection, participants.values()) {
+        let agent = Agent::find(self.room.remote_participants().values());
+        if self.tracker.time_out(self.connection, agent.as_ref()) {
             log::info!("agent did not become conversational in time");
         }
         self.refresh();

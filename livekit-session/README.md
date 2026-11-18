@@ -54,21 +54,32 @@ and the agent state (`agent`):
 | --- | --- |
 | `Disconnected` | The session is not connected |
 | `Connecting` | No agent is in the room yet |
-| `Connected(Initializing)`, `Connected(Idle)` | The agent joined but is not in a conversation |
-| `Connected(Listening)`, `Connected(Thinking)`, `Connected(Speaking)` | The agent is in a conversation |
-| `Connected(Unknown)` | The agent reports an activity this SDK does not recognize |
-| `Failed(Timeout)` | No agent became conversational within `agent_connect_timeout` (20 s by default) of connecting |
+| `Joined(agent)` | An agent joined the room, in a conversation or not |
+| `Failed(Timeout { .. })` | No agent became conversational within `agent_connect_timeout` (20 s by default) of connecting |
 | `Failed(Left)` | The agent left while the room stayed connected |
 
-`Connected` carries an `AgentActivity`, what the agent reports through its `lk.agent.state`
-attribute. `Failed` is not final: an agent that joins, or becomes conversational, replaces it. Most
-code needs only the predicates on `AgentState`: `is_connected`, `is_pending` and `is_finished`.
+`Joined` carries an `Agent`: its identity, its tracks, and its `AgentActivity`, what the agent
+reports through its `lk.agent.state` attribute. `Failed` is not final: an agent that joins, or
+becomes conversational, replaces it. An agent that timed out but is still in the room stays
+available in `Timeout`.
 
-The agent's microphone and its avatar's camera are available from `agent_audio_track()` and
-`agent_avatar_video_track()`, for an app that wants their frames, e.g. for a visualizer or to show
-the avatar. `SessionState::agent_tracks` flags which of them are subscribed: read the tracks again
-when a flag changes. In edge cases, e.g. an avatar reconnecting, a track can be replaced without its
-flag changing, so compare tracks by `sid` whenever you read them.
+Most code needs only the methods on `AgentState`:
+
+- `is_connected`, `is_pending` and `is_finished` tell where the agent is. `is_connected` is true
+  only while the agent is listening, thinking or speaking;
+- `activity()` and `identity()` tell what the agent in the room is doing and who it is;
+- `audio_track()` and `avatar_video_track()` return the agent's microphone and its avatar's camera,
+  for an app that wants their frames, e.g. for a visualizer or to show the avatar.
+
+```rust
+let mut state = session.state();
+let state = state.wait_for(|state| state.agent.audio_track().is_some()).await?.clone();
+let audio = state.agent.audio_track();
+```
+
+The tracks are part of the state, so the state changes when a track arrives, goes, or is replaced.
+A `SessionState` kept after the session moved on keeps its tracks alive: drop it when a newer one
+arrives.
 
 ## Messages
 
