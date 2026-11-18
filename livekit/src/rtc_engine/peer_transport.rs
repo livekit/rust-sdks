@@ -471,10 +471,12 @@ impl PeerTransport {
         munged
     }
 
-    /// Adds Opus NACK to the `recvonly` audio sections of a single PC offer, so subscribed
-    /// audio is retransmitted. The client's own `sendonly`/`sendrecv` sections are untouched.
+    /// Adds Opus NACK to every audio section of a single PC offer, whatever its direction.
+    ///
+    /// The server takes audio feedback from the first audio section of the first offer only.
+    /// That section can be the client's own `sendonly` mic, so every section needs NACK.
     fn munge_opus_nack_for_offer(sdp: &str) -> String {
-        Self::munge_opus_nack(sdp, |section| section.iter().any(|line| line.trim() == "a=recvonly"))
+        Self::munge_opus_nack(sdp, |_| true)
     }
 
     /// Adds Opus NACK to each audio section of a dual PC answer whose counterpart in `offer`
@@ -1232,17 +1234,20 @@ a=rtpmap:0 PCMU/8000\r\n"
     const NACK: &str = "a=rtcp-fb:111 nack\r\n";
 
     #[test]
-    fn offer_nack_only_on_recvonly_audio() {
+    fn offer_nack_on_every_audio_section() {
+        let video = "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:3\r\na=rtpmap:96 VP8/90000\r\n";
         let offer = sdp(&[
             audio_section("0", "sendonly", ""),
             audio_section("1", "recvonly", ""),
             audio_section("2", "sendrecv", ""),
+            video.to_string(),
         ]);
         let out = PeerTransport::munge_opus_nack_for_offer(&offer);
         let expected = sdp(&[
-            audio_section("0", "sendonly", ""),
+            audio_section("0", "sendonly", NACK),
             audio_section("1", "recvonly", NACK),
-            audio_section("2", "sendrecv", ""),
+            audio_section("2", "sendrecv", NACK),
+            video.to_string(),
         ]);
         assert_eq!(out, expected);
     }
