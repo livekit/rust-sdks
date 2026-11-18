@@ -1,4 +1,13 @@
 ---
+livekit: patch
+livekit-capture: patch
+livekit-common: patch
+livekit-data-stream: patch
+livekit-datatrack: patch
+livekit-ffi: patch
+livekit-rpc: patch
+livekit-signaling: patch
+livekit-token: patch
 livekit-protocol: patch
 livekit-api: patch
 ---
