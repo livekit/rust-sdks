@@ -278,7 +278,7 @@ pub enum PushFrameErrorReason {
     /// Frame was dropped due to the pipeline queue being full.
     QueueFull,
     /// Dynacast is enabled and the track currently has no remote subscribers.
-    NoSubscribers
+    NoSubscribers,
 }
 
 impl fmt::Display for PushFrameErrorReason {
@@ -286,7 +286,7 @@ impl fmt::Display for PushFrameErrorReason {
         match self {
             Self::TrackUnpublished => write!(f, "track unpublished"),
             Self::QueueFull => write!(f, "queue full"),
-            Self::NoSubscribers => write!(f, "no remote subscribers")
+            Self::NoSubscribers => write!(f, "no remote subscribers"),
         }
     }
 }

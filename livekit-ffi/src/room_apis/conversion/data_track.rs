@@ -212,7 +212,7 @@ impl From<PushFrameErrorReason> for proto::LocalDataTrackTryPushErrorCode {
         match reason {
             PushFrameErrorReason::TrackUnpublished => Self::TrackUnpublished,
             PushFrameErrorReason::QueueFull => Self::QueueFull,
-            PushFrameErrorReason::NoSubscribers => Self::NoSubscribers
+            PushFrameErrorReason::NoSubscribers => Self::NoSubscribers,
         }
     }
 }

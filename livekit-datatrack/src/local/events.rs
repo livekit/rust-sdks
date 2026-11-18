@@ -124,7 +124,7 @@ pub struct SfuDemandUpdate {
     /// Publisher handle of the track for which demand changed.
     pub handle: Handle,
     /// Whether or not the track currently has any subscribers.
-    pub has_subscribers: bool
+    pub has_subscribers: bool,
 }
 
 // MARK: - Output events
