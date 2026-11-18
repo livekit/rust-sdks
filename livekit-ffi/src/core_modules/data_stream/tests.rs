@@ -1090,3 +1090,52 @@ fn polled_manager_drop_ends_the_wait_for_a_held_batch() {
         assert_forwarding_task_finished(sink).await;
     });
 }
+
+#[test]
+fn polled_acks_are_released_across_repeated_sends() {
+    crate::runtime::runtime().block_on(async {
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let (sink, queue) = super::polled::OutgoingPacketQueue::pair(shutdown.clone());
+        let sink_alive = Arc::downgrade(&sink);
+        let manager =
+            OutgoingDataStreamManager::with_shutdown(sink, Arc::new(AllV2Registry), shutdown);
+
+        for round in 0..200 {
+            let mut send = spawn_polled_send(manager.clone());
+            let batch = queue.next_batch().await.expect("send_text should produce a batch");
+            let ack_alive = Arc::downgrade(&batch.ack);
+            // What the send should see, or `None` when it was cancelled before the ack reported.
+            let expect_ok = match round % 4 {
+                0 => {
+                    batch.ack.complete();
+                    Some(true)
+                }
+                1 => {
+                    batch.ack.fail("wire down".to_string());
+                    Some(false)
+                }
+                // Released without an outcome below, which fails the send.
+                2 => Some(false),
+                _ => {
+                    send.abort();
+                    assert!((&mut send).await.unwrap_err().is_cancelled());
+                    batch.ack.complete();
+                    None
+                }
+            };
+            drop(batch);
+            assert!(ack_alive.upgrade().is_none(), "round {round} left its ack alive");
+            match expect_ok {
+                Some(true) => {
+                    send.await.unwrap().expect("a completed ack should resolve the send");
+                }
+                Some(false) => assert!(send.await.unwrap().is_err(), "round {round} should fail"),
+                None => {}
+            }
+        }
+
+        drop(manager);
+        drop(queue);
+        assert_forwarding_task_finished(sink_alive).await;
+    });
+}
