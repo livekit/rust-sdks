@@ -145,7 +145,7 @@ pub mod chat_message {
         }
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FunctionCall {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
@@ -157,11 +157,6 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    /// Framework and provider metadata, including approval identities and resumable
-    /// tool/delegation state. Each value is JSON text, including quoted strings.
-    /// Readers may treat a value that is not valid JSON as a legacy plain string.
-    #[prost(map = "string, string", tag = "7")]
-    pub extra: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FunctionCallOutput {
@@ -459,14 +454,14 @@ pub mod agent_session_event {
     /// Per-call tool lifecycle. One flat update per occurrence: a call started ->
     /// progress updates while it runs (CallUpdated) -> the single terminal entry (Ended),
     /// with the deferred reply voicing buffered updates advancing separately (ReplyUpdated).
-    #[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct ToolExecutionUpdated {
         #[prost(oneof = "tool_execution_updated::Update", tags = "1, 2, 3, 4")]
         pub update: ::core::option::Option<tool_execution_updated::Update>,
     }
     /// Nested message and enum types in `ToolExecutionUpdated`.
     pub mod tool_execution_updated {
-        #[derive(Clone, PartialEq, ::prost::Message)]
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Started {
             #[prost(message, optional, tag = "1")]
             pub function_call: ::core::option::Option<super::super::FunctionCall>,
@@ -508,7 +503,7 @@ pub mod agent_session_event {
             #[prost(string, tag = "3")]
             pub speech_id: ::prost::alloc::string::String,
         }
-        #[derive(Clone, PartialEq, ::prost::Oneof)]
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
         pub enum Update {
             #[prost(message, tag = "1")]
             Started(Started),
@@ -1343,8 +1338,8 @@ pub mod agent_thread {
         }
     }
 }
-/// AgentTask: a framework task in a thread, including an incoming message's task.
-/// The application may label it with an optional name.
+/// AgentTask: background work an agent runs within a thread, such as a booking
+/// that takes minutes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AgentTask {
 }
@@ -1379,28 +1374,22 @@ pub mod agent_task {
         #[prost(string, tag = "2")]
         pub thread_id: ::prost::alloc::string::String,
         /// The task's name, as the agent defines it.
-        #[prost(string, optional, tag = "3")]
-        pub name: ::core::option::Option<::prost::alloc::string::String>,
-        /// The framework's A2A state: submitted, working, input-required, completed, failed,
-        /// canceled or rejected.
+        #[prost(string, tag = "3")]
+        pub name: ::prost::alloc::string::String,
         #[prost(enumeration = "Status", tag = "4")]
         pub status: i32,
         #[prost(message, optional, tag = "5")]
         pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
-    /// The framework's A2A task state. A task is never UNSPECIFIED.
-    /// Keep the existing completed, failed and canceled wire numbers.
+    /// A task is never UNSPECIFIED.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Status {
         Unspecified = 0,
-        Working = 1,
+        Running = 1,
         Completed = 2,
         Failed = 3,
         Canceled = 4,
-        Submitted = 5,
-        InputRequired = 6,
-        Rejected = 7,
     }
     impl Status {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1410,26 +1399,20 @@ pub mod agent_task {
         pub fn as_str_name(&self) -> &'static str {
             match self {
                 Self::Unspecified => "UNSPECIFIED",
-                Self::Working => "WORKING",
+                Self::Running => "RUNNING",
                 Self::Completed => "COMPLETED",
                 Self::Failed => "FAILED",
                 Self::Canceled => "CANCELED",
-                Self::Submitted => "SUBMITTED",
-                Self::InputRequired => "INPUT_REQUIRED",
-                Self::Rejected => "REJECTED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
                 "UNSPECIFIED" => Some(Self::Unspecified),
-                "WORKING" => Some(Self::Working),
+                "RUNNING" => Some(Self::Running),
                 "COMPLETED" => Some(Self::Completed),
                 "FAILED" => Some(Self::Failed),
                 "CANCELED" => Some(Self::Canceled),
-                "SUBMITTED" => Some(Self::Submitted),
-                "INPUT_REQUIRED" => Some(Self::InputRequired),
-                "REJECTED" => Some(Self::Rejected),
                 _ => None,
             }
         }

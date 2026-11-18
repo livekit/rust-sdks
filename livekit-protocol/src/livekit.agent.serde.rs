@@ -4478,13 +4478,10 @@ impl serde::Serialize for agent_task::Status {
     {
         let variant = match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::Working => "WORKING",
+            Self::Running => "RUNNING",
             Self::Completed => "COMPLETED",
             Self::Failed => "FAILED",
             Self::Canceled => "CANCELED",
-            Self::Submitted => "SUBMITTED",
-            Self::InputRequired => "INPUT_REQUIRED",
-            Self::Rejected => "REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -4497,13 +4494,10 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
     {
         const FIELDS: &[&str] = &[
             "UNSPECIFIED",
-            "WORKING",
+            "RUNNING",
             "COMPLETED",
             "FAILED",
             "CANCELED",
-            "SUBMITTED",
-            "INPUT_REQUIRED",
-            "REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -4545,13 +4539,10 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
             {
                 match value {
                     "UNSPECIFIED" => Ok(agent_task::Status::Unspecified),
-                    "WORKING" => Ok(agent_task::Status::Working),
+                    "RUNNING" => Ok(agent_task::Status::Running),
                     "COMPLETED" => Ok(agent_task::Status::Completed),
                     "FAILED" => Ok(agent_task::Status::Failed),
                     "CANCELED" => Ok(agent_task::Status::Canceled),
-                    "SUBMITTED" => Ok(agent_task::Status::Submitted),
-                    "INPUT_REQUIRED" => Ok(agent_task::Status::InputRequired),
-                    "REJECTED" => Ok(agent_task::Status::Rejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -4573,7 +4564,7 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             len += 1;
         }
-        if self.name.is_some() {
+        if !self.name.is_empty() {
             len += 1;
         }
         if self.status != 0 {
@@ -4589,8 +4580,8 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
         }
-        if let Some(v) = self.name.as_ref() {
-            struct_ser.serialize_field("name", v)?;
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
         }
         if self.status != 0 {
             let v = agent_task::Status::try_from(self.status)
@@ -4696,7 +4687,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                             if name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
-                            name__ = map_.next_value()?;
+                            name__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Status => {
                             if status__.is_some() {
@@ -4718,7 +4709,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                 Ok(agent_task::Task {
                     task_id: task_id__.unwrap_or_default(),
                     thread_id: thread_id__.unwrap_or_default(),
-                    name: name__,
+                    name: name__.unwrap_or_default(),
                     status: status__.unwrap_or_default(),
                     updated_at: updated_at__,
                 })
@@ -8625,9 +8616,6 @@ impl serde::Serialize for FunctionCall {
         if self.created_at.is_some() {
             len += 1;
         }
-        if !self.extra.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.FunctionCall", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -8643,9 +8631,6 @@ impl serde::Serialize for FunctionCall {
         }
         if let Some(v) = self.created_at.as_ref() {
             struct_ser.serialize_field("createdAt", v)?;
-        }
-        if !self.extra.is_empty() {
-            struct_ser.serialize_field("extra", &self.extra)?;
         }
         struct_ser.end()
     }
@@ -8664,7 +8649,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
             "name",
             "created_at",
             "createdAt",
-            "extra",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8674,7 +8658,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
             Arguments,
             Name,
             CreatedAt,
-            Extra,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8702,7 +8685,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                             "arguments" => Ok(GeneratedField::Arguments),
                             "name" => Ok(GeneratedField::Name),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
-                            "extra" => Ok(GeneratedField::Extra),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8727,7 +8709,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                 let mut arguments__ = None;
                 let mut name__ = None;
                 let mut created_at__ = None;
-                let mut extra__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -8760,14 +8741,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                             }
                             created_at__ = map_.next_value()?;
                         }
-                        GeneratedField::Extra => {
-                            if extra__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("extra"));
-                            }
-                            extra__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, _>>()?
-                            );
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8779,7 +8752,6 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                     arguments: arguments__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     created_at: created_at__,
-                    extra: extra__.unwrap_or_default(),
                 })
             }
         }
