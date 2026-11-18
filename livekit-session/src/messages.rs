@@ -26,6 +26,7 @@ use crate::constants::{ATTRIBUTE_SEGMENT_ID, ATTRIBUTE_TRANSCRIPTION_FINAL};
 /// [`participant_identity`](Self::participant_identity). A transcript is
 /// updated in place as it grows, keeping its `seq` and `timestamp`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Message {
     /// The transcript segment id, or the text-stream id for chat and user
     /// input.
