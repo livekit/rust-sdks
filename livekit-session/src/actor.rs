@@ -120,6 +120,11 @@ impl Shared {
         lock(&self.messages).messages().to_vec()
     }
 
+    /// The number of messages in the feed.
+    pub(crate) fn message_count(&self) -> usize {
+        lock(&self.messages).messages().len()
+    }
+
     #[cfg(all(test, feature = "__lk-e2e-test"))]
     pub(crate) fn subscriber_count(&self) -> usize {
         self.events.len()

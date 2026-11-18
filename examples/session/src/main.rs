@@ -98,8 +98,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if changed.is_err() {
                     break;
                 }
-                let current = state.borrow_and_update().clone();
-                print_state(&current);
+                let current = state.borrow_and_update().clone();                
+                println!("{:?}", session);
                 if !current.connection.is_connected() {
                     break;
                 }
