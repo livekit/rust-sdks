@@ -18,6 +18,9 @@ Or from a pre-generated token, whose room configuration dispatches the agent:
 LIVEKIT_URL=wss://<project>.livekit.cloud LIVEKIT_TOKEN=<token> cargo run -p session
 ```
 
+Every variable also has a flag (`--token-server-id`, `--agent-name`, `--url`, `--token`); see
+`cargo run -p session -- --help`.
+
 Pass `--text` to leave the audio devices alone and talk by typing only, e.g. on a machine without
 a microphone. The agent then needs to accept text input.
 

@@ -1,6 +1,7 @@
 use std::error::Error;
-use std::{env, time::Duration};
+use std::time::Duration;
 
+use clap::Parser;
 use livekit_session::{
     Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionState,
 };
@@ -8,16 +9,42 @@ use livekit_session::{
 use livekit_token_source::{development_token_server, literal, TokenSourceFetchOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+/// A conversation with a LiveKit agent over voice and typed text
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// LiveKit server URL, used together with --token
+    #[arg(long, env = "LIVEKIT_URL")]
+    url: Option<String>,
+
+    /// Pre-generated token whose room configuration dispatches the agent
+    #[arg(long, env = "LIVEKIT_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+
+    /// Development token server ID, used when no URL and token are given
+    #[arg(long, env = "LIVEKIT_TOKEN_SERVER_ID")]
+    token_server_id: Option<String>,
+
+    /// Agent for the development token server to dispatch
+    #[arg(long, env = "LIVEKIT_AGENT_NAME")]
+    agent_name: Option<String>,
+
+    /// Leave the audio devices alone and talk by typing only
+    #[arg(long)]
+    text: bool,
+}
+
 /// Creates a session with credentials from a pre-generated token if one is
 /// given, and from a development token server otherwise.
-fn create_session(options: SessionOptions) -> Result<Session, Box<dyn Error>> {
-    if let (Ok(url), Ok(token)) = (env::var("LIVEKIT_URL"), env::var("LIVEKIT_TOKEN")) {
+fn create_session(args: Args, options: SessionOptions) -> Result<Session, Box<dyn Error>> {
+    if let (Some(url), Some(token)) = (args.url, args.token) {
         return Ok(Session::new(literal(url, token), options));
     }
-    let token_server_id = env::var("LIVEKIT_TOKEN_SERVER_ID")
-        .map_err(|_| "set LIVEKIT_TOKEN_SERVER_ID, or LIVEKIT_URL and LIVEKIT_TOKEN")?;
+    let token_server_id = args
+        .token_server_id
+        .ok_or("pass --token-server-id, or --url and --token (or set the LIVEKIT_* variables)")?;
     let mut fetch_options = TokenSourceFetchOptions::new();
-    if let Ok(agent_name) = env::var("LIVEKIT_AGENT_NAME") {
+    if let Some(agent_name) = args.agent_name {
         fetch_options = fetch_options.with_agent_name(agent_name);
     }
     Ok(Session::with_fetch_options(
@@ -49,15 +76,15 @@ fn print_state(state: &SessionState) {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
+    let args = Args::parse();
 
     // By default the session captures the microphone and plays the agent's
     // audio, with echo cancellation between the two. `--text` keeps the
     // conversation to typed lines, e.g. on a machine without audio devices.
-    let text_only = env::args().any(|arg| arg == "--text");
     let session_options = SessionOptions::default()
         .with_agent_connect_timeout(Duration::from_secs(15))
-        .with_platform_audio(!text_only);
-    let session = create_session(session_options)?;
+        .with_platform_audio(!args.text);
+    let session = create_session(args, session_options)?;
     let mut events = session.subscribe();
     session.start().await?;
 
