@@ -316,6 +316,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.15.0 (2026-11-18)
+
+### Breaking Changes
+
+- The polled outgoing data stream adapter resolves a send once the host reports its batch as sent, and no longer when the packets are buffered. `OutgoingPacketQueue.next_packets()` is replaced by `next_batch()`, which returns the packets and an `ack` the host must `complete()` or `fail(reason)`.
+
+### Features
+
+- Probe cargo-ndk through Cargo when packaging Android bindings so an installed 4.x tool is recognized without an unnecessary reinstall.
+- Add typed app event and correlation attribute methods to TelemetryScope while preserving the existing string methods, core validation and capture snapshots.
+- Export the telemetry `ReconnectReason` to Swift, Kotlin, Python and Dart as `TelemetryReconnectReason`, so it no longer collides with the signaling `ReconnectReason`. Foreign code that names the telemetry enum must rename `ReconnectReason` to `TelemetryReconnectReason`. The Rust name, the variants and `telemetry_reconnect_reason` are unchanged.
+- Rename the exported RTC sample field and stats report argument from `track_sid` to `track_id`; Rust and foreign callers must migrate the input name while continuing to pass the same LiveKit track identifier values.
+- Limit the FFI lifecycle to three admitted telemetry generations and return AtCapacity before constructing a rejected replacement; pulled configuration now returns a Result and callers must keep serving previous queues when replacement fails.
+- Expose the client telemetry core through the `core-modules` UniFFI surface (`telemetry_configure`, `telemetry_configure_pulled`, `telemetry_scope`, spans, stats and `telemetry_disable`); `log_forward_bootstrap` now copies the core's own warnings and errors into telemetry and keeps the Rust log level at `warn` or looser.
+
+### Fixes
+
+- AgentDB wire errors carry a numeric code with its name and description, and Hello carries the client version.
+- Update dependent SDK packages for the Agents 2.0 protocol and service client changes.
+- Bump uniffi-dart to 304bae06 so the generated Dart bindings no longer leak byte and string payloads.
+- Cancel and join pending publisher negotiations when a room closes, including the debounce wait, so negotiation tasks no longer retain peer connection factories, media threads, and encoder resources after teardown.
+- A `telemetry_configure` call with no transport after the opt-out is now refused like any other configure (`Ok`, storage erased) instead of failing with `NoTransport`, and the Android build pins `cargo-ndk` to 4.1.2.
+- Fix compilation of publisher negotiation lifecycle tests after the track-publishing join API update.
+- Fix Objective-C linking - #1394 (@ladvoc)
+- Mark data track unpublished after republish fail - #1537 (@ladvoc)
+- Add `RoomOptions::publish_tracks`, a list of tracks and their publish options published while connecting and sent with the join request in single peer connection mode to save the round trips of a separate `AddTrackRequest` and SDP negotiation; `livekit-signaling`'s `SignalClient::connect` now takes an `InitialPublish` instead of a bare publisher offer, and `RtcEngine::connect` takes the tracks to publish with the join. Local tracks now keep the WebRTC runtime that created them alive, so tracks created before connecting stay usable in the room; call `enable_zero_playout_delay` before creating local tracks, since it fails once the runtime is active. Publishing a track now fails as soon as the server refuses it instead of after the publish timeout, and a track muted before or while it is published stays muted instead of being re-enabled.
+- Reuse video frame conversion buffers across frames instead of allocating and freeing a frame-sized block for every frame.
+- Fix a debug-build abort when a data channel receives an empty message.
+- Fix an intermittent abort on Windows when a webrtc-sys call reports an error to Rust. The prebuilt libwebrtc is compiled with `_HAS_EXCEPTIONS=0`, and the build script copies that define onto this crate, so MSVC's `std::runtime_error(const std::string&)` kept only a pointer to the temporary message instead of copying it. `what()` then dangled while the exception unwound and cxx read freed memory to build the Rust `Err`. Error messages are now owned by the thrown exception.
+
 ## 0.14.0 (2026-11-13)
 
 ### Breaking Changes
