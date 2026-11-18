@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, TryLockError};
 use std::time::Duration;
+use std::{fmt, mem};
 
 use livekit::prelude::*;
 use livekit::SendTextOptions;
@@ -164,6 +164,31 @@ pub(crate) struct Inner {
     pub(crate) lifecycle: Mutex<Lifecycle>,
 }
 
+/// Prints a snapshot of the session's status. Omits the message contents,
+/// the token source and the room options, which can hold user content and
+/// credentials.
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let inner = &self.inner;
+        // Never block: the caller can hold the lifecycle lock.
+        let lifecycle = match inner.lifecycle.try_lock() {
+            Ok(lifecycle) => lifecycle.name(),
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner().name(),
+            Err(TryLockError::WouldBlock) => "<locked>",
+        };
+        let state = inner.shared.watch();
+        let state = state.borrow();
+        f.debug_struct("Session")
+            .field("lifecycle", &format_args!("{lifecycle}"))
+            .field("connection", &state.connection)
+            .field("agent", &state.agent)
+            .field("messages", &inner.shared.message_count())
+            .field("agent_connect_timeout", &inner.options.agent_connect_timeout)
+            .field("platform_audio", &inner.options.platform_audio)
+            .finish_non_exhaustive()
+    }
+}
+
 pub(crate) enum Lifecycle {
     Idle,
     Starting { generation: u64, cancel: oneshot::Sender<()> },
@@ -191,6 +216,15 @@ impl Running {
 }
 
 impl Lifecycle {
+    /// The name of the variant, for [`Session`]'s `Debug` output.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Idle => "Idle",
+            Self::Starting { .. } => "Starting",
+            Self::Running(_) => "Running",
+        }
+    }
+
     /// The running room, unless its actor has already stopped on its own.
     fn room(&self) -> Option<&Arc<Room>> {
         match self {
@@ -542,5 +576,21 @@ mod tests {
         assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
         let options = lock(&fetched).take().expect("source was not fetched");
         assert_eq!(options, TokenSourceFetchOptions::new().with_agent_name("my-agent"));
+    }
+
+    #[test]
+    fn debug_prints_status_without_blocking() {
+        let source = RecordingSource(Arc::default());
+        let options = SessionOptions::default().with_platform_audio(false);
+        let session = Session::with_agent(source, "my-agent", options);
+
+        let idle = format!("{session:?}");
+        assert!(idle.starts_with(
+            "Session { lifecycle: Idle, connection: Disconnected, agent: Disconnected, messages: 0"
+        ));
+        assert!(!idle.contains("my-agent"));
+
+        let _held = lock(&session.inner.lifecycle);
+        assert!(format!("{session:?}").contains("lifecycle: <locked>"));
     }
 }
