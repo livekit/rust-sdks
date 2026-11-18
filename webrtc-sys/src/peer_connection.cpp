@@ -108,7 +108,7 @@ void PeerConnection::set_configuration(RtcConfiguration config) const {
       peer_connection_->SetConfiguration(to_native_rtc_configuration(config));
 
   if (!result.ok()) {
-    throw std::runtime_error(serialize_error(to_error(result)));
+    throw BridgeException(serialize_error(to_error(result)));
   }
 }
 
@@ -124,7 +124,7 @@ void PeerConnection::set_bitrate(BitrateSettings settings) const {
   auto result = peer_connection_->SetBitrate(bitrate);
 
   if (!result.ok()) {
-    throw std::runtime_error(serialize_error(to_error(result)));
+    throw BridgeException(serialize_error(to_error(result)));
   }
 }
 
@@ -201,7 +201,7 @@ std::shared_ptr<DataChannel> PeerConnection::create_data_channel(
       peer_connection_->CreateDataChannelOrError(label.c_str(), &rtc_init);
 
   if (!result.ok()) {
-    throw std::runtime_error(serialize_error(to_error(result.error())));
+    throw BridgeException(serialize_error(to_error(result.error())));
   }
 
   return std::make_shared<DataChannel>(rtc_runtime_, result.value());
@@ -213,7 +213,7 @@ std::shared_ptr<RtpSender> PeerConnection::add_track(
   std::vector<std::string> std_stream_ids(stream_ids.begin(), stream_ids.end());
   auto result = peer_connection_->AddTrack(track->rtc_track(), std_stream_ids);
   if (!result.ok()) {
-    throw std::runtime_error(serialize_error(to_error(result.error())));
+    throw BridgeException(serialize_error(to_error(result.error())));
   }
 
   return std::make_shared<RtpSender>(rtc_runtime_, result.value(),
@@ -223,7 +223,7 @@ std::shared_ptr<RtpSender> PeerConnection::add_track(
 void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
   auto error = peer_connection_->RemoveTrackOrError(sender->rtc_sender());
   if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+    throw BridgeException(serialize_error(to_error(error)));
 }
 
 void PeerConnection::get_stats(
@@ -240,7 +240,7 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver(
   auto result = peer_connection_->AddTransceiver(
       track->rtc_track(), to_native_rtp_transceiver_init(init));
   if (!result.ok())
-    throw std::runtime_error(serialize_error(to_error(result.error())));
+    throw BridgeException(serialize_error(to_error(result.error())));
 
   return std::make_shared<RtpTransceiver>(rtc_runtime_, result.value(),
                                           peer_connection_);
@@ -254,7 +254,7 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
       to_native_rtp_transceiver_init(init));
 
   if (!result.ok())
-    throw std::runtime_error(serialize_error(to_error(result.error())));
+    throw BridgeException(serialize_error(to_error(result.error())));
 
   return std::make_shared<RtpTransceiver>(rtc_runtime_, result.value(),
                                           peer_connection_);
