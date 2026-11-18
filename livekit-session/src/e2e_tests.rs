@@ -182,11 +182,35 @@ async fn wait_for(
     let reached = timeout(WAIT, state.wait_for(predicate))
         .await
         .map_err(|_| anyhow!("timed out waiting for {what}; last {:?}", current(session)))??;
-    Ok(*reached)
+    Ok(reached.clone())
 }
 
-async fn wait_for_agent(session: &Session, agent_state: AgentState) -> Result<()> {
-    wait_for(session, &format!("{agent_state:?}"), |s| s.agent == agent_state).await?;
+/// What a test expects of the agent state, without the agent's tracks.
+#[derive(Clone, Copy, Debug)]
+enum Expect {
+    /// [`AgentState::Joined`] with the agent `AGENT` doing the activity.
+    Joined(AgentActivity),
+    /// [`AgentFailure::Timeout`], with or without an agent in the room.
+    TimedOut,
+    /// [`AgentFailure::Left`].
+    Left,
+}
+
+impl Expect {
+    fn matches(self, state: &AgentState) -> bool {
+        match (self, state) {
+            (Self::Joined(activity), AgentState::Joined(agent)) => {
+                agent.identity().as_str() == AGENT && agent.activity() == activity
+            }
+            (Self::TimedOut, AgentState::Failed(AgentFailure::Timeout { .. })) => true,
+            (Self::Left, AgentState::Failed(AgentFailure::Left)) => true,
+            _ => false,
+        }
+    }
+}
+
+async fn wait_for_agent(session: &Session, expect: Expect) -> Result<()> {
+    wait_for(session, &format!("{expect:?}"), |s| expect.matches(&s.agent)).await?;
     Ok(())
 }
 
@@ -209,7 +233,7 @@ fn is_idle(session: &Session) -> bool {
 }
 
 fn current(session: &Session) -> SessionState {
-    *session.state().borrow()
+    session.state().borrow().clone()
 }
 
 /// Options for a session that stays off the machine's audio devices.
@@ -254,16 +278,15 @@ async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
     drop(room);
 
     let mut state = session.state();
-    let wait =
-        tokio::spawn(
-            async move { state.wait_for(|s| s.agent.is_connected()).await.map(|s| *s).ok() },
-        );
+    let wait = tokio::spawn(async move {
+        state.wait_for(|s| s.agent.is_connected()).await.map(|s| s.clone()).ok()
+    });
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     let connected = timeout(WAIT, wait).await??.ok_or_else(|| anyhow!("state closed"))?;
-    assert_eq!(connected.agent, AgentState::Connected(AgentActivity::Listening));
+    assert!(Expect::Joined(AgentActivity::Listening).matches(&connected.agent));
 
     set_agent_state(&agent, "speaking").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Speaking)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Speaking)).await?;
 
     session.end().await;
     assert_eq!(current(&session), SessionState::default());
@@ -303,10 +326,10 @@ async fn agent_leaving_is_reported_as_left() -> Result<()> {
     let session = Session::new(env.user_source(false), text_options());
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
 
     agent.close().await?;
-    wait_for_agent(&session, AgentState::Failed(AgentFailure::Left)).await?;
+    wait_for_agent(&session, Expect::Left).await?;
     session.end().await;
     Ok(())
 }
@@ -317,7 +340,7 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
     let session = Session::new(env.user_source(false), text_options());
     session.start().await?;
     let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
     lock(&session.inner.shared.history).clear();
 
     let room = session.room().ok_or_else(|| anyhow!("no room"))?;
@@ -327,14 +350,14 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
         history.iter().any(|s| s.connection == SessionConnectionState::Reconnecting)
             && history.last().is_some_and(|s| {
                 s.connection == SessionConnectionState::Connected
-                    && s.agent == AgentState::Connected(AgentActivity::Listening)
+                    && Expect::Joined(AgentActivity::Listening).matches(&s.agent)
             })
     })
     .await?;
 
     let history = lock(&session.inner.shared.history).clone();
     assert!(
-        !history.iter().any(|s| s.agent == AgentState::Failed(AgentFailure::Left)),
+        !history.iter().any(|s| Expect::Left.matches(&s.agent)),
         "a full reconnect was reported as the agent leaving: {history:?}"
     );
     session.end().await;
@@ -347,10 +370,10 @@ async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()
     let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
     let session = Session::new(env.user_source(true), options);
     session.start().await?;
-    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+    wait_for_agent(&session, Expect::TimedOut).await?;
 
     let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
     session.end().await;
     Ok(())
 }
@@ -363,7 +386,7 @@ async fn timeout_is_armed_without_dispatch() -> Result<()> {
     // token naming none still waits for one.
     let session = Session::new(env.user_source(false), options);
     session.start().await?;
-    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+    wait_for_agent(&session, Expect::TimedOut).await?;
     session.end().await;
     Ok(())
 }
@@ -376,10 +399,10 @@ async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
     let (agent, _agent_events) = env.join_agent(AGENT, "initializing").await?;
     let session = Session::new(env.user_source(true), options);
     session.start().await?;
-    wait_for_agent(&session, AgentState::Failed(AgentFailure::Timeout)).await?;
+    wait_for_agent(&session, Expect::TimedOut).await?;
 
     set_agent_state(&agent, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
     session.end().await;
     Ok(())
 }
@@ -408,7 +431,7 @@ async fn messages_merge_chat_and_transcripts() -> Result<()> {
     let mut events = session.subscribe();
     session.start().await?;
     let (agent, mut agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
 
     // User input reaches the agent on lk.chat, under the id the feed uses.
     let sent = session.send_text("hello agent").await?;
@@ -483,7 +506,7 @@ async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
     session.start().await?;
     let mut app_events = session.room().ok_or_else(|| anyhow!("no room"))?.subscribe();
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
 
     agent
         .local_participant()
@@ -542,31 +565,33 @@ fn is_subscribed(session: &Session, sid: &TrackSid) -> bool {
 async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<()> {
     let env = TestEnv::new();
     let session = Session::new(env.user_source(false), text_options());
-    assert!(session.agent_audio_track().is_none());
+    assert!(current(&session).agent.audio_track().is_none());
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
-    assert!(session.agent_audio_track().is_none());
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
+    assert!(current(&session).agent.audio_track().is_none());
 
     // Only the microphone is the agent's voice.
     let other = publish_audio(&agent, TrackSource::ScreenshareAudio).await?;
     eventually("the screen share audio to be subscribed", || is_subscribed(&session, &other.sid()))
         .await?;
-    assert!(session.agent_audio_track().is_none());
-    assert!(!current(&session).agent_tracks.audio);
+    assert!(current(&session).agent.audio_track().is_none());
 
     let microphone = publish_audio(&agent, TrackSource::Microphone).await?;
-    wait_for(&session, "the agent's audio flag", |s| s.agent_tracks.audio).await?;
-    let track = session.agent_audio_track().ok_or_else(|| anyhow!("flag set, track missing"))?;
-    assert_eq!(track.sid(), microphone.sid());
+    let state =
+        wait_for(&session, "the agent's audio track", |s| s.agent.audio_track().is_some()).await?;
+    assert_eq!(state.agent.audio_track().map(RemoteAudioTrack::sid), Some(microphone.sid()));
+    // The track comes with the agent it belongs to, and what that agent does.
+    assert_eq!(state.agent.identity().map(ParticipantIdentity::as_str), Some(AGENT));
+    assert_eq!(state.agent.activity(), Some(AgentActivity::Listening));
+    drop(state);
 
     agent.local_participant().unpublish_track(&microphone.sid()).await?;
-    wait_for(&session, "the agent's audio flag to clear", |s| !s.agent_tracks.audio).await?;
-    assert!(session.agent_audio_track().is_none());
+    wait_for(&session, "the agent's audio track to go", |s| s.agent.audio_track().is_none())
+        .await?;
 
     session.end().await;
-    assert!(session.agent_audio_track().is_none());
-    assert_eq!(current(&session).agent_tracks, AgentTracks::default());
+    assert_eq!(current(&session), SessionState::default());
     Ok(())
 }
 
@@ -576,8 +601,8 @@ async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed()
     let session = Session::new(env.user_source(false), text_options());
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Listening)).await?;
-    assert!(session.agent_avatar_video_track().is_none());
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
+    assert!(current(&session).agent.avatar_video_track().is_none());
 
     // The agent's own camera is not an avatar.
     let agent_camera = publish_video(&agent, TrackSource::Camera).await?;
@@ -585,31 +610,52 @@ async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed()
         is_subscribed(&session, &agent_camera.sid())
     })
     .await?;
-    assert!(session.agent_avatar_video_track().is_none());
-    assert!(!current(&session).agent_tracks.avatar_video);
+    assert!(current(&session).agent.avatar_video_track().is_none());
 
     let (avatar, _avatar_events) = env.join_avatar_worker(AVATAR, AGENT).await?;
     let camera = publish_video(&avatar, TrackSource::Camera).await?;
-    wait_for(&session, "the avatar's video flag", |s| s.agent_tracks.avatar_video).await?;
-    let track =
-        session.agent_avatar_video_track().ok_or_else(|| anyhow!("flag set, track missing"))?;
-    assert_eq!(track.sid(), camera.sid());
-    assert!(session.agent_audio_track().is_none());
-    assert!(!current(&session).agent_tracks.audio);
+    let state =
+        wait_for(&session, "the avatar's video track", |s| s.agent.avatar_video_track().is_some())
+            .await?;
+    assert_eq!(state.agent.avatar_video_track().map(RemoteVideoTrack::sid), Some(camera.sid()));
+    assert!(state.agent.audio_track().is_none());
+    drop(state);
 
     // The worker is of kind agent too, and reports no agent state. The state
     // still follows the agent, so the worker was not taken for it.
     set_agent_state(&agent, "speaking").await?;
-    wait_for_agent(&session, AgentState::Connected(AgentActivity::Speaking)).await?;
+    wait_for_agent(&session, Expect::Joined(AgentActivity::Speaking)).await?;
 
     avatar.local_participant().unpublish_track(&camera.sid()).await?;
-    wait_for(&session, "the avatar's video flag to clear", |s| !s.agent_tracks.avatar_video)
-        .await?;
-    assert!(session.agent_avatar_video_track().is_none());
+    wait_for(&session, "the avatar's video track to go", |s| {
+        s.agent.avatar_video_track().is_none()
+    })
+    .await?;
 
     session.end().await;
-    assert!(session.agent_avatar_video_track().is_none());
-    assert_eq!(current(&session).agent_tracks, AgentTracks::default());
+    assert_eq!(current(&session), SessionState::default());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn timed_out_agent_keeps_its_audio_track() -> Result<()> {
+    let env = TestEnv::new();
+    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
+    // An agent that never reports a state is idle, so it times out while it
+    // is in the room and publishing.
+    let (agent, _agent_events) = env.join_agent(AGENT, "idle").await?;
+    let session = Session::new(env.user_source(true), options);
+    session.start().await?;
+    wait_for_agent(&session, Expect::TimedOut).await?;
+
+    let microphone = publish_audio(&agent, TrackSource::Microphone).await?;
+    let state =
+        wait_for(&session, "the agent's audio track", |s| s.agent.audio_track().is_some()).await?;
+    assert!(Expect::TimedOut.matches(&state.agent));
+    assert_eq!(state.agent.audio_track().map(RemoteAudioTrack::sid), Some(microphone.sid()));
+    drop(state);
+
+    session.end().await;
     Ok(())
 }
 

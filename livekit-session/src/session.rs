@@ -26,7 +26,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::actor::{lock, Connection, SessionActor, Shared};
-use crate::agent::{self, AgentState, AgentTracks};
+use crate::agent::AgentState;
 use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
 use crate::error::{MessageSendError, SessionStartError};
 use crate::messages::{Message, MessageOrigin, MessageUpdate};
@@ -287,7 +287,6 @@ impl Session {
             let generation = self.inner.shared.begin(SessionState {
                 connection: SessionConnectionState::Connecting,
                 agent: AgentState::Connecting,
-                agent_tracks: AgentTracks::default(),
             });
             let starting = Lifecycle::Starting { generation, cancel: cancel_tx };
             let stale = match mem::replace(&mut *lifecycle, starting) {
@@ -406,27 +405,6 @@ impl Session {
         lock(&self.inner.lifecycle).room().cloned()
     }
 
-    /// The agent's microphone track, once subscribed.
-    ///
-    /// [`AgentTracks::audio`] in [`SessionState::agent_tracks`] tells when
-    /// this changes. It can still return `None` after the flag is set, if the
-    /// track went away in between.
-    pub fn agent_audio_track(&self) -> Option<RemoteAudioTrack> {
-        let room = self.room()?;
-        agent::agent_audio_track(room.remote_participants().values())
-    }
-
-    /// The camera track of the agent's avatar, once subscribed. An avatar is a
-    /// separate participant publishing on the agent's behalf.
-    ///
-    /// [`AgentTracks::avatar_video`] in [`SessionState::agent_tracks`] tells
-    /// when this changes. It can still return `None` after the flag is set, if
-    /// the track went away in between.
-    pub fn agent_avatar_video_track(&self) -> Option<RemoteVideoTrack> {
-        let room = self.room()?;
-        agent::agent_avatar_video_track(room.remote_participants().values())
-    }
-
     /// Sends `text` to the agent as chat, and adds it to the feed as
     /// [`MessageOrigin::UserInput`] once sent. A failed send adds nothing.
     pub async fn send_text(&self, text: &str) -> Result<Message, MessageSendError> {
@@ -515,24 +493,21 @@ impl SessionConnectionState {
 }
 
 /// The observable state of a [`Session`] at one point in time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Holds the agent's tracks (see [`AgentState::audio_track`]), so a value
+/// kept after the session moved on keeps those tracks alive.
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionState {
     /// The state of the session's connection.
     pub connection: SessionConnectionState,
-    /// What the agent is doing.
+    /// Whether the agent is there, what it is doing, and its tracks.
     pub agent: AgentState,
-    /// Which of the agent's tracks are subscribed.
-    pub agent_tracks: AgentTracks,
 }
 
 impl Default for SessionState {
     fn default() -> Self {
-        Self {
-            connection: SessionConnectionState::Disconnected,
-            agent: AgentState::Disconnected,
-            agent_tracks: AgentTracks::default(),
-        }
+        Self { connection: SessionConnectionState::Disconnected, agent: AgentState::Disconnected }
     }
 }
 
