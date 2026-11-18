@@ -31,6 +31,7 @@ pub enum InputEvent {
     UnpublishRequest(UnpublishRequest),
     SfuPublishResponse(SfuPublishResponse),
     SfuUnpublishResponse(SfuUnpublishResponse),
+    SfuDemandUpdate(SfuDemandUpdate),
     /// Republish all tracks.
     ///
     /// This must be sent after a full reconnect in order for existing publications
@@ -112,6 +113,18 @@ pub struct SfuPublishResponse {
 pub struct SfuUnpublishResponse {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
+}
+
+/// SFU notification that a track's demand has changed (for dynacast).
+///
+/// Protocol equivalent: [`livekit_protocol::DataTrackDemandUpdate`].
+///
+#[derive(Debug)]
+pub struct SfuDemandUpdate {
+    /// Publisher handle of the track for which demand changed.
+    pub handle: Handle,
+    /// Whether or not the track currently has any subscribers.
+    pub has_subscribers: bool
 }
 
 // MARK: - Output events

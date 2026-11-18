@@ -99,6 +99,9 @@ impl Manager {
                 InputEvent::SfuUnpublishResponse(event) => {
                     self.on_sfu_unpublish_response(event).await
                 }
+                InputEvent::SfuDemandUpdate(event) => {
+                    self.on_sfu_demand_update(event).await
+                }
                 InputEvent::RepublishTracks => self.on_republish_tracks().await,
                 InputEvent::Shutdown => break,
             }
@@ -269,6 +272,10 @@ impl Manager {
 
     async fn on_sfu_unpublish_response(&mut self, event: SfuUnpublishResponse) {
         self.remove_descriptor(event.handle);
+    }
+
+    async fn on_sfu_demand_update(&mut self, _event: SfuDemandUpdate) {
+        todo!("Demand update not handled yet");
     }
 
     fn remove_descriptor(&mut self, handle: Handle) {

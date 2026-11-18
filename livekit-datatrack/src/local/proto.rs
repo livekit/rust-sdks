@@ -72,6 +72,15 @@ impl TryFrom<proto::UnpublishDataTrackResponse> for SfuUnpublishResponse {
     }
 }
 
+impl TryFrom<proto::DataTrackDemandUpdate> for SfuDemandUpdate {
+    type Error = InternalError;
+
+    fn try_from(msg: proto::DataTrackDemandUpdate) -> Result<Self, Self::Error> {
+        let handle: Handle = msg.pub_handle.try_into().map_err(anyhow::Error::from)?;
+        Ok(Self { handle, has_subscribers: msg.has_subscribers })
+    }
+}
+
 impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
     type Error = InternalError;
 
