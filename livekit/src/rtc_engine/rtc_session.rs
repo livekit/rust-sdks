@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     convert::TryInto,
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
@@ -123,6 +124,8 @@ enum NegotiationState {
 struct NegotiationQueue {
     state: Arc<Mutex<NegotiationState>>,
     waker: Arc<Notify>,
+    /// Taken and joined by [`RtcSession::close`] to release the task's session reference.
+    task: Mutex<Option<JoinHandle<()>>>,
     task_running: AtomicBool,
     waiting_for_answer: AtomicBool,
 }
@@ -132,6 +135,7 @@ impl NegotiationQueue {
         Self {
             state: Arc::new(Mutex::new(NegotiationState::Idle)),
             waker: Arc::new(Notify::new()),
+            task: Mutex::new(None),
             task_running: AtomicBool::new(false),
             waiting_for_answer: AtomicBool::new(false),
         }
@@ -476,6 +480,7 @@ struct SessionInner {
     emitter: SessionEmitter,
 
     options: EngineOptions,
+    close_rx: watch::Receiver<bool>,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
     negotiation_queue: NegotiationQueue,
 
@@ -734,6 +739,7 @@ impl RtcSession {
             disconnecting: Default::default(),
             emitter,
             options,
+            close_rx: close_rx.clone(),
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
@@ -980,10 +986,23 @@ impl RtcSession {
 
     /// Close the PeerConnections and the SignalClient
     pub async fn close(&self, reason: DisconnectReason) {
+        // Stop new negotiations before taking their handles, including requests racing close.
+        self.inner.closed.store(true, Ordering::Release);
+        let debouncer = self.inner.negotiation_debouncer.lock().take();
+        let negotiation_task = self.inner.negotiation_queue.task.lock().take();
+
         // Close the tasks
         let handle = self.handle.lock().take();
-        if let Some(handle) = handle {
+        if let Some(handle) = &handle {
             let _ = handle.close_tx.send(true);
+        }
+        if let Some(debouncer) = debouncer {
+            debouncer.cancel().await;
+        }
+        if let Some(task) = negotiation_task {
+            let _ = task.await;
+        }
+        if let Some(handle) = handle {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
@@ -2748,6 +2767,10 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+
         let fast_publish = self.fast_publish.load(Ordering::Acquire);
         self.has_published.store(true, Ordering::Release);
 
@@ -2767,6 +2790,10 @@ impl SessionInner {
     }
 
     fn queue_negotiation(self: &Arc<Self>) {
+        let mut task = self.negotiation_queue.task.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         let mut state = self.negotiation_queue.state.lock();
 
         match *state {
@@ -2782,10 +2809,21 @@ impl SessionInner {
                 drop(state);
 
                 let session = self.clone();
-                tokio::spawn(async move {
-                    session.execute_negotiation_with_retry().await;
+                let mut close_rx = self.close_rx.clone();
+                *task = Some(tokio::spawn(async move {
+                    let completed =
+                        cancel_on_close(&mut close_rx, session.execute_negotiation_with_retry())
+                            .await
+                            .is_some();
+                    if !completed {
+                        session
+                            .negotiation_queue
+                            .waiting_for_answer
+                            .store(false, Ordering::Release);
+                        *session.negotiation_queue.state.lock() = NegotiationState::Idle;
+                    }
                     session.negotiation_queue.task_running.store(false, Ordering::Release);
-                });
+                }));
             }
             NegotiationState::InProgress => {
                 log::debug!("queue_negotiation: marking for retry");
@@ -2843,16 +2881,21 @@ impl SessionInner {
 
     fn debounce_negotiation(self: &Arc<Self>) {
         let mut debouncer = self.negotiation_debouncer.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
 
         // call() returns an error if the debouncer has finished
         if debouncer.is_none() || debouncer.as_ref().unwrap().call().is_err() {
             let session = self.clone();
+            let mut close_rx = self.close_rx.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
-                log::debug!("negotiating the publisher (debounced)");
-                if let Err(err) =
+                let negotiate = async {
+                    log::debug!("negotiating the publisher (debounced)");
                     session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
-                {
+                };
+                if let Some(Err(err)) = cancel_on_close(&mut close_rx, negotiate).await {
                     log::error!("failed to negotiate the publisher: {:?}", err);
                 }
             }));
@@ -3000,6 +3043,24 @@ impl<T> Drop for PendingResponseGuard<'_, T> {
     }
 }
 
+/// Runs `future` until completion or session closure, returning `None` on cancellation.
+/// `close_rx` starts at `false` and signals closure with `true`.
+/// `future` is the operation to run and is dropped if closure wins.
+async fn cancel_on_close<T>(
+    close_rx: &mut watch::Receiver<bool>,
+    future: impl Future<Output = T>,
+) -> Option<T> {
+    // If close_rx is already true, nothing to cancel
+    if *close_rx.borrow() {
+        return None;
+    }
+
+    tokio::select! {
+        result = future => Some(result),
+        _ = close_rx.changed() => None,
+    }
+}
+
 /// Emit incoming data track packets as session events.
 pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<SessionEvent>) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
@@ -3093,9 +3154,16 @@ fn uses_negotiated_data_channels(
 
 #[cfg(test)]
 mod tests {
+    use std::{future, sync::Arc, time::Duration};
+
+    use tokio::{
+        sync::{oneshot, watch},
+        time::timeout,
+    };
+
     use super::{
-        parse_sdp_max_message_size, recovery_decision, uses_negotiated_data_channels,
-        DEFAULT_MAX_MESSAGE_SIZE,
+        cancel_on_close, parse_sdp_max_message_size, recovery_decision,
+        uses_negotiated_data_channels, DEFAULT_MAX_MESSAGE_SIZE,
     };
 
     /// The server picks negotiated data channels from the protocol the client advertised, so a
@@ -3110,6 +3178,123 @@ mod tests {
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
+
+    #[tokio::test]
+    async fn close_signal_releases_owner_held_by_pending_task() {
+        let (close_tx, mut close_rx) = watch::channel(false);
+        let owner = Arc::new(());
+        let owner_dropped = Arc::downgrade(&owner);
+        let (started_tx, started_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let pending = async move {
+                let _owner = owner;
+                started_tx.send(()).unwrap();
+                future::pending::<()>().await;
+            };
+            assert!(cancel_on_close(&mut close_rx, pending).await.is_none());
+        });
+
+        started_rx.await.unwrap();
+        close_tx.send(true).unwrap();
+        timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+        assert!(owner_dropped.upgrade().is_none());
+    }
+
+    #[cfg(feature = "__lk-e2e-test")]
+    mod negotiation_lifecycle {
+        use std::{env, sync::atomic::Ordering};
+
+        use livekit_token::{AccessToken, VideoGrants};
+        use tokio::sync::Notify;
+
+        use super::*;
+        use crate::{rtc_engine::rtc_session::RtcSession, DisconnectReason};
+
+        /// Connects a real session and waits for its initial publisher negotiation to finish.
+        async fn session() -> RtcSession {
+            let room = format!("negotiation-lifecycle-{}", libwebrtc::native::create_random_uuid());
+            let token = AccessToken::with_api_key(
+                &env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into()),
+                &env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into()),
+            )
+            .with_identity("publisher")
+            .with_grants(VideoGrants { room_join: true, room, ..Default::default() })
+            .to_jwt()
+            .unwrap();
+            let (session, _, _) = RtcSession::connect(
+                &env::var("LIVEKIT_URL").unwrap_or_else(|_| "http://localhost:7880".into()),
+                &token,
+                Default::default(),
+                None,
+            )
+            .await
+            .unwrap();
+
+            timeout(Duration::from_secs(5), async {
+                while session.inner.negotiation_queue.task_running.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("initial publisher negotiation did not finish");
+            session
+        }
+
+        /// Exercises the real task registration, close, and session destruction paths.
+        async fn check_release(fast_publish: bool, wait_for_offer: bool) {
+            let session = session().await;
+            let dropped = Arc::downgrade(&session.inner);
+            session.inner.fast_publish.store(fast_publish, Ordering::Release);
+
+            if !wait_for_offer {
+                // A lost signalling link must not mask the debounce delay with socket teardown.
+                session.inner.signal_client.close().await;
+            }
+
+            // Withhold the offer from signalling so fast negotiation cannot receive an answer.
+            let offered = Arc::new(Notify::new());
+            let offer_notification = offered.clone();
+            session.inner.publisher_pc.on_offer(Some(Box::new(move |_| {
+                offer_notification.notify_one();
+            })));
+            session.publisher_negotiation_needed();
+            if wait_for_offer {
+                timeout(Duration::from_secs(5), offered.notified())
+                    .await
+                    .expect("publisher did not create an offer");
+                assert!(session.inner.negotiation_queue.waiting_for_answer.load(Ordering::Acquire));
+                // Another request must leave the retry pending when close cancels the task.
+                session.publisher_negotiation_needed();
+            }
+
+            timeout(Duration::from_secs(15), session.close(DisconnectReason::ClientInitiated))
+                .await
+                .expect("session close did not finish");
+            drop(session);
+            assert!(
+                dropped.upgrade().is_none(),
+                "publisher negotiation retained SessionInner after close"
+            );
+        }
+
+        /// Closing during the debounce timer must release the session before returning.
+        #[tokio::test]
+        async fn close_releases_session_during_debounce_wait() {
+            check_release(false, false).await;
+        }
+
+        /// Closing before the spawned future is polled must release its session capture.
+        #[tokio::test]
+        async fn close_releases_session_before_fast_negotiation_starts() {
+            check_release(true, false).await;
+        }
+
+        /// Closing must cancel both the unanswered offer and its queued retry.
+        #[tokio::test]
+        async fn close_releases_session_waiting_for_publisher_answer() {
+            check_release(true, true).await;
+        }
+    }
 
     /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
     /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so
