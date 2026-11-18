@@ -106,11 +106,11 @@ impl DataChannelObserverWrapper {
     }
 
     fn on_message(&self, buffer: ffi::DataBuffer) {
-        // libwebrtc hands an empty message over with a null pointer, which
-        // `slice::from_raw_parts` does not accept (a debug build aborts on it).
         let data = if buffer.len == 0 {
             &[][..]
         } else {
+            // SAFETY: For a non-empty message, libwebrtc passes a pointer to `len` bytes that
+            // stay valid for the duration of this call. Only an empty message has a null pointer.
             unsafe { std::slice::from_raw_parts(buffer.ptr, buffer.len) }
         };
         self.observer.on_message(data, buffer.binary);
