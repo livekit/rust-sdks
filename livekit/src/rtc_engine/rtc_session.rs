@@ -3221,11 +3221,12 @@ mod tests {
             .with_grants(VideoGrants { room_join: true, room, ..Default::default() })
             .to_jwt()
             .unwrap();
-            let (session, _, _) = RtcSession::connect(
+            let (session, _, _, _) = RtcSession::connect(
                 &env::var("LIVEKIT_URL").unwrap_or_else(|_| "http://localhost:7880".into()),
                 &token,
                 Default::default(),
                 None,
+                &[],
             )
             .await
             .unwrap();
