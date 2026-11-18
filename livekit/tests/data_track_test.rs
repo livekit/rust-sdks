@@ -477,6 +477,69 @@ async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_dynacast() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let local_track = pub_room.local_participant().publish_data_track("my_track").await?;
+    let remote_track = wait_for_remote_track(&mut sub_room_event_rx).await?;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            match local_track.try_push(vec![0xFA; 64].into()) {
+                Err(err) if matches!(err.reason(), PushFrameErrorReason::NoSubscribers) => break,
+                _ => time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await
+    .expect("Pushes not rejected before subscribe");
+
+    let mut stream = remote_track.subscribe().await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            _ = local_track.try_push(vec![0xFA; 64].into());
+            let frame = timeout(Duration::from_millis(50), stream.next()).await;
+            if frame.is_ok_and(|frame| frame.is_some()) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("No frame received after subscribe");
+
+    drop(stream);
+    timeout(Duration::from_secs(5), async {
+        loop {
+            match local_track.try_push(vec![0xFA; 64].into()) {
+                Err(err) if matches!(err.reason(), PushFrameErrorReason::NoSubscribers) => break,
+                _ => time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await
+    .expect("Pushes not rejected after unsubscribe");
+
+    let mut stream = remote_track.subscribe().await?;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            _ = local_track.try_push(vec![0xFA; 64].into());
+            let frame = timeout(Duration::from_millis(50), stream.next()).await;
+            if frame.is_ok_and(|frame| frame.is_some()) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("No frame received after resubscribe");
+
+    Ok(())
+}
+
 /// Waits for the first remote data track to be published.
 #[cfg(feature = "__lk-e2e-test")]
 async fn wait_for_remote_track(
