@@ -99,9 +99,7 @@ impl Manager {
                 InputEvent::SfuUnpublishResponse(event) => {
                     self.on_sfu_unpublish_response(event).await
                 }
-                InputEvent::SfuDemandUpdate(event) => {
-                    self.on_sfu_demand_update(event).await
-                }
+                InputEvent::SfuDemandUpdate(event) => self.on_sfu_demand_update(event).await,
                 InputEvent::RepublishTracks => self.on_republish_tracks().await,
                 InputEvent::Shutdown => break,
             }
@@ -234,7 +232,7 @@ impl Manager {
                     let mut sid = info.sid.write().unwrap();
                     *sid = updated_info.sid();
                 }
-                _ = state_tx.send(PublishState::Published);
+                _ = state_tx.send(PublishState::Published { has_subscribers: None });
                 self.descriptors.insert(event.handle, descriptor);
             }
         }
@@ -249,7 +247,8 @@ impl Manager {
         let pipeline = Pipeline::new(pipeline_opts);
 
         let (frame_tx, frame_rx) = mpsc::channel(Self::FRAME_BUFFER_COUNT);
-        let (state_tx, state_rx) = watch::channel(PublishState::Published);
+        let (state_tx, state_rx) =
+            watch::channel(PublishState::Published { has_subscribers: None });
 
         let track_task = TrackTask {
             info: info.clone(),
@@ -274,8 +273,34 @@ impl Manager {
         self.remove_descriptor(event.handle);
     }
 
-    async fn on_sfu_demand_update(&mut self, _event: SfuDemandUpdate) {
-        todo!("Demand update not handled yet");
+    async fn on_sfu_demand_update(&mut self, event: SfuDemandUpdate) {
+        let Some(descriptor) = self.descriptors.get(&event.handle) else {
+            log::warn!("Received demand update for unknown track {}", event.handle);
+            return;
+        };
+        let Descriptor::Active { state_tx, .. } = descriptor else {
+            log::warn!("Received demand update for non-active track {}", event.handle);
+            return;
+        };
+        let modified = state_tx.send_if_modified(|state| match state {
+            PublishState::Published { has_subscribers } => {
+                has_subscribers.replace(event.has_subscribers) != Some(event.has_subscribers)
+            }
+            _ => {
+                log::warn!(
+                    "Received demand update in non-published state for track {}",
+                    event.handle
+                );
+                false
+            }
+        });
+        if modified {
+            log::debug!(
+                "Received demand update for track {}, has_subscribers={}",
+                event.handle,
+                event.has_subscribers
+            );
+        }
     }
 
     fn remove_descriptor(&mut self, handle: Handle) {
@@ -414,7 +439,11 @@ enum Descriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PublishState {
     /// Track is published.
-    Published,
+    Published {
+        /// Whether the track currently has any remote subscribers or `None`
+        /// if the SFU has not reported demand yet.
+        has_subscribers: Option<bool>,
+    },
     /// Track is being republished.
     Republishing,
     /// Track is no longer published.

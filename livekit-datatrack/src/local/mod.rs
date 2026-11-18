@@ -89,7 +89,11 @@ impl DataTrack<Local> {
             manager::PublishState::Unpublished => {
                 return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished))?;
             }
-            manager::PublishState::Published => {}
+            manager::PublishState::Published { has_subscribers: Some(false) } => {
+                // Only if there are known to be no subscribers.
+                return Err(PushFrameError::new(frame, PushFrameErrorReason::NoSubscribers))?;
+            }
+            manager::PublishState::Published { .. } => {}
         }
         self.inner()
             .frame_tx
@@ -273,6 +277,8 @@ pub enum PushFrameErrorReason {
     TrackUnpublished,
     /// Frame was dropped due to the pipeline queue being full.
     QueueFull,
+    /// Dynacast is enabled and the track currently has no remote subscribers.
+    NoSubscribers
 }
 
 impl fmt::Display for PushFrameErrorReason {
@@ -280,6 +286,7 @@ impl fmt::Display for PushFrameErrorReason {
         match self {
             Self::TrackUnpublished => write!(f, "track unpublished"),
             Self::QueueFull => write!(f, "queue full"),
+            Self::NoSubscribers => write!(f, "no remote subscribers")
         }
     }
 }
