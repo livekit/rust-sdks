@@ -532,7 +532,7 @@ impl ManagerInput {
 mod tests {
     use super::*;
     use crate::{
-        api::DataTrackSid,
+        api::{DataTrackSid, PushFrameErrorReason},
         e2ee::{EncryptedPayload, EncryptionError, EncryptionProvider},
         packet::Packet,
         utils::testing::expect_event,
@@ -785,6 +785,46 @@ mod tests {
 
         // SID updated in place, pushes succeed again
         assert_eq!(track.info().sid(), new_sid);
+        assert!(track.try_push(vec![0xFF].into()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_demand_update() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        tokio::spawn(manager.run());
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let handle = event.handle;
+        let info = DataTrackInfo {
+            sid: RwLock::new(Faker.fake()).into(),
+            pub_handle: handle,
+            name: "test".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublishResponse { handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+
+        let track = result_rx.await.unwrap().unwrap();
+
+        // Demand not yet reported, pushes succeed
+        assert!(track.try_push(vec![0xFF].into()).is_ok());
+
+        // SFU reports no subscribers, pushes fail
+        input.send(SfuDemandUpdate { handle, has_subscribers: false }.into()).unwrap();
+        sleep(Duration::from_millis(50)).await;
+        let err = track.try_push(vec![0xFF].into()).unwrap_err();
+        assert!(matches!(err.reason(), PushFrameErrorReason::NoSubscribers));
+
+        // SFU reports subscribers, pushes succeed again
+        input.send(SfuDemandUpdate { handle, has_subscribers: true }.into()).unwrap();
+        sleep(Duration::from_millis(50)).await;
         assert!(track.try_push(vec![0xFF].into()).is_ok());
     }
 
