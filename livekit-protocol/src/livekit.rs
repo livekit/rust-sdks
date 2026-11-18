@@ -3854,7 +3854,7 @@ pub mod signal_request {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof = "signal_response::Message", tags = "1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof = "signal_response::Message", tags = "1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 30, 31")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3948,6 +3948,9 @@ pub mod signal_response {
         /// Sent to data track subscribers to provide mapping from track SIDs to handles.
         #[prost(message, tag = "29")]
         DataTrackSubscriberHandles(super::DataTrackSubscriberHandles),
+        /// Sent to data track publisher to indicate a change in demand.
+        #[prost(message, tag = "32")]
+        DataTrackDemandUpdate(super::DataTrackDemandUpdate),
         /// Sent in response to `StoreDataBlobRequest`.
         #[prost(message, tag = "30")]
         StoreDataBlobResponse(super::StoreDataBlobResponse),
@@ -4074,6 +4077,15 @@ pub mod data_track_subscriber_handles {
         #[prost(string, tag = "3")]
         pub track_sid: ::prost::alloc::string::String,
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DataTrackDemandUpdate {
+    /// Publisher handle of the track.
+    #[prost(uint32, tag = "1")]
+    pub pub_handle: u32,
+    /// Whether or not the track currently has any subscribers.
+    #[prost(bool, tag = "2")]
+    pub has_subscribers: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TrickleRequest {
@@ -9006,7 +9018,8 @@ pub mod agent_db {
     }
     /// Data plane: one WebSocket per database, one message per frame, correlated
     /// by a client-chosen request_id. Result batches are paced by Credit, so the
-    /// server never sends more un-consumed batches than granted.
+    /// server never sends more un-consumed batches than granted. A frame is at
+    /// most 16 MiB, both ways.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Wire {
     }
@@ -9120,6 +9133,8 @@ pub mod agent_db {
             #[prost(message, repeated, tag = "1")]
             pub statements: ::prost::alloc::vec::Vec<Statement>,
         }
+        /// Unsupported: a request is one transaction and none spans requests, so
+        /// these are refused. Send the statements as one Batch.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Begin {
         }
@@ -9156,6 +9171,8 @@ pub mod agent_db {
             pub token: ::prost::alloc::string::String,
             #[prost(string, tag = "2")]
             pub database_id: ::prost::alloc::string::String,
+            #[prost(string, tag = "4")]
+            pub client_version: ::prost::alloc::string::String,
         }
         #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct HelloOk {
@@ -9228,13 +9245,17 @@ pub mod agent_db {
             #[prost(uint64, tag = "2")]
             pub total_rows: u64,
         }
+        /// A failed request. The server's table of codes says, for each, whether
+        /// the request may have applied and whether it may be sent again: a client
+        /// branches on code alone. Name and description are for people.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Error {
-            /// stable, machine-readable
+            #[prost(uint32, tag = "3")]
+            pub code: u32,
             #[prost(string, tag = "1")]
-            pub code: ::prost::alloc::string::String,
+            pub name: ::prost::alloc::string::String,
             #[prost(string, tag = "2")]
-            pub message: ::prost::alloc::string::String,
+            pub description: ::prost::alloc::string::String,
         }
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
         #[repr(i32)]
@@ -10044,6 +10065,8 @@ pub struct SimulationRun {
     /// Absent when the run ran each scenario once and required it to pass.
     #[prost(message, optional, tag = "23")]
     pub sampling: ::core::option::Option<simulation_run::SamplingOptions>,
+    #[prost(string, tag = "24")]
+    pub persona_model: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `SimulationRun`.
 pub mod simulation_run {
@@ -10604,6 +10627,8 @@ pub mod simulation_run {
             /// Named deployment of agent_name to dispatch to; empty is production.
             #[prost(string, tag = "18")]
             pub deployment: ::prost::alloc::string::String,
+            #[prost(string, tag = "19")]
+            pub persona_model: ::prost::alloc::string::String,
         }
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Response {
@@ -11244,6 +11269,7 @@ pub enum NodeType {
     Director = 6,
     HostedAgent = 7,
     Settings = 8,
+    Signal = 9,
 }
 impl NodeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -11260,6 +11286,7 @@ impl NodeType {
             Self::Director => "DIRECTOR",
             Self::HostedAgent => "HOSTED_AGENT",
             Self::Settings => "SETTINGS",
+            Self::Signal => "SIGNAL",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -11273,6 +11300,7 @@ impl NodeType {
             "DIRECTOR" => Some(Self::Director),
             "HOSTED_AGENT" => Some(Self::HostedAgent),
             "SETTINGS" => Some(Self::Settings),
+            "SIGNAL" => Some(Self::Signal),
             _ => None,
         }
     }

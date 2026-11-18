@@ -4,7 +4,7 @@
 /// during dev-mode hot reload.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentDevMessage {
-    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3")]
+    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3, 4")]
     pub message: ::core::option::Option<agent_dev_message::Message>,
 }
 /// Nested message and enum types in `AgentDevMessage`.
@@ -17,6 +17,8 @@ pub mod agent_dev_message {
         GetRunningJobsResponse(super::GetRunningAgentJobsResponse),
         #[prost(message, tag = "3")]
         ServerInfo(super::ServerInfo),
+        #[prost(message, tag = "4")]
+        Credentials(super::Credentials),
     }
 }
 /// ServerInfo is sent by the agent to the CLI when the dev-reload channel opens,
@@ -26,6 +28,22 @@ pub struct ServerInfo {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub url: ::prost::alloc::string::String,
+    /// set by an agent SDK that runs on LIVEKIT_TOKEN without an API key and secret
+    /// (token mode) and accepts Credentials
+    #[prost(bool, tag = "3")]
+    pub supports_token_mode: bool,
+}
+/// Credentials is sent by the CLI to an agent in token mode: a new worker token that
+/// replaces the one the agent runs with.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Credentials {
+    #[prost(string, tag = "1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
+    /// Unix seconds
+    #[prost(int64, tag = "3")]
+    pub expires_at: i64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetRunningAgentJobsRequest {
@@ -139,10 +157,10 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    /// Framework metadata recorded on the call, kept with the history. A delegating call records
-    /// where the request went: lk.delegation.task_id, lk.delegation.endpoint,
-    /// lk.delegation.transport and lk.delegation.profile.
-    #[prost(map = "string, string", tag = "6")]
+    /// Framework and provider metadata, including approval identities and resumable
+    /// tool/delegation state. Each value is JSON text, including quoted strings.
+    /// Readers may treat a value that is not valid JSON as a legacy plain string.
+    #[prost(map = "string, string", tag = "7")]
     pub extra: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1325,8 +1343,8 @@ pub mod agent_thread {
         }
     }
 }
-/// AgentTask: background work an agent runs within a thread, such as a booking
-/// that takes minutes.
+/// AgentTask: a framework task in a thread, including an incoming message's task.
+/// The application may label it with an optional name.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AgentTask {
 }
@@ -1361,22 +1379,28 @@ pub mod agent_task {
         #[prost(string, tag = "2")]
         pub thread_id: ::prost::alloc::string::String,
         /// The task's name, as the agent defines it.
-        #[prost(string, tag = "3")]
-        pub name: ::prost::alloc::string::String,
+        #[prost(string, optional, tag = "3")]
+        pub name: ::core::option::Option<::prost::alloc::string::String>,
+        /// The framework's A2A state: submitted, working, input-required, completed, failed,
+        /// canceled or rejected.
         #[prost(enumeration = "Status", tag = "4")]
         pub status: i32,
         #[prost(message, optional, tag = "5")]
         pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
-    /// A task is never UNSPECIFIED.
+    /// The framework's A2A task state. A task is never UNSPECIFIED.
+    /// Keep the existing completed, failed and canceled wire numbers.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Status {
         Unspecified = 0,
-        Running = 1,
+        Working = 1,
         Completed = 2,
         Failed = 3,
         Canceled = 4,
+        Submitted = 5,
+        InputRequired = 6,
+        Rejected = 7,
     }
     impl Status {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1386,20 +1410,26 @@ pub mod agent_task {
         pub fn as_str_name(&self) -> &'static str {
             match self {
                 Self::Unspecified => "UNSPECIFIED",
-                Self::Running => "RUNNING",
+                Self::Working => "WORKING",
                 Self::Completed => "COMPLETED",
                 Self::Failed => "FAILED",
                 Self::Canceled => "CANCELED",
+                Self::Submitted => "SUBMITTED",
+                Self::InputRequired => "INPUT_REQUIRED",
+                Self::Rejected => "REJECTED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
                 "UNSPECIFIED" => Some(Self::Unspecified),
-                "RUNNING" => Some(Self::Running),
+                "WORKING" => Some(Self::Working),
                 "COMPLETED" => Some(Self::Completed),
                 "FAILED" => Some(Self::Failed),
                 "CANCELED" => Some(Self::Canceled),
+                "SUBMITTED" => Some(Self::Submitted),
+                "INPUT_REQUIRED" => Some(Self::InputRequired),
+                "REJECTED" => Some(Self::Rejected),
                 _ => None,
             }
         }
