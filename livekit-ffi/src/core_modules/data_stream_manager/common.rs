@@ -58,9 +58,6 @@ impl From<ClientCapability> for common::ClientCapability {
 
 /// A foreign transport failed to deliver outbound packets; thrown by hosts from
 /// [`OutgoingDataStreamManagerDelegate::on_packets_available`](super::outgoing::OutgoingDataStreamManagerDelegate::on_packets_available).
-///
-/// Morally `struct PacketDeliveryError(String)`, but uniffi error types must be enums, so the
-/// string travels as the single variant's `reason` (free-form host context: logged, not parsed).
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum PacketDeliveryError {
     #[error("failed to deliver packets: {reason}")]
