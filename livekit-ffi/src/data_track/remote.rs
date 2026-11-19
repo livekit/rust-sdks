@@ -115,6 +115,8 @@ impl From<DataTrackSubscribeOptions> for livekit_datatrack::api::DataTrackSubscr
 /// FFI wrapper around [`livekit_datatrack::api::RemoteDataTrackPipelineOptions`]. The underlying
 /// type uses the builder pattern with private fields.
 ///
+/// An unset field takes the core type's default, so that value lives only in `livekit-datatrack`.
+///
 #[derive(uniffi::Record)]
 pub struct RemoteDataTrackPipelineOptions {
     /// Maximum number of partial frames the depacketizer will track concurrently for this track.
@@ -122,16 +124,19 @@ pub struct RemoteDataTrackPipelineOptions {
     /// Higher values give more out-of-order tolerance for high-frequency senders at the cost of
     /// additional buffering. Zero is clamped to one.
     ///
-    #[uniffi(default = 1)]
-    pub max_partial_frames: u32,
+    #[uniffi(default)]
+    pub max_partial_frames: Option<u32>,
 }
 
 impl From<RemoteDataTrackPipelineOptions>
     for livekit_datatrack::api::RemoteDataTrackPipelineOptions
 {
     fn from(options: RemoteDataTrackPipelineOptions) -> Self {
-        livekit_datatrack::api::RemoteDataTrackPipelineOptions::default()
-            .with_max_partial_frames(options.max_partial_frames as usize)
+        let mut core = Self::default();
+        if let Some(max_partial_frames) = options.max_partial_frames {
+            core = core.with_max_partial_frames(max_partial_frames as usize);
+        }
+        core
     }
 }
 
