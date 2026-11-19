@@ -22,7 +22,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use livekit_common as common;
-use livekit_data_stream::api as ds_api;
+use livekit_data_stream::api as data_stream_api;
 
 use super::outgoing::StreamProgressDelegate;
 
@@ -56,7 +56,7 @@ impl From<EncryptionType> for common::EncryptionType {
     }
 }
 
-/// Operation type for text streams, mirroring [`ds_api::OperationType`].
+/// Operation type for text streams, mirroring [`data_stream_api::OperationType`].
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationType {
     Create,
@@ -65,18 +65,18 @@ pub enum OperationType {
     Reaction,
 }
 
-impl From<ds_api::OperationType> for OperationType {
-    fn from(value: ds_api::OperationType) -> Self {
+impl From<data_stream_api::OperationType> for OperationType {
+    fn from(value: data_stream_api::OperationType) -> Self {
         match value {
-            ds_api::OperationType::Create => Self::Create,
-            ds_api::OperationType::Update => Self::Update,
-            ds_api::OperationType::Delete => Self::Delete,
-            ds_api::OperationType::Reaction => Self::Reaction,
+            data_stream_api::OperationType::Create => Self::Create,
+            data_stream_api::OperationType::Update => Self::Update,
+            data_stream_api::OperationType::Delete => Self::Delete,
+            data_stream_api::OperationType::Reaction => Self::Reaction,
         }
     }
 }
 
-impl From<OperationType> for ds_api::OperationType {
+impl From<OperationType> for data_stream_api::OperationType {
     fn from(value: OperationType) -> Self {
         match value {
             OperationType::Create => Self::Create,
@@ -89,7 +89,7 @@ impl From<OperationType> for ds_api::OperationType {
 
 // MARK: - Info records
 
-/// Information about a byte data stream. FFI wrapper around [`ds_api::ByteStreamInfo`].
+/// Information about a byte data stream. FFI wrapper around [`data_stream_api::ByteStreamInfo`].
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct ByteStreamInfo {
     pub id: String,
@@ -103,8 +103,8 @@ pub struct ByteStreamInfo {
     pub encryption_type: EncryptionType,
 }
 
-impl From<ds_api::ByteStreamInfo> for ByteStreamInfo {
-    fn from(info: ds_api::ByteStreamInfo) -> Self {
+impl From<data_stream_api::ByteStreamInfo> for ByteStreamInfo {
+    fn from(info: data_stream_api::ByteStreamInfo) -> Self {
         let attributes = info.attributes();
         Self {
             id: info.id,
@@ -119,7 +119,7 @@ impl From<ds_api::ByteStreamInfo> for ByteStreamInfo {
     }
 }
 
-/// Information about a text data stream. FFI wrapper around [`ds_api::TextStreamInfo`].
+/// Information about a text data stream. FFI wrapper around [`data_stream_api::TextStreamInfo`].
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct TextStreamInfo {
     pub id: String,
@@ -137,8 +137,8 @@ pub struct TextStreamInfo {
     pub encryption_type: EncryptionType,
 }
 
-impl From<ds_api::TextStreamInfo> for TextStreamInfo {
-    fn from(info: ds_api::TextStreamInfo) -> Self {
+impl From<data_stream_api::TextStreamInfo> for TextStreamInfo {
+    fn from(info: data_stream_api::TextStreamInfo) -> Self {
         let attributes = info.attributes();
         Self {
             id: info.id,
@@ -159,7 +159,7 @@ impl From<ds_api::TextStreamInfo> for TextStreamInfo {
 
 // MARK: - Progress
 
-/// Progress of a data stream. FFI wrapper around [`ds_api::StreamProgress`].
+/// Progress of a data stream. FFI wrapper around [`data_stream_api::StreamProgress`].
 #[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StreamProgress {
     /// Bytes received or sent so far, counted before compression.
@@ -168,16 +168,16 @@ pub struct StreamProgress {
     pub bytes_total: Option<u64>,
 }
 
-impl From<ds_api::StreamProgress> for StreamProgress {
-    fn from(progress: ds_api::StreamProgress) -> Self {
+impl From<data_stream_api::StreamProgress> for StreamProgress {
+    fn from(progress: data_stream_api::StreamProgress) -> Self {
         Self { bytes_processed: progress.bytes_processed(), bytes_total: progress.bytes_total() }
     }
 }
 
 // MARK: - Option records
 
-/// Converts to [`ds_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop
-/// `total_length`, and to [`ds_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`
+/// Converts to [`data_stream_api::SendByteOptions`] for `send_bytes` and `send_file`, which drop
+/// `total_length`, and to [`data_stream_api::StreamByteOptions`] for `stream_bytes`, which drops `compress`
 /// and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamByteOptions {
@@ -203,7 +203,7 @@ pub struct StreamByteOptions {
 }
 
 /// Converts to send options, keeping `compress`; the send derives the payload length.
-impl From<StreamByteOptions> for ds_api::SendByteOptions {
+impl From<StreamByteOptions> for data_stream_api::SendByteOptions {
     fn from(value: StreamByteOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
@@ -221,7 +221,7 @@ impl From<StreamByteOptions> for ds_api::SendByteOptions {
 
 /// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
 /// and `progress`.
-impl From<StreamByteOptions> for ds_api::StreamByteOptions {
+impl From<StreamByteOptions> for data_stream_api::StreamByteOptions {
     fn from(value: StreamByteOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
@@ -236,8 +236,8 @@ impl From<StreamByteOptions> for ds_api::StreamByteOptions {
     }
 }
 
-/// Converts to [`ds_api::SendTextOptions`] for `send_text`, which drops `total_length`, and to
-/// [`ds_api::StreamTextOptions`] for `stream_text`, which drops `compress` and `progress`.
+/// Converts to [`data_stream_api::SendTextOptions`] for `send_text`, which drops `total_length`, and to
+/// [`data_stream_api::StreamTextOptions`] for `stream_text`, which drops `compress` and `progress`.
 #[derive(uniffi::Record, Clone, Debug, Default)]
 pub struct StreamTextOptions {
     pub topic: String,
@@ -270,7 +270,7 @@ pub struct StreamTextOptions {
 }
 
 /// Converts to send options, keeping `compress`; the send derives the payload length.
-impl From<StreamTextOptions> for ds_api::SendTextOptions {
+impl From<StreamTextOptions> for data_stream_api::SendTextOptions {
     fn from(value: StreamTextOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
@@ -291,7 +291,7 @@ impl From<StreamTextOptions> for ds_api::SendTextOptions {
 
 /// Converts to incremental stream options, keeping `total_length` and ignoring `compress`
 /// and `progress`.
-impl From<StreamTextOptions> for ds_api::StreamTextOptions {
+impl From<StreamTextOptions> for data_stream_api::StreamTextOptions {
     fn from(value: StreamTextOptions) -> Self {
         let mut options = Self::new_with_topic(value.topic);
         options.attributes = value.attributes;
@@ -311,7 +311,7 @@ impl From<StreamTextOptions> for ds_api::StreamTextOptions {
 
 // MARK: - Error
 
-/// A data stream operation failed. Structured mirror of [`ds_api::StreamError`] so foreign callers
+/// A data stream operation failed. Structured mirror of [`data_stream_api::StreamError`] so foreign callers
 /// can map each case to their own error type; variants carrying a message forward it as `message`.
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 pub enum DataStreamError {
@@ -364,29 +364,29 @@ pub enum DataStreamError {
     InvalidFileName,
 }
 
-impl From<ds_api::StreamError> for DataStreamError {
-    fn from(error: ds_api::StreamError) -> Self {
+impl From<data_stream_api::StreamError> for DataStreamError {
+    fn from(error: data_stream_api::StreamError) -> Self {
         match error {
-            ds_api::StreamError::AlreadyClosed => Self::AlreadyClosed,
-            ds_api::StreamError::AbnormalEnd(reason) => Self::AbnormalEnd { reason },
-            ds_api::StreamError::Utf8(error) => Self::Utf8 { reason: error.to_string() },
-            ds_api::StreamError::InvalidHeader => Self::InvalidHeader,
-            ds_api::StreamError::MissedChunk => Self::MissedChunk,
-            ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
-            ds_api::StreamError::Incomplete => Self::Incomplete,
-            ds_api::StreamError::SendFailed => Self::SendFailed,
-            ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
-            ds_api::StreamError::Internal => Self::Internal,
-            ds_api::StreamError::EncryptionTypeMismatch { expected, received } => {
+            data_stream_api::StreamError::AlreadyClosed => Self::AlreadyClosed,
+            data_stream_api::StreamError::AbnormalEnd(reason) => Self::AbnormalEnd { reason },
+            data_stream_api::StreamError::Utf8(error) => Self::Utf8 { reason: error.to_string() },
+            data_stream_api::StreamError::InvalidHeader => Self::InvalidHeader,
+            data_stream_api::StreamError::MissedChunk => Self::MissedChunk,
+            data_stream_api::StreamError::LengthExceeded => Self::LengthExceeded,
+            data_stream_api::StreamError::Incomplete => Self::Incomplete,
+            data_stream_api::StreamError::SendFailed => Self::SendFailed,
+            data_stream_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
+            data_stream_api::StreamError::Internal => Self::Internal,
+            data_stream_api::StreamError::EncryptionTypeMismatch { expected, received } => {
                 Self::EncryptionTypeMismatch {
                     expected: expected.into(),
                     received: received.into(),
                 }
             }
-            ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
-            ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
-            ds_api::StreamError::Decompression => Self::Decompression,
-            ds_api::StreamError::InvalidFileName => Self::InvalidFileName,
+            data_stream_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
+            data_stream_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
+            data_stream_api::StreamError::Decompression => Self::Decompression,
+            data_stream_api::StreamError::InvalidFileName => Self::InvalidFileName,
         }
     }
 }
@@ -394,8 +394,8 @@ impl From<ds_api::StreamError> for DataStreamError {
 /// Wraps the foreign progress delegate for the core's send options.
 fn progress_callback(
     progress: Option<Arc<dyn StreamProgressDelegate>>,
-) -> Option<ds_api::StreamProgressCallback> {
+) -> Option<data_stream_api::StreamProgressCallback> {
     progress.map(|progress| {
-        ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
+        data_stream_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
     })
 }

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::{api as data_stream_api, backend as ds};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -163,11 +163,11 @@ impl DelegateForwardTask {
             }) => {
                 let identity = participant_identity.to_string();
                 match stream_reader {
-                    ds_api::AnyStreamReader::Byte(reader) => {
+                    data_stream_api::AnyStreamReader::Byte(reader) => {
                         let reader = Arc::new(ByteStreamReader::new(reader));
                         self.delegate.on_byte_stream_opened(reader, identity);
                     }
-                    ds_api::AnyStreamReader::Text(reader) => {
+                    data_stream_api::AnyStreamReader::Text(reader) => {
                         let reader = Arc::new(TextStreamReader::new(reader));
                         self.delegate.on_text_stream_opened(reader, identity);
                     }

@@ -16,24 +16,24 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::stream::{BoxStream, StreamExt};
-use livekit_data_stream::api as ds_api;
+use livekit_data_stream::api as data_stream_api;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use super::common::{ByteStreamInfo, DataStreamError, StreamProgress, TextStreamInfo};
-use ds_api::StreamReader as _;
+use data_stream_api::StreamReader as _;
 
 /// Reader for an incoming byte data stream.
 #[derive(uniffi::Object)]
 pub struct ByteStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
-    info: ds_api::ByteStreamInfo,
+    info: data_stream_api::ByteStreamInfo,
     /// The core reader, or `None` once the reader was closed.
-    inner: Arc<Mutex<Option<ds_api::ByteStreamReader>>>,
-    progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    inner: Arc<Mutex<Option<data_stream_api::ByteStreamReader>>>,
+    progress: Mutex<BoxStream<'static, data_stream_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
-    closer: ds_api::StreamCloser,
+    closer: data_stream_api::StreamCloser,
     // After the migration is complete, this field can be removed.
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
@@ -43,7 +43,7 @@ pub struct ByteStreamReader {
 crate::migrate_from_ffi!(ByteStreamReader);
 
 impl ByteStreamReader {
-    pub(crate) fn new(reader: ds_api::ByteStreamReader) -> Self {
+    pub(crate) fn new(reader: data_stream_api::ByteStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
@@ -59,7 +59,7 @@ impl ByteStreamReader {
     /// then reads as closed here, without ending the stream. After the migration is complete,
     /// this can be removed.
     #[cfg(feature = "room-apis")]
-    pub(crate) async fn take_inner(&self) -> Option<ds_api::ByteStreamReader> {
+    pub(crate) async fn take_inner(&self) -> Option<data_stream_api::ByteStreamReader> {
         self.closed.cancel();
         self.inner.lock().await.take()
     }
@@ -118,13 +118,13 @@ impl ByteStreamReader {
 #[derive(uniffi::Object)]
 pub struct TextStreamReader {
     /// Shares its attribute map with the core, which merges trailer attributes into it.
-    info: ds_api::TextStreamInfo,
+    info: data_stream_api::TextStreamInfo,
     /// The core reader, or `None` once the reader was closed.
-    inner: Arc<Mutex<Option<ds_api::TextStreamReader>>>,
-    progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    inner: Arc<Mutex<Option<data_stream_api::TextStreamReader>>>,
+    progress: Mutex<BoxStream<'static, data_stream_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
-    closer: ds_api::StreamCloser,
+    closer: data_stream_api::StreamCloser,
     // After the migration is complete, this field can be removed.
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
@@ -134,7 +134,7 @@ pub struct TextStreamReader {
 crate::migrate_from_ffi!(TextStreamReader);
 
 impl TextStreamReader {
-    pub(crate) fn new(reader: ds_api::TextStreamReader) -> Self {
+    pub(crate) fn new(reader: data_stream_api::TextStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
@@ -150,7 +150,7 @@ impl TextStreamReader {
     /// then reads as closed here, without ending the stream. After the migration is complete,
     /// this can be removed.
     #[cfg(feature = "room-apis")]
-    pub(crate) async fn take_inner(&self) -> Option<ds_api::TextStreamReader> {
+    pub(crate) async fn take_inner(&self) -> Option<data_stream_api::TextStreamReader> {
         self.closed.cancel();
         self.inner.lock().await.take()
     }
@@ -227,7 +227,7 @@ async fn unless_closed<T>(
 }
 
 /// Reads the next chunk, unless the reader is closed first.
-async fn next_chunk<R: ds_api::StreamReader + Unpin>(
+async fn next_chunk<R: data_stream_api::StreamReader + Unpin>(
     reader: &mut Option<R>,
     closed: &CancellationToken,
 ) -> Result<Option<R::Output>, DataStreamError> {
@@ -240,7 +240,7 @@ async fn next_chunk<R: ds_api::StreamReader + Unpin>(
 
 /// Waits for the next progress update, unless the reader is closed first.
 async fn next_progress(
-    progress: &Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    progress: &Mutex<BoxStream<'static, data_stream_api::StreamProgress>>,
     closed: &CancellationToken,
 ) -> Option<StreamProgress> {
     let mut progress = progress.lock().await;
@@ -252,7 +252,7 @@ async fn next_progress(
 fn close_reader<R: Send + 'static>(
     reader: &Arc<Mutex<Option<R>>>,
     closed: &CancellationToken,
-    closer: &ds_api::StreamCloser,
+    closer: &data_stream_api::StreamCloser,
 ) {
     if closed.is_cancelled() {
         return;

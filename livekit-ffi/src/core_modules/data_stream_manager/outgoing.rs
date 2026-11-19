@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use livekit_common as lk_common;
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::{api as data_stream_api, backend as ds};
 use prost::Message as _;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -117,7 +117,7 @@ impl OutgoingDataStreamManager {
                             let result = delegate
                                 .on_packets_available(encoded)
                                 .await
-                                .map_err(|_| ds_api::SendError);
+                                .map_err(|_| data_stream_api::SendError);
                             let _ = responder.respond(result);
                         }
                         Err(_) => break,

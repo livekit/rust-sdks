@@ -15,10 +15,10 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use livekit_data_stream::api as ds_api;
+use livekit_data_stream::api as data_stream_api;
 
 use super::common::{ByteStreamInfo, DataStreamError, StreamProgress, TextStreamInfo};
-use ds_api::StreamWriter as _;
+use data_stream_api::StreamWriter as _;
 
 /// Receives the progress of an outgoing send, implemented by the foreign side.
 #[uniffi::export(with_foreign)]
@@ -40,7 +40,7 @@ impl std::fmt::Debug for dyn StreamProgressDelegate {
 /// Writer for an open text data stream.
 #[derive(uniffi::Object)]
 pub struct TextStreamWriter {
-    inner: ds_api::TextStreamWriter,
+    inner: data_stream_api::TextStreamWriter,
     // After the migration is complete, this field can be removed.
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
@@ -50,7 +50,7 @@ pub struct TextStreamWriter {
 crate::migrate_from_ffi!(TextStreamWriter);
 
 impl TextStreamWriter {
-    pub(crate) fn new(inner: ds_api::TextStreamWriter) -> Self {
+    pub(crate) fn new(inner: data_stream_api::TextStreamWriter) -> Self {
         Self {
             inner,
             #[cfg(feature = "room-apis")]
@@ -61,7 +61,7 @@ impl TextStreamWriter {
     /// The wrapped writer, for the room-apis request handlers. After the migration is complete,
     /// this can be removed.
     #[cfg(feature = "room-apis")]
-    pub(crate) fn inner(&self) -> &ds_api::TextStreamWriter {
+    pub(crate) fn inner(&self) -> &data_stream_api::TextStreamWriter {
         &self.inner
     }
 }
@@ -103,7 +103,7 @@ impl TextStreamWriter {
 /// Writer for an open byte data stream.
 #[derive(uniffi::Object)]
 pub struct ByteStreamWriter {
-    inner: ds_api::ByteStreamWriter,
+    inner: data_stream_api::ByteStreamWriter,
     // After the migration is complete, this field can be removed.
     #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
@@ -113,7 +113,7 @@ pub struct ByteStreamWriter {
 crate::migrate_from_ffi!(ByteStreamWriter);
 
 impl ByteStreamWriter {
-    pub(crate) fn new(inner: ds_api::ByteStreamWriter) -> Self {
+    pub(crate) fn new(inner: data_stream_api::ByteStreamWriter) -> Self {
         Self {
             inner,
             #[cfg(feature = "room-apis")]
@@ -124,7 +124,7 @@ impl ByteStreamWriter {
     /// The wrapped writer, for the room-apis request handlers. After the migration is complete,
     /// this can be removed.
     #[cfg(feature = "room-apis")]
-    pub(crate) fn inner(&self) -> &ds_api::ByteStreamWriter {
+    pub(crate) fn inner(&self) -> &data_stream_api::ByteStreamWriter {
         &self.inner
     }
 }
