@@ -1,13 +1,44 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# After the release PR merges: tag and create the GitHub releases, then
+# publish the crates, the FFI libraries and the Node bindings. verwalter
+# reads the tags and the releases and finishes what is missing, so a failed
+# run is run again. Use "Re-run failed jobs" first: it keeps the merge commit.
+# A new run by hand needs `ref`, else it releases from the head of the branch.
 name: Release
 
 on:
   pull_request:
     types: [closed]
     branches: [main]
+  # Run by hand after a fix. With `package`, that package is reported again
+  # even when it is complete, so the publish job runs for it.
   workflow_dispatch:
     inputs:
+      package:
+        description: "Only this package. It is always reported to the publish job."
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Commit to release from. Use the merge commit of the release PR. Default: the head of the selected branch, which is correct only if it did not move since the release PR merged."
+        required: false
+        type: string
+        default: ""
       dry_run:
-        description: "Dry run: build artifacts but skip publishing/releasing."
+        description: "Dry run: print every tag, release and publish step instead of doing it. The FFI and Node builds run without an upload."
         required: false
         type: boolean
         default: false
@@ -17,12 +48,78 @@ permissions:
   contents: write
 
 jobs:
+  release:
+    # Only the release PR that verwalter opened. The branch prefix alone
+    # would let any pushed `release/*` branch start a publish.
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/') && github.event.pull_request.user.login == 'verwalter-release[bot]' && contains(github.event.pull_request.body, '<!-- verwalter release -->'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.verwalter.outputs.released }}
+      releases: ${{ steps.verwalter.outputs.releases }}
+      ffi_tag: ${{ steps.ffi.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The merge commit itself: a push to main right after the merge
+          # must not move the tags. A run by hand has no merge commit: it
+          # takes `ref`, else the head of the branch.
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - id: verwalter
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: release
+          dry-run: ${{ inputs.dry_run || false }}
+          args: ${{ inputs.package && format('--package {0}', inputs.package) || '' }}
+
+      # The tag of the livekit-ffi release, for the `ffi` and Node jobs.
+      # Empty when livekit-ffi is not in this release.
+      - name: Find the livekit-ffi release
+        id: ffi
+        if: steps.verwalter.outputs.released == 'true' && inputs.dry_run != true
+        env:
+          RELEASES: ${{ steps.verwalter.outputs.releases }}
+        run: |
+          set -euo pipefail
+          TAG=$(jq -r '.[] | select(.package == "livekit-ffi") | .tag' <<<"$RELEASES")
+          echo "livekit-ffi release: '${TAG}'"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  # The livekit-ffi release is a draft (`release.draft` in verwalter.toml).
+  # ffi-builds.yml builds the libraries, attaches them, makes the release
+  # public, and publishes the UniFFI packages. It is a job of this run, not
+  # a dispatch: a failed build makes this run red, and "Re-run failed jobs"
+  # runs it again on the same commit. A release that is already public and
+  # complete is left alone. A dry run builds and uploads nothing.
+  ffi:
+    name: FFI
+    needs: release
+    if: needs.release.outputs.ffi_tag != '' || inputs.dry_run == true
+    permissions:
+      contents: write # release assets
+      actions: write # the dispatch of uniffi-dart-publish.yml
+    uses: ./.github/workflows/ffi-builds.yml
+    with:
+      tag_name: ${{ needs.release.outputs.ffi_tag }}
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
+
+  # Runs `cargo publish --no-verify` for each released crate, dependencies
+  # first. A version that crates.io has is skipped, so a second run is safe.
+  # A failure blocks the dependents of that crate and nothing else.
   publish-crates:
-    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
+    needs: release
+    if: needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          fetch-depth: 0 # the tags decide what is published
           submodules: recursive
 
       - name: Setup Rust toolchain
@@ -31,29 +128,72 @@ jobs:
           cache: false
           rustflags: ""
 
-      # The release PR check (release-pr-check.yml) is the primary gate. This
-      # step also covers a workflow_dispatch run, which has no release PR.
+      # The check on the release PR (changeset-check.yml) is the primary gate.
+      # This step also covers a workflow_dispatch run, which has no release PR.
       - name: Check crates exist on crates.io
         run: .github/scripts/check_crates_published.sh
-
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c # v1.22.0
-
-      - name: Install cargo-release
-        run: cargo binstall cargo-release@1.1.2 --no-confirm
 
       - name: Authenticate with crates.io
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-      - name: Publish to crates.io
-        run: cargo release publish --workspace --no-confirm --no-verify ${{ inputs.dry_run != true && '--execute' || '' }}
+      - uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
         env:
+          GH_TOKEN: ${{ github.token }} # publishes the draft release of each crate once crates.io has the version
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        with:
+          command: publish
+          dry-run: ${{ inputs.dry_run || false }}
+          releases: ${{ needs.release.outputs.releases }}
 
+  # The npm packages carry the livekit-ffi version. `pnpm publish -r` skips a
+  # version that npm has. A run by hand without `package` is the recovery of
+  # a whole release, so it includes the Node bindings. To publish them again
+  # alone, run node-builds.yml, or this workflow with `package: livekit-ffi`.
   call-node-ffi:
     name: Call Node FFI Builds
-    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
+    needs: release
+    if: needs.release.outputs.ffi_tag != '' || (github.event_name == 'workflow_dispatch' && inputs.package == '')
     uses: ./.github/workflows/node-builds.yml
     with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
       dry_run: ${{ inputs.dry_run || false }}
+
+  # The end state, asserted. `status --check` fails if a tag is not on the
+  # remote, a GitHub release is missing or still a draft, a file of
+  # `release.required_assets` is missing on it, or crates.io does not have a
+  # version. A step that was skipped without an error ends here. It runs
+  # after a failed job too, and then lists what is not complete.
+  verify:
+    name: Check the end state
+    needs: [release, ffi, publish-crates, call-node-ffi]
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # reads only. A draft release is visible only with write access
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: status
+          args: --check
+
+      # verwalter does not handle npm here: the Node packages carry the
+      # livekit-ffi version, and node-builds.yml publishes them.
+      - name: Check that npm has the Node bindings
+        working-directory: livekit-ffi-node-bindings
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version package.json)
+          missing=0
+          for name in $(jq -r .name package.json npm/*/package.json); do
+            if [ "$(npm view "${name}@${version}" version 2>/dev/null)" != "$version" ]; then
+              echo "::error::npm does not have ${name}@${version}"
+              missing=1
+            fi
+          done
+          exit "$missing"
