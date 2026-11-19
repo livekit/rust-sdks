@@ -43,6 +43,8 @@ pub mod ffi {
 
         fn set_stream_delay_ms(self: Pin<&mut AudioProcessingModule>, delay: i32) -> i32;
 
+        fn set_gain_controller_initial_gain_db(self: Pin<&mut AudioProcessingModule>, gain_db: f32);
+
         fn create_apm(
             echo_canceller_enabled: bool,
             gain_controller_enabled: bool,
