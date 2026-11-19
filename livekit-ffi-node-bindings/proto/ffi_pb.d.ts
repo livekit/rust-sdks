@@ -28,7 +28,7 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
-import type { AttachAudioPlayoutTrackCallback, AttachAudioPlayoutTrackRequest, AttachAudioPlayoutTrackResponse, DetachAudioPlayoutTrackCallback, DetachAudioPlayoutTrackRequest, DetachAudioPlayoutTrackResponse, JoinCaptureCallback, JoinCaptureRequest, JoinCaptureResponse, NewAudioCaptureSourceCallback, NewAudioCaptureSourceRequest, NewAudioCaptureSourceResponse, NewAudioPlayoutRequest, NewAudioPlayoutResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopAudioPlayoutCallback, StopAudioPlayoutRequest, StopAudioPlayoutResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
+import type { JoinCaptureCallback, JoinCaptureRequest, JoinCaptureResponse, NewAudioCaptureSourceCallback, NewAudioCaptureSourceRequest, NewAudioCaptureSourceResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -658,30 +658,6 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: NewAudioCaptureSourceRequest;
     case: "newAudioCaptureSource";
-  } | {
-    /**
-     * @generated from field: livekit.proto.NewAudioPlayoutRequest new_audio_playout = 94;
-     */
-    value: NewAudioPlayoutRequest;
-    case: "newAudioPlayout";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopAudioPlayoutRequest stop_audio_playout = 95;
-     */
-    value: StopAudioPlayoutRequest;
-    case: "stopAudioPlayout";
-  } | {
-    /**
-     * @generated from field: livekit.proto.AttachAudioPlayoutTrackRequest attach_audio_playout_track = 96;
-     */
-    value: AttachAudioPlayoutTrackRequest;
-    case: "attachAudioPlayoutTrack";
-  } | {
-    /**
-     * @generated from field: livekit.proto.DetachAudioPlayoutTrackRequest detach_audio_playout_track = 97;
-     */
-    value: DetachAudioPlayoutTrackRequest;
-    case: "detachAudioPlayoutTrack";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1290,30 +1266,6 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: NewAudioCaptureSourceResponse;
     case: "newAudioCaptureSource";
-  } | {
-    /**
-     * @generated from field: livekit.proto.NewAudioPlayoutResponse new_audio_playout = 94;
-     */
-    value: NewAudioPlayoutResponse;
-    case: "newAudioPlayout";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopAudioPlayoutResponse stop_audio_playout = 95;
-     */
-    value: StopAudioPlayoutResponse;
-    case: "stopAudioPlayout";
-  } | {
-    /**
-     * @generated from field: livekit.proto.AttachAudioPlayoutTrackResponse attach_audio_playout_track = 96;
-     */
-    value: AttachAudioPlayoutTrackResponse;
-    case: "attachAudioPlayoutTrack";
-  } | {
-    /**
-     * @generated from field: livekit.proto.DetachAudioPlayoutTrackResponse detach_audio_playout_track = 97;
-     */
-    value: DetachAudioPlayoutTrackResponse;
-    case: "detachAudioPlayoutTrack";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1642,24 +1594,6 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: NewAudioCaptureSourceCallback;
     case: "newAudioCaptureSource";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopAudioPlayoutCallback stop_audio_playout = 51;
-     */
-    value: StopAudioPlayoutCallback;
-    case: "stopAudioPlayout";
-  } | {
-    /**
-     * @generated from field: livekit.proto.AttachAudioPlayoutTrackCallback attach_audio_playout_track = 52;
-     */
-    value: AttachAudioPlayoutTrackCallback;
-    case: "attachAudioPlayoutTrack";
-  } | {
-    /**
-     * @generated from field: livekit.proto.DetachAudioPlayoutTrackCallback detach_audio_playout_track = 53;
-     */
-    value: DetachAudioPlayoutTrackCallback;
-    case: "detachAudioPlayoutTrack";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
