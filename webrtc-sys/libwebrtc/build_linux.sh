@@ -70,29 +70,31 @@ then
   gclient sync -D --no-history
 fi
 
+source "$COMMAND_DIR/apply_patch.sh"
+
 cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
+apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch"
+apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch"
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
 # broken on arm32 and s390x too).
 # See: https://crbug.com/376278218
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
-git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/disable_crel.patch" build
 
 cd third_party
 
-git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch"
 
 cd libyuv
 
-git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch"
 
 cd ../../..
 
@@ -182,6 +184,23 @@ ninja -C "$OUTPUT_DIR" $libcxx_archives
 rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+
+# prefix the bundled ffmpeg's symbols too, so they don't conflict with an ffmpeg
+# the app links itself. The public names with a shared one, the internal ones
+# with a static one.
+ffmpeg_public='av|avcodec|avdevice|avfilter|avformat|avio|avpriv|avsubtitle|avutil|swr|swresample|sws|swscale'
+ffmpeg_internal='ff|ffio|ffurl'
+
+global_symbols() {
+  src/third_party/llvm-build/Release+Asserts/bin/llvm-nm -A -j --extern-only "$@" 2>/dev/null \
+    | awk '{ print $NF }' | sort -u
+}
+
+ffmpeg_map="$OUTPUT_DIR/ffmpeg_prefix_symbols.txt"
+global_symbols "$ARTIFACTS_DIR/lib/libwebrtc.a" \
+  | grep -E "^($ffmpeg_public|$ffmpeg_internal)_" \
+  | awk '{ print $1, "LK_" $1 }' > "$ffmpeg_map"
+src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$ffmpeg_map" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 # The archive is the whole standard library for webrtc-sys (build.rs passes
 # cpp_link_stdlib(None), since mixing in the host libstdc++ would be a second,

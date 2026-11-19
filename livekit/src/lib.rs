@@ -27,8 +27,8 @@ pub mod webrtc {
 
     /// Enables zero playout delay for native video receivers created by the shared WebRTC runtime.
     ///
-    /// Call this before [`crate::Room::connect`]. Repeated calls are allowed, but enabling the
-    /// mode after the default WebRTC runtime is active returns
+    /// Call this before creating local tracks or connecting a room. Repeated calls are allowed,
+    /// but enabling the mode after the default WebRTC runtime is active returns
     /// [`WebRtcRuntimeInitializedError`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {

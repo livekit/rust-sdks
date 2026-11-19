@@ -21,7 +21,7 @@
  * IN THE SOFTWARE.
  */
 
- #include "vaapi_display_win32.h"
+#include "vaapi_display_win32.h"
 
 #include <directx/dxcore_interface.h>
 #include <stdbool.h>
@@ -160,8 +160,6 @@ static VADisplay va_open_display_win32(void) {
   return vaGetDisplayWin32(device_found ? &adapter_luid : NULL);
 }
 
-static void va_close_display_win32(VADisplay va_dpy) {}
-
 namespace livekit_ffi {
 
 VaapiDisplayWin32::VaapiDisplayWin32() : va_display_(nullptr) {
@@ -169,10 +167,25 @@ VaapiDisplayWin32::VaapiDisplayWin32() : va_display_(nullptr) {
   putenv("LIBVA_DRIVERS_PATH=.");
 }
 
+VaapiDisplayWin32::~VaapiDisplayWin32() {
+  Close();
+}
+
 bool VaapiDisplayWin32::Open() {
+  Close();
   va_display_ = va_open_display_win32();
   if (!va_display_) {
     fprintf(stderr, "Failed to open VA display\n");
+    return false;
+  }
+
+  int major_ver = 0;
+  int minor_ver = 0;
+  VAStatus va_status = vaInitialize(va_display_, &major_ver, &minor_ver);
+  if (va_status != VA_STATUS_SUCCESS) {
+    fprintf(stderr, "Failed to initialize VA display\n");
+    vaTerminate(va_display_);
+    va_display_ = nullptr;
     return false;
   }
   return true;
@@ -184,7 +197,7 @@ bool VaapiDisplayWin32::isOpen() const {
 
 void VaapiDisplayWin32::Close() {
   if (va_display_) {
-    va_close_display_win32(va_display_);
+    vaTerminate(va_display_);
     va_display_ = nullptr;
   }
 }

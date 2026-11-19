@@ -20,6 +20,7 @@ use thiserror::Error;
 
 use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
+pub use crate::public_api::public_api_url;
 pub use livekit_api::LiveKitApi;
 pub use twirp_client::{
     ServerError,
@@ -33,10 +34,12 @@ pub use twirp_client::{
 
 pub mod agent_dispatch;
 pub mod connector;
+pub mod databases;
 pub mod egress;
 pub mod ingress;
 pub mod room;
 pub mod sip;
+pub mod threads;
 
 mod dial_timeout;
 mod failover;
@@ -62,6 +65,7 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 
 // The two authentication modes are mutually exclusive, so they're distinct
 // variants rather than a struct where an invalid combination is representable.
+#[derive(Clone)]
 pub(crate) enum ServiceBase {
     /// Sign a short-lived token per request from an API key and secret.
     ApiKeySecret { api_key: String, api_secret: String },

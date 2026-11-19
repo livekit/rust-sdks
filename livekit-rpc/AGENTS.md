@@ -9,7 +9,7 @@
   - Enables fast unit testing without linking `libwebrtc`
   - Enables shared implementation amongst multiple _consumers_:
     - [`livekit`](../livekit/): Rust client SDK
-    - [`livekit-uniffi`](../livekit-uniffi/): will eventually power downstream client SDKs such as Swift and Kotlin
+    - [`livekit-ffi`](../livekit-ffi/) (`core-modules` feature): will eventually power downstream client SDKs such as Swift and Kotlin
 
 ## Client vs. server split
 

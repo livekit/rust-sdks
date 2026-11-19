@@ -110,7 +110,7 @@ std::optional<PacketTrailerMetadata> ParseTrailerPayload(
 ///
 /// On the send side, user timestamps are stored in an internal map keyed
 /// by capture timestamp (microseconds).  When TransformSend fires it
-/// looks up the user timestamp via the frame's CaptureTime().
+/// looks up the user timestamp via the frame's GetPresentationTimestamp().
 ///
 /// On the receive side, extracted frame metadata is stored in an
 /// internal map keyed by RTP timestamp (uint32_t).  Decoded frames can
@@ -144,8 +144,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
 
   /// Store frame metadata for a given capture timestamp (sender side).
   /// Called from VideoTrackSource::on_captured_frame with the
-  /// TimestampAligner-adjusted timestamp, which matches CaptureTime()
-  /// in the encoder pipeline.
+  /// unique microsecond key carried in the frame's presentation timestamp.
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
                             uint32_t frame_id,
@@ -215,7 +214,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
       sink_callbacks_;
   // Send-side map: capture timestamp (us) -> frame metadata.
   // Populated by store_frame_metadata(), consumed by TransformSend()
-  // via CaptureTime() lookup.
+  // via GetPresentationTimestamp() lookup, without millisecond truncation.
   mutable webrtc::Mutex send_map_mutex_;
   mutable std::unordered_map<int64_t, PacketTrailerMetadata> send_map_;
   mutable std::deque<int64_t> send_map_order_;

@@ -16,5 +16,33 @@
 // region/validate HTTP calls now live in livekit-net, so nothing here is gated
 // on the signal-client features.
 
-#[cfg(feature = "services")]
 pub use reqwest::Client;
+
+pub fn client() -> Client {
+    builder().build().expect("http client")
+}
+
+/// A reqwest builder on the crate's TLS feature. With rustls, the TLS config is built on ring,
+/// the provider livekit-net's websocket uses: reqwest 0.13 defaults to aws-lc-rs, and a process
+/// with both providers and no installed default fails every `ClientConfig::builder()`.
+pub fn builder() -> reqwest::ClientBuilder {
+    let builder = Client::builder();
+    #[cfg(feature = "__rustls-tls")]
+    let builder = builder.tls_backend_preconfigured(rustls_config());
+    builder
+}
+
+#[cfg(feature = "__rustls-tls")]
+fn rustls_config() -> rustls::ClientConfig {
+    let mut roots = rustls::RootCertStore::empty();
+    #[cfg(feature = "rustls-tls-webpki-roots")]
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    #[cfg(feature = "rustls-tls-native-roots")]
+    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+    rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("ring supports the default TLS versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth()
+}

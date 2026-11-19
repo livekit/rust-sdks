@@ -70,24 +70,15 @@ then
   gclient sync -D --no-history
 fi
 
+source "$COMMAND_DIR/apply_patch.sh"
+
 cd src
 
-# Apply patches only if not already applied (check with --reverse --check)
-apply_patch_if_needed() {
-  local patch="$1"
-  if git apply --reverse --check "$patch" 2>/dev/null; then
-    echo "Patch already applied: $(basename "$patch")"
-  else
-    echo "Applying patch: $(basename "$patch")"
-    git apply "$patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn || true
-  fi
-}
-
-apply_patch_if_needed "$COMMAND_DIR/patches/add_licenses.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/add_deps.patch"
-apply_patch_if_needed "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
+apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
 
 cd ..
 
@@ -145,7 +136,15 @@ ninja -C "$OUTPUT_DIR" :default \
 
 # make libwebrtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+# Merge the sdk objects into a single archive member. The ObjC categories in
+# sdk/objc (e.g. NSString+StdString) live in object files that export no
+# symbols, so as individual members the linker never pulls them out of the
+# archive and their methods are missing at runtime ("unrecognized selector")
+# unless every consumer links with -ObjC. Merged into one member, they are
+# loaded whenever any sdk symbol is referenced.
+rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
+ld -r -keep_private_externs -o "$OUTPUT_DIR/sdk.o" `find "$OUTPUT_DIR/obj/sdk" -name '*.o'`
+ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" "$OUTPUT_DIR/sdk.o" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*" -not -path "*/obj/sdk/*"`
 
 # License generation - may fail locally due to GN warnings breaking JSON parsing
 # Use vpython3 from depot_tools for consistent Python version

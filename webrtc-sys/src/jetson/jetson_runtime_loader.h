@@ -34,6 +34,12 @@ void* lk_jetson_dlopen(const char* lib_name);
 // libraries are absent.
 int lk_jetson_runtime_libs_available(void);
 
+// Loads NVIDIA's libv4l2 codec plugin and retains it for process lifetime.
+// NvVideoEncoder normally lets libv4l2 unload this plugin when the encoder is
+// closed, but other NVIDIA media components may retain GLib state owned by the
+// plugin. Returns non-zero when the plugin was successfully pinned.
+int lk_jetson_pin_v4l2_codec_plugin(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

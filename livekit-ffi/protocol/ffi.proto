@@ -193,8 +193,9 @@ message FfiRequest {
     NewCaptureSourceRequest new_capture_source = 91;
     StartCaptureRequest start_capture = 89;
     StopCaptureRequest stop_capture = 90;
+    JoinCaptureRequest join_capture = 92;
 
-    // NEXT_ID: 92
+    // NEXT_ID: 93
   }
 }
 
@@ -331,8 +332,9 @@ message FfiResponse {
     NewCaptureSourceResponse new_capture_source = 91;
     StartCaptureResponse start_capture = 89;
     StopCaptureResponse stop_capture = 90;
+    JoinCaptureResponse join_capture = 92;
 
-    // NEXT_ID: 92
+    // NEXT_ID: 93
   }
 }
 
@@ -340,6 +342,7 @@ message FfiResponse {
 // It is easily deducible from the room events and it turned out that is is easier to implement
 // on the ffi client side.
 message FfiEvent {
+  reserved 48; // Removed CaptureSourceEvent.
   oneof message {
     RoomEvent room_event = 1;
     TrackEvent track_event = 2;
@@ -403,9 +406,9 @@ message FfiEvent {
 
     // Capture sources (livekit-capture; requires the `capture` feature)
     NewCaptureSourceCallback new_capture_source = 47;
-    CaptureSourceEvent capture_source_event = 48;
+    JoinCaptureCallback join_capture = 49;
 
-    // NEXT_ID: 49
+    // NEXT_ID: 50
   }
 }
 

@@ -275,15 +275,12 @@ PacketTrailerMetadata PacketTrailerTransformer::LookupSendMetadata(
     const webrtc::TransformableFrameInterface& frame,
     uint32_t ssrc,
     uint32_t rtp_timestamp) const {
-  // Look up the frame metadata by the frame's capture time.
-  // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
-  // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
-  // has millisecond precision (bottom 3 digits always zero).
-  // store_frame_metadata() truncates its key the same way.
+  // The source carries the full microsecond metadata key as a presentation
+  // timestamp. CaptureTime() loses sub-millisecond precision in the encoder.
   PacketTrailerMetadata meta_to_embed{0, 0, 0};
-  auto capture_time = frame.CaptureTime();
-  if (capture_time.has_value()) {
-    int64_t capture_us = capture_time->us();
+  auto presentation_time = frame.GetPresentationTimestamp();
+  if (presentation_time.has_value()) {
+    int64_t capture_us = presentation_time->us();
 
     webrtc::MutexLock lock(&send_map_mutex_);
     auto it = send_map_.find(capture_us);
@@ -293,9 +290,9 @@ PacketTrailerMetadata PacketTrailerTransformer::LookupSendMetadata(
       // Entries are pruned by capacity in store_frame_metadata().
     }
   } else {
-    RTC_LOG(LS_WARNING)
-        << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
-        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
+    RTC_LOG(LS_WARNING) << "PacketTrailerTransformer::TransformSend "
+                           "presentation timestamp not available"
+                        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
   return meta_to_embed;
 }
@@ -505,18 +502,7 @@ void PacketTrailerTransformer::store_frame_metadata(
     uint64_t user_timestamp,
     uint32_t frame_id,
     rust::Slice<const uint8_t> user_data) {
-  // Truncate to millisecond precision to match what WebRTC stores
-  // internally.  The encoder pipeline converts the VideoFrame's
-  // timestamp_us to capture_time_ms_ = timestamp_us / 1000, and
-  // CaptureTime() returns Timestamp::Millis(capture_time_ms_).
-  // When we call capture_time->us() in TransformSend we get a value
-  // with the bottom 3 digits zeroed, so we must store with the same
-  // truncation to ensure the lookup succeeds.
-  //
-  // The caller (VideoTrackSource::on_captured_frame) passes the
-  // TimestampAligner-adjusted timestamp here, which is the same
-  // value that becomes CaptureTime() in the encoder pipeline.
-  int64_t key = (capture_timestamp_us / 1000) * 1000;
+  const int64_t key = capture_timestamp_us;
 
   webrtc::MutexLock lock(&send_map_mutex_);
 

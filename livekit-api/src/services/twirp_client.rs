@@ -131,7 +131,7 @@ pub struct TwirpClient {
 
 impl TwirpClient {
     pub fn new(host: &str, pkg: &str, prefix: Option<&str>) -> Self {
-        Self::with_client(host, pkg, prefix, http_client::Client::new())
+        Self::with_client(host, pkg, prefix, http_client::client())
     }
 
     /// Like [`new`](Self::new) but reuses an existing HTTP client (and its
@@ -302,7 +302,9 @@ impl TwirpClient {
     ) -> Option<Url> {
         let region_urls = match region_urls {
             Some(urls) => urls,
-            None => region_urls.insert(failover::region_urls(original, forward).await),
+            None => {
+                region_urls.insert(failover::region_urls(&self.client, original, forward).await)
+            }
         };
         failover::pick_next(region_urls, attempted)
     }

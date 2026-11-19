@@ -42,7 +42,7 @@ fn base_url() -> String {
 }
 
 async fn reachable(base: &str) -> bool {
-    reqwest::Client::new()
+    crate::http_client::client()
         .get(format!("{base}/settings/regions"))
         .send()
         .await

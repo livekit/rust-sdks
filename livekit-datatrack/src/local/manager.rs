@@ -252,9 +252,13 @@ impl Manager {
                     log::warn!("Track {} already active", event.handle);
                     return;
                 }
-                let Ok(updated_info) = event.result else {
-                    log::warn!("Republish failed for track {}", event.handle);
-                    return;
+                let updated_info = match event.result {
+                    Ok(info) => info,
+                    Err(err) => {
+                        log::warn!("Republish failed for track {}: {}", event.handle, err);
+                        _ = state_tx.send(PublishState::Unpublished);
+                        return;
+                    }
                 };
 
                 log::debug!("Track {} republished", event.handle);
@@ -376,7 +380,10 @@ impl Manager {
     const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
-    const EVENT_BUFFER_COUNT: usize = 16;
+    ///
+    /// Must exceed a burst of track lifecycle events. A full channel blocks
+    /// the manager and can deadlock room disconnect.
+    const EVENT_BUFFER_COUNT: usize = 512;
 }
 
 /// Task for an individual published data track.
@@ -550,7 +557,7 @@ impl ManagerInput {
 mod tests {
     use super::*;
     use crate::{
-        api::DataTrackSid,
+        api::{DataTrackSid, PushFrameErrorReason},
         e2ee::{EncryptedPayload, EncryptionError, EncryptionProvider},
         packet::Packet,
         utils::testing::expect_event,
@@ -828,6 +835,46 @@ mod tests {
         // SID updated in place, pushes succeed again
         assert_eq!(track.info().sid(), new_sid);
         assert!(track.try_push(vec![0xFF].into()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_republish_rejected() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        tokio::spawn(manager.run());
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("track"), result_tx };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let handle = event.handle;
+
+        let info = DataTrackInfo {
+            sid: RwLock::new(Faker.fake()).into(),
+            pub_handle: handle,
+            name: "track".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+        };
+        let event = SfuPublishResponse { handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+        let track = result_rx.await.unwrap().unwrap();
+
+        // Simulate reconnect
+        input.send(InputEvent::RepublishTracks).unwrap();
+        expect_event!(output, OutputEvent::SfuPublishRequest);
+
+        // SFU rejects the republish
+        let event = SfuPublishResponse { handle, result: Err(PublishError::NotAllowed) };
+        input.send(event.into()).unwrap();
+
+        // Track is unpublished
+        timeout(Duration::from_millis(500), track.wait_for_unpublish()).await.unwrap();
+        assert!(!track.is_published());
+        let err = track.try_push(vec![0xFF].into()).unwrap_err();
+        assert!(matches!(err.reason(), PushFrameErrorReason::TrackUnpublished));
     }
 
     #[tokio::test]
