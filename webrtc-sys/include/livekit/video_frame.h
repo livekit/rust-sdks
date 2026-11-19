@@ -39,6 +39,8 @@ class VideoFrame {
   int64_t timestamp_us() const;
   int64_t ntp_time_ms() const;
   uint32_t timestamp() const;
+  uint64_t decode_start_timestamp_us() const;
+  uint64_t decode_finish_timestamp_us() const;
 
   VideoRotation rotation() const;
   std::unique_ptr<VideoFrameBuffer> video_frame_buffer() const;
