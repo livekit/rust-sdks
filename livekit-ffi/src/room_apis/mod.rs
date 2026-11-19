@@ -24,6 +24,7 @@
 
 use std::borrow::Cow;
 
+use bytes::Bytes;
 use lazy_static::lazy_static;
 use livekit::prelude::*;
 use thiserror::Error;
@@ -33,6 +34,12 @@ pub(crate) mod conversion;
 pub mod cabi;
 pub mod proto;
 pub mod server;
+
+// `Bytes` is registered once in livekit-common so every component that needs it borrows the
+// same converter; registering it here as well would emit a second `public typealias Bytes`
+// into this component's Swift file, and both files compile into one module.
+// Upstream: https://github.com/mozilla/uniffi-rs/issues/2933
+uniffi::use_remote_type!(livekit_common::Bytes);
 
 #[derive(Error, Debug)]
 pub enum FfiError {
