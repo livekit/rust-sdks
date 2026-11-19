@@ -32,13 +32,17 @@ default = []
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
 
-# Video
+# Video sources
 
 # Pixel sources
 source-clock = ["dep:chrono", "dep:wgpu", "dep:yuv-sys"]
 source-pattern = ["dep:wgpu", "dep:yuv-sys"]
 
-# Encoded sources
-source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+# Audio sources
 
-# Audio
+# <list audio-only sources here>
+
+# Dual sources
+
+# Encoded video/audio capture + playback
+source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
