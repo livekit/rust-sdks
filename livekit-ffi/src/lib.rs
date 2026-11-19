@@ -58,9 +58,10 @@ pub use core_modules::*;
 
 /// Information about the build such as version.
 ///
-/// Shared by both surfaces, and unconditional for that reason: a
-/// room-apis-only build would otherwise ship a UniFFI component with no
-/// exports at all (ffi-builds.yml greps the generated Python for it).
+/// Compiled under both the `room-apis` and `core-modules` features, and
+/// unconditional for that reason: a room-apis-only build would otherwise ship
+/// a UniFFI component with no exports at all (ffi-builds.yml greps the
+/// generated Python for it).
 pub mod build_info;
 
 /// Shared UniFFI type registrations.
@@ -71,7 +72,8 @@ pub(crate) mod runtime;
 
 /// Data track objects from [`livekit-datatrack`].
 ///
-/// Shared by both surfaces, so either one hands client SDKs the same track and stream objects.
+/// Compiled under both the `room-apis` and `core-modules` features, so client SDKs get the same
+/// track and stream objects whichever FFI surface they build against.
 pub mod data_track;
 
 // Must sit at the crate root: this defines `crate::UniFfiTag`, which every
