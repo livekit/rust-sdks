@@ -115,6 +115,15 @@ jobs:
     needs: release
     if: needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # One crates.io publish at a time, across runs. A second release run
+    # reports the drafts of the first one too, so both would publish the same
+    # crates. The job that waits checks out after the first one ends, and
+    # verwalter then skips the versions that crates.io has. A group holds one
+    # running and one waiting job. A third job cancels the waiting one, and
+    # its run is then run again.
+    concurrency:
+      group: publish-crates
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -162,8 +171,11 @@ jobs:
   # The end state, asserted. `status --check` fails if a tag is not on the
   # remote, a GitHub release is missing or still a draft, a file of
   # `release.required_assets` is missing on it, or crates.io does not have a
-  # version. A step that was skipped without an error ends here. It runs
-  # after a failed job too, and then lists what is not complete.
+  # version. The steps after it ask each further place that gets the
+  # livekit-ffi version: npm, pub.dev, Maven Central, the Swift package and
+  # the host libraries on the release. A step that was skipped without an
+  # error ends here. The job runs after a failed job too, and then lists
+  # what is not complete.
   verify:
     name: Check the end state
     needs: [release, ffi, publish-crates, call-node-ffi]
@@ -195,5 +207,61 @@ jobs:
               echo "::error::npm does not have ${name}@${version}"
               missing=1
             fi
+          done
+          exit "$missing"
+
+      # verwalter does not handle these registries: ffi-builds.yml publishes
+      # to them after the livekit-ffi release is public. Each one must have
+      # the version of livekit-ffi/Cargo.toml.
+      - name: Check the UniFFI packages and the host libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SWIFT_REPO: livekit/livekit-ffi-xcframework
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          tag="livekit-ffi/v${version}"
+          missing=0
+
+          status() { curl -sS -o /dev/null -w '%{http_code}' --retry 2 "$1"; }
+
+          if [ "$(status "https://pub.dev/api/packages/livekit_ffi/versions/${version}")" != "200" ]; then
+            echo "::error::pub.dev does not have livekit_ffi ${version}. Run uniffi-dart-publish.yml at ${tag}."
+            missing=1
+          fi
+
+          # Maven Central shows a new version some minutes after the publish.
+          maven="https://repo1.maven.org/maven2/io/livekit/livekit-ffi-android/${version}/"
+          for _ in $(seq 1 30); do
+            [ "$(status "$maven")" != "200" ] || break
+            sleep 60
+          done
+          if [ "$(status "$maven")" != "200" ]; then
+            echo "::error::Maven Central does not have io.livekit:livekit-ffi-android ${version}. Run uniffi-packages.yml with tag_name=${tag}."
+            missing=1
+          fi
+
+          # The Swift version exists once a person merges the pull request
+          # that uniffi-swift.yml opens. An open one is a warning, not an error.
+          if ! gh api "repos/${SWIFT_REPO}/git/ref/tags/${version}" >/dev/null 2>&1; then
+            open=$(gh pr list --repo "$SWIFT_REPO" --state open --json title,url \
+              --jq "[.[] | select(.title == \"v${version}\")][0].url // empty")
+            if [ -n "$open" ]; then
+              echo "::warning::the Swift package ${version} waits for a merge: ${open}"
+            else
+              echo "::error::${SWIFT_REPO} has no tag and no open pull request for ${version}. Run uniffi-packages.yml with tag_name=${tag}."
+              missing=1
+            fi
+          fi
+
+          # One zip and one checksum for each target of uniffi-cdylib.yml.
+          gh release view "$tag" --json assets --jq '.assets[].name' > on-release.txt
+          for target in $(yq -r '.jobs.build.strategy.matrix.include[].target' .github/workflows/uniffi-cdylib.yml); do
+            for asset in "build-${target}.zip" "build-${target}.zip.sha256"; do
+              if ! grep -qxF "$asset" on-release.txt; then
+                echo "::error::release ${tag} does not have ${asset}. Run uniffi-dart-publish.yml at ${tag}."
+                missing=1
+              fi
+            done
           done
           exit "$missing"
