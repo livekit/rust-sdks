@@ -154,6 +154,7 @@ impl Default for FfiServer {
 impl FfiServer {
     pub fn setup(&self, config: FfiConfig) {
         *self.config.lock() = Some(config.clone());
+        self.logger.set_python_log_filter(config.sdk == "python");
         self.logger.set_capture_logs(config.capture_logs);
 
         log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
