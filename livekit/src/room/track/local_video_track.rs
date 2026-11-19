@@ -109,6 +109,9 @@ pub struct LocalVideoTrack {
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
     /// Last qualities requested by dynacast, re-applied after renegotiation.
     subscribed_qualities: Arc<Mutex<Option<Vec<proto::SubscribedQuality>>>>,
+    /// The runtime whose factory created the native track. Its threads must outlive the track,
+    /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
+    _runtime: Arc<LkRuntime>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -144,6 +147,15 @@ impl Stream for PublishTimingEventStream {
 
 impl LocalVideoTrack {
     pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
+        Self::with_runtime(name, rtc_track, source, LkRuntime::instance())
+    }
+
+    fn with_runtime(
+        name: String,
+        rtc_track: RtcVideoTrack,
+        source: RtcVideoSource,
+        runtime: Arc<LkRuntime>,
+    ) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
                 "TR_unknown".to_owned().try_into().unwrap(),
@@ -155,22 +167,24 @@ impl LocalVideoTrack {
             packet_trailer_handler: Arc::new(Mutex::new(None)),
             publish_timing_tx: Arc::new(Mutex::new(None)),
             subscribed_qualities: Arc::new(Mutex::new(None)),
+            _runtime: runtime,
         }
     }
 
     pub fn create_video_track(name: &str, source: RtcVideoSource) -> LocalVideoTrack {
+        let runtime = LkRuntime::instance();
         let rtc_track = match source.clone() {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(native_source) => {
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance()
+                runtime
                     .pc_factory()
                     .create_video_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
             _ => panic!("unsupported video source"),
         };
 
-        Self::new(name.to_string(), rtc_track, source)
+        Self::with_runtime(name.to_string(), rtc_track, source, runtime)
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -461,7 +475,19 @@ fn merge_qualities(
 
 #[cfg(test)]
 mod tests {
+    use libwebrtc::{prelude::VideoResolution, video_source::native::NativeVideoSource};
+
     use super::*;
+
+    /// A track created before any room exists must keep its runtime, so the room reuses it
+    /// instead of a new one whose threads the track does not belong to.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn track_keeps_the_runtime_that_created_it() {
+        let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+        let track = LocalVideoTrack::create_video_track("video", RtcVideoSource::Native(source));
+        assert!(Arc::ptr_eq(&track._runtime, &LkRuntime::instance()));
+    }
 
     fn quality(quality: proto::VideoQuality, enabled: bool) -> proto::SubscribedQuality {
         proto::SubscribedQuality { quality: quality as i32, enabled }

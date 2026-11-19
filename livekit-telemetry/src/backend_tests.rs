@@ -1019,7 +1019,7 @@ async fn correlation_stays_inside_one_session_on_the_wire() {
         .filter(|record| record.trace_id == trace)
         .collect();
     let tags = |record: &_| -> Vec<String> {
-        ["lk.room.sid", "lk.room.name", "lk.participant.sid", "lk.participant.identity"]
+        ["lk.room_id", "lk.pii.room_name", "lk.participant_id", "lk.pii.participant_identity"]
             .iter()
             .filter_map(|key| match crate::telemetry::tests::attribute(record, key) {
                 Some(Value::StringValue(value)) => {

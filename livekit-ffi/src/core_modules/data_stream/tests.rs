@@ -27,7 +27,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::common::{
     ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamByteOptions,
-    StreamProgress, StreamTextOptions,
+    StreamProgress, StreamTextOptions, TextStreamInfo,
 };
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
@@ -921,20 +921,26 @@ async fn polled_roundtrip(
         destination_identities: vec!["bob".to_string()],
         ..Default::default()
     };
-    outgoing.manager.send_text(text.to_string(), options).await.expect("send_text should succeed");
-
-    // send_text only resolves once every packet has been queued, so draining terminates rather
-    // than blocking.
-    let mut packet_count = 0;
-    while let Ok(Some(packets)) =
-        tokio::time::timeout(std::time::Duration::from_millis(200), outgoing.packets.next_packets())
-            .await
-    {
-        for packet in packets {
-            packet_count += 1;
-            incoming.manager.handle_packet_received(packet, EncryptionType::None);
+    // send_text waits for each batch's outcome, so drain alongside it rather than after.
+    let send = outgoing.manager.send_text(text.to_string(), options);
+    let drain = async {
+        let mut packet_count = 0;
+        while let Ok(Some(batch)) = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            outgoing.packets.next_batch(),
+        )
+        .await
+        {
+            for packet in batch.packets {
+                packet_count += 1;
+                incoming.manager.handle_packet_received(packet, EncryptionType::None);
+            }
+            batch.ack.complete();
         }
-    }
+        packet_count
+    };
+    let (sent, packet_count) = tokio::join!(send, drain);
+    sent.expect("send_text should succeed");
 
     let opened = incoming.streams.next_opened_stream().await.expect("a stream should open");
     let reader = opened.text_reader.expect("expected a text stream");
@@ -957,5 +963,179 @@ fn polled_falls_back_to_legacy_framing_for_pre_v2_recipients() {
         let (packets, text) = polled_roundtrip(Arc::new(PreV2Registry), "hello world").await;
         assert_eq!(packets, 3, "a pre-v2 recipient should get header + chunk + trailer");
         assert_eq!(text, "hello world");
+    });
+}
+
+/// Starts a `send_text` on `manager` in its own task.
+fn spawn_polled_send(
+    manager: Arc<OutgoingDataStreamManager>,
+) -> tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>> {
+    tokio::spawn(async move {
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            destination_identities: vec!["bob".to_string()],
+            ..Default::default()
+        };
+        manager.send_text("hello".to_string(), options).await
+    })
+}
+
+/// Starts a `send_text` through a polled outgoing manager and returns the first batch it produces.
+async fn polled_send_and_pull() -> (
+    super::polled::PolledOutgoingDataStreamManager,
+    tokio::task::JoinHandle<Result<TextStreamInfo, DataStreamError>>,
+    super::polled::OutgoingPacketBatch,
+) {
+    let outgoing = super::polled::polled_outgoing_data_stream_manager(Arc::new(AllV2Registry));
+    let send = spawn_polled_send(outgoing.manager.clone());
+    let batch = outgoing.packets.next_batch().await.expect("send_text should produce a batch");
+    (outgoing, send, batch)
+}
+
+#[test]
+fn polled_send_waits_for_the_batch_outcome() {
+    crate::runtime::runtime().block_on(async {
+        let (_outgoing, send, batch) = polled_send_and_pull().await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!send.is_finished(), "send_text must stay pending until the batch is resolved");
+
+        batch.ack.complete();
+        send.await.unwrap().expect("a completed batch should resolve the send");
+    });
+}
+
+#[test]
+fn polled_failed_batch_fails_the_send() {
+    crate::runtime::runtime().block_on(async {
+        let (_outgoing, send, batch) = polled_send_and_pull().await;
+        batch.ack.fail("wire down".to_string());
+        // Resolving twice must not panic, and only the first outcome counts.
+        batch.ack.complete();
+        assert!(send.await.unwrap().is_err(), "a failed batch should fail the send");
+    });
+}
+
+#[test]
+fn polled_dropped_batch_fails_the_send() {
+    crate::runtime::runtime().block_on(async {
+        let (_outgoing, send, batch) = polled_send_and_pull().await;
+        drop(batch);
+        assert!(send.await.unwrap().is_err(), "a batch released unresolved should fail the send");
+    });
+}
+
+#[test]
+fn polled_close_fails_a_pending_send() {
+    crate::runtime::runtime().block_on(async {
+        let (outgoing, send, _batch) = polled_send_and_pull().await;
+        outgoing.packets.close();
+        assert!(send.await.unwrap().is_err(), "closing the queue should fail a pending send");
+        assert!(outgoing.packets.next_batch().await.is_none());
+    });
+}
+
+/// A polled manager and queue with a send that was cancelled after its batch reached the queue.
+/// The forwarding task owns the sink, so the sink going away shows that the task finished.
+async fn polled_with_an_abandoned_batch() -> (
+    std::sync::Weak<super::polled::OutgoingPacketSink>,
+    Arc<OutgoingDataStreamManager>,
+    Arc<super::polled::OutgoingPacketQueue>,
+) {
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let (sink, queue) = super::polled::OutgoingPacketQueue::pair(shutdown.clone());
+    let sink_alive = Arc::downgrade(&sink);
+    let manager = OutgoingDataStreamManager::with_shutdown(sink, Arc::new(AllV2Registry), shutdown);
+    let send = spawn_polled_send(manager.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    send.abort();
+    assert!(send.await.unwrap_err().is_cancelled());
+    (sink_alive, manager, queue)
+}
+
+async fn assert_forwarding_task_finished(sink: std::sync::Weak<super::polled::OutgoingPacketSink>) {
+    for _ in 0..100 {
+        if sink.upgrade().is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the forwarding task is still waiting on a batch");
+}
+
+#[test]
+fn polled_released_queue_frees_an_unpulled_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, manager, queue) = polled_with_an_abandoned_batch().await;
+        drop(manager);
+        drop(queue);
+        assert_forwarding_task_finished(sink).await;
+    });
+}
+
+#[test]
+fn polled_manager_drop_ends_the_wait_for_an_unpulled_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, manager, _queue) = polled_with_an_abandoned_batch().await;
+        drop(manager);
+        assert_forwarding_task_finished(sink).await;
+    });
+}
+
+#[test]
+fn polled_manager_drop_ends_the_wait_for_a_held_batch() {
+    crate::runtime::runtime().block_on(async {
+        let (sink, manager, queue) = polled_with_an_abandoned_batch().await;
+        let _batch = queue.next_batch().await.expect("the abandoned batch is still queued");
+        drop(manager);
+        assert_forwarding_task_finished(sink).await;
+    });
+}
+
+#[test]
+fn polled_acks_are_released_across_repeated_sends() {
+    crate::runtime::runtime().block_on(async {
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let (sink, queue) = super::polled::OutgoingPacketQueue::pair(shutdown.clone());
+        let sink_alive = Arc::downgrade(&sink);
+        let manager =
+            OutgoingDataStreamManager::with_shutdown(sink, Arc::new(AllV2Registry), shutdown);
+
+        for round in 0..200 {
+            let mut send = spawn_polled_send(manager.clone());
+            let batch = queue.next_batch().await.expect("send_text should produce a batch");
+            let ack_alive = Arc::downgrade(&batch.ack);
+            // What the send should see, or `None` when it was cancelled before the ack reported.
+            let expect_ok = match round % 4 {
+                0 => {
+                    batch.ack.complete();
+                    Some(true)
+                }
+                1 => {
+                    batch.ack.fail("wire down".to_string());
+                    Some(false)
+                }
+                // Released without an outcome below, which fails the send.
+                2 => Some(false),
+                _ => {
+                    send.abort();
+                    assert!((&mut send).await.unwrap_err().is_cancelled());
+                    batch.ack.complete();
+                    None
+                }
+            };
+            drop(batch);
+            assert!(ack_alive.upgrade().is_none(), "round {round} left its ack alive");
+            match expect_ok {
+                Some(true) => {
+                    send.await.unwrap().expect("a completed ack should resolve the send");
+                }
+                Some(false) => assert!(send.await.unwrap().is_err(), "round {round} should fail"),
+                None => {}
+            }
+        }
+
+        drop(manager);
+        drop(queue);
+        assert_forwarding_task_finished(sink_alive).await;
     });
 }

@@ -18,6 +18,53 @@ use std::slice;
 
 pub mod cvtimpl;
 
+/// The tightly packed pixels of one converted video frame.
+///
+/// A video stream keeps these and hands the same one back frame after frame,
+/// rather than allocating a frame-sized block per frame. That is also why the
+/// buffer is reached only through [`fit`](Self::fit): the conversion must size
+/// it before writing, and going straight to the bytes would let a caller
+/// describe the frame with a length the conversion never produced.
+///
+/// It is what the FFI handle map stores for a delivered frame, so the handle's
+/// type says what it is instead of being an anonymous byte vector.
+#[derive(Default)]
+pub struct FrameBuffer {
+    bytes: Vec<u8>,
+}
+
+impl FrameBuffer {
+    /// Sizes the buffer to hold exactly `len` bytes and hands back the slice
+    /// to write into.
+    ///
+    /// Capacity is deliberately kept when a later frame is smaller. Reusing
+    /// the allocation is the whole point, and a stream whose frame size moves
+    /// -- a simulcast layer switch, say -- would otherwise pay a fresh
+    /// allocation every time it grew back. This matches `Vec::resize`, which
+    /// changes the length and leaves the capacity alone.
+    ///
+    /// The contents are only zeroed where the buffer grew; the rest is the
+    /// previous frame's pixels. Every conversion writes its destination in
+    /// full -- destination strides are always tight -- which is what makes
+    /// that safe.
+    pub(crate) fn fit(&mut self, len: usize) -> &mut [u8] {
+        if self.bytes.len() != len {
+            self.bytes.clear();
+            self.bytes.resize(len, 0);
+        }
+        self.bytes.as_mut_slice()
+    }
+}
+
+/// Read-only by design: writes go through [`FrameBuffer::fit`].
+impl std::ops::Deref for FrameBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
     let r#type = info.r#type();
     let proto::VideoBufferInfo { width, height, components, .. } = info.clone();
@@ -122,11 +169,37 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
     }
 }
 
+/// Converts a libwebrtc frame buffer into `dst`, tightly packed, and returns
+/// the pointers describing it.
+///
+/// `dst` belongs to the caller so a stream can hand the same allocation back
+/// frame after frame instead of churning one frame-sized block per frame. The
+/// returned info points into `dst`, so it is only valid while `dst` is.
+///
+/// TODO(sxian): skip the copy entirely when no conversion was asked for.
+///
+/// For a native-format request `cvt` only repacks the decoder's padded strides
+/// into tight ones. We could hand out the decoder's buffer instead: the handle
+/// map can already own one (`impl FfiHandle for BoxVideoBuffer`) and
+/// `VideoBufferInfo.components` already carries per-plane stride. Two steps:
+///
+/// 1. Strides already tight (`stride == width`): the info emitted is identical
+///    to what the copy produces, so no binding needs to change.
+/// 2. Padded strides: needs stride-aware consumers. The C++ SDK reads
+///    `components[].stride` already; Python's `VideoFrame` and Unity's
+///    `YuvToRgbConverter` both assume tightly packed data.
+///
+/// That would also delete the stream's `FrameBuffers`: libwebrtc's
+/// `VideoFrameBufferPool` already pools and refcounts decoder buffers, so this
+/// layer is only pooling because it copies. Not avoidable when the application
+/// requests a different pixel format, or for hardware decode where the source
+/// is a platform texture.
 pub fn to_video_buffer_info(
     rtcbuffer: BoxVideoBuffer,
     dst_type: Option<proto::VideoBufferType>,
     _normalize_stride: bool, // always normalize stride for now..
-) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
+    dst: &mut FrameBuffer,
+) -> FfiResult<proto::VideoBufferInfo> {
     match rtcbuffer.buffer_type() {
         // Convert Native buffer to I420
         VideoBufferType::Native => {
@@ -145,7 +218,12 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
+            // SAFETY: `info` holds raw pointers into `i420`, which `to_i420` returned
+            // by value. It lives until the end of this arm, so the conversion has to
+            // happen here rather than after the match.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
+            }
         }
         VideoBufferType::I420 => {
             let i420 = rtcbuffer.as_i420().unwrap();
@@ -163,7 +241,11 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false) }
+            // SAFETY: `info` holds raw pointers into `i420`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420), false, dst)
+            }
         }
         VideoBufferType::I420A => {
             let i420 = rtcbuffer.as_i420a().unwrap();
@@ -183,7 +265,11 @@ pub fn to_video_buffer_info(
                 stride_v,
                 stride_a,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false) }
+            // SAFETY: `info` holds raw pointers into `i420`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I420a), false, dst)
+            }
         }
         VideoBufferType::I422 => {
             let i422 = rtcbuffer.as_i422().unwrap();
@@ -201,7 +287,11 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false) }
+            // SAFETY: `info` holds raw pointers into `i422`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I422), false, dst)
+            }
         }
         VideoBufferType::I444 => {
             let i444 = rtcbuffer.as_i444().unwrap();
@@ -219,7 +309,11 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false) }
+            // SAFETY: `info` holds raw pointers into `i444`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I444), false, dst)
+            }
         }
         VideoBufferType::I010 => {
             let i010 = rtcbuffer.as_i010().unwrap();
@@ -237,7 +331,11 @@ pub fn to_video_buffer_info(
                 stride_u,
                 stride_v,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false) }
+            // SAFETY: `info` holds raw pointers into `i010`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::I010), false, dst)
+            }
         }
         VideoBufferType::NV12 => {
             let nv12 = rtcbuffer.as_nv12().unwrap();
@@ -253,7 +351,11 @@ pub fn to_video_buffer_info(
                 stride_y,
                 stride_uv,
             );
-            unsafe { cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false) }
+            // SAFETY: `info` holds raw pointers into `nv12`, borrowed from
+            // `rtcbuffer`, which outlives this call.
+            unsafe {
+                cvtimpl::cvt(info, dst_type.unwrap_or(proto::VideoBufferType::Nv12), false, dst)
+            }
         }
         _ => todo!(),
     }
@@ -542,5 +644,111 @@ pub fn rgb_info(
         components: Vec::default(),
         data_ptr: data_ptr as u64,
         stride: Some(width * 3),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use livekit::webrtc::video_frame::I420Buffer;
+
+    use super::*;
+
+    /// A realistic shape: 640x480 I420 is 460,800 bytes.
+    const WIDTH: u32 = 640;
+    const HEIGHT: u32 = 480;
+
+    fn i420_frame(width: u32, height: u32) -> BoxVideoBuffer {
+        Box::new(I420Buffer::new(width, height)) as BoxVideoBuffer
+    }
+
+    fn convert_into(dst: &mut FrameBuffer, width: u32, height: u32) -> proto::VideoBufferInfo {
+        to_video_buffer_info(
+            i420_frame(width, height),
+            Some(proto::VideoBufferType::I420),
+            true,
+            dst,
+        )
+        .expect("i420 to i420 is supported")
+    }
+
+    /// Raised in review: `Vec::resize` does not give capacity back, so a
+    /// stream that moves to a smaller frame keeps the larger allocation. That
+    /// is deliberate -- reusing it is the point of this type, and a simulcast
+    /// layer switch would otherwise pay for the allocation again every time it
+    /// moved back up.
+    #[test]
+    fn a_smaller_frame_keeps_the_allocation_for_when_it_grows_back() {
+        let mut buffer = FrameBuffer::default();
+        buffer.fit(64 * 1024);
+        let large = buffer.as_ptr();
+
+        buffer.fit(1024); // a lower simulcast layer
+        buffer.fit(64 * 1024); // and back up again
+
+        assert_eq!(buffer.as_ptr(), large, "the allocation was kept, not freed and remade");
+    }
+
+    #[test]
+    fn fit_sizes_the_buffer_and_hands_back_what_to_write() {
+        let mut buffer = FrameBuffer::default();
+
+        buffer.fit(4).copy_from_slice(&[1, 2, 3, 4]);
+
+        assert_eq!(&buffer[..], &[1, 2, 3, 4]);
+        assert_eq!(buffer.fit(2).len(), 2, "a later frame resizes it");
+    }
+
+    #[test]
+    fn conversion_writes_into_the_buffer_it_is_given() {
+        let mut dst = FrameBuffer::default();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let chroma_w = (WIDTH + 1) / 2;
+        let chroma_h = (HEIGHT + 1) / 2;
+        assert_eq!(dst.len(), (WIDTH * HEIGHT + chroma_w * chroma_h * 2) as usize);
+        assert_eq!(info.data_ptr, dst.as_ptr() as u64, "the info points into the caller's buffer");
+    }
+
+    #[test]
+    fn converting_again_into_the_same_buffer_does_not_reallocate() {
+        // This is what lets a stream hand the same allocation back frame after
+        // frame instead of churning one per frame.
+        let mut dst = FrameBuffer::default();
+        convert_into(&mut dst, WIDTH, HEIGHT);
+        let address = dst.as_ptr();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        assert_eq!(dst.as_ptr(), address, "the second frame reused the allocation");
+        assert_eq!(info.data_ptr, address as u64);
+    }
+
+    #[test]
+    fn a_different_frame_size_resizes_the_buffer() {
+        // A simulcast layer switch changes the frame size mid-stream.
+        let mut dst = FrameBuffer::default();
+        convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let info = convert_into(&mut dst, WIDTH / 2, HEIGHT / 2);
+
+        let chroma_w = (WIDTH / 2 + 1) / 2;
+        let chroma_h = (HEIGHT / 2 + 1) / 2;
+        assert_eq!(dst.len(), ((WIDTH / 2) * (HEIGHT / 2) + chroma_w * chroma_h * 2) as usize);
+        assert_eq!(info.width, WIDTH / 2);
+        assert_eq!(info.data_ptr, dst.as_ptr() as u64);
+    }
+
+    #[test]
+    fn conversion_output_is_tightly_packed() {
+        let mut dst = FrameBuffer::default();
+
+        let info = convert_into(&mut dst, WIDTH, HEIGHT);
+
+        let chroma_w = (WIDTH + 1) / 2;
+        assert_eq!(info.width, WIDTH);
+        assert_eq!(info.height, HEIGHT);
+        let [y, u, v] = &info.components[..] else { panic!("expected three planes") };
+        assert_eq!((y.stride, u.stride, v.stride), (WIDTH, chroma_w, chroma_w));
     }
 }
