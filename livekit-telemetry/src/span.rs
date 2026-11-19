@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+
+use livekit_protocol::semconv::{self, lk_outcome as outcome, upstream};
 
 use crate::{
     event::{attributes_size_hint, now_unix_nanos},
@@ -23,7 +25,7 @@ use crate::{
 
 /// OTel span kind, restricted to what client operations need; implied by [`crate::SpanName`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpanKind {
+pub(crate) enum SpanKind {
     /// An operation inside the SDK (publish, subscribe).
     Internal,
     /// A call to the SFU that waits for its answer (connect, reconnect).
@@ -36,17 +38,20 @@ pub enum SpanKind {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanOutcome {
+    /// It did what it set out to do (OTel status `Ok`).
     Ok,
+    /// It failed; `error.type` says how (OTel status `Error`).
     Error,
+    /// It was called off before it finished, which is not a failure (OTel status `Unset`).
     Cancelled,
 }
 
 impl SpanOutcome {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            SpanOutcome::Ok => "ok",
-            SpanOutcome::Error => "error",
-            SpanOutcome::Cancelled => "cancelled",
+            SpanOutcome::Ok => outcome::OK,
+            SpanOutcome::Error => outcome::ERROR,
+            SpanOutcome::Cancelled => outcome::CANCELLED,
         }
     }
 }
@@ -89,8 +94,9 @@ const SPAN_OVERHEAD_BYTES: usize = 94;
 /// Encoded bytes of a span event beyond its name: its timestamp and framing.
 const SPAN_EVENT_OVERHEAD_BYTES: usize = 13;
 
-/// OTel default span limits.
+/// Checkpoints one span keeps: OTel's default span limit.
 const MAX_EVENTS_PER_SPAN: usize = 128;
+/// Attributes one span keeps: OTel's default span limit.
 const MAX_ATTRIBUTES_PER_SPAN: usize = 128;
 /// Spans a host can leave open before the oldest is abandoned (counted as dropped).
 const MAX_OPEN_SPANS: usize = 256;
@@ -104,17 +110,19 @@ pub(crate) struct Spans {
     open: HashMap<u64, SpanRecord>,
     /// Insertion order of `open`, to abandon the oldest when the cap is hit.
     open_order: VecDeque<u64>,
-    finished: Vec<SpanRecord>,
+    finished: VecDeque<SpanRecord>,
     finished_capacity: usize,
     /// Which session every recent span belongs to — open, finished or already exported — so a
     /// log record that arrives after its span ended (a warning logged right before a failing
-    /// publish ends, delivered a hop later) is still filed under the right session.
-    sessions: HashMap<u64, Arc<ScopeState>>,
+    /// publish ends, delivered a hop later) is still filed under the right session. Weak: a
+    /// Room dropped without `disconnected` is gone once its spans are exported, and no longer
+    /// counts as in a call.
+    sessions: HashMap<u64, Weak<ScopeState>>,
     /// Spans that ended or were abandoned, oldest first. Only these age out of `sessions`: an
     /// open span keeps its session however many spans start after it.
     session_order: VecDeque<u64>,
     next_id: u64,
-    pub dropped: u64,
+    dropped: u64,
     warned: Warned,
     /// The opt-out, checked under the lock that guards the registry (see `Store`).
     revoked: Arc<std::sync::atomic::AtomicBool>,
@@ -131,10 +139,12 @@ struct Warned {
 }
 
 /// Log `warning` unless this limit's flag says it already did.
+/// Logged once the registry's lock is released when the caller holds it in
+/// [`logged_after`](crate::cache::logged_after).
 fn warn_once(warned: &mut bool, warning: std::fmt::Arguments<'_>) {
     if !*warned {
         *warned = true;
-        log::warn!("{warning}");
+        crate::cache::diagnostic(log::Level::Warn, warning.to_string());
     }
 }
 
@@ -150,13 +160,13 @@ impl Spans {
         Self {
             open: HashMap::new(),
             open_order: VecDeque::new(),
-            finished: Vec::new(),
+            finished: VecDeque::new(),
             finished_capacity: finished_capacity.max(1),
             sessions: HashMap::new(),
             session_order: VecDeque::new(),
-            // Span ids must be non-zero (OTLP treats all-zero as absent); start at 1 and mix in
-            // randomness so ids from two pipelines in one process never collide. 63 bits: a
-            // platform whose integers are signed (Dart) must be able to hand an id back.
+            // A random odd 63-bit start: never zero (OTLP treats all-zero as absent), and two
+            // pipelines in one process are very unlikely to overlap. 63 bits: a platform whose
+            // integers are signed (Dart) must be able to hand an id back.
             next_id: (rand::random::<u64>() >> 1) | 1,
             dropped: 0,
             warned: Warned::default(),
@@ -174,7 +184,8 @@ impl Spans {
         self.revoked.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Open a span in `session`'s trace.
+    /// Open a span in `session`'s trace. After the opt-out nothing opens: returns 0, which is
+    /// never a span id.
     pub fn begin_in(
         &mut self,
         name: &str,
@@ -194,7 +205,7 @@ impl Spans {
                 self.count_drop("open", MAX_OPEN_SPANS);
             }
         }
-        self.sessions.insert(id, session.clone());
+        self.sessions.insert(id, Arc::downgrade(&session));
         let record = SpanRecord {
             span_id: id,
             parent_span_id: parent.filter(|p| *p != 0),
@@ -216,12 +227,18 @@ impl Spans {
         id
     }
 
-    /// Whether a span with one of these names is still open (the exporter holds uploads while
-    /// `lk.connect` / `lk.reconnect` are).
     /// The session a recent span belongs to — open, ended or exported (log records emitted inside
     /// a span are filed there, and they may arrive after the span ended).
     pub fn scope_of(&self, id: u64) -> Option<Arc<ScopeState>> {
-        self.sessions.get(&id).cloned()
+        self.sessions.get(&id)?.upgrade()
+    }
+
+    /// Attributes an open span's handle could not keep (past its own cap), added to what
+    /// [`end`](Self::end) cuts.
+    pub fn add_dropped_attributes(&mut self, id: u64, count: u32) {
+        if let Some(span) = self.open.get_mut(&id) {
+            span.dropped_attributes = span.dropped_attributes.saturating_add(count);
+        }
     }
 
     #[cfg(test)]
@@ -234,6 +251,8 @@ impl Spans {
         self.open.len()
     }
 
+    /// Whether a span with one of these names is still open (the exporter holds uploads while
+    /// `lk.connect` / `lk.reconnect` are).
     pub fn any_open(&self, names: &[&str]) -> bool {
         self.open.values().any(|span| names.contains(&span.name.as_str()))
     }
@@ -267,7 +286,7 @@ impl Spans {
     /// Its attributes are taken now, like a log record's when it is queued: `attributes`, then
     /// the app's correlation attributes, cut to [`MAX_ATTRIBUTES_PER_SPAN`] — the app's go first,
     /// then the tail of `attributes` — counted in [`SpanRecord::dropped_attributes`] and warned
-    /// about once per drain. The session's own (`lk.room.*`, `session.id`) and the outcome are
+    /// about once per drain. The session's own (`lk.room_id`, `session.id`, …) and the outcome are
     /// added past the cap and always ship.
     pub fn end(
         &mut self,
@@ -289,12 +308,16 @@ impl Spans {
         let excess = attributes.len().saturating_sub(MAX_ATTRIBUTES_PER_SPAN);
         if excess > 0 {
             attributes.truncate(MAX_ATTRIBUTES_PER_SPAN);
-            span.dropped_attributes = u32::try_from(excess).unwrap_or(u32::MAX);
+            let excess = u32::try_from(excess).unwrap_or(u32::MAX);
+            span.dropped_attributes = span.dropped_attributes.saturating_add(excess);
+        }
+        // What the span's handle could not keep counts here too (`add_dropped_attributes`).
+        if span.dropped_attributes > 0 {
             warn_once(
                 &mut self.warned.attributes,
                 format_args!(
-                    "{} over {MAX_ATTRIBUTES_PER_SPAN} attributes: dropping {excess}",
-                    span.name
+                    "{} over {MAX_ATTRIBUTES_PER_SPAN} attributes: dropping {}",
+                    span.name, span.dropped_attributes
                 ),
             );
         }
@@ -302,10 +325,10 @@ impl Spans {
         span.attributes = attributes;
         self.retire(id);
         if self.finished.len() >= self.finished_capacity {
-            self.finished.remove(0);
+            self.finished.pop_front();
             self.count_drop("finished", self.finished_capacity);
         }
-        self.finished.push(span);
+        self.finished.push_back(span);
     }
 
     /// A span ended or was abandoned: its session stays resolvable until [`REMEMBERED_SPANS`]
@@ -329,13 +352,14 @@ impl Spans {
     }
 
     /// Take the finished spans, oldest first.
-    /// At most `max` spans and about `max_bytes` (always at least one, so an oversized span
-    /// still ships).
-    pub fn drain(&mut self, max: usize, max_bytes: usize) -> Vec<SpanRecord> {
+    /// At most `max` spans and about `max_bytes` (at least one when `max > 0`, so an oversized
+    /// span still ships), counting `extra` more bytes per span: what export adds to each (the
+    /// pipeline-wide attributes).
+    pub fn drain(&mut self, max: usize, max_bytes: usize, extra: usize) -> Vec<SpanRecord> {
         self.warned = Warned::default();
         let (mut n, mut bytes) = (0, 0);
         for span in self.finished.iter().take(max) {
-            let size = span.size_hint();
+            let size = span.size_hint() + extra;
             if n > 0 && bytes + size > max_bytes {
                 break;
             }
@@ -357,6 +381,11 @@ impl Spans {
         n as u64
     }
 
+    /// How many finished spans wait for export right now.
+    pub fn finished_len(&self) -> usize {
+        self.finished.len()
+    }
+
     pub fn take_dropped(&mut self) -> u64 {
         std::mem::take(&mut self.dropped)
     }
@@ -375,9 +404,10 @@ impl SpanRecord {
     /// `lk.outcome`, plus `error.type` when the span failed: the attributes every span carries
     /// beyond the caller's.
     pub(crate) fn outcome_attributes(&self) -> Vec<Attribute> {
-        let mut attributes = vec![Attribute::new("lk.outcome", self.outcome.as_str())];
+        let mut attributes = vec![Attribute::new(semconv::LK_OUTCOME, self.outcome.as_str())];
         if let (SpanOutcome::Error, Some(error_type)) = (self.outcome, &self.error_type) {
-            attributes.push(Attribute::new("error.type", AttributeValue::Str(error_type.clone())));
+            let error_type = AttributeValue::Str(error_type.clone());
+            attributes.push(Attribute::new(upstream::ERROR_TYPE, error_type));
         }
         attributes
     }
@@ -402,7 +432,7 @@ mod tests {
         );
         spans.end(parent, SpanOutcome::Ok, None, vec![]); // double end: ignored
 
-        let finished = spans.drain(10, usize::MAX);
+        let finished = spans.drain(10, usize::MAX, 0);
         assert_eq!(finished.len(), 2);
         assert_eq!(finished[0].name, "lk.publish");
         assert_eq!(finished[0].parent_span_id, Some(parent));
@@ -444,7 +474,7 @@ mod tests {
         assert_eq!(crate::test_log::take(), [warning], "the first drop logged, the rest counted");
         assert!(spans.scope_of(ids[0]).is_none());
         assert_eq!(spans.sessions.len(), MAX_OPEN_SPANS + REMEMBERED_SPANS);
-        spans.drain(10, usize::MAX);
+        spans.drain(10, usize::MAX, 0);
         spans.begin("lk.publish", SpanKind::Internal, None);
         assert_eq!(crate::test_log::take(), [warning], "a drain starts a new episode");
     }
@@ -456,7 +486,7 @@ mod tests {
             let id = spans.begin("lk.publish", SpanKind::Internal, None);
             spans.end(id, SpanOutcome::Ok, None, vec![]);
         }
-        assert_eq!(spans.drain(10, usize::MAX).len(), 1);
+        assert_eq!(spans.drain(10, usize::MAX, 0).len(), 1);
         assert_eq!(spans.take_dropped(), 1);
     }
 
@@ -477,7 +507,7 @@ mod tests {
         use crate::proto::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
         use prost::Message;
 
-        let bytes = crate::otlp::encode_spans(&[], &[], spans.drain(10, usize::MAX));
+        let bytes = crate::otlp::encode_spans(&[], &[], spans.drain(10, usize::MAX, 0));
         let mut decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         std::mem::take(&mut decoded.resource_spans[0].scope_spans[0].spans)
     }
@@ -487,7 +517,7 @@ mod tests {
         crate::test_log::capture();
         let mut spans = Spans::new(8);
         let session = ScopeState::new();
-        session.set_attribute("lk.room.sid", Some("RM_1".into()));
+        session.set_attribute("lk.room_id", Some("RM_1".into()));
         assert!(session.set_custom("app.call_id", Some("c1".into())));
         let overflow = |spans: &mut Spans| {
             let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
@@ -504,7 +534,7 @@ mod tests {
             assert_eq!(span.dropped_attributes_count, 1, "the app's call id");
             let keys: Vec<_> = span.attributes.iter().map(|kv| kv.key.as_str()).collect();
             assert!(!keys.contains(&"app.call_id"), "the app's own go first");
-            for key in ["lk.publish.k127", "lk.room.sid", "session.id", "lk.outcome"] {
+            for key in ["lk.publish.k127", "lk.room_id", "session.id", "lk.outcome"] {
                 assert!(keys.contains(&key), "{key} survives the cap");
             }
         }
@@ -563,7 +593,7 @@ mod tests {
             let id = spans.begin("lk.publish", SpanKind::Internal, None);
             spans.end(id, SpanOutcome::Ok, None, vec![]);
         }
-        assert_eq!(spans.drain(10, usize::MAX).len(), 1);
+        assert_eq!(spans.drain(10, usize::MAX, 0).len(), 1);
         assert_eq!(spans.take_dropped(), 1);
     }
 }

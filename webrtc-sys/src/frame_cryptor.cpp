@@ -16,6 +16,7 @@
 
 #include "livekit/frame_cryptor.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "absl/types/optional.h"
@@ -113,7 +114,8 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_salt = ratchet_salt;
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
-  rtc_options.key_ring_size = options.key_ring_size;
+  key_ring_size_ = std::clamp(options.key_ring_size, 1, 255);
+  rtc_options.key_ring_size = key_ring_size_;
   rtc_options.key_derivation_algorithm =
       KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
           options.key_derivation_algorithm);
@@ -272,7 +274,7 @@ EncryptedPacket DataPacketCryptor::encrypt_data_packet(
       data_vec);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to encrypt data packet: ") +
+    throw BridgeException(std::string("Failed to encrypt data packet: ") +
                              result.error().message());
   }
 
@@ -312,7 +314,7 @@ rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
       native_encrypted_packet);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to decrypt data packet: ") +
+    throw BridgeException(std::string("Failed to decrypt data packet: ") +
                              result.error().message());
   }
 

@@ -102,7 +102,7 @@ async fn wait_with_disconnect_grace<T>(
 /// Tracks pending ACKs and responses, handles v1 packet and v2 data stream
 /// transport selection based on the remote participant's client protocol.
 pub struct RpcClientManager {
-    pending_acks: Mutex<HashMap<String, Pending<()>>>,
+    pending_acks: Mutex<HashMap<String, Pending<Result<(), RpcError>>>>,
     pending_responses: Mutex<HashMap<String, Pending<Result<String, RpcError>>>>,
 }
 
@@ -229,7 +229,12 @@ impl RpcClientManager {
                 self.clear_in_flight_rpc(&id);
                 return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
             }
-            Wait::Received(()) => {
+            // The room closed before the ack arrived.
+            Wait::Received(Err(e)) => {
+                self.clear_in_flight_rpc(&id);
+                return Err(e);
+            }
+            Wait::Received(Ok(())) => {
                 // Ack received, continue to wait for response
             }
         }
@@ -367,21 +372,24 @@ impl RpcClientManager {
         }
     }
 
-    /// Fail every in-flight call, whoever it was addressed to. Used when the room closes.
+    /// Fail every in-flight call with `ConnectionClosed`, whoever it was addressed to. Used when
+    /// the room closes: the local participant has left, so no ack or response can arrive.
     pub fn fail_all_pending(&self) {
-        self.pending_acks.lock().clear();
+        let stranded_acks: Vec<_> = self.pending_acks.lock().drain().map(|(_, p)| p).collect();
+        for pending in stranded_acks {
+            let _ = pending.tx.send(Err(RpcError::built_in(RpcErrorCode::ConnectionClosed, None)));
+        }
 
         let stranded: Vec<_> = self.pending_responses.lock().drain().map(|(_, p)| p).collect();
         for pending in stranded {
-            let _ =
-                pending.tx.send(Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)));
+            let _ = pending.tx.send(Err(RpcError::built_in(RpcErrorCode::ConnectionClosed, None)));
         }
     }
 
     pub fn handle_incoming_rpc_ack(&self, request_id: String) {
         let mut pending = self.pending_acks.lock();
         if let Some(pending) = pending.remove(&request_id) {
-            let _ = pending.tx.send(());
+            let _ = pending.tx.send(Ok(()));
         } else {
             log::error!("Ack received for unexpected RPC request: {}", request_id);
         }

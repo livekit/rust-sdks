@@ -59,7 +59,8 @@ pub(crate) struct Store {
     queue: Mutex<Queue>,
     /// The opt-out, checked under the queue lock `clear` also takes: nothing lands after a purge.
     revoked: Arc<AtomicBool>,
-    /// Test-only: runs at the start of `push`, before the lock (to hold a producer there).
+    /// Test-only: runs at the start of `push`, before the lock, so the opt-out race test
+    /// (`a_capture_racing_the_opt_out_leaves_nothing_behind`) can hold a producer exactly there.
     #[cfg(test)]
     pub(crate) pause: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     capacity: usize,
@@ -110,49 +111,61 @@ impl Store {
         if self.revoked.load(Ordering::SeqCst) {
             return false;
         }
+        let mut warn = false;
         if queue.events.len() >= self.capacity {
             if let Some(oldest) = queue.events.pop_front() {
                 queue.bytes = queue.bytes.saturating_sub(oldest.event.size_hint());
             }
             Counters::add(&self.counters.queue_full, 1);
-            if !queue.full_warned {
-                queue.full_warned = true;
-                log::warn!(
-                    "queue full ({} records): dropping oldest until the exporter drains",
-                    self.capacity
-                );
-            }
+            warn = !std::mem::replace(&mut queue.full_warned, true);
         }
         let before = queue.bytes;
         queue.bytes += queued.event.size_hint();
         queue.events.push_back(queued);
-        before < self.flush_threshold && queue.bytes >= self.flush_threshold
+        let crossed = before < self.flush_threshold && queue.bytes >= self.flush_threshold;
+        // Logged after the lock, and after any outer lock the caller holds (a project change
+        // pushes the windows it closed under the session's transition): a log line may call
+        // into the host.
+        drop(queue);
+        if warn {
+            crate::cache::diagnostic(
+                log::Level::Warn,
+                format!(
+                    "queue full ({} records): dropping oldest until the exporter drains",
+                    self.capacity
+                ),
+            );
+        }
+        crossed
     }
 
     /// Remove and return the oldest events: at most `min(max, len)` of them and about `max_bytes`
     /// in total. Each pass stops or removes one event, so there is at most one extra, stopping
     /// pass. `max == 0` returns nothing; on a non-empty queue with `max > 0`, `max_bytes == 0`
-    /// returns one event, and an oversized head event goes out alone.
-    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<QueuedEvent> {
+    /// returns one event, and an oversized head event goes out alone. Each event counts `extra`
+    /// more bytes: what export adds to every record (the pipeline-wide attributes).
+    pub fn drain(&self, max: usize, max_bytes: usize, extra: usize) -> Vec<QueuedEvent> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.full_warned = false;
         let mut out = Vec::new();
         let mut bytes = 0;
         while out.len() < max {
             let Some(next) = queue.events.front() else { break };
-            let size = next.event.size_hint();
+            let own = next.event.size_hint();
+            let size = own + extra;
             if !out.is_empty() && bytes + size > max_bytes {
                 break;
             }
             bytes += size;
-            queue.bytes = queue.bytes.saturating_sub(size);
+            queue.bytes = queue.bytes.saturating_sub(own);
             out.extend(queue.events.pop_front());
         }
         out
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).events.is_empty()
+    /// How many events wait for export right now.
+    pub fn len(&self) -> usize {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).events.len()
     }
 
     /// Drop everything queued (opt-out); returns how many records went.
@@ -172,6 +185,23 @@ mod tests {
         QueuedEvent::new(event, ScopeState::new())
     }
 
+    /// The queue-full warning reaches the logger once the queue's lock is released: a host logger
+    /// that calls back into the pipeline cannot block on it.
+    #[test]
+    fn the_queue_full_warning_is_logged_outside_the_queue_lock() {
+        crate::test_log::capture();
+        let store = Arc::new(Store::new(1, usize::MAX, Arc::new(Counters::default())));
+        let held = Arc::downgrade(&store);
+        crate::test_log::mark_while(move || {
+            held.upgrade().is_some_and(|store| store.queue.try_lock().is_err())
+        });
+        store.push(queued(TelemetryEvent::new("a")));
+        store.push(queued(TelemetryEvent::new("b")));
+        let lines = crate::test_log::take();
+        assert!(lines.iter().any(|line| line.contains("queue full")), "{lines:?}");
+        assert!(lines.iter().all(|line| !line.starts_with("held: ")), "{lines:?}");
+    }
+
     #[test]
     fn drops_oldest_when_full() {
         crate::test_log::capture();
@@ -182,10 +212,11 @@ mod tests {
         }
         let warning = "queue full (2 records): dropping oldest until the exporter drains";
         assert_eq!(crate::test_log::take(), [warning], "two drops, one warning");
-        let names: Vec<_> = store.drain(10, usize::MAX).into_iter().map(|q| q.event.name).collect();
+        let names: Vec<_> =
+            store.drain(10, usize::MAX, 0).into_iter().map(|q| q.event.name).collect();
         assert_eq!(names, ["c", "d"]);
         assert_eq!(counters.snapshot().queue_full, 2);
-        assert!(store.drain(10, usize::MAX).is_empty());
+        assert!(store.drain(10, usize::MAX, 0).is_empty());
         for name in ["e", "f", "g"] {
             store.push(queued(TelemetryEvent::new(name)));
         }
@@ -198,7 +229,7 @@ mod tests {
         let store = Store::new(0, 0, counters.clone());
         assert!(store.push(queued(TelemetryEvent::new("a"))), "any record crosses one byte");
         store.push(queued(TelemetryEvent::new("b")));
-        assert_eq!(store.drain(10, usize::MAX).len(), 1);
+        assert_eq!(store.drain(10, usize::MAX, 0).len(), 1);
         assert_eq!(counters.snapshot().queue_full, 1, "no drop counted for an empty queue");
     }
 
@@ -216,7 +247,7 @@ mod tests {
     #[test]
     fn queued_bytes_count_the_sessions_attributes() {
         let session = ScopeState::new();
-        session.set_attribute("lk.room.name", Some("r".repeat(100).into()));
+        session.set_attribute("lk.pii.room_name", Some("r".repeat(100).into()));
         let store = Store::new(10, usize::MAX, Arc::default());
         store.push(QueuedEvent::new(TelemetryEvent::new("lk.ping"), session));
         let bare = TelemetryEvent::new("lk.ping").size_hint();
@@ -231,8 +262,22 @@ mod tests {
         assert!(!store.push(event()), "160 < 200");
         assert!(store.push(event()), "320 crosses 200");
         assert!(!store.push(event()), "already above: no second wake-up");
-        assert_eq!(store.drain(10, 330).len(), 2, "two fit in 330 bytes");
-        assert_eq!(store.drain(10, 1).len(), 1, "an oversized event still ships alone");
-        assert!(store.drain(10, usize::MAX).is_empty());
+        assert_eq!(store.drain(10, 330, 0).len(), 2, "two fit in 330 bytes");
+        assert_eq!(store.drain(10, 1, 0).len(), 1, "an oversized event still ships alone");
+        assert!(store.drain(10, usize::MAX, 0).is_empty());
+    }
+
+    /// A drain takes only the record's own size off the queue's accounting: the pipeline
+    /// attributes it counts toward the batch budget were never added to it.
+    #[test]
+    fn drain_subtracts_only_the_queued_records_size() {
+        let store = Store::new(10, usize::MAX, Arc::default());
+        let event = || queued(TelemetryEvent::new("e").with_body("x".repeat(30)));
+        let second = event();
+        let size = second.event.size_hint();
+        store.push(event());
+        store.push(second);
+        assert_eq!(store.drain(1, usize::MAX, 1_000).len(), 1);
+        assert_eq!(store.queue.lock().unwrap().bytes, size, "the queued record's size, no less");
     }
 }

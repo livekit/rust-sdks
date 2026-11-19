@@ -371,6 +371,7 @@ impl EgressClient {
                     egress_id: egress_id.to_owned(),
                     add_output_urls,
                     remove_output_urls,
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,

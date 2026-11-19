@@ -139,6 +139,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.4.2 (2026-11-18)
+
+### Fixes
+
+- Fix Objective-C linking - #1394 (@ladvoc)
+- Fix a debug-build abort when a data channel receives an empty message.
+- Fix an intermittent abort on Windows when a webrtc-sys call reports an error to Rust. The prebuilt libwebrtc is compiled with `_HAS_EXCEPTIONS=0`, and the build script copies that define onto this crate, so MSVC's `std::runtime_error(const std::string&)` kept only a pointer to the temporary message instead of copying it. `what()` then dangled while the exception unwound and cxx read freed memory to build the Rust `Err`. Error messages are now owned by the thrown exception.
+
+## 0.4.1 (2026-11-13)
+
+### Fixes
+
+- Handle out-of-range key indices gracefully in `KeyProvider` and clamp `key_ring_size` to valid bounds.
+- Log libwebrtc messages at their own severity instead of reporting every one as debug, so its warnings and errors are no longer filtered out by default in every SDK.
+
+## 0.4.0 (2026-11-04)
+
+### Breaking Changes
+
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+
+### Features
+
+- Pre-encoded video publishing no longer requires a local encoder for its codec, so pre-encoded H265 works on hosts without an H265 encoder, a camera track requesting a codec no local encoder produces now publishes VP8 instead of a codec it cannot encode, and `PeerConnectionFactory::video_encoder_codecs` reports codec support using a non-exhaustive `libwebrtc::video_codec::VideoCodec` enum supporting `FromStr`, with `Auto` excluding the pre-encoded pass-through backend.
+
+### Fixes
+
+- Preserve distinct frame metadata when queued video frames are captured within the same millisecond, including pre-encoded frames that share an RTP timestamp.
+
 ## 0.3.55 (2026-10-28)
 
 ### Fixes

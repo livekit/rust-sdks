@@ -188,6 +188,9 @@ impl serde::Serialize for AgentDevMessage {
                 agent_dev_message::Message::ServerInfo(v) => {
                     struct_ser.serialize_field("serverInfo", v)?;
                 }
+                agent_dev_message::Message::Credentials(v) => {
+                    struct_ser.serialize_field("credentials", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -206,6 +209,7 @@ impl<'de> serde::Deserialize<'de> for AgentDevMessage {
             "getRunningJobsResponse",
             "server_info",
             "serverInfo",
+            "credentials",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -213,6 +217,7 @@ impl<'de> serde::Deserialize<'de> for AgentDevMessage {
             GetRunningJobsRequest,
             GetRunningJobsResponse,
             ServerInfo,
+            Credentials,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -238,6 +243,7 @@ impl<'de> serde::Deserialize<'de> for AgentDevMessage {
                             "getRunningJobsRequest" | "get_running_jobs_request" => Ok(GeneratedField::GetRunningJobsRequest),
                             "getRunningJobsResponse" | "get_running_jobs_response" => Ok(GeneratedField::GetRunningJobsResponse),
                             "serverInfo" | "server_info" => Ok(GeneratedField::ServerInfo),
+                            "credentials" => Ok(GeneratedField::Credentials),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -279,6 +285,13 @@ impl<'de> serde::Deserialize<'de> for AgentDevMessage {
                                 return Err(serde::de::Error::duplicate_field("serverInfo"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_dev_message::Message::ServerInfo)
+;
+                        }
+                        GeneratedField::Credentials => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("credentials"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_dev_message::Message::Credentials)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -505,6 +518,12 @@ impl serde::Serialize for AgentSessionEvent {
                 agent_session_event::Event::AgentFalseInterruption(v) => {
                     struct_ser.serialize_field("agentFalseInterruption", v)?;
                 }
+                agent_session_event::Event::AmdCompleted(v) => {
+                    struct_ser.serialize_field("amdCompleted", v)?;
+                }
+                agent_session_event::Event::SessionClosed(v) => {
+                    struct_ser.serialize_field("sessionClosed", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -546,6 +565,10 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             "toolExecutionUpdated",
             "agent_false_interruption",
             "agentFalseInterruption",
+            "amd_completed",
+            "amdCompleted",
+            "session_closed",
+            "sessionClosed",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -565,6 +588,8 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             DebugMessage,
             ToolExecutionUpdated,
             AgentFalseInterruption,
+            AmdCompleted,
+            SessionClosed,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -602,6 +627,8 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                             "debugMessage" | "debug_message" => Ok(GeneratedField::DebugMessage),
                             "toolExecutionUpdated" | "tool_execution_updated" => Ok(GeneratedField::ToolExecutionUpdated),
                             "agentFalseInterruption" | "agent_false_interruption" => Ok(GeneratedField::AgentFalseInterruption),
+                            "amdCompleted" | "amd_completed" => Ok(GeneratedField::AmdCompleted),
+                            "sessionClosed" | "session_closed" => Ok(GeneratedField::SessionClosed),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -727,6 +754,20 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                                 return Err(serde::de::Error::duplicate_field("agentFalseInterruption"));
                             }
                             event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::AgentFalseInterruption)
+;
+                        }
+                        GeneratedField::AmdCompleted => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("amdCompleted"));
+                            }
+                            event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::AmdCompleted)
+;
+                        }
+                        GeneratedField::SessionClosed => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sessionClosed"));
+                            }
+                            event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::SessionClosed)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -956,6 +997,155 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AgentStateChanged {
         deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.AgentStateChanged", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for agent_session_event::AmdCompleted {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.category != 0 {
+            len += 1;
+        }
+        if !self.reason.is_empty() {
+            len += 1;
+        }
+        if self.voicemail_message_played {
+            len += 1;
+        }
+        if self.prediction.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.AmdCompleted", len)?;
+        if self.category != 0 {
+            let v = AmdCategory::try_from(self.category)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.category)))?;
+            struct_ser.serialize_field("category", &v)?;
+        }
+        if !self.reason.is_empty() {
+            struct_ser.serialize_field("reason", &self.reason)?;
+        }
+        if self.voicemail_message_played {
+            struct_ser.serialize_field("voicemailMessagePlayed", &self.voicemail_message_played)?;
+        }
+        if let Some(v) = self.prediction.as_ref() {
+            struct_ser.serialize_field("prediction", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_session_event::AmdCompleted {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "category",
+            "reason",
+            "voicemail_message_played",
+            "voicemailMessagePlayed",
+            "prediction",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Category,
+            Reason,
+            VoicemailMessagePlayed,
+            Prediction,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "category" => Ok(GeneratedField::Category),
+                            "reason" => Ok(GeneratedField::Reason),
+                            "voicemailMessagePlayed" | "voicemail_message_played" => Ok(GeneratedField::VoicemailMessagePlayed),
+                            "prediction" => Ok(GeneratedField::Prediction),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_session_event::AmdCompleted;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.AgentSessionEvent.AmdCompleted")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_session_event::AmdCompleted, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut category__ = None;
+                let mut reason__ = None;
+                let mut voicemail_message_played__ = None;
+                let mut prediction__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Category => {
+                            if category__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("category"));
+                            }
+                            category__ = Some(map_.next_value::<AmdCategory>()? as i32);
+                        }
+                        GeneratedField::Reason => {
+                            if reason__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reason"));
+                            }
+                            reason__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::VoicemailMessagePlayed => {
+                            if voicemail_message_played__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("voicemailMessagePlayed"));
+                            }
+                            voicemail_message_played__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Prediction => {
+                            if prediction__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("prediction"));
+                            }
+                            prediction__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(agent_session_event::AmdCompleted {
+                    category: category__.unwrap_or_default(),
+                    reason: reason__.unwrap_or_default(),
+                    voicemail_message_played: voicemail_message_played__.unwrap_or_default(),
+                    prediction: prediction__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.AmdCompleted", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for agent_session_event::AmdPrediction {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -979,6 +1169,15 @@ impl serde::Serialize for agent_session_event::AmdPrediction {
         if self.delay.is_some() {
             len += 1;
         }
+        if self.turn_id != 0 {
+            len += 1;
+        }
+        if self.stage != 0 {
+            len += 1;
+        }
+        if self.inference_duration.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.AmdPrediction", len)?;
         if let Some(v) = self.speech_duration.as_ref() {
             struct_ser.serialize_field("speechDuration", v)?;
@@ -997,6 +1196,17 @@ impl serde::Serialize for agent_session_event::AmdPrediction {
         if let Some(v) = self.delay.as_ref() {
             struct_ser.serialize_field("delay", v)?;
         }
+        if self.turn_id != 0 {
+            struct_ser.serialize_field("turnId", &self.turn_id)?;
+        }
+        if self.stage != 0 {
+            let v = AmdCategory::try_from(self.stage)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.stage)))?;
+            struct_ser.serialize_field("stage", &v)?;
+        }
+        if let Some(v) = self.inference_duration.as_ref() {
+            struct_ser.serialize_field("inferenceDuration", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1013,6 +1223,11 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
             "reason",
             "transcript",
             "delay",
+            "turn_id",
+            "turnId",
+            "stage",
+            "inference_duration",
+            "inferenceDuration",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1022,6 +1237,9 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
             Reason,
             Transcript,
             Delay,
+            TurnId,
+            Stage,
+            InferenceDuration,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1049,6 +1267,9 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
                             "reason" => Ok(GeneratedField::Reason),
                             "transcript" => Ok(GeneratedField::Transcript),
                             "delay" => Ok(GeneratedField::Delay),
+                            "turnId" | "turn_id" => Ok(GeneratedField::TurnId),
+                            "stage" => Ok(GeneratedField::Stage),
+                            "inferenceDuration" | "inference_duration" => Ok(GeneratedField::InferenceDuration),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1073,6 +1294,9 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
                 let mut reason__ = None;
                 let mut transcript__ = None;
                 let mut delay__ = None;
+                let mut turn_id__ = None;
+                let mut stage__ = None;
+                let mut inference_duration__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SpeechDuration => {
@@ -1105,6 +1329,26 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
                             }
                             delay__ = map_.next_value()?;
                         }
+                        GeneratedField::TurnId => {
+                            if turn_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("turnId"));
+                            }
+                            turn_id__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Stage => {
+                            if stage__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stage"));
+                            }
+                            stage__ = Some(map_.next_value::<AmdCategory>()? as i32);
+                        }
+                        GeneratedField::InferenceDuration => {
+                            if inference_duration__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inferenceDuration"));
+                            }
+                            inference_duration__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1116,6 +1360,9 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::AmdPrediction {
                     reason: reason__.unwrap_or_default(),
                     transcript: transcript__.unwrap_or_default(),
                     delay: delay__,
+                    turn_id: turn_id__.unwrap_or_default(),
+                    stage: stage__.unwrap_or_default(),
+                    inference_duration: inference_duration__,
                 })
             }
         }
@@ -1328,7 +1575,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::EotPrediction {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1336,7 +1583,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::EotPrediction {
                             if threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("threshold"));
                             }
-                            threshold__ = 
+                            threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1799,7 +2046,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::OverlappingSpeech {
                             if detection_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("detectionDelay"));
                             }
-                            detection_delay__ = 
+                            detection_delay__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1823,6 +2070,120 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::OverlappingSpeech {
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.OverlappingSpeech", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for agent_session_event::SessionClosed {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.reason != 0 {
+            len += 1;
+        }
+        if self.error.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.SessionClosed", len)?;
+        if self.reason != 0 {
+            let v = CloseReason::try_from(self.reason)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reason)))?;
+            struct_ser.serialize_field("reason", &v)?;
+        }
+        if let Some(v) = self.error.as_ref() {
+            struct_ser.serialize_field("error", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_session_event::SessionClosed {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "reason",
+            "error",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Reason,
+            Error,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "reason" => Ok(GeneratedField::Reason),
+                            "error" => Ok(GeneratedField::Error),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_session_event::SessionClosed;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.AgentSessionEvent.SessionClosed")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_session_event::SessionClosed, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut reason__ = None;
+                let mut error__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Reason => {
+                            if reason__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reason"));
+                            }
+                            reason__ = Some(map_.next_value::<CloseReason>()? as i32);
+                        }
+                        GeneratedField::Error => {
+                            if error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("error"));
+                            }
+                            error__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(agent_session_event::SessionClosed {
+                    reason: reason__.unwrap_or_default(),
+                    error: error__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.SessionClosed", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_session_event::SessionUsageUpdated {
@@ -3200,7 +3561,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if data__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("data"));
                             }
-                            data__ = 
+                            data__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -3208,7 +3569,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3216,7 +3577,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if num_channels__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("numChannels"));
                             }
-                            num_channels__ = 
+                            num_channels__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3224,7 +3585,7 @@ impl<'de> serde::Deserialize<'de> for agent_session_message::console_io::AudioFr
                             if samples_per_channel__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("samplesPerChannel"));
                             }
-                            samples_per_channel__ = 
+                            samples_per_channel__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3566,7 +3927,7 @@ impl<'de> serde::Deserialize<'de> for AgentSessionState {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
-                            version__ = 
+                            version__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -3976,7 +4337,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -4117,10 +4478,13 @@ impl serde::Serialize for agent_task::Status {
     {
         let variant = match self {
             Self::Unspecified => "UNSPECIFIED",
-            Self::Running => "RUNNING",
+            Self::Working => "WORKING",
             Self::Completed => "COMPLETED",
             Self::Failed => "FAILED",
             Self::Canceled => "CANCELED",
+            Self::Submitted => "SUBMITTED",
+            Self::InputRequired => "INPUT_REQUIRED",
+            Self::Rejected => "REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -4133,10 +4497,13 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
     {
         const FIELDS: &[&str] = &[
             "UNSPECIFIED",
-            "RUNNING",
+            "WORKING",
             "COMPLETED",
             "FAILED",
             "CANCELED",
+            "SUBMITTED",
+            "INPUT_REQUIRED",
+            "REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -4178,10 +4545,13 @@ impl<'de> serde::Deserialize<'de> for agent_task::Status {
             {
                 match value {
                     "UNSPECIFIED" => Ok(agent_task::Status::Unspecified),
-                    "RUNNING" => Ok(agent_task::Status::Running),
+                    "WORKING" => Ok(agent_task::Status::Working),
                     "COMPLETED" => Ok(agent_task::Status::Completed),
                     "FAILED" => Ok(agent_task::Status::Failed),
                     "CANCELED" => Ok(agent_task::Status::Canceled),
+                    "SUBMITTED" => Ok(agent_task::Status::Submitted),
+                    "INPUT_REQUIRED" => Ok(agent_task::Status::InputRequired),
+                    "REJECTED" => Ok(agent_task::Status::Rejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -4203,7 +4573,7 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             len += 1;
         }
-        if !self.name.is_empty() {
+        if self.name.is_some() {
             len += 1;
         }
         if self.status != 0 {
@@ -4219,8 +4589,8 @@ impl serde::Serialize for agent_task::Task {
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
         }
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
+        if let Some(v) = self.name.as_ref() {
+            struct_ser.serialize_field("name", v)?;
         }
         if self.status != 0 {
             let v = agent_task::Status::try_from(self.status)
@@ -4326,7 +4696,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                             if name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
-                            name__ = Some(map_.next_value()?);
+                            name__ = map_.next_value()?;
                         }
                         GeneratedField::Status => {
                             if status__.is_some() {
@@ -4348,7 +4718,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::Task {
                 Ok(agent_task::Task {
                     task_id: task_id__.unwrap_or_default(),
                     thread_id: thread_id__.unwrap_or_default(),
-                    name: name__.unwrap_or_default(),
+                    name: name__,
                     status: status__.unwrap_or_default(),
                     updated_at: updated_at__,
                 })
@@ -4872,7 +5242,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5227,7 +5597,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Item {
                             if seq__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("seq"));
                             }
-                            seq__ = 
+                            seq__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5372,7 +5742,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                             if limit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("limit"));
                             }
-                            limit__ = 
+                            limit__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -5607,9 +5977,6 @@ impl serde::Serialize for agent_thread::Thread {
         if self.idle_ttl.is_some() {
             len += 1;
         }
-        if !self.database_id.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.Thread", len)?;
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
@@ -5631,9 +5998,6 @@ impl serde::Serialize for agent_thread::Thread {
         }
         if let Some(v) = self.idle_ttl.as_ref() {
             struct_ser.serialize_field("idleTtl", v)?;
-        }
-        if !self.database_id.is_empty() {
-            struct_ser.serialize_field("databaseId", &self.database_id)?;
         }
         struct_ser.end()
     }
@@ -5657,8 +6021,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
             "expiresAt",
             "idle_ttl",
             "idleTtl",
-            "database_id",
-            "databaseId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5670,7 +6032,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
             LastActive,
             ExpiresAt,
             IdleTtl,
-            DatabaseId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5700,7 +6061,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             "lastActive" | "last_active" => Ok(GeneratedField::LastActive),
                             "expiresAt" | "expires_at" => Ok(GeneratedField::ExpiresAt),
                             "idleTtl" | "idle_ttl" => Ok(GeneratedField::IdleTtl),
-                            "databaseId" | "database_id" => Ok(GeneratedField::DatabaseId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5727,7 +6087,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                 let mut last_active__ = None;
                 let mut expires_at__ = None;
                 let mut idle_ttl__ = None;
-                let mut database_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -5774,12 +6133,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             }
                             idle_ttl__ = map_.next_value()?;
                         }
-                        GeneratedField::DatabaseId => {
-                            if database_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("databaseId"));
-                            }
-                            database_id__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5793,7 +6146,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                     last_active: last_active__,
                     expires_at: expires_at__,
                     idle_ttl: idle_ttl__,
-                    database_id: database_id__.unwrap_or_default(),
                 })
             }
         }
@@ -5946,6 +6298,8 @@ impl serde::Serialize for AmdCategory {
             Self::AmdMachineVm => "AMD_MACHINE_VM",
             Self::AmdMachineUnavailable => "AMD_MACHINE_UNAVAILABLE",
             Self::AmdUncertain => "AMD_UNCERTAIN",
+            Self::AmdMachineScreening => "AMD_MACHINE_SCREENING",
+            Self::AmdWait => "AMD_WAIT",
         };
         serializer.serialize_str(variant)
     }
@@ -5963,6 +6317,8 @@ impl<'de> serde::Deserialize<'de> for AmdCategory {
             "AMD_MACHINE_VM",
             "AMD_MACHINE_UNAVAILABLE",
             "AMD_UNCERTAIN",
+            "AMD_MACHINE_SCREENING",
+            "AMD_WAIT",
         ];
 
         struct GeneratedVisitor;
@@ -6009,6 +6365,8 @@ impl<'de> serde::Deserialize<'de> for AmdCategory {
                     "AMD_MACHINE_VM" => Ok(AmdCategory::AmdMachineVm),
                     "AMD_MACHINE_UNAVAILABLE" => Ok(AmdCategory::AmdMachineUnavailable),
                     "AMD_UNCERTAIN" => Ok(AmdCategory::AmdUncertain),
+                    "AMD_MACHINE_SCREENING" => Ok(AmdCategory::AmdMachineScreening),
+                    "AMD_WAIT" => Ok(AmdCategory::AmdWait),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -6660,7 +7018,7 @@ impl<'de> serde::Deserialize<'de> for ChatMessage {
                             if transcript_confidence__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transcriptConfidence"));
                             }
-                            transcript_confidence__ = 
+                            transcript_confidence__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -7111,6 +7469,223 @@ impl<'de> serde::Deserialize<'de> for ClientMessage {
         deserializer.deserialize_struct("livekit.agent.ClientMessage", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for CloseReason {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::CrUnknown => "CR_UNKNOWN",
+            Self::CrError => "CR_ERROR",
+            Self::CrJobShutdown => "CR_JOB_SHUTDOWN",
+            Self::CrParticipantDisconnected => "CR_PARTICIPANT_DISCONNECTED",
+            Self::CrUserInitiated => "CR_USER_INITIATED",
+            Self::CrCompleted => "CR_COMPLETED",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for CloseReason {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "CR_UNKNOWN",
+            "CR_ERROR",
+            "CR_JOB_SHUTDOWN",
+            "CR_PARTICIPANT_DISCONNECTED",
+            "CR_USER_INITIATED",
+            "CR_COMPLETED",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CloseReason;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "CR_UNKNOWN" => Ok(CloseReason::CrUnknown),
+                    "CR_ERROR" => Ok(CloseReason::CrError),
+                    "CR_JOB_SHUTDOWN" => Ok(CloseReason::CrJobShutdown),
+                    "CR_PARTICIPANT_DISCONNECTED" => Ok(CloseReason::CrParticipantDisconnected),
+                    "CR_USER_INITIATED" => Ok(CloseReason::CrUserInitiated),
+                    "CR_COMPLETED" => Ok(CloseReason::CrCompleted),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Credentials {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.url.is_empty() {
+            len += 1;
+        }
+        if !self.token.is_empty() {
+            len += 1;
+        }
+        if self.expires_at != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.Credentials", len)?;
+        if !self.url.is_empty() {
+            struct_ser.serialize_field("url", &self.url)?;
+        }
+        if !self.token.is_empty() {
+            struct_ser.serialize_field("token", &self.token)?;
+        }
+        if self.expires_at != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("expiresAt", ToString::to_string(&self.expires_at).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Credentials {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "url",
+            "token",
+            "expires_at",
+            "expiresAt",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Url,
+            Token,
+            ExpiresAt,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "url" => Ok(GeneratedField::Url),
+                            "token" => Ok(GeneratedField::Token),
+                            "expiresAt" | "expires_at" => Ok(GeneratedField::ExpiresAt),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Credentials;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.Credentials")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Credentials, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut url__ = None;
+                let mut token__ = None;
+                let mut expires_at__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Url => {
+                            if url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("url"));
+                            }
+                            url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Token => {
+                            if token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("token"));
+                            }
+                            token__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ExpiresAt => {
+                            if expires_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("expiresAt"));
+                            }
+                            expires_at__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Credentials {
+                    url: url__.unwrap_or_default(),
+                    token: token__.unwrap_or_default(),
+                    expires_at: expires_at__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.Credentials", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DebugMessage {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -7322,7 +7897,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceRequest {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -7342,7 +7917,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceRequest {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7452,7 +8027,7 @@ impl<'de> serde::Deserialize<'de> for EotInferenceResponse {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7684,7 +8259,7 @@ impl<'de> serde::Deserialize<'de> for EotModelUsage {
                             if total_requests__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("totalRequests"));
                             }
-                            total_requests__ = 
+                            total_requests__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7817,7 +8392,7 @@ impl<'de> serde::Deserialize<'de> for EotPrediction {
                             if probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probability"));
                             }
-                            probability__ = 
+                            probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -7837,7 +8412,7 @@ impl<'de> serde::Deserialize<'de> for EotPrediction {
                             if backchannel_probability__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("backchannelProbability"));
                             }
-                            backchannel_probability__ = 
+                            backchannel_probability__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -8657,7 +9232,7 @@ impl<'de> serde::Deserialize<'de> for InferenceError {
                             if code__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("code"));
                             }
-                            code__ = 
+                            code__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -8916,9 +9491,15 @@ impl serde::Serialize for InferenceStart {
         if !self.request_id.is_empty() {
             len += 1;
         }
+        if self.turn_samples != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.InferenceStart", len)?;
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if self.turn_samples != 0 {
+            struct_ser.serialize_field("turnSamples", &self.turn_samples)?;
         }
         struct_ser.end()
     }
@@ -8932,11 +9513,14 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
         const FIELDS: &[&str] = &[
             "request_id",
             "requestId",
+            "turn_samples",
+            "turnSamples",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
+            TurnSamples,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8960,6 +9544,7 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
                     {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "turnSamples" | "turn_samples" => Ok(GeneratedField::TurnSamples),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8980,6 +9565,7 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut request_id__ = None;
+                let mut turn_samples__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -8988,6 +9574,14 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
                             }
                             request_id__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::TurnSamples => {
+                            if turn_samples__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("turnSamples"));
+                            }
+                            turn_samples__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8995,6 +9589,7 @@ impl<'de> serde::Deserialize<'de> for InferenceStart {
                 }
                 Ok(InferenceStart {
                     request_id: request_id__.unwrap_or_default(),
+                    turn_samples: turn_samples__.unwrap_or_default(),
                 })
             }
         }
@@ -9531,7 +10126,7 @@ impl<'de> serde::Deserialize<'de> for InputAudio {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -9545,7 +10140,7 @@ impl<'de> serde::Deserialize<'de> for InputAudio {
                             if num_samples__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("numSamples"));
                             }
-                            num_samples__ = 
+                            num_samples__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -9669,7 +10264,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceRequest {
                             if audio__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
-                            audio__ = 
+                            audio__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -9683,7 +10278,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceRequest {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -9809,7 +10404,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionInferenceResponse {
                             if probabilities__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probabilities"));
                             }
-                            probabilities__ = 
+                            probabilities__ =
                                 Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
@@ -9948,7 +10543,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionModelUsage {
                             if total_requests__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("totalRequests"));
                             }
-                            total_requests__ = 
+                            total_requests__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10075,7 +10670,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionPrediction {
                             if probabilities__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("probabilities"));
                             }
-                            probabilities__ = 
+                            probabilities__ =
                                 Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
@@ -10225,7 +10820,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionSettings {
                             if threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("threshold"));
                             }
-                            threshold__ = 
+                            threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10233,7 +10828,7 @@ impl<'de> serde::Deserialize<'de> for InterruptionSettings {
                             if min_frames__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("minFrames"));
                             }
-                            min_frames__ = 
+                            min_frames__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10506,7 +11101,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10514,7 +11109,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedTokens"));
                             }
-                            input_cached_tokens__ = 
+                            input_cached_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10522,7 +11117,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputAudioTokens"));
                             }
-                            input_audio_tokens__ = 
+                            input_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10530,7 +11125,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedAudioTokens"));
                             }
-                            input_cached_audio_tokens__ = 
+                            input_cached_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10538,7 +11133,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTextTokens"));
                             }
-                            input_text_tokens__ = 
+                            input_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10546,7 +11141,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedTextTokens"));
                             }
-                            input_cached_text_tokens__ = 
+                            input_cached_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10554,7 +11149,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_image_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputImageTokens"));
                             }
-                            input_image_tokens__ = 
+                            input_image_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10562,7 +11157,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if input_cached_image_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputCachedImageTokens"));
                             }
-                            input_cached_image_tokens__ = 
+                            input_cached_image_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10570,7 +11165,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10578,7 +11173,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_audio_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputAudioTokens"));
                             }
-                            output_audio_tokens__ = 
+                            output_audio_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10586,7 +11181,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if output_text_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTextTokens"));
                             }
-                            output_text_tokens__ = 
+                            output_text_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10594,7 +11189,7 @@ impl<'de> serde::Deserialize<'de> for LlmModelUsage {
                             if session_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sessionDuration"));
                             }
-                            session_duration__ = 
+                            session_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -10816,7 +11411,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if transcription_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transcriptionDelay"));
                             }
-                            transcription_delay__ = 
+                            transcription_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10824,7 +11419,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if end_of_turn_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("endOfTurnDelay"));
                             }
-                            end_of_turn_delay__ = 
+                            end_of_turn_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10832,7 +11427,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if on_user_turn_completed_delay__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("onUserTurnCompletedDelay"));
                             }
-                            on_user_turn_completed_delay__ = 
+                            on_user_turn_completed_delay__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10840,7 +11435,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_ttft__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTtft"));
                             }
-                            llm_node_ttft__ = 
+                            llm_node_ttft__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10848,7 +11443,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if tts_node_ttfb__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("ttsNodeTtfb"));
                             }
-                            tts_node_ttfb__ = 
+                            tts_node_ttfb__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10856,7 +11451,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if e2e_latency__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("e2eLatency"));
                             }
-                            e2e_latency__ = 
+                            e2e_latency__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10864,7 +11459,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_tps__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTps"));
                             }
-                            llm_node_tps__ = 
+                            llm_node_tps__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -10872,7 +11467,7 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             if llm_node_ttfs__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("llmNodeTtfs"));
                             }
-                            llm_node_ttfs__ = 
+                            llm_node_ttfs__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -11207,7 +11802,7 @@ impl<'de> serde::Deserialize<'de> for RunningAgentJobInfo {
                             if job__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("job"));
                             }
-                            job__ = 
+                            job__ =
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -11408,7 +12003,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11416,7 +12011,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11424,7 +12019,7 @@ impl<'de> serde::Deserialize<'de> for SttModelUsage {
                             if audio_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audioDuration"));
                             }
-                            audio_duration__ = 
+                            audio_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -11459,12 +12054,18 @@ impl serde::Serialize for ServerInfo {
         if !self.url.is_empty() {
             len += 1;
         }
+        if self.supports_token_mode {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.ServerInfo", len)?;
         if !self.agent_name.is_empty() {
             struct_ser.serialize_field("agentName", &self.agent_name)?;
         }
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
+        }
+        if self.supports_token_mode {
+            struct_ser.serialize_field("supportsTokenMode", &self.supports_token_mode)?;
         }
         struct_ser.end()
     }
@@ -11479,12 +12080,15 @@ impl<'de> serde::Deserialize<'de> for ServerInfo {
             "agent_name",
             "agentName",
             "url",
+            "supports_token_mode",
+            "supportsTokenMode",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AgentName,
             Url,
+            SupportsTokenMode,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -11509,6 +12113,7 @@ impl<'de> serde::Deserialize<'de> for ServerInfo {
                         match value {
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "url" => Ok(GeneratedField::Url),
+                            "supportsTokenMode" | "supports_token_mode" => Ok(GeneratedField::SupportsTokenMode),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -11530,6 +12135,7 @@ impl<'de> serde::Deserialize<'de> for ServerInfo {
             {
                 let mut agent_name__ = None;
                 let mut url__ = None;
+                let mut supports_token_mode__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AgentName => {
@@ -11544,6 +12150,12 @@ impl<'de> serde::Deserialize<'de> for ServerInfo {
                             }
                             url__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SupportsTokenMode => {
+                            if supports_token_mode__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("supportsTokenMode"));
+                            }
+                            supports_token_mode__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -11552,6 +12164,7 @@ impl<'de> serde::Deserialize<'de> for ServerInfo {
                 Ok(ServerInfo {
                     agent_name: agent_name__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
+                    supports_token_mode: supports_token_mode__.unwrap_or_default(),
                 })
             }
         }
@@ -12158,7 +12771,7 @@ impl<'de> serde::Deserialize<'de> for SessionCreated {
                             if default_threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("defaultThreshold"));
                             }
-                            default_threshold__ = 
+                            default_threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -12175,7 +12788,7 @@ impl<'de> serde::Deserialize<'de> for SessionCreated {
                             if default_backchannel_threshold__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("defaultBackchannelThreshold"));
                             }
-                            default_backchannel_threshold__ = 
+                            default_backchannel_threshold__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15160,7 +15773,7 @@ impl<'de> serde::Deserialize<'de> for SessionSettings {
                             if sample_rate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sampleRate"));
                             }
-                            sample_rate__ = 
+                            sample_rate__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15345,7 +15958,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if input_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("inputTokens"));
                             }
-                            input_tokens__ = 
+                            input_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15353,7 +15966,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if output_tokens__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("outputTokens"));
                             }
-                            output_tokens__ = 
+                            output_tokens__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15361,7 +15974,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if characters_count__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("charactersCount"));
                             }
-                            characters_count__ = 
+                            characters_count__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -15369,7 +15982,7 @@ impl<'de> serde::Deserialize<'de> for TtsModelUsage {
                             if audio_duration__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("audioDuration"));
                             }
-                            audio_duration__ = 
+                            audio_duration__ =
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -16211,7 +16824,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if start_time__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startTime"));
                             }
-                            start_time__ = 
+                            start_time__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16219,7 +16832,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if end_time__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("endTime"));
                             }
-                            end_time__ = 
+                            end_time__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16227,7 +16840,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if confidence__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("confidence"));
                             }
-                            confidence__ = 
+                            confidence__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -16235,7 +16848,7 @@ impl<'de> serde::Deserialize<'de> for TimedString {
                             if start_time_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startTimeOffset"));
                             }
-                            start_time_offset__ = 
+                            start_time_offset__ =
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }

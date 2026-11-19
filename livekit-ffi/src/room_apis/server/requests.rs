@@ -579,10 +579,12 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
-        Ok((buffer, info)) => {
+    // One-off conversion, so there is no stream to reuse a buffer from.
+    let mut dst = colorcvt::FrameBuffer::default();
+    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false), &mut dst) {
+        Ok(info) => {
             let id = server.next_id();
-            server.store_handle(id, buffer);
+            server.store_handle(id, std::sync::Arc::new(dst));
             let owned_info = proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info };
             Ok(proto::VideoConvertResponse {
                 message: Some(proto::video_convert_response::Message::Buffer(owned_info)),
@@ -772,7 +774,9 @@ fn on_e2ee_request(
             let key_index = request.key_index;
 
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_shared_key(shared_key, key_index);
+                if !key_provider.set_shared_key(shared_key, key_index) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
 
             proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {})
@@ -795,7 +799,9 @@ fn on_e2ee_request(
         proto::e2ee_request::Message::SetKey(request) => {
             let identity = request.participant_identity.into();
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_key(&identity, request.key_index, request.key);
+                if !key_provider.set_key(&identity, request.key_index, request.key) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
             proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
         }

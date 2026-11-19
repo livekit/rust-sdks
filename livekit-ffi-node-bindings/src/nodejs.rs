@@ -61,14 +61,11 @@ fn livekit_ffi_request(data: Uint8Array) -> Result<Uint8Array> {
         }
     };
 
-    let res = match server::requests::handle_request(&FFI_SERVER, res.clone()) {
+    let res = match server::requests::handle_request(&FFI_SERVER, res) {
         Ok(res) => res,
         Err(err) => {
-            return Err(Error::from_reason(format!(
-                "failed to handle request: {} ({:?})",
-                err.to_string(),
-                res
-            )));
+            // Do not include the request: it can hold E2EE key material.
+            return Err(Error::from_reason(format!("failed to handle request: {}", err)));
         }
     }
     .encode_to_vec();

@@ -16,7 +16,8 @@ use std::fmt::Debug;
 
 use crate::{
     imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
-    rtp_parameters::RtpCapabilities, MediaType, RtcError,
+    rtp_parameters::RtpCapabilities, rtp_sender::VideoEncoderBackend, video_codec::VideoCodec,
+    MediaType, RtcError,
 };
 
 #[derive(Debug, Clone)]
@@ -114,11 +115,93 @@ impl PeerConnectionFactory {
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_receiver_capabilities(media_type)
     }
+
+    /// Video codecs advertised by this factory's encoders for `backend`.
+    ///
+    /// For [`VideoEncoderBackend::Auto`] this is every codec advertised by this
+    /// factory's software and hardware encoders, excluding the pre-encoded
+    /// pass-through backend. These encoders also provide the fallback when a
+    /// sender's requested backend is unavailable. For
+    /// [`VideoEncoderBackend::PreEncoded`] it is every codec the pass-through can
+    /// forward, whether or not a local encoder exists for it.
+    /// Native codec names not recognized by [`VideoCodec`] are omitted.
+    ///
+    /// ```
+    /// use libwebrtc::{peer_connection_factory::PeerConnectionFactory, rtp_sender::VideoEncoderBackend};
+    /// use libwebrtc::video_codec::VideoCodec;
+    ///
+    /// let factory = PeerConnectionFactory::default();
+    /// let codecs = factory.video_encoder_codecs(VideoEncoderBackend::Software);
+    /// assert!(codecs.contains(&VideoCodec::VP8));
+    /// ```
+    pub fn video_encoder_codecs(&self, backend: VideoEncoderBackend) -> Vec<VideoCodec> {
+        self.handle
+            .video_encoder_codecs(backend)
+            .into_iter()
+            .filter_map(|name| match name.parse::<VideoCodec>() {
+                Ok(codec) => Some(codec),
+                Err(_) => {
+                    log::warn!("ignoring unrecognized video encoder codec {name}");
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use super::PeerConnectionFactory;
+    use super::{PeerConnectionFactory, VideoCodec};
+    use crate::rtp_sender::VideoEncoderBackend;
+
+    #[test]
+    fn pre_encoded_backend_forwards_every_codec_on_every_host() {
+        // Pre-encoded publishing must not depend on a real encoder existing
+        // for the codec, so the pass-through set is the same on every host.
+        let codecs =
+            PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::PreEncoded);
+        for codec in
+            [VideoCodec::VP8, VideoCodec::VP9, VideoCodec::AV1, VideoCodec::H264, VideoCodec::H265]
+        {
+            assert!(codecs.contains(&codec), "pass-through is missing {codec:?}: {codecs:?}");
+        }
+    }
+
+    #[test]
+    fn software_backend_has_no_h265_encoder() {
+        // libvpx/libaom/OpenH264 never produce H265; the software set is
+        // what a normal session falls back to when no hardware encoder exists.
+        let codecs =
+            PeerConnectionFactory::default().video_encoder_codecs(VideoEncoderBackend::Software);
+        assert!(codecs.contains(&VideoCodec::VP8), "{codecs:?}");
+        assert!(!codecs.contains(&VideoCodec::H265), "{codecs:?}");
+    }
+
+    #[test]
+    fn auto_backend_is_a_superset_of_software() {
+        let factory = PeerConnectionFactory::default();
+        let auto = factory.video_encoder_codecs(VideoEncoderBackend::Auto);
+        let software = factory.video_encoder_codecs(VideoEncoderBackend::Software);
+        for codec in &software {
+            assert!(auto.contains(codec), "auto is missing {codec:?}: {auto:?}");
+        }
+    }
+
+    #[test]
+    fn video_encoder_codecs_are_released_with_their_factory() {
+        // The codec query borrows the encoder factory the peer connection
+        // factory owns, so repeated create/query/drop must fully tear the
+        // native factory down each time instead of retaining encoders.
+        for _ in 0..3 {
+            let factory = PeerConnectionFactory::default();
+            assert!(factory
+                .video_encoder_codecs(VideoEncoderBackend::Auto)
+                .contains(&VideoCodec::VP8));
+            let native = factory.handle.sys_handle.downgrade();
+            drop(factory);
+            assert!(native.upgrade().is_null(), "peer connection factory outlived its owner");
+        }
+    }
 
     #[test]
     fn zero_playout_delay_factory_uses_force_playout_delay_field_trial() {
