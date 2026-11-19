@@ -1395,7 +1395,7 @@ async fn forward_event(
                 .into(),
             );
         }
-        RoomEvent::DataReceived { payload, kind, participant, topic } => {
+        RoomEvent::DataReceived { payload, kind, participant, topic, participant_identity } => {
             let handle_id = server.next_id();
             let buffer_info = proto::BufferInfo {
                 data_ptr: payload.as_ptr() as u64,
@@ -1403,7 +1403,7 @@ async fn forward_event(
             };
             let (sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
-                None => (None, String::new()),
+                None => (None, participant_identity.map(|i| i.to_string()).unwrap_or_default()),
             };
 
             server.store_handle(handle_id, FfiDataBuffer { handle: handle_id, data: payload });
