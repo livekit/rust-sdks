@@ -107,6 +107,21 @@ impl From<SfuUpdateSubscription> for proto::UpdateDataSubscription {
     }
 }
 
+/// Form a subscription update for each subscribed data track to support sync state.
+pub fn subscription_update_for_sync_state(
+    subscribed_sids: impl IntoIterator<Item = DataTrackSid>,
+) -> proto::UpdateDataSubscription {
+    let updates = subscribed_sids
+        .into_iter()
+        .map(|sid| proto::update_data_subscription::Update {
+            track_sid: sid.into(),
+            subscribe: true,
+            options: Default::default(),
+        })
+        .collect();
+    proto::UpdateDataSubscription { updates }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +156,20 @@ mod tests {
             event.mapping.get(&2u32.try_into().unwrap()).unwrap(),
             &"DTR_4567".to_string().try_into().unwrap()
         );
+    }
+
+    #[test]
+    fn test_subscription_update_for_sync_state() {
+        let sids: Vec<DataTrackSid> = vec![
+            "DTR_1234".to_string().try_into().unwrap(),
+            "DTR_4567".to_string().try_into().unwrap(),
+        ];
+
+        let update = subscription_update_for_sync_state(sids);
+        assert_eq!(update.updates.len(), 2);
+        assert_eq!(update.updates[0].track_sid, "DTR_1234");
+        assert_eq!(update.updates[1].track_sid, "DTR_4567");
+        assert!(update.updates.iter().all(|u| u.subscribe));
     }
 
     #[test]

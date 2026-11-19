@@ -32,6 +32,7 @@ pub enum InputEvent {
     SfuPublicationUpdates(SfuPublicationUpdates),
     SfuSubscriberHandles(SfuSubscriberHandles),
     SetPipelineOptions(SetPipelineOptions),
+    QuerySubscribed(QuerySubscribed),
     /// Packet has been received over the transport.
     PacketReceived(Bytes),
     /// Resend all subscription updates.
@@ -90,6 +91,18 @@ pub struct SetPipelineOptions {
     pub(super) sid: DataTrackSid,
     /// New pipeline options to apply.
     pub(super) options: RemoteDataTrackPipelineOptions,
+}
+
+/// Get the SIDs of all tracks with a pending or active subscription.
+///
+/// Send using [`ManagerInput::query_subscribed`] and await the result. This is used
+/// to support sync state.
+///
+/// [`ManagerInput::query_subscribed`]: super::manager::ManagerInput::query_subscribed
+///
+#[derive(Debug)]
+pub struct QuerySubscribed {
+    pub(super) result_tx: oneshot::Sender<Vec<DataTrackSid>>,
 }
 
 /// SFU notification that track publications have changed.
