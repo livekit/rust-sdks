@@ -11,7 +11,6 @@ repository.workspace = true
 [dependencies]
 bytes = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
-futures-util = { workspace = true, default-features = false }
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
@@ -44,5 +43,5 @@ source-pattern = ["dep:wgpu", "dep:yuv-sys"]
 
 # Dual sources
 
-# Encoded video/audio capture + playback
+# Encoded video and PCM audio capture
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

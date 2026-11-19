@@ -108,56 +108,6 @@ message NewAudioCaptureSourceCallback {
   }
 }
 
-// Mixed PCM playout from existing remote audio track handles into
-// `appsrc name=lk_audio_appsrc`.
-message NewAudioPlayoutRequest {
-  required string pipeline = 1;
-  // Optional initial remote audio tracks. More tracks can be attached later.
-  repeated uint64 track_handles = 2;
-  optional uint32 sample_rate = 3 [default = 48000];
-  optional uint32 num_channels = 4 [default = 1];
-  reserved 5; // Audio frames are always 10 ms.
-}
-message NewAudioPlayoutResponse {
-  optional FfiOwnedHandle playout = 1;
-  optional string error = 2;
-}
-message AttachAudioPlayoutTrackRequest {
-  required uint64 playout_handle = 1;
-  required uint64 track_handle = 2;
-  optional uint64 request_async_id = 3;
-}
-message AttachAudioPlayoutTrackResponse { required uint64 async_id = 1; }
-message AttachAudioPlayoutTrackCallback {
-  required uint64 async_id = 1;
-  optional string error = 2;
-  optional string track_id = 3;
-}
-message DetachAudioPlayoutTrackRequest {
-  required uint64 playout_handle = 1;
-  required string track_id = 2;
-  optional uint64 request_async_id = 3;
-}
-message DetachAudioPlayoutTrackResponse { required uint64 async_id = 1; }
-message DetachAudioPlayoutTrackCallback {
-  required uint64 async_id = 1;
-  optional string error = 2;
-  // False means the ID was not attached; the pipeline remains running.
-  optional bool detached = 3;
-}
-message StopAudioPlayoutRequest {
-  required uint64 playout_handle = 1;
-  optional uint64 request_async_id = 2;
-}
-message StopAudioPlayoutResponse { required uint64 async_id = 1; }
-message StopAudioPlayoutCallback {
-  required uint64 async_id = 1;
-  optional string error = 2;
-  optional uint64 frames_pushed = 3;
-  optional uint64 frames_dropped = 4;
-  optional uint64 bytes_pushed = 5;
-}
-
 // Test patterns built into livekit-capture.
 enum Pattern {
   // Animated color gradient.

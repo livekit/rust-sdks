@@ -59,6 +59,7 @@ option csharp_namespace = "LiveKit.Proto";
 // This is the input of livekit_ffi_request function
 // We always expect a response (FFIResponse, even if it's empty)
 message FfiRequest {
+  reserved 94 to 97; // Removed GStreamer audio playout.
   oneof message {
     DisposeRequest dispose = 2;
 
@@ -196,10 +197,6 @@ message FfiRequest {
     JoinCaptureRequest join_capture = 92;
 
     NewAudioCaptureSourceRequest new_audio_capture_source = 93;
-    NewAudioPlayoutRequest new_audio_playout = 94;
-    StopAudioPlayoutRequest stop_audio_playout = 95;
-    AttachAudioPlayoutTrackRequest attach_audio_playout_track = 96;
-    DetachAudioPlayoutTrackRequest detach_audio_playout_track = 97;
 
     // NEXT_ID: 98
   }
@@ -207,6 +204,7 @@ message FfiRequest {
 
 // This is the output of livekit_ffi_request function.
 message FfiResponse {
+  reserved 94 to 97; // Removed GStreamer audio playout.
   oneof message {
     DisposeResponse dispose = 2;
 
@@ -341,10 +339,6 @@ message FfiResponse {
     JoinCaptureResponse join_capture = 92;
 
     NewAudioCaptureSourceResponse new_audio_capture_source = 93;
-    NewAudioPlayoutResponse new_audio_playout = 94;
-    StopAudioPlayoutResponse stop_audio_playout = 95;
-    AttachAudioPlayoutTrackResponse attach_audio_playout_track = 96;
-    DetachAudioPlayoutTrackResponse detach_audio_playout_track = 97;
 
     // NEXT_ID: 98
   }
@@ -354,6 +348,7 @@ message FfiResponse {
 // It is easily deducible from the room events and it turned out that is is easier to implement
 // on the ffi client side.
 message FfiEvent {
+  reserved 51 to 53; // Removed GStreamer audio playout.
   reserved 48; // Removed CaptureSourceEvent.
   oneof message {
     RoomEvent room_event = 1;
@@ -420,9 +415,6 @@ message FfiEvent {
     NewCaptureSourceCallback new_capture_source = 47;
     JoinCaptureCallback join_capture = 49;
     NewAudioCaptureSourceCallback new_audio_capture_source = 50;
-    StopAudioPlayoutCallback stop_audio_playout = 51;
-    AttachAudioPlayoutTrackCallback attach_audio_playout_track = 52;
-    DetachAudioPlayoutTrackCallback detach_audio_playout_track = 53;
 
     // NEXT_ID: 54
   }

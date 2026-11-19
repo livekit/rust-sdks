@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Uncompressed PCM audio capture and playout.
+//! Uncompressed PCM audio capture.
 
 mod pump;
 
-pub mod playout;
 pub mod sources;
 
 use crate::{error::SourceError, pump::PumpStop};
@@ -24,7 +23,7 @@ use std::borrow::Cow;
 
 pub use pump::AudioPump;
 
-/// Fixed PCM format used by an audio source or playout sink.
+/// Fixed PCM format used by an audio source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AudioFormat {
     /// Samples per second in each channel.

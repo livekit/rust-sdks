@@ -72,8 +72,7 @@ constructed from its own config struct and is driven by the matching pump —
 no other integration is needed.
 
 `pump::PumpStats` reports accepted frames and the exit reason. An audio frame
-is always 10 ms, regardless of the input backend’s buffer size. GStreamer audio
-playout lives under `audio::playout`; it uses the same PCM format.
+is always 10 ms, regardless of the input backend’s buffer size.
 
 Two conventions keep a source easy to consume:
 

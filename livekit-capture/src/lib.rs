@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Media capture and playout for the LiveKit Rust SDK.
+//! Media capture for the LiveKit Rust SDK.
 //!
-//! [`audio`] provides fixed 10 ms PCM sources, their pump, and playout sinks.
+//! [`audio`] provides fixed 10 ms PCM sources and their pump.
 //! [`video`] provides pixel and pre-encoded sources and their matching pumps.
 //! Sources run through media-specific pumps while sharing cancellation,
 //! running handles, and terminal results in [`pump`].
