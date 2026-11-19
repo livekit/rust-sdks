@@ -50,23 +50,8 @@
 name: Feature Combinations (per-commit)
 
 on:
+  workflow_call:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - ".changeset/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "renovate.json"
-      - ".vscode/**"
-  push:
-    branches:
-      - "main"
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

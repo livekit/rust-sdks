@@ -29,6 +29,10 @@
 //! invocation still happens on a tokio thread, which is fine precisely because the implementation
 //! is Rust.
 //!
+//! The outgoing side also keeps the delegate's acknowledgement contract. Each delegate call becomes
+//! an [`OutgoingPacketBatch`] that the foreign side acknowledges once its packets are handed to
+//! the transport, so a send still waits for the transport and still fails when the transport does.
+//!
 //! Note that [`RemoteParticipantRegistryDelegate`] needs no adapter: it is only ever called
 //! synchronously inside a `send_*` future, so it already runs on the polling thread.
 //!
@@ -40,7 +44,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::common::PacketDeliveryError;
@@ -67,68 +71,157 @@ fn warn_if_deep(kind: &str, depth: usize) {
 
 // MARK: - Outgoing
 
-/// Buffers outbound packets so they can be pulled instead of pushed.
+/// One delegate call's worth of outbound packets, pulled by the foreign side.
 ///
-/// Implements [`OutgoingDataStreamManagerDelegate`] in Rust; see the module docs.
-#[derive(uniffi::Object)]
-pub struct OutgoingPacketQueue {
-    tx: UnboundedSender<Bytes>,
-    rx: Mutex<UnboundedReceiver<Bytes>>,
-    depth: AtomicUsize,
-    shutdown: CancellationToken,
+/// The `send_*`/`write` call that produced it stays pending until the foreign side reports on
+/// [`Self::ack`], which keeps the delegate contract: a send resolves only once its packets are
+/// handed to the transport, and a transport failure fails it.
+#[derive(uniffi::Record)]
+pub struct OutgoingPacketBatch {
+    /// Encoded `livekit.DataPacket`s to hand to the transport, in order.
+    pub packets: Vec<Bytes>,
+    /// Where to report what happened to them.
+    pub ack: Arc<OutgoingBatchAck>,
 }
 
-impl OutgoingPacketQueue {
-    fn new() -> Self {
-        let (tx, rx) = unbounded_channel();
-        Self {
-            tx,
-            rx: Mutex::new(rx),
-            depth: AtomicUsize::new(0),
-            shutdown: CancellationToken::new(),
+type OutcomeSender = oneshot::Sender<Result<(), PacketDeliveryError>>;
+
+/// Reports what happened to the packets of an [`OutgoingPacketBatch`].
+///
+/// Released without an outcome it fails the send, so dropping a batch can never acknowledge packets
+/// that were not sent.
+#[derive(uniffi::Object)]
+pub struct OutgoingBatchAck {
+    sender: std::sync::Mutex<Option<OutcomeSender>>,
+}
+
+impl OutgoingBatchAck {
+    fn resolve(&self, result: Result<(), PacketDeliveryError>) {
+        let sender = self.sender.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(sender) = sender {
+            // The send may already be gone (its manager shut down), in which case nobody is waiting.
+            let _ = sender.send(result);
         }
     }
 }
 
-#[async_trait::async_trait]
-impl OutgoingDataStreamManagerDelegate for OutgoingPacketQueue {
-    // Acknowledges once buffered: a pull adapter has no synchronous transport feedback, so send
-    // failures observed while draining must be handled host-side.
-    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
-        for packet in packets {
-            if self.tx.send(packet).is_ok() {
-                warn_if_deep("outgoing packet", self.depth.fetch_add(1, Ordering::Relaxed) + 1);
-            }
+impl Drop for OutgoingBatchAck {
+    fn drop(&mut self) {
+        let sender = self.sender.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some(sender) = sender {
+            let _ = sender.send(Err(PacketDeliveryError::Failed {
+                reason: "packet batch released without an outcome".to_string(),
+            }));
         }
-        Ok(())
+    }
+}
+
+#[uniffi::export]
+impl OutgoingBatchAck {
+    /// Reports every packet as handed to the transport, resolving the originating send.
+    ///
+    /// Only the first of [`Self::complete`] and [`Self::fail`] counts.
+    pub fn complete(&self) {
+        self.resolve(Ok(()));
+    }
+
+    /// Reports that the packets could not be delivered, failing the originating send.
+    ///
+    /// Only the first of [`Self::complete`] and [`Self::fail`] counts.
+    pub fn fail(&self, reason: String) {
+        self.resolve(Err(PacketDeliveryError::Failed { reason }));
+    }
+}
+
+/// A batch on its way from the sink to the queue, before the foreign side has pulled it.
+struct PendingBatch {
+    packets: Vec<Bytes>,
+    outcome: OutcomeSender,
+}
+
+/// Hands outbound packets to the foreign side one batch at a time.
+///
+/// This is the receiving half, held by the foreign side. The manager holds the sending half,
+/// [`OutgoingPacketSink`]. The manager awaits each delegate call before making the next, and each
+/// call waits for its batch's outcome, so at most one batch is pending at a time.
+#[derive(uniffi::Object)]
+pub struct OutgoingPacketQueue {
+    rx: Mutex<UnboundedReceiver<PendingBatch>>,
+    shutdown: CancellationToken,
+}
+
+/// The sending half of an [`OutgoingPacketQueue`], which implements
+/// [`OutgoingDataStreamManagerDelegate`] in Rust; see the module docs.
+///
+/// The halves are separate objects so that the manager's forwarding task, which holds this one,
+/// does not keep the receiving half alive. Releasing the queue then drops any batch nobody pulled,
+/// which fails its send and lets the task finish. The task also finishes when the manager is
+/// dropped, whatever the foreign side still holds.
+pub(super) struct OutgoingPacketSink {
+    tx: UnboundedSender<PendingBatch>,
+    shutdown: CancellationToken,
+    manager_shutdown: CancellationToken,
+}
+
+impl OutgoingPacketQueue {
+    /// `manager_shutdown` is the token the manager cancels when it is dropped.
+    pub(super) fn pair(
+        manager_shutdown: CancellationToken,
+    ) -> (Arc<OutgoingPacketSink>, Arc<Self>) {
+        let (tx, rx) = unbounded_channel();
+        let shutdown = CancellationToken::new();
+        let sink = OutgoingPacketSink { tx, shutdown: shutdown.clone(), manager_shutdown };
+        (Arc::new(sink), Arc::new(Self { rx: Mutex::new(rx), shutdown }))
+    }
+}
+
+fn queue_closed() -> PacketDeliveryError {
+    PacketDeliveryError::Failed { reason: "outgoing packet queue closed".to_string() }
+}
+
+fn manager_closed() -> PacketDeliveryError {
+    PacketDeliveryError::Failed { reason: "outgoing data stream manager closed".to_string() }
+}
+
+#[async_trait::async_trait]
+impl OutgoingDataStreamManagerDelegate for OutgoingPacketSink {
+    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+        let (outcome_tx, outcome_rx) = oneshot::channel();
+        self.tx.send(PendingBatch { packets, outcome: outcome_tx }).map_err(|_| queue_closed())?;
+        tokio::select! {
+            _ = self.shutdown.cancelled() => Err(queue_closed()),
+            _ = self.manager_shutdown.cancelled() => Err(manager_closed()),
+            // The sender is dropped unused only when the queue goes away with the batch unpulled.
+            outcome = outcome_rx => outcome.unwrap_or_else(|_| Err(queue_closed())),
+        }
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl OutgoingPacketQueue {
-    /// Awaits the next batch of encoded `livekit.DataPacket`s to put on the wire.
+    /// Awaits the next batch of packets to hand to the transport.
     ///
-    /// Returns `None` once the manager has shut down, which ends the caller's drain loop.
-    /// Everything already queued is returned together, so a burst costs one FFI crossing rather
-    /// than one per packet.
-    pub async fn next_packets(&self) -> Option<Vec<Bytes>> {
+    /// Report on the batch's `ack` once its packets are sent (or have failed); the next batch
+    /// is not produced until then. Returns `None` once the queue is closed, which ends
+    /// the caller's drain loop.
+    pub async fn next_batch(&self) -> Option<OutgoingPacketBatch> {
         let mut rx = self.rx.lock().await;
-        let first = tokio::select! {
+        let pending = tokio::select! {
             _ = self.shutdown.cancelled() => return None,
             received = rx.recv() => received?,
         };
-        let mut batch = vec![first];
-        while let Ok(next) = rx.try_recv() {
-            batch.push(next);
-        }
-        self.depth.fetch_sub(batch.len(), Ordering::Relaxed);
-        Some(batch)
+        let sender = std::sync::Mutex::new(Some(pending.outcome));
+        Some(OutgoingPacketBatch {
+            packets: pending.packets,
+            ack: Arc::new(OutgoingBatchAck { sender }),
+        })
     }
 
-    /// Wakes a pending [`Self::next_packets`] with `None` so the caller's drain loop can exit.
+    /// Wakes a pending [`Self::next_batch`] with `None` so the caller's drain loop can exit, and
+    /// fails any send still waiting on a batch.
     ///
-    /// Call this before releasing the queue: a caller blocked in `next_packets` is holding a
-    /// pointer to it, so freeing it first is a use-after-free.
+    /// Call this before releasing the queue: a caller blocked in `next_batch` is holding a pointer
+    /// to it, so freeing it first is a use-after-free.
     pub fn close(&self) {
         self.shutdown.cancel();
     }
@@ -150,8 +243,9 @@ pub struct PolledOutgoingDataStreamManager {
 pub fn polled_outgoing_data_stream_manager(
     registry: Arc<dyn RemoteParticipantRegistryDelegate>,
 ) -> PolledOutgoingDataStreamManager {
-    let packets = Arc::new(OutgoingPacketQueue::new());
-    let manager = OutgoingDataStreamManager::new(packets.clone(), registry);
+    let manager_shutdown = CancellationToken::new();
+    let (sink, packets) = OutgoingPacketQueue::pair(manager_shutdown.clone());
+    let manager = OutgoingDataStreamManager::with_shutdown(sink, registry, manager_shutdown);
     PolledOutgoingDataStreamManager { manager, packets }
 }
 
@@ -238,7 +332,7 @@ impl IncomingStreamQueue {
     /// Awaits the next stream opened by a remote participant.
     ///
     /// Returns `None` once the manager has shut down, which ends the caller's drain loop. Unlike
-    /// [`OutgoingPacketQueue::next_packets`] this yields one at a time: each carries a reader the
+    /// [`OutgoingPacketQueue::next_batch`] this yields one at a time: each carries a reader the
     /// caller has to route to a handler, so batching would only defer that work.
     pub async fn next_opened_stream(&self) -> Option<OpenedStream> {
         let mut rx = self.rx.lock().await;

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use livekit_protocol::semconv::{self, upstream};
 use prost::Message;
 
 use crate::span::SpanKind;
@@ -103,9 +104,9 @@ fn log_record(
     // set it (`otel.*` is reserved).
     let body = event.body.or_else(|| (!event.name.is_empty()).then(|| event.name.clone()));
     // The core's copy is the only one: a pipeline attribute of that name never ships.
-    event.attributes.retain(|a| a.key != "otel.event.name");
+    event.attributes.retain(|a| a.key != upstream::OTEL_EVENT_NAME);
     if !event.name.is_empty() {
-        event.attributes.push(Attribute::new("otel.event.name", event.name.clone()));
+        event.attributes.push(Attribute::new(upstream::OTEL_EVENT_NAME, event.name.clone()));
     }
     last_value_wins(&mut event.attributes);
     LogRecord {
@@ -128,7 +129,7 @@ fn log_record(
 fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     fill_in_global(&mut record.attributes, global);
     // The outcome is the core's, as `session.id` is: a span's own copies never ship.
-    record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
+    record.attributes.retain(|a| a.key != semconv::LK_OUTCOME && a.key != upstream::ERROR_TYPE);
     last_value_wins(&mut record.attributes);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
@@ -456,10 +457,10 @@ mod tests {
     /// The attributes `Scope::set_room` gives a session in a call.
     fn in_room(session: &crate::scope::ScopeState) {
         for (key, value) in [
-            ("lk.room.sid", "RM_UpE3vYzFmJp8"),
-            ("lk.room.name", "standup-2026-10-08"),
-            ("lk.participant.sid", "PA_kQ2Fv8sWbE3n"),
-            ("lk.participant.identity", "user-4f1c2a"),
+            ("lk.room_id", "RM_UpE3vYzFmJp8"),
+            ("lk.pii.room_name", "standup-2026-10-08"),
+            ("lk.participant_id", "PA_kQ2Fv8sWbE3n"),
+            ("lk.pii.participant_identity", "user-4f1c2a"),
         ] {
             session.set_attribute(key, Some(value.into()));
         }
@@ -478,17 +479,16 @@ mod tests {
     fn records_keep_the_session_attributes_they_were_captured_with() {
         let session = crate::scope::ScopeState::new();
         in_room(&session);
-        let spoofed =
-            TelemetryEvent::new("lk.room.disconnected").with_attribute("lk.room.sid", "x");
+        let spoofed = TelemetryEvent::new("lk.room.disconnected").with_attribute("lk.room_id", "x");
         let queued = QueuedEvent::new(spoofed, session.clone());
         // The platform clears the room right after the disconnect, before the next export.
-        session.set_attribute("lk.room.sid", None);
-        let global = [Attribute::new("lk.room.sid", "global"), Attribute::new("acme.tenant", "t1")];
+        session.set_attribute("lk.room_id", None);
+        let global = [Attribute::new("lk.room_id", "global"), Attribute::new("acme.tenant", "t1")];
         let bytes = encode_logs(&[], &global, vec![queued]);
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
-        assert_eq!(values(&record.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&record.attributes, "lk.room_id"), [text("RM_UpE3vYzFmJp8")]);
         assert_eq!(values(&record.attributes, "session.id"), [text(session.hex())]);
         assert_eq!(values(&record.attributes, "acme.tenant"), [text("t1")], "globals fill in");
     }
@@ -499,13 +499,13 @@ mod tests {
         in_room(&session);
         let mut spans = crate::span::Spans::new(1);
         let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
-        spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room.sid", "x")]);
-        session.set_attribute("lk.room.sid", None);
+        spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room_id", "x")]);
+        session.set_attribute("lk.room_id", None);
         let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX, 0));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         let text = |s: &str| any_value::Value::StringValue(s.into());
-        assert_eq!(values(&span.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&span.attributes, "lk.room_id"), [text("RM_UpE3vYzFmJp8")]);
         assert_eq!(values(&span.attributes, "session.id"), [text(session.hex())]);
     }
 
