@@ -402,13 +402,8 @@ impl PeerTransport {
             .ok()
     }
 
-    /// Adds `a=rtcp-fb:<pt> nack` after the `a=rtpmap` line of every Opus payload type that
-    /// lacks plain NACK, in each audio section for which `wants_nack` holds. Returns `None` if
-    /// there is nothing to add.
-    ///
-    /// libwebrtc advertises only `transport-cc` feedback for Opus, so without this no audio
-    /// NACK is negotiated, and lost audio packets are never retransmitted when RED is off
-    /// (for example with E2EE).
+    /// Adds Opus NACK to each audio section where `wants_nack` holds, since libwebrtc offers
+    /// only `transport-cc`. Returns `None` if there is nothing to add.
     fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> Option<String> {
         let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
         let lines: Vec<&str> = sdp.split_inclusive('\n').collect();
