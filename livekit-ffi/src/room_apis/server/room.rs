@@ -24,7 +24,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
-use crate::server::data_track;
+use crate::server::data_track as data_track_ffi;
 use crate::{
     proto,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
@@ -1595,7 +1595,7 @@ async fn forward_event(
         RoomEvent::DataTrackPublished(track) => {
             let info = track.info().clone();
             let publisher_identity = track.publisher_identity().to_string();
-            let track = Arc::new(data_track::RemoteDataTrack::new(track));
+            let track = Arc::new(data_track_ffi::RemoteDataTrack::new(track));
             let _ = send_event(
                 proto::DataTrackPublished {
                     track: proto::OwnedRemoteDataTrack {

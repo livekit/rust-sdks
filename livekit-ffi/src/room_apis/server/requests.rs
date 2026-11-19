@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "capture")]
 use super::capture;
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    audio_source, audio_stream, colorcvt, data_stream, data_track as data_track_ffi,
     participant::FfiParticipant,
     platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1330,8 +1330,9 @@ fn on_local_data_track_is_published(
     server: &'static FfiServer,
     request: proto::LocalDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
     let is_published = track.is_published();
     Ok(proto::LocalDataTrackIsPublishedResponse { is_published })
 }
@@ -1340,8 +1341,9 @@ fn on_local_data_track_unpublish(
     server: &'static FfiServer,
     request: proto::LocalDataTrackUnpublishRequest,
 ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
     track.unpublish();
     Ok(proto::LocalDataTrackUnpublishResponse::default())
 }
@@ -1350,8 +1352,9 @@ fn on_local_data_track_try_push(
     server: &'static FfiServer,
     request: proto::LocalDataTrackTryPushRequest,
 ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
     let frame: DataTrackFrame = request.frame.into();
     // Pushes through the inner track: unlike the uniffi `try_push`, which reports only the reason,
     // the response carries the full error message.
@@ -1363,9 +1366,10 @@ fn on_subscribe_local_data_track(
     server: &'static FfiServer,
     request: proto::SubscribeDataTrackRequest,
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
-    let stream = data_track::FfiDataTrackStream::subscribe(
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
+    let stream = data_track_ffi::FfiDataTrackStream::subscribe(
         server,
         track.inner().clone(),
         request.options.into(),
@@ -1377,8 +1381,9 @@ fn on_remote_data_track_is_published(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
     let is_published = track.is_published();
     Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
 }
@@ -1387,8 +1392,9 @@ fn on_remote_data_track_set_pipeline_options(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackSetPipelineOptionsRequest,
 ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
-    let track =
-        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
     // Through the inner track, so that unset proto fields keep livekit's defaults.
     track.inner().set_pipeline_options(request.options.into());
     Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
@@ -1398,7 +1404,8 @@ fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
 ) -> FfiResult<proto::DataTrackStreamReadResponse> {
-    let stream = server.retrieve_handle::<data_track::FfiDataTrackStream>(request.stream_handle)?;
+    let stream =
+        server.retrieve_handle::<data_track_ffi::FfiDataTrackStream>(request.stream_handle)?;
     Ok(stream.read(request))
 }
 
