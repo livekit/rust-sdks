@@ -43,6 +43,25 @@ pub(super) struct SignalStream {
     write_handle: JoinHandle<()>,
 }
 
+/// A receipt for an admitted write that can outlive the sending caller.
+pub(super) struct SignalWrite {
+    response: oneshot::Receiver<SignalResult<()>>,
+    // A queue entry must not keep an old stream's writer alive during close.
+    stream: mpsc::WeakSender<InternalMessage>,
+}
+
+impl SignalWrite {
+    /// Identify the writer without retaining a strong channel ownership edge.
+    pub(super) fn belongs_to(&self, stream: &SignalStream) -> bool {
+        self.stream.upgrade().is_some_and(|sender| sender.same_channel(&stream.internal_tx))
+    }
+
+    /// Await by mutable reference so cancellation preserves the acknowledgement.
+    pub(super) async fn complete(&mut self) -> SignalResult<()> {
+        (&mut self.response).await.map_err(|_| SignalError::SendError)?
+    }
+}
+
 /// Terse: this appears inside `SignalState` in logs and tests.
 impl std::fmt::Debug for SignalStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -126,10 +145,21 @@ impl SignalStream {
     /// Send a SignalRequest to the websocket.
     /// It also waits for the message to be sent.
     pub async fn send(&self, signal: proto::signal_request::Message) -> SignalResult<()> {
+        self.begin_send(signal).await?.complete().await
+    }
+
+    /// Admit a write and return its receipt without another cancellation point.
+    pub(super) async fn begin_send(
+        &self,
+        signal: proto::signal_request::Message,
+    ) -> SignalResult<SignalWrite> {
+        let permit = self.internal_tx.reserve().await.map_err(|_| SignalError::SendError)?;
         let (send, recv) = oneshot::channel();
-        let msg = InternalMessage::Signal { signal, response_chn: send };
-        let _ = self.internal_tx.send(msg).await;
-        recv.await.map_err(|_| SignalError::SendError)?
+        // Once admitted, delivery and returning the receipt are synchronous. A
+        // cancelled capacity wait has not sent anything; a cancelled completion
+        // wait leaves the receipt owned by the queue entry.
+        permit.send(InternalMessage::Signal { signal, response_chn: send });
+        Ok(SignalWrite { response: recv, stream: self.internal_tx.downgrade() })
     }
 
     /// This task is used to send messages to the websocket.
