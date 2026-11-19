@@ -210,6 +210,14 @@ jobs:
     needs: build
     name: Publish to npm
     runs-on: ubuntu-latest
+    # One npm publish at a time, across runs. npm moves `latest` to the
+    # version that was published last, so two publishes must not overlap:
+    # the older version could finish last. A group holds one running and one
+    # waiting job. A third job cancels the waiting one, and its run is then
+    # run again.
+    concurrency:
+      group: publish-npm
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
