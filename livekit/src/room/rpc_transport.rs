@@ -20,7 +20,7 @@
 //! version.
 
 use livekit_common::{ClientCapability, ParticipantIdentity, RemoteParticipantRegistry};
-use livekit_data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
+use livekit_data_stream::api::{SendTextOptions, StreamResult, TextStreamInfo};
 use livekit_rpc::backend::{RpcTransport, RpcTransportError};
 use std::sync::Arc;
 
@@ -56,7 +56,7 @@ impl RpcTransport for SessionTransport {
     async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        options: SendTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         self.0.outgoing_stream_manager.send_text(text, options, self.0.as_ref()).await
     }

@@ -141,6 +141,63 @@ pub async fn test_rpc_unknown_destination() -> Result<()> {
     Ok(())
 }
 
+/// A recipient that leaves without replying must fail its caller promptly, rather than
+/// stranding it until the response timeout expires.
+///
+/// The caller gives a departed recipient a brief grace period, because a reply sent just
+/// before it left may still be in flight on the data channel while the departure itself
+/// arrives on the signalling connection. That grace period shortens the wait; it must not
+/// turn back into waiting out the full response timeout.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+pub async fn test_rpc_recipient_leaving_without_replying_fails_promptly() -> Result<()> {
+    use livekit::prelude::RpcErrorCode;
+
+    let mut rooms = test_rooms(2).await?;
+    let (caller_room, _) = rooms.pop().unwrap();
+    let (callee_room, _) = rooms.pop().unwrap();
+    let callee_identity = callee_room.local_participant().identity();
+
+    const METHOD_NAME: &str = "never-replies";
+
+    // Acks the request, then never produces a response.
+    callee_room.local_participant().register_rpc_method(METHOD_NAME.to_string(), |_data| {
+        Box::pin(async move {
+            std::future::pending::<()>().await;
+            unreachable!("handler is never allowed to complete")
+        })
+    });
+
+    let caller = caller_room.local_participant();
+    let perform = tokio::spawn(async move {
+        caller
+            .perform_rpc(
+                PerformRpcData::new(callee_identity, METHOD_NAME)
+                    .with_payload("{}")
+                    // Long enough that expiry could not explain a prompt failure.
+                    .with_response_timeout(Duration::from_secs(60)),
+            )
+            .await
+    });
+
+    // Let the request arrive and be acked, so the call is parked on the response.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    callee_room.close().await.context("Failed to close callee room")?;
+
+    let result = tokio::time::timeout(Duration::from_secs(15), perform)
+        .await
+        .context("Caller was stranded well past the disconnect grace period")?
+        .context("perform_rpc task panicked")?;
+
+    let err = result.expect_err("Expected the departure to fail the call");
+    assert_eq!(
+        err.code,
+        RpcErrorCode::RecipientDisconnected as u32,
+        "Expected RECIPIENT_DISCONNECTED, got: {err}",
+    );
+    Ok(())
+}
+
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {

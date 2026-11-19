@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
 #define NAL_REF_IDC_NONE 0
@@ -1034,11 +1035,9 @@ static int setup_encode(VA264Context* context) {
       (16 * 16);
 
   for (i = 0; i < SURFACE_NUM; i++) {
-    /* create coded buffer once for all
-     * other VA buffers which won't be used again after vaRenderPicture.
-     * so APP can always vaCreateBuffer for every frame
-     * but coded buffer need to be mapped and accessed after
-     * vaRenderPicture/vaEndPicture so VA won't maintain the coded buffer
+    /* Coded buffers are created once and reused. All other VA buffers are
+     * created per frame and destroyed after vaEndPicture() (see
+     * release_frame_param_bufs).
      */
     va_status = vaCreateBuffer(context->va_dpy, context->context_id,
                                VAEncCodedBufferType, codedbuf_size, 1, NULL,
@@ -1234,6 +1233,28 @@ void CreateVAEncRateControlParams(uint32_t bps,
   hrd_param.initial_buffer_fullness = buffer_size / 2;
 }
 
+// Records a parameter buffer created for the current picture so it can be
+// destroyed once the picture has been submitted.
+static void track_frame_param_buf(VA264Context* context, VABufferID buf_id) {
+  RTC_DCHECK_LT(context->num_frame_param_bufs, MAX_FRAME_PARAM_BUFS);
+  if (context->num_frame_param_bufs >= MAX_FRAME_PARAM_BUFS) {
+    RTC_LOG(LS_ERROR) << "Too many VA parameter buffers for one frame";
+    return;
+  }
+  context->frame_param_bufs[context->num_frame_param_bufs++] = buf_id;
+}
+
+static void release_frame_param_bufs(VA264Context* context) {
+  for (int i = 0; i < context->num_frame_param_bufs; ++i) {
+    VAStatus va_status =
+        vaDestroyBuffer(context->va_dpy, context->frame_param_bufs[i]);
+    if (va_status != VA_STATUS_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "vaDestroyBuffer failed va_status = " << va_status;
+    }
+  }
+  context->num_frame_param_bufs = 0;
+}
+
 static int render_sequence(VA264Context* context) {
   VABufferID seq_param_buf, rc_param_buf, misc_param_tmpbuf, render_id[2];
   VAStatus va_status;
@@ -1282,6 +1303,7 @@ static int render_sequence(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, seq_param_buf);
 
   va_status = vaCreateBuffer(
       context->va_dpy, context->context_id, VAEncMiscParameterBufferType,
@@ -1291,6 +1313,7 @@ static int render_sequence(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, rc_param_buf);
 
   vaMapBuffer(context->va_dpy, rc_param_buf, (void**)&misc_param);
   misc_param->type = VAEncMiscParameterTypeRateControl;
@@ -1409,6 +1432,7 @@ static int render_picture(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, pic_param_buf);
 
   va_status =
       vaRenderPicture(context->va_dpy, context->context_id, &pic_param_buf, 1);
@@ -1443,6 +1467,7 @@ static int render_packedsequence(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, packedseq_para_bufid);
 
   va_status = vaCreateBuffer(
       context->va_dpy, context->context_id, VAEncPackedHeaderDataBufferType,
@@ -1452,6 +1477,7 @@ static int render_packedsequence(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, packedseq_data_bufid);
 
   render_id[0] = packedseq_para_bufid;
   render_id[1] = packedseq_data_bufid;
@@ -1489,6 +1515,7 @@ static int render_packedpicture(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, packedpic_para_bufid);
 
   va_status = vaCreateBuffer(
       context->va_dpy, context->context_id, VAEncPackedHeaderDataBufferType,
@@ -1498,6 +1525,7 @@ static int render_packedpicture(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, packedpic_data_bufid);
   render_id[0] = packedpic_para_bufid;
   render_id[1] = packedpic_data_bufid;
   va_status =
@@ -1533,6 +1561,7 @@ static void render_packedslice(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return;
   }
+  track_frame_param_buf(context, packedslice_para_bufid);
 
   va_status = vaCreateBuffer(
       context->va_dpy, context->context_id, VAEncPackedHeaderDataBufferType,
@@ -1542,6 +1571,7 @@ static void render_packedslice(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return;
   }
+  track_frame_param_buf(context, packedslice_data_bufid);
   render_id[0] = packedslice_para_bufid;
   render_id[1] = packedslice_data_bufid;
   va_status =
@@ -1623,6 +1653,7 @@ static int render_slice(VA264Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  track_frame_param_buf(context, slice_param_buf);
 
   va_status = vaRenderPicture(context->va_dpy, context->context_id,
                               &slice_param_buf, 1);
@@ -1663,6 +1694,7 @@ VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {
 void VaapiH264EncoderWrapper::Destroy() {
   // Release VAAPI resources in reverse initialization order.
   if (context_->va_dpy) {
+    release_frame_param_bufs(context_.get());
     for (int i = 0; i < SURFACE_NUM; ++i) {
       if (context_->coded_buf[i] != VA_INVALID_ID) {
         vaDestroyBuffer(context_->va_dpy, context_->coded_buf[i]);
@@ -1849,6 +1881,10 @@ bool VaapiH264EncoderWrapper::Encode(int fourcc,
   render_slice(context_.get());
 
   va_status = vaEndPicture(context_->va_dpy, context_->context_id);
+
+  // The picture has been submitted (or rejected); its parameter buffers are
+  // no longer needed either way.
+  release_frame_param_bufs(context_.get());
 
   if (va_status != VA_STATUS_SUCCESS) {
     RTC_LOG(LS_ERROR) << "vaEndPicture failed va_status = " << va_status;

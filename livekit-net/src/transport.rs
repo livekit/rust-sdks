@@ -68,10 +68,18 @@ pub enum HttpMethod {
 /// Implementors provide the single [`request`](HttpClient::request) primitive;
 /// [`HttpClientExt`] layers `get`/`post` on top, so adding verbs never widens the
 /// implementation (or, for foreign impls, the FFI) surface.
+///
+/// Every response is an answer, whatever its status: return a 4xx or 5xx as an
+/// [`HttpResponse`] with its status, headers and body, so the caller can read
+/// `Retry-After`, an error body or a refusal's text. Fail only when there was
+/// no response (no connection, a timeout, a request that could not be made).
+/// `TransportError::Http` is not that answer: a host client that returns it
+/// for a non-2xx discards what the caller needs to classify the failure.
 #[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait HttpClient: Send + Sync {
-    /// Perform one HTTP request, sending `body` if present.
+    /// Perform one HTTP request, sending `body` if present. A non-2xx status
+    /// is returned as an [`HttpResponse`], not an error.
     async fn request(
         &self,
         method: HttpMethod,

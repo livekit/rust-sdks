@@ -1,6 +1,7 @@
 name: UniFFI Android package
 
-# Builds livekit-uniffi as an Android AAR and publishes it to Maven Central.
+# Builds livekit-ffi/core-modules as an Android AAR and publishes
+# it to Maven Central.
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
 # release has been resolved. Not triggered directly.
@@ -13,7 +14,7 @@ on:
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in publish logs for traceability
+        description: Source release tag (e.g., livekit-ffi/v0.13.0) — surfaced in publish logs for traceability
         required: true
         type: string
       dry_run:
@@ -24,7 +25,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  ANDROID_DIR: livekit-uniffi/support/android
+  ANDROID_DIR: livekit-ffi/support/android
 
 jobs:
   build-and-publish:
@@ -54,7 +55,7 @@ jobs:
           java-version: 17
 
       - name: Build Android package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         run: cargo make --profile release android-package
 
       - name: Publish to Maven Central

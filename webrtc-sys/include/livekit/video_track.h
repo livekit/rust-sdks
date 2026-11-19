@@ -120,12 +120,16 @@ class VideoTrackSource {
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
+    // Unique presentation timestamp used for metadata, guarded by `mutex_`.
+    int64_t last_metadata_timestamp_us_ = 0;
     VideoResolution resolution_;
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag_ =
         std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
         std::make_shared<livekit::EncodedRateControlState>();
+    // Numbers encoded frames in delivery order; guarded by `mutex_`.
+    uint64_t encoded_sequence_number_ = 0;
     bool is_screencast_;
   };
 
@@ -161,6 +165,13 @@ class VideoTrackSource {
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
     const VideoResolution& resolution, bool is_screencast);
+
+#ifdef LIVEKIT_TEST
+// Captures encoded frames from several threads at once and returns the
+// sequence numbers in the order a sink received them.
+rust::Vec<uint64_t> encoded_capture_order_for_test(uint32_t threads,
+                                                   uint32_t frames_per_thread);
+#endif
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

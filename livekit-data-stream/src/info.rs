@@ -148,7 +148,7 @@ impl ByteStreamInfo {
             id: header.stream_id.to_string(),
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
-                .unwrap_or_else(|| Utc::now()),
+                .unwrap_or_else(Utc::now),
             total_length: header.total_length,
             attributes_map: Arc::new(RwLock::new(header.attributes)),
             mime_type: header.mime_type,
@@ -176,7 +176,7 @@ impl TextStreamInfo {
             id: header.stream_id.to_string(),
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
-                .unwrap_or_else(|| Utc::now()),
+                .unwrap_or_else(Utc::now),
             total_length: header.total_length,
             attributes_map: Arc::new(RwLock::new(header.attributes)),
             mime_type: header.mime_type,

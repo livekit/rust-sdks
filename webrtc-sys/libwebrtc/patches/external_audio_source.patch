@@ -15,7 +15,7 @@ index 643b5f273b..7b5b568692 100644
  
  // Interface of the audio processor used by the audio track to collect
 diff --git a/audio/audio_send_stream.cc b/audio/audio_send_stream.cc
-index e9e72b48e7..ca21052ff7 100644
+index e9e72b48e7..76c310ee67 100644
 --- a/audio/audio_send_stream.cc
 +++ b/audio/audio_send_stream.cc
 @@ -377,8 +377,13 @@ void AudioSendStream::Start() {
@@ -34,11 +34,10 @@ index e9e72b48e7..ca21052ff7 100644
  }
  
  void AudioSendStream::Stop() {
-@@ -389,8 +394,10 @@ void AudioSendStream::Stop() {
-   RTC_LOG(LS_INFO) << "AudioSendStream::Stop: " << config_.rtp.ssrc;
+@@ -390,7 +395,10 @@ void AudioSendStream::Stop() {
    RemoveBitrateObserver();
    channel_send_->StopSend();
--  sending_ = false;
+   sending_ = false;
 -  audio_state()->RemoveSendingStream(this);
 +  // Only unregister if we registered (when not using external source).
 +  if (!config_.external_source) {
@@ -47,6 +46,17 @@ index e9e72b48e7..ca21052ff7 100644
  }
  
  void AudioSendStream::SendAudioData(std::unique_ptr<AudioFrame> audio_frame) {
+@@ -581,7 +589,9 @@ void AudioSendStream::StoreEncoderProperties(int sample_rate_hz,
+                                              size_t num_channels) {
+   encoder_sample_rate_hz_ = sample_rate_hz;
+   encoder_num_channels_ = num_channels;
+-  if (sending_) {
++  // External sources never registered with AudioState (see Start()), and
++  // must not be added here either: Stop() would not remove them again.
++  if (sending_ && !config_.external_source) {
+     // Update AudioState's information about the stream.
+     audio_state()->AddSendingStream(this, sample_rate_hz, num_channels);
+   }
 diff --git a/call/audio_send_stream.h b/call/audio_send_stream.h
 index 40bfd812a4..a482b16d70 100644
 --- a/call/audio_send_stream.h

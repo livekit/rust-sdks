@@ -66,7 +66,7 @@ let response = source.fetch(&options).await?;
 ### `development_token_server`
 
 A configurable source that queries a LiveKit
-[development token server](https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/)
+[development token server](https://docs.livekit.io/frontends/build/authentication/development-token-server/)
 for prototyping. Under the hood it is an `endpoint` source pre-configured with the LiveKit Cloud
 development token server URL, authenticating via the `X-Sandbox-ID` header with the given token
 server ID.

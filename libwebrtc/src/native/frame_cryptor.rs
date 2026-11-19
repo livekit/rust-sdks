@@ -74,37 +74,66 @@ pub struct EncryptedPacket {
     pub key_index: u32,
 }
 
+pub const DEFAULT_KEY_RING_SIZE: i32 = 16;
+pub const MAX_KEY_RING_SIZE: i32 = 255;
+
 #[derive(Clone)]
 pub struct KeyProvider {
     pub(crate) sys_handle: SharedPtr<sys_fc::ffi::KeyProvider>,
+    key_ring_size: i32,
 }
 
 impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
-        Self { sys_handle: sys_fc::ffi::new_key_provider(options.into()) }
+        let key_ring_size = options.key_ring_size.clamp(1, MAX_KEY_RING_SIZE);
+        let mut sys_options = options;
+        sys_options.key_ring_size = key_ring_size;
+        Self { sys_handle: sys_fc::ffi::new_key_provider(sys_options.into()), key_ring_size }
+    }
+
+    pub fn key_ring_size(&self) -> i32 {
+        self.key_ring_size
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return false;
+        }
         self.sys_handle.set_shared_key(key_index, key)
     }
 
     pub fn ratchet_shared_key(&self, key_index: i32) -> Option<Vec<u8>> {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return None;
+        }
         self.sys_handle.ratchet_shared_key(key_index).ok()
     }
 
     pub fn get_shared_key(&self, key_index: i32) -> Option<Vec<u8>> {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return None;
+        }
         self.sys_handle.get_shared_key(key_index).ok()
     }
 
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return false;
+        }
         self.sys_handle.set_key(participant_id, key_index, key)
     }
 
     pub fn ratchet_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return None;
+        }
         self.sys_handle.ratchet_key(participant_id, key_index).ok()
     }
 
     pub fn get_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
+        if key_index < 0 || key_index >= self.key_ring_size {
+            return None;
+        }
         self.sys_handle.get_key(participant_id, key_index).ok()
     }
 
@@ -312,5 +341,16 @@ impl From<sys_fc::ffi::EncryptedPacket> for EncryptedPacket {
 impl From<EncryptedPacket> for sys_fc::ffi::EncryptedPacket {
     fn from(value: EncryptedPacket) -> Self {
         Self { data: value.data, iv: value.iv, key_index: value.key_index }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_ring_constants() {
+        assert_eq!(DEFAULT_KEY_RING_SIZE, 16);
+        assert_eq!(MAX_KEY_RING_SIZE, 255);
     }
 }

@@ -15,3 +15,7 @@ C++ `shared_ptr` graphs and WebRTC observer registrations can leak independently
 - Review ownership changes by sketching the strong-reference graph. Every cycle must contain a weak edge or an explicit, tested unlink operation.
 
 When reviewing changed code, search for `shared_from_this`, `shared_ptr` copies into lambdas, listener/observer registration, and native handle stores. Report lifecycle risks even when the code compiles.
+
+## Reporting errors to Rust
+
+Throw `livekit_ffi::BridgeException` (see `include/livekit/rtc_error.h`), never `std::runtime_error` or another standard exception. `webrtc_sys_build::webrtc_defines()` copies libwebrtc's `-D_HAS_EXCEPTIONS=0` onto this crate, and under that macro the MSVC STL's standard exception constructors store the message pointer instead of copying it, so a temporary string leaves `what()` dangling by the time cxx reads it.

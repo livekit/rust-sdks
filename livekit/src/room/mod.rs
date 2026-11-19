@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::e2ee::EncryptionType;
 pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
@@ -33,7 +34,7 @@ use livekit_rpc::backend::{
 use livekit_signaling::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
 use std::{
@@ -412,12 +413,11 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 #[derive(Debug, Clone)]
 pub struct RoomDataStreamOptions {
     max_payload_byte_length: Option<usize>,
-    use_legacy_client_implementation: bool,
 }
 
 impl Default for RoomDataStreamOptions {
     fn default() -> Self {
-        Self { max_payload_byte_length: None, use_legacy_client_implementation: false }
+        Self { max_payload_byte_length: None }
     }
 }
 
@@ -428,14 +428,6 @@ impl RoomDataStreamOptions {
     /// be thrown.
     pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
         self.max_payload_byte_length = Some(byte_length);
-        self
-    }
-
-    /// Advertise only legacy (v1) data stream support. Temporary migration aid for SDKs
-    /// implementing data streams in their own client-side code on top of the FFI.
-    #[doc(hidden)]
-    pub fn with_legacy_client_implementation(mut self, enabled: bool) -> Self {
-        self.use_legacy_client_implementation = enabled;
         self
     }
 }
@@ -460,6 +452,14 @@ pub struct RoomOptions {
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
     pub data_stream: RoomDataStreamOptions,
+    /// Tracks to publish while connecting, with their publish options.
+    ///
+    /// With `single_peer_connection`, they are sent with the join request, saving the round
+    /// trips of publishing after [`Room::connect`] returns. Otherwise, with end-to-end
+    /// encryption enabled, or if the server does not support it, they are published normally
+    /// before `connect` returns. If any of them fails to publish, the room is closed and
+    /// `connect` returns the error. Each track may be listed only once.
+    pub publish_tracks: Vec<(LocalTrack, TrackPublishOptions)>,
 }
 
 impl Default for RoomOptions {
@@ -478,6 +478,7 @@ impl Default for RoomOptions {
             single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             data_stream: Default::default(),
+            publish_tracks: Vec::new(),
         }
     }
 }
@@ -543,6 +544,18 @@ pub(crate) struct RoomSession {
     handle: AsyncMutex<Option<Handle>>,
     /// Set once the room reaches `Disconnected`, which is final from then on.
     disconnected: AtomicBool,
+    /// Set under the remote participant map's write lock before teardown drains it.
+    closing: AtomicBool,
+    /// Publication events received while `connect` registers the join-time publications they
+    /// may refer to; `None` once they are handled directly.
+    deferred_publication_events: Mutex<Option<Vec<PublicationEvent>>>,
+}
+
+/// A server event about a local track publication.
+enum PublicationEvent {
+    Subscribed { track_sid: String },
+    Muted { sid: String, muted: bool },
+    QualityUpdate { update: proto::SubscribedQualityUpdate },
 }
 
 struct Handle {
@@ -568,6 +581,53 @@ impl Debug for RoomSession {
     }
 }
 
+/// Restores the join-time tracks' transceivers when `connect` fails or is cancelled, so the
+/// tracks neither keep the abandoned peer connection alive nor lose a sender that another room
+/// publishes them with.
+struct RestoreOnDrop(Option<Vec<(LocalTrack, Option<RtpTransceiver>)>>);
+
+impl RestoreOnDrop {
+    fn new(tracks: &[(LocalTrack, TrackPublishOptions)]) -> Self {
+        Self(Some(tracks.iter().map(|(track, _)| (track.clone(), track.transceiver())).collect()))
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RestoreOnDrop {
+    fn drop(&mut self) {
+        for (track, transceiver) in self.0.take().unwrap_or_default() {
+            track.set_transceiver(transceiver);
+        }
+    }
+}
+
+/// Closes a room whose `connect` is cancelled before returning it to the caller, restoring the
+/// join-time tracks once the room is closed.
+struct CloseOnDrop(Option<(Arc<RoomSession>, RestoreOnDrop)>);
+
+impl CloseOnDrop {
+    fn disarm(mut self) -> (Arc<RoomSession>, RestoreOnDrop) {
+        self.0.take().expect("CloseOnDrop disarmed twice")
+    }
+}
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        let Some((inner, restore)) = self.0.take() else { return };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            log::error!("connect cancelled outside a tokio runtime, cannot close the room");
+            return;
+        };
+        runtime.spawn(async move {
+            let _ = inner.close(DisconnectReason::JoinFailure).await;
+            drop(restore);
+        });
+    }
+}
+
 impl Room {
     pub async fn connect(
         url: &str,
@@ -586,9 +646,31 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
-        signal_options.use_legacy_data_streams =
-            options.data_stream.use_legacy_client_implementation;
-        let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
+
+        let encryption_type = e2ee_manager.encryption_type();
+        let mut publish_tracks = std::mem::take(&mut options.publish_tracks);
+        // Requests and their responses are matched by track cid.
+        let mut cids = HashSet::new();
+        if !publish_tracks.iter().all(|(track, _)| cids.insert(track.rtc_track().id())) {
+            return Err(RoomError::Internal(
+                "publish_tracks contains the same track more than once".into(),
+            ));
+        }
+        for (track, options) in &mut publish_tracks {
+            if let LocalTrack::Video(_) = track {
+                options.video_codec = participant::negotiable_video_codec(options)?;
+            }
+        }
+
+        let restore_on_failure = RestoreOnDrop::new(&publish_tracks);
+        // A join-time sender can send media as soon as the connection is up, before the E2EE
+        // frame cryptor (which needs the identity from the join response) is attached. Encrypted
+        // rooms therefore publish these tracks normally instead.
+        let join_publish_tracks: &[(LocalTrack, TrackPublishOptions)] = match encryption_type {
+            EncryptionType::None => &publish_tracks,
+            _ => &[],
+        };
+        let (rtc_engine, join_response, engine_events, pre_publish_receivers) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
@@ -598,6 +680,7 @@ impl Room {
                 single_peer_connection: options.single_peer_connection,
             },
             Some(e2ee_manager.clone()),
+            join_publish_tracks,
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
@@ -764,6 +847,8 @@ impl Room {
             rpc_server: RpcServerManager::new(),
             handle: Default::default(),
             disconnected: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
+            deferred_publication_events: Mutex::new((!publish_tracks.is_empty()).then(Vec::new)),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
@@ -819,7 +904,9 @@ impl Room {
                         .collect(),
                 )
             };
-            participant.update_info(pi.clone());
+            if let Some(participant) = participant {
+                participant.update_info(pi.clone());
+            }
         }
 
         // Get the initial states (Can be useful on some usecases, like the FfiServer)
@@ -875,7 +962,62 @@ impl Room {
         };
         inner.handle.lock().await.replace(handle);
 
-        Ok((Self { inner }, events))
+        let room = Self { inner };
+        let close_on_cancel = CloseOnDrop(Some((room.inner.clone(), restore_on_failure)));
+        let published = room.complete_pre_publish(publish_tracks, pre_publish_receivers).await;
+        let (inner, restore_on_failure) = close_on_cancel.disarm();
+        if let Err(err) = published {
+            // Spawned so that cancelling `connect` cannot interrupt the cleanup. Restored after
+            // the close, which detaches the tracks it unpublishes.
+            let closed = tokio::spawn(async move {
+                let closed = inner.close(DisconnectReason::JoinFailure).await;
+                drop(restore_on_failure);
+                closed
+            });
+            if let Ok(Err(close_err)) = closed.await {
+                log::warn!("failed to close the room after a failed join: {close_err}");
+            }
+            return Err(err);
+        }
+        restore_on_failure.disarm();
+        room.inner.replay_deferred_publication_events();
+
+        Ok((room, events))
+    }
+
+    /// Completes the join-time publishes; tracks the server never saw are published normally.
+    async fn complete_pre_publish(
+        &self,
+        tracks: Vec<(LocalTrack, TrackPublishOptions)>,
+        receivers: Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
+    ) -> RoomResult<()> {
+        let mut receivers: HashMap<_, _> = receivers.into_iter().collect();
+        let local_participant = &self.inner.local_participant;
+        for (track, options) in tracks {
+            let cid = track.rtc_track().id();
+            let Some(rx) = receivers.remove(&cid) else {
+                local_participant.publish_track(track, options).await?;
+                continue;
+            };
+            let completed = self
+                .inner
+                .rtc_engine
+                .complete_join_track(cid, rx, |track_info| {
+                    local_participant.complete_publish(track.clone(), options.clone(), track_info);
+                })
+                .await;
+            match completed {
+                Ok(true) => {}
+                Ok(false) => {
+                    local_participant.publish_track(track, options).await?;
+                }
+                Err(err) => {
+                    log::error!("failed to publish track {} with join: {}", track.name(), err);
+                    return Err(err.into());
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn close(&self) -> RoomResult<()> {
@@ -920,6 +1062,13 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
         self.inner.rtc_engine.session().publisher_connection_state()
+    }
+
+    /// Test-only: the publisher's RTP senders. A sender that keeps its track after teardown
+    /// keeps the track's native source alive with it.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_senders(&self) -> Vec<libwebrtc::rtp_sender::RtpSender> {
+        self.inner.rtc_engine.session().publisher_senders()
     }
 
     /// Test-only: returns a probe that reports whether the room session has been dropped.
@@ -1021,6 +1170,9 @@ impl Room {
         self.inner.info.read().active_recording
     }
 }
+
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+mod lifecycle_tests;
 
 impl RoomSession {
     async fn room_task(
@@ -1151,7 +1303,7 @@ impl RoomSession {
                 self.handle_connection_quality_update(updates)
             }
             EngineEvent::LocalTrackSubscribed { track_sid } => {
-                self.handle_track_subscribed(track_sid)
+                self.handle_publication_event(PublicationEvent::Subscribed { track_sid })
             }
             EngineEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
                 self.handle_data_stream_header(header, participant_identity, encryption_type);
@@ -1169,10 +1321,10 @@ impl RoomSession {
                 self.handle_refresh_token(url, token);
             }
             EngineEvent::TrackMuted { sid, muted } => {
-                self.handle_server_initiated_mute_track(sid, muted);
+                self.handle_publication_event(PublicationEvent::Muted { sid, muted });
             }
             EngineEvent::SubscribedQualityUpdate { update } => {
-                self.handle_subscribed_quality_update(update);
+                self.handle_publication_event(PublicationEvent::QualityUpdate { update });
             }
             EngineEvent::RefreshPublishingLayers => {
                 if self.options.dynacast {
@@ -1195,8 +1347,37 @@ impl RoomSession {
         Ok(())
     }
 
+    /// Unregisters the callbacks that keep remote participants alive, and empties the map.
+    ///
+    /// Dropping the map is not enough: each remote publication registers callbacks that hold
+    /// the participant which owns them, so the participant (and the `Arc<RtcEngine>` it holds)
+    /// survives the room unless those callbacks are unregistered. `handle_participant_disconnect`
+    /// is deliberately not reused: it dispatches events carrying the participant, and these peers
+    /// have not left, the room is closing.
+    ///
+    /// Sets `closing` under the map's write lock, so no participant can be inserted once the
+    /// snapshot is taken.
+    fn release_remote_participants(&self) {
+        let participants = {
+            let mut participants = self.remote_participants.write();
+            self.closing.store(true, Ordering::Relaxed);
+            std::mem::take(&mut *participants)
+        };
+        for participant in participants.into_values() {
+            participant.teardown();
+        }
+    }
+
     async fn close(self: &Arc<Self>, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
+
+        // Release the remote participants before anything below can suspend. `close` takes the
+        // handle, so a caller that bounds it with a timeout and drops the future cannot retry:
+        // a later call returns `AlreadyClosed`. Doing this first means a cancelled close still
+        // unlinks the callback cycles. No second drain is needed after the tasks join: `closing`
+        // rejects later inserts, and each participant's teardown rejects updates that already
+        // hold a clone.
+        self.release_remote_participants();
 
         // remove published tracks
         for (sid, _) in self.local_participant.track_publications().iter() {
@@ -1313,7 +1494,7 @@ impl RoomSession {
                 participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
-                let remote_participant = {
+                let Some(remote_participant) = ({
                     let pi = pi.clone();
                     let pi_kind = pi.kind().into();
                     let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
@@ -1335,6 +1516,8 @@ impl RoomSession {
                             .filter_map(|&c| ClientCapability::try_from(c).ok())
                             .collect(),
                     )
+                }) else {
+                    continue;
                 };
 
                 self.dispatcher
@@ -1484,6 +1667,38 @@ impl RoomSession {
 
             participant.set_connection_quality(quality);
             self.dispatcher.dispatch(&RoomEvent::ConnectionQualityChanged { participant, quality });
+        }
+    }
+
+    /// Handles `event`, or defers it while `connect` registers the join-time publications.
+    fn handle_publication_event(&self, event: PublicationEvent) {
+        let mut deferred = self.deferred_publication_events.lock();
+        if let Some(deferred) = deferred.as_mut() {
+            deferred.push(event);
+            return;
+        }
+        drop(deferred);
+        self.dispatch_publication_event(event);
+    }
+
+    /// Handles the events deferred during `connect` and stops deferring.
+    fn replay_deferred_publication_events(&self) {
+        // Held while replaying so that newer events are handled after the deferred ones.
+        let mut deferred = self.deferred_publication_events.lock();
+        for event in deferred.take().unwrap_or_default() {
+            self.dispatch_publication_event(event);
+        }
+    }
+
+    fn dispatch_publication_event(&self, event: PublicationEvent) {
+        match event {
+            PublicationEvent::Subscribed { track_sid } => self.handle_track_subscribed(track_sid),
+            PublicationEvent::Muted { sid, muted } => {
+                self.handle_server_initiated_mute_track(sid, muted)
+            }
+            PublicationEvent::QualityUpdate { update } => {
+                self.handle_subscribed_quality_update(update)
+            }
         }
     }
 
@@ -1726,14 +1941,16 @@ impl RoomSession {
     }
 
     fn handle_restarting(self: &Arc<Self>, tx: oneshot::Sender<()>) {
+        // Report Reconnecting first, so observers can tell the participant
+        // removals below apart from participants actually leaving.
+        if self.update_connection_state(ConnectionState::Reconnecting) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
+        }
+
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.remote_participants.read().clone();
         for (_, participant) in participants.iter() {
             self.clone().handle_participant_disconnect(participant.clone());
-        }
-
-        if self.update_connection_state(ConnectionState::Reconnecting) {
-            self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
 
         let _ = tx.send(());
@@ -1924,7 +2141,10 @@ impl RoomSession {
         segments: Vec<TranscriptionSegment>,
     ) {
         let participant = self.get_local_or_remote_participant(&participant_identity);
-        let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
+        let Ok(track_sid) = TrackSid::try_from(track_sid) else {
+            log::warn!("dropping transcription with an invalid track sid");
+            return;
+        };
         let track_publication: Option<TrackPublication> = match &participant {
             Some(Participant::Local(ref participant)) => {
                 participant.get_track_publication(&track_sid).map(TrackPublication::Local)
@@ -2161,7 +2381,12 @@ impl RoomSession {
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
         capabilities: Vec<ClientCapability>,
-    ) -> RemoteParticipant {
+    ) -> Option<RemoteParticipant> {
+        let mut participants = self.remote_participants.write();
+        if self.closing.load(Ordering::Relaxed) {
+            log::debug!("ignoring participant {identity}: room is closing");
+            return None;
+        }
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
@@ -2291,9 +2516,8 @@ impl RoomSession {
             }
         });
 
-        let mut participants = self.remote_participants.write();
         participants.insert(identity, participant.clone());
-        participant
+        Some(participant)
     }
 
     /// A participant has disconnected
@@ -2496,6 +2720,7 @@ async fn incoming_data_stream_task(
                 // The Rust SDK observes completion through the reader itself; the explicit
                 // closed signal exists for FFI hosts sequencing handlers on ordered topics.
                 ds::incoming::OutputEvent::StreamClosed(_) => {}
+                _ => log::debug!("ignoring an unknown incoming data stream event"),
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);

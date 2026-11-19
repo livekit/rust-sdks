@@ -115,13 +115,13 @@ impl EgressClient {
         Self::build(
             host,
             ServiceBase::with_api_key(api_key, api_secret),
-            crate::http_client::Client::new(),
+            crate::http_client::client(),
         )
     }
 
     /// Authenticates with a pre-signed token, sent verbatim on every request.
     pub fn with_token(host: &str, token: &str) -> Self {
-        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::client())
     }
 
     /// Builds the client from an already-constructed HTTP client so the unified
@@ -371,6 +371,7 @@ impl EgressClient {
                     egress_id: egress_id.to_owned(),
                     add_output_urls,
                     remove_output_urls,
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,

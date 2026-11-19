@@ -129,6 +129,56 @@ async fn test_full_reconnect_recovers() -> Result<()> {
     assert_recovers(room, events, SimulateScenario::FullReconnect).await
 }
 
+// The full reconnect republishes through senders the old session detached on close.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_full_reconnect_with_published_track_recovers() -> Result<()> {
+    let (room, events) = test_rooms(1).await?.pop().unwrap();
+    let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+    let track = LocalVideoTrack::create_video_track("track", RtcVideoSource::Native(source));
+    room.local_participant()
+        .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
+        .await?;
+    assert_recovers(room, events, SimulateScenario::FullReconnect).await
+}
+
+/// A full reconnect removes every remote participant before rejoining. `Reconnecting` must be
+/// reported first, so observers can tell those removals apart from participants actually leaving.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_full_reconnect_reports_reconnecting_before_removing_participants() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (_remote, _remote_events) = rooms.pop().unwrap();
+    let (room, mut events) = rooms.pop().unwrap();
+
+    room.simulate_scenario(SimulateScenario::FullReconnect)
+        .await
+        .map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
+
+    let observe = async {
+        let mut saw_reconnecting = false;
+        while let Some(event) = events.recv().await {
+            match event {
+                RoomEvent::Reconnecting => saw_reconnecting = true,
+                RoomEvent::ParticipantDisconnected(p) => {
+                    if !saw_reconnecting {
+                        bail!("{} was removed before Reconnecting was reported", p.identity());
+                    }
+                    return Ok(());
+                }
+                RoomEvent::Reconnected => bail!("reconnected without removing participants"),
+                RoomEvent::Disconnected { reason } => {
+                    bail!("room disconnected during reconnection: {reason:?}");
+                }
+                _ => {}
+            }
+        }
+        bail!("event stream ended before the participant was removed");
+    };
+    timeout(Duration::from_secs(30), observe).await??;
+    Ok(())
+}
+
 /// A full reconnect republishes tracks from a detached task that marks the room `Connected` when
 /// it finishes. Closing the room while that task waits on the server must not let it bring the
 /// room back: once closed, the room stays `Disconnected`.
@@ -410,9 +460,12 @@ async fn test_reconnect_exhaustion_disconnects() -> Result<()> {
         bail!("event stream ended before the room reported Disconnected");
     };
 
-    // Generous timeout: the engine works through its full bounded backoff before
-    // giving up.
-    let _reason = timeout(Duration::from_secs(90), observe).await??;
+    // The engine waits out its backoff schedule (~44 s plus up to 8 s of jitter)
+    // and each refused attempt takes its own time on top, a few seconds apiece
+    // on Windows, until RECONNECT_MAX_DURATION (60 s) ends the episode. A paused
+    // tokio clock cannot shorten this: while the engine waits on a libwebrtc
+    // callback the runtime is idle and auto-advance fires this guard instead.
+    let _reason = timeout(Duration::from_secs(150), observe).await??;
 
     assert_eq!(
         room.connection_state(),
@@ -455,6 +508,8 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
         .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
         .await?;
     assert!(publication.track().is_some());
+    // A closed PeerConnection reports no senders, so take them before the room ends.
+    let senders = room.publisher_senders();
 
     let http_url = server_url.replacen("ws", "http", 1);
     RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
@@ -473,6 +528,10 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
 
     assert_eq!(reason, livekit::DisconnectReason::RoomDeleted);
     assert_eq!(room.connection_state(), ConnectionState::Disconnected);
+    assert!(
+        senders.iter().all(|sender| sender.track().is_none()),
+        "the closed publisher PeerConnection still holds the local track"
+    );
 
     timeout(Duration::from_secs(5), async {
         while publication.track().is_some() {

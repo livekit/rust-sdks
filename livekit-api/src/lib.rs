@@ -24,6 +24,9 @@ pub use livekit_token as access_token;
 #[cfg(feature = "services")]
 pub mod services;
 
+#[cfg(feature = "services")]
+mod public_api;
+
 // The signalling client lives in the livekit-signaling crate. Unlike
 // `access_token`, this path is NOT supported API: nothing in the workspace uses
 // it any more and it exists only so existing dependents keep compiling.

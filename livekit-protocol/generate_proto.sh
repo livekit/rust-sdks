@@ -16,7 +16,15 @@
 # dependencies: cargo install protoc-gen-prost@0.5.0 protoc-gen-prost-serde@0.4.0
 
 
-PROTOCOL=protocol/protobufs
+# The telemetry names (`src/lib.rs`, `mod semconv`) are not generated here: Weaver writes them in
+# the protocol repository (`otel/generate.sh`) and the crate reads `protocol/otel/gen/rust/semconv.rs`
+# straight from the submodule.
+
+# Stop at the first failing step: a failed protoc must not leave stale outputs behind, and the
+# normalization below must not turn its status into a success.
+set -eu
+
+PROTOCOL=${PROTOCOL:-protocol/protobufs}
 OUT_RUST=src
 
 protoc \
@@ -37,4 +45,29 @@ protoc \
     $PROTOCOL/livekit_connector.proto \
     $PROTOCOL/livekit_connector_whatsapp.proto \
     $PROTOCOL/livekit_connector_twilio.proto \
-    $PROTOCOL/livekit_analytics.proto
+    $PROTOCOL/livekit_analytics.proto \
+    $PROTOCOL/livekit_agent.proto \
+    $PROTOCOL/livekit_agentdb.proto \
+    $PROTOCOL/agent/livekit_agent_dev.proto \
+    $PROTOCOL/agent/livekit_agent_session.proto \
+    $PROTOCOL/agent/livekit_agent_text.proto \
+    $PROTOCOL/agent/livekit_agent_thread.proto \
+    $PROTOCOL/agent/livekit_agent_inference.proto \
+    $PROTOCOL/cloud_replay.proto \
+    $PROTOCOL/livekit_agent_dispatch.proto \
+    $PROTOCOL/livekit_agent_simulation.proto \
+    $PROTOCOL/livekit_agent_worker.proto \
+    $PROTOCOL/livekit_cloud_agent.proto \
+    $PROTOCOL/livekit_ingress.proto \
+    $PROTOCOL/livekit_internal.proto \
+    $PROTOCOL/livekit_metrics.proto \
+    $PROTOCOL/livekit_phone_number.proto \
+    $PROTOCOL/livekit_token_source.proto \
+    $PROTOCOL/logger/options.proto \
+    $PROTOCOL/roomrpc/siprpc/roomrpc_sip_v1.proto
+
+# protoc-gen-prost-serde leaves a trailing space after some `=` continuations. Strip it from every
+# generated file so the output passes `git diff --check` and a regeneration is byte-identical.
+# This runs only after a successful protoc (`set -e` above); `generate_proto_check.sh` pins that.
+perl -pi -e 's/[ \t]+$//' $OUT_RUST/livekit.rs $OUT_RUST/livekit.serde.rs $OUT_RUST/livekit.agent.rs \
+    $OUT_RUST/livekit.agent.serde.rs $OUT_RUST/logger.rs $OUT_RUST/logger.serde.rs

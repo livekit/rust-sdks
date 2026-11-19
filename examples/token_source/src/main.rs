@@ -45,8 +45,8 @@ async fn main() {
     }
 
     // The remaining sources query LiveKit's development token server, which
-    // requires the ID of a sandbox created in your LiveKit Cloud project.
-    let sandbox_id = "your sandbox id".to_string();
+    // requires the ID of a token server created in your LiveKit Cloud project.
+    let token_server_id = "your token server id".to_string();
 
     let options = TokenSourceFetchOptions::new()
         .with_room_name("example-room")
@@ -54,7 +54,7 @@ async fn main() {
 
     // Development token server: for prototyping only, NOT for production use.
     let development_token_server =
-        livekit_token_source::development_token_server(sandbox_id.clone());
+        livekit_token_source::development_token_server(token_server_id.clone());
     match development_token_server.fetch(&options).await {
         Ok(response) => println!(
             "development token server: server_url={} participant_token={}",
@@ -66,7 +66,7 @@ async fn main() {
     // Caching: wrap any configurable source with `.cached()` to reuse
     // credentials until the token expires; the second fetch below is served
     // from the cache without hitting the server.
-    let cached = livekit_token_source::development_token_server(sandbox_id.clone()).cached();
+    let cached = livekit_token_source::development_token_server(token_server_id.clone()).cached();
     for attempt in 1..=2 {
         match cached.fetch(&options).await {
             Ok(response) => println!(
@@ -82,7 +82,7 @@ async fn main() {
     let endpoint = livekit_token_source::endpoint(
         "https://cloud-api.livekit.io/api/v2/sandbox/connection-details",
     )
-    .with_header("X-Sandbox-ID", sandbox_id);
+    .with_header("X-Sandbox-ID", token_server_id);
     match endpoint.fetch(&options).await {
         Ok(response) => println!(
             "endpoint: server_url={} participant_token={}",
