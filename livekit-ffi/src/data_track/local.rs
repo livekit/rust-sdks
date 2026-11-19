@@ -44,7 +44,7 @@ impl LocalDataTrack {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[uniffi::export]
 impl LocalDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
