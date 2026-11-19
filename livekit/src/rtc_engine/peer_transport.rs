@@ -220,9 +220,9 @@ impl PeerTransport {
         let offer_sdp = offer.to_string();
         self.set_remote_description(offer).await?;
         let answer = self.peer_connection().create_answer(options).await?;
-        let sdp = answer.to_string();
-        let answer =
-            Self::reparse_munged(answer, &sdp, Self::munge_opus_nack_for_answer(&sdp, &offer_sdp));
+        let answer = Self::munge_opus_nack_for_answer(&answer.to_string(), &offer_sdp)
+            .and_then(|munged| Self::parse_munged(&munged, answer.sdp_type()))
+            .unwrap_or(answer);
         self.peer_connection().set_local_description(answer.clone()).await?;
 
         Ok(answer)
@@ -395,28 +395,21 @@ impl PeerTransport {
         munged
     }
 
-    /// Returns `munged` parsed as a description of `desc`'s type, or `desc` itself if the munge
-    /// changed nothing or the result does not parse.
-    fn reparse_munged(desc: SessionDescription, sdp: &str, munged: String) -> SessionDescription {
-        if munged == sdp {
-            return desc;
-        }
-        match SessionDescription::parse(&munged, desc.sdp_type()) {
-            Ok(parsed) => parsed,
-            Err(e) => {
-                log::warn!("Failed to parse munged SDP, using original: {e}");
-                desc
-            }
-        }
+    /// Parses munged SDP, logging and returning `None` if libwebrtc rejects it.
+    fn parse_munged(munged: &str, sdp_type: SdpType) -> Option<SessionDescription> {
+        SessionDescription::parse(munged, sdp_type)
+            .inspect_err(|e| log::warn!("Failed to parse munged SDP, using original: {e}"))
+            .ok()
     }
 
     /// Adds `a=rtcp-fb:<pt> nack` after the `a=rtpmap` line of every Opus payload type that
-    /// lacks plain NACK, in each audio section for which `wants_nack` holds.
+    /// lacks plain NACK, in each audio section for which `wants_nack` holds. Returns `None` if
+    /// there is nothing to add.
     ///
     /// libwebrtc advertises only `transport-cc` feedback for Opus, so without this no audio
     /// NACK is negotiated, and lost audio packets are never retransmitted when RED is off
     /// (for example with E2EE).
-    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> String {
+    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> Option<String> {
         let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
         let lines: Vec<&str> = sdp.split_inclusive('\n').collect();
         let mut munged = String::with_capacity(sdp.len());
@@ -438,24 +431,20 @@ impl PeerTransport {
             }
         }
 
-        if changed {
-            munged
-        } else {
-            sdp.to_owned()
-        }
+        changed.then_some(munged)
     }
 
     /// Adds Opus NACK to every audio section of a single PC offer, whatever its direction.
     ///
     /// The server takes audio feedback from the first audio section of the first offer only.
     /// That section can be the client's own `sendonly` mic, so every section needs NACK.
-    fn munge_opus_nack_for_offer(sdp: &str) -> String {
+    fn munge_opus_nack_for_offer(sdp: &str) -> Option<String> {
         Self::munge_opus_nack(sdp, |_| true)
     }
 
     /// Adds Opus NACK to each audio section of a dual PC answer whose counterpart in `offer`
     /// (matched by mid) has it. libwebrtc drops it from the answer otherwise.
-    fn munge_opus_nack_for_answer(answer: &str, offer: &str) -> String {
+    fn munge_opus_nack_for_answer(answer: &str, offer: &str) -> Option<String> {
         let offer_lines: Vec<&str> = offer.split_inclusive('\n').collect();
         let nack_mids: Vec<&str> = SdpSection::split(&offer_lines)
             .filter(|section| {
@@ -591,9 +580,14 @@ impl PeerTransport {
 
         if inner.single_pc_mode {
             // Apply stereo and Opus NACK munging for single PC mode
-            let munged = Self::munge_opus_nack_for_offer(&Self::munge_stereo_for_audio(&sdp));
-            offer = Self::reparse_munged(offer, &sdp, munged);
-            sdp = offer.to_string();
+            let stereo = Self::munge_stereo_for_audio(&sdp);
+            let munged = Self::munge_opus_nack_for_offer(&stereo).unwrap_or(stereo);
+            if munged != sdp {
+                if let Some(parsed) = Self::parse_munged(&munged, offer.sdp_type()) {
+                    offer = parsed;
+                    sdp = munged;
+                }
+            }
         }
 
         // Apply x-google-start-bitrate for all video codecs to improve initial quality.
@@ -698,31 +692,35 @@ impl PeerTransport {
 }
 
 /// A section of an SDP, the session part or one m-section, as lines with their line endings.
+/// `'s` borrows the lines and `'a` the SDP text.
 #[derive(Clone, Copy)]
-struct SdpSection<'a> {
-    lines: &'a [&'a str],
+struct SdpSection<'s, 'a> {
+    lines: &'s [&'a str],
 }
 
-impl<'a> SdpSection<'a> {
+impl<'s, 'a> SdpSection<'s, 'a> {
     /// Splits SDP lines into the session section followed by one section per `m=` line.
-    fn split(lines: &'a [&'a str]) -> impl Iterator<Item = Self> {
+    fn split(lines: &'s [&'a str]) -> impl Iterator<Item = Self> {
         lines.chunk_by(|_, next| !next.starts_with("m=")).map(|lines| Self { lines })
     }
 
     /// The values of the `a=` lines, without the `a=` prefix and the line ending.
-    fn attributes(self) -> impl Iterator<Item = &'a str> {
+    fn attributes(self) -> impl Iterator<Item = &'a str> + use<'s, 'a> {
         self.lines.iter().filter_map(|line| line.trim_end().strip_prefix("a="))
     }
 
+    /// Whether this is an audio m-section.
     fn is_audio(self) -> bool {
         self.lines.first().is_some_and(|line| line.starts_with("m=audio "))
     }
 
+    /// The value of the `a=mid` line.
     fn mid(self) -> Option<&'a str> {
         self.attributes().find_map(|attribute| attribute.strip_prefix("mid:"))
     }
 
-    fn opus_pts(self) -> impl Iterator<Item = &'a str> {
+    /// The Opus payload types, from the `a=rtpmap` lines.
+    fn opus_pts(self) -> impl Iterator<Item = &'a str> + use<'s, 'a> {
         self.lines.iter().copied().filter_map(opus_pt)
     }
 
@@ -1316,7 +1314,7 @@ a=rtpmap:0 PCMU/8000\r\n"
             audio_section("2", "sendrecv", NACK),
             video.to_string(),
         ]);
-        assert_eq!(out, expected);
+        assert_eq!(out, Some(expected));
     }
 
     /// Every Opus payload type gets NACK, with LF or CRLF line endings. `nack pli` is not plain
@@ -1351,8 +1349,19 @@ a=rtpmap:0 PCMU/8000\r\n"
             ]
             .join(eol);
             let out = PeerTransport::munge_opus_nack_for_offer(&offer);
-            assert_eq!(out, expected);
-            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&out), out);
+            assert_eq!(out.as_deref(), Some(expected.as_str()));
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&expected), None);
+        }
+    }
+
+    /// An Opus `a=rtpmap` as the last line, without a line ending, still gets NACK on its own line.
+    #[test]
+    fn offer_nack_after_last_line_without_line_ending() {
+        for eol in ["\n", "\r\n"] {
+            let offer =
+                ["v=0", "m=audio 9 UDP/TLS/RTP/SAVPF 111", "a=rtpmap:111 opus/48000/2"].join(eol);
+            let expected = format!("{offer}{eol}a=rtcp-fb:111 nack{eol}");
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), Some(expected));
         }
     }
 
@@ -1364,17 +1373,17 @@ a=rtpmap:0 PCMU/8000\r\n"
             ["a=rtcp-fb:111 nack\r\n", "a=rtcp-fb:* nack\r\n", "a=rtcp-fb:111\tnack\r\n"]
         {
             let offer = sdp(&[audio_section("0", "sendonly", feedback)]);
-            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), offer);
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), None);
 
             let answer = sdp(&[audio_section("0", "recvonly", "")]);
             assert_eq!(
                 PeerTransport::munge_opus_nack_for_answer(&answer, &offer),
-                sdp(&[audio_section("0", "recvonly", NACK)])
+                Some(sdp(&[audio_section("0", "recvonly", NACK)]))
             );
         }
         let no_opus = "v=0\nm=audio 9 UDP/TLS/RTP/SAVPF 0\na=rtpmap:0 PCMU/8000\n";
-        assert_eq!(PeerTransport::munge_opus_nack_for_offer(no_opus), no_opus);
-        assert_eq!(PeerTransport::munge_opus_nack_for_offer(""), "");
+        assert_eq!(PeerTransport::munge_opus_nack_for_offer(no_opus), None);
+        assert_eq!(PeerTransport::munge_opus_nack_for_offer(""), None);
     }
 
     #[test]
@@ -1385,14 +1394,14 @@ a=rtpmap:0 PCMU/8000\r\n"
         let out = PeerTransport::munge_opus_nack_for_answer(&answer, &offer);
         let expected =
             sdp(&[audio_section("0", "recvonly", NACK), audio_section("1", "recvonly", "")]);
-        assert_eq!(out, expected);
+        assert_eq!(out, Some(expected));
     }
 
     #[test]
     fn answer_untouched_when_offer_has_no_nack() {
         let offer = sdp(&[audio_section("0", "sendonly", "")]);
         let answer = sdp(&[audio_section("0", "recvonly", "")]);
-        assert_eq!(PeerTransport::munge_opus_nack_for_answer(&answer, &offer), answer);
+        assert_eq!(PeerTransport::munge_opus_nack_for_answer(&answer, &offer), None);
     }
 
     // The tests below run the munges on SDP that libwebrtc writes and parses. They are adapted
@@ -1513,7 +1522,8 @@ a=rtpmap:0 PCMU/8000\r\n"
             let remote = pc_with_audio(&factory, &[RtpTransceiverDirection::SendOnly]);
             let mut offer = remote.create_offer(OfferOptions::default()).await.unwrap();
             if offer_nack {
-                let sdp = PeerTransport::munge_opus_nack_for_offer(&offer.to_string());
+                let sdp = PeerTransport::munge_opus_nack_for_offer(&offer.to_string())
+                    .expect("libwebrtc offered Opus NACK already");
                 offer = SessionDescription::parse(&sdp, offer.sdp_type()).unwrap();
             }
             assert_eq!(audio_nack(&offer.to_string()), [offer_nack]);
