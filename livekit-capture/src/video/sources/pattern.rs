@@ -25,10 +25,10 @@
 
 use crate::{
     error::SourceError,
-    pixel::PixelVideoSource,
-    primitive::VideoResolution,
     pump::PumpStop,
-    renderer::{FramePacer, RendererError, ShaderRenderer},
+    video::pixel::PixelVideoSource,
+    video::primitive::VideoResolution,
+    video::renderer::{FramePacer, RendererError, ShaderRenderer},
 };
 use livekit::webrtc::video_frame::{BoxVideoFrame, VideoFrame, VideoRotation};
 use std::{fmt, time::Duration};
@@ -47,13 +47,13 @@ const TIME_WRAP_PERIOD_US: u64 = 8_192_000_000;
 
 /// Prelude prepended to every fragment snippet. It draws one triangle
 /// that covers the full target and calls `shade` per pixel.
-const FRAGMENT_PRELUDE: &str = include_str!("../../shaders/prelude.wgsl");
+const FRAGMENT_PRELUDE: &str = include_str!("../../../shaders/prelude.wgsl");
 
 /// Fragment snippet for [`Pattern::Gradient`].
-const GRADIENT_SHADER: &str = include_str!("../../shaders/gradient.wgsl");
+const GRADIENT_SHADER: &str = include_str!("../../../shaders/gradient.wgsl");
 
 /// Fragment snippet for [`Pattern::Logo`].
-const LOGO_SHADER: &str = include_str!("../../shaders/logo.wgsl");
+const LOGO_SHADER: &str = include_str!("../../../shaders/logo.wgsl");
 
 /// Test pattern rendered by a [`PatternVideoSource`].
 ///
@@ -237,7 +237,7 @@ fn uniform_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::renderer::gpu_available;
+    use crate::video::renderer::gpu_available;
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 

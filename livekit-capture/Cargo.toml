@@ -15,7 +15,7 @@ gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
-pollster = { version = "0.4", optional = true }
+pollster = "0.4"
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
@@ -31,9 +31,17 @@ default = []
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
 
-# Pixel sources
-source-clock = ["dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
-source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
+# Video sources
 
-# Encoded sources
+# Pixel sources
+source-clock = ["dep:chrono", "dep:wgpu", "dep:yuv-sys"]
+source-pattern = ["dep:wgpu", "dep:yuv-sys"]
+
+# Audio sources
+
+# <list audio-only sources here>
+
+# Dual sources
+
+# Encoded video and PCM audio capture
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

@@ -25,13 +25,13 @@ use gst::prelude::*;
 use thiserror::Error;
 
 use crate::{
-    encoded::{
+    error::SourceError,
+    pump::PumpStop,
+    video::encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc, H26xParseError},
         EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
     },
-    error::SourceError,
-    primitive::VideoResolution,
-    pump::PumpStop,
+    video::primitive::VideoResolution,
 };
 use livekit::webrtc::video_source::EncodedRateControl;
 

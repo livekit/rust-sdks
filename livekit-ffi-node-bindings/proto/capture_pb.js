@@ -22,8 +22,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
 const { OwnedVideoSource, VideoCodec, VideoSourceResolution } = require("./video_frame_pb.js");
-const { TrackPublishOptions } = require("./room_pb.js");
+const { OwnedAudioSource } = require("./audio_frame_pb.js");
 const { FfiOwnedHandle } = require("./handle_pb.js");
+const { TrackPublishOptions } = require("./room_pb.js");
 
 /**
  * Bitrate unit expected by a GStreamer encoder property.
@@ -117,6 +118,77 @@ const GstreamerVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
     { no: 2, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), opt: true },
     { no: 3, name: "resolution", kind: "message", T: VideoSourceResolution, opt: true },
     { no: 4, name: "rate_control", kind: "message", T: GstreamerRateControl, opt: true },
+  ],
+);
+
+/**
+ * PCM S16LE interleaved ingest from `appsink name=lk_audio_appsink`.
+ *
+ * @generated from message livekit.proto.GstreamerAudioSourceConfig
+ */
+const GstreamerAudioSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GstreamerAudioSourceConfig",
+  () => [
+    { no: 1, name: "pipeline", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "sample_rate", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true, default: 48000 },
+    { no: 3, name: "num_channels", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true, default: 1 },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.AudioCaptureSourceInfo
+ */
+const AudioCaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.AudioCaptureSourceInfo",
+  () => [
+    { no: 1, name: "sample_rate", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 2, name: "num_channels", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 3, name: "samples_per_channel", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 4, name: "audio_source", kind: "message", T: OwnedAudioSource, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.OwnedAudioCaptureSource
+ */
+const OwnedAudioCaptureSource = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.OwnedAudioCaptureSource",
+  () => [
+    { no: 1, name: "handle", kind: "message", T: FfiOwnedHandle, req: true },
+    { no: 2, name: "info", kind: "message", T: AudioCaptureSourceInfo, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceRequest
+ */
+const NewAudioCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewAudioCaptureSourceRequest",
+  () => [
+    { no: 1, name: "gstreamer", kind: "message", T: GstreamerAudioSourceConfig, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceResponse
+ */
+const NewAudioCaptureSourceResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewAudioCaptureSourceResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceCallback
+ */
+const NewAudioCaptureSourceCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewAudioCaptureSourceCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "message" },
+    { no: 3, name: "source", kind: "message", T: OwnedAudioCaptureSource, oneof: "message" },
   ],
 );
 
@@ -327,6 +399,12 @@ exports.CaptureExit = CaptureExit;
 exports.CaptureErrorKind = CaptureErrorKind;
 exports.GstreamerRateControl = GstreamerRateControl;
 exports.GstreamerVideoSourceConfig = GstreamerVideoSourceConfig;
+exports.GstreamerAudioSourceConfig = GstreamerAudioSourceConfig;
+exports.AudioCaptureSourceInfo = AudioCaptureSourceInfo;
+exports.OwnedAudioCaptureSource = OwnedAudioCaptureSource;
+exports.NewAudioCaptureSourceRequest = NewAudioCaptureSourceRequest;
+exports.NewAudioCaptureSourceResponse = NewAudioCaptureSourceResponse;
+exports.NewAudioCaptureSourceCallback = NewAudioCaptureSourceCallback;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
 exports.ClockVideoSourceConfig = ClockVideoSourceConfig;
 exports.CaptureSourceInfo = CaptureSourceInfo;

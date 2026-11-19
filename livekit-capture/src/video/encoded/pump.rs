@@ -16,9 +16,11 @@
 //! source.
 
 use crate::{
-    encoded::{EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit},
     error::SourceError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
+    video::encoded::{
+        EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
+    },
 };
 use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
@@ -222,7 +224,9 @@ mod tests {
     use bytes::Bytes;
 
     use super::*;
-    use crate::{encoded::EncodedVideoCodec, error::SourceError, primitive::VideoResolution};
+    use crate::{
+        error::SourceError, video::encoded::EncodedVideoCodec, video::primitive::VideoResolution,
+    };
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 
