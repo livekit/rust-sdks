@@ -87,6 +87,7 @@ jobs:
     outputs:
       tag_name: ${{ steps.tag.outputs.tag_name }}
       version: ${{ steps.tag.outputs.version }}
+      published: ${{ steps.ask.outputs.exists }}
     steps:
       - name: Resolve tag
         id: tag
@@ -125,11 +126,29 @@ jobs:
             exit 1
           fi
 
+      # Safe to run again: pub.dev versions cannot be replaced, so a version
+      # that pub.dev has is not built and not published a second time. The
+      # host libraries were attached before that publish.
+      - name: Ask pub.dev for the version
+        id: ask
+        env:
+          URL: https://pub.dev/api/packages/livekit_ffi/versions/${{ steps.tag.outputs.version }}
+          WHAT: livekit_ffi ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 "$URL")
+          case "$code" in
+            200) echo "${WHAT} is there: nothing to publish."; echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "${WHAT} is not there yet."; echo "exists=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::${URL} answered HTTP ${code}"; exit 1 ;;
+          esac
+
   # Builds build-<triple>.zip (+ .sha256) for every target and attaches them to
   # the release. Runs here rather than in uniffi-packages.yml so the publish
   # job can depend on it directly instead of polling the release for assets.
   cdylib:
     needs: resolve-tag
+    if: ${{ needs.resolve-tag.outputs.published != 'true' || inputs.dry_run }}
     permissions:
       # The upload step attaches assets to the release with the workflow token.
       contents: write
@@ -142,6 +161,7 @@ jobs:
   build-and-publish:
     name: Build & publish Dart package
     needs: [resolve-tag, cdylib]
+    if: ${{ needs.resolve-tag.outputs.published != 'true' || inputs.dry_run }}
     runs-on: ubuntu-latest
     # Names the environment in the OIDC token so pub.dev's "Require GitHub
     # Actions environment" check passes, and subjects the job to the
