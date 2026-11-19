@@ -49,4 +49,20 @@ versioning.files = [
   "../livekit-ffi-node-bindings/npm/win32-x64-msvc/package.json",
 ]
 release.draft = true
+# The release is not made public without these files. Keep the list equal to
+# the `name` of each build target in ffi-builds.yml, plus the Python bindings.
+release.required_assets = [
+  "ffi-android-arm64.zip",
+  "ffi-android-armv7.zip",
+  "ffi-android-x86_64.zip",
+  "ffi-ios-arm64.zip",
+  "ffi-ios-sim-arm64.zip",
+  "ffi-linux-arm64.zip",
+  "ffi-linux-x86_64.zip",
+  "ffi-macos-arm64.zip",
+  "ffi-macos-x86_64.zip",
+  "ffi-python-bindings.zip",
+  "ffi-windows-arm64.zip",
+  "ffi-windows-x86_64.zip",
+]
 publish.registry = "none"

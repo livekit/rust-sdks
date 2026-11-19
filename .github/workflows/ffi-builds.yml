@@ -54,7 +54,7 @@ on:
         default: release
 
 # One release run for each tag. A second run for the same tag waits. It then
-# finds the release public and complete, and does nothing. A run without a
+# finds the release complete (`verwalter status --check`), and does nothing. A run without a
 # tag is a build only and has a group of its own.
 concurrency:
   group: ffi-${{ inputs.tag_name || github.run_id }}
@@ -62,22 +62,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # The files that a livekit-ffi release must have before it becomes public.
-  # Keep this list equal to the `name` of each build target, plus the Python
-  # bindings.
-  REQUIRED_ASSETS: >-
-    ffi-android-arm64.zip
-    ffi-android-armv7.zip
-    ffi-android-x86_64.zip
-    ffi-ios-arm64.zip
-    ffi-ios-sim-arm64.zip
-    ffi-linux-arm64.zip
-    ffi-linux-x86_64.zip
-    ffi-macos-arm64.zip
-    ffi-macos-x86_64.zip
-    ffi-python-bindings.zip
-    ffi-windows-arm64.zip
-    ffi-windows-x86_64.zip
 
 jobs:
   get-tag:
@@ -113,19 +97,6 @@ jobs:
             echo "::error::no release for ${MANUAL_TAG}. verwalter creates the tag and the draft: run release.yml."
             exit 1
           fi
-
-          # A release that is public and has every required file is complete:
-          # this run builds and uploads nothing, and publishes no package again.
-          complete=true
-          if [ "$(gh release view "$MANUAL_TAG" --json isDraft --jq .isDraft)" != "false" ]; then
-            complete=false
-          fi
-          gh release view "$MANUAL_TAG" --json assets --jq '.assets[].name' > on-release.txt
-          for asset in $REQUIRED_ASSETS; do
-            grep -qxF "$asset" on-release.txt || complete=false
-          done
-          echo "Release ${MANUAL_TAG} complete: ${complete}"
-          echo "complete=${complete}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -134,9 +105,29 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         id: get-tag
+
+      # A release that is complete is left alone: this run builds and
+      # uploads nothing, and publishes no package again. Complete means that
+      # the tag is on the remote and the release is public with every file
+      # of `release.required_assets` in verwalter.toml. The check exits
+      # non-zero for a release that is not complete, which is the usual case
+      # here, so the step may fail.
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        if: steps.get-tag.outputs.tag_name != '' && inputs.dry_run != true
+        with:
+          ref: ${{ inputs.ref || inputs.tag_name }}
+          fetch-depth: 0
+      - name: Check whether the release is complete
+        id: state
+        if: steps.get-tag.outputs.tag_name != '' && inputs.dry_run != true
+        continue-on-error: true
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: status
+          args: --check --package livekit-ffi
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
-      complete: ${{ steps.get-tag.outputs.complete }}
+      complete: ${{ steps.state.outcome == 'success' }}
 
   build:
     needs: get-tag
@@ -454,6 +445,7 @@ jobs:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
           ref: ${{ inputs.ref || inputs.tag_name }}
+          fetch-depth: 0 # verwalter reads the tags
 
       # Before the upload, so a mismatch fails before `--clobber` replaces
       # anything. A run by hand can name any tag, and files built from a
@@ -476,49 +468,18 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Upload artifacts
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        # --clobber: a run after a failed upload replaces the partial assets.
-        # A release that is public and complete does not get here (get-tag).
-        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/* --clobber
-
-      # The release must not become public without its binaries: the SDKs
-      # that download them fail on a release that has none. Each required
-      # file must be on the release, and each built file with its size.
-      - name: Check that the release has every artifact
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"' | sort > on-release.txt
-          missing=0
-          for asset in $REQUIRED_ASSETS; do
-            if ! grep -q "^${asset} " on-release.txt; then
-              echo "::error::release ${TAG} does not have the required ${asset}"
-              missing=1
-            fi
-          done
-          count=0
-          for file in "${GITHUB_WORKSPACE}"/ffi-builds/*; do
-            count=$((count + 1))
-            entry="$(basename "$file") $(wc -c < "$file" | tr -d ' ')"
-            if ! grep -qxF "$entry" on-release.txt; then
-              echo "::error::release ${TAG} does not have ${entry}"
-              missing=1
-            fi
-          done
-          if [ "$count" -eq 0 ]; then
-            echo "::error::no build artifacts were downloaded"
-            exit 1
-          fi
-          echo "Checked ${count} artifacts on ${TAG}."
-          exit "$missing"
-
-      - name: Publish release
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: gh release edit "$TAG" --draft=false
+      # Attaches the files and makes the release public, in this order. The
+      # release must not become public without its binaries: the SDKs that
+      # download them fail on a release that has none. verwalter enforces it:
+      # while a name of `release.required_assets` is missing, the step fails
+      # and the release stays a draft. It also refuses the upload if the
+      # checkout does not hold the package as tagged. A second run replaces
+      # the files of a failed upload.
+      - name: Attach the files and make the release public
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: release
+          args: --package livekit-ffi --asset ffi-builds --publish
 
   # The Swift and Android packages. A job of this run, so a failure makes the
   # run red. It starts only after the release is public with its assets.
