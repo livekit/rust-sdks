@@ -403,6 +403,35 @@ mod tests {
         factory.set_adm_recording_enabled(initial_recording);
     }
 
+    /// The media engine terminates the ADM when the last PeerConnection is
+    /// released and initializes it again for the next one. The Platform ADM
+    /// must still list devices after that.
+    #[test]
+    fn platform_adm_survives_last_peer_connection_release() {
+        let _guard = TEST_MUTEX.lock().expect("test mutex poisoned");
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        if !factory.acquire_platform_adm() {
+            log::warn!("no Platform ADM on this machine, skipping");
+            return;
+        }
+        let recording_count = factory.recording_devices();
+        let playout_count = factory.playout_devices();
+        assert!(recording_count >= 0);
+        assert!(playout_count >= 0);
+
+        for _ in 0..3 {
+            let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+            pc.close();
+            drop(pc);
+            assert_eq!(factory.recording_devices(), recording_count);
+            assert_eq!(factory.playout_devices(), playout_count);
+        }
+
+        factory.release_platform_adm();
+    }
+
     /// Warnings and errors used to arrive as `Debug` and were filtered out by
     /// default in every binding; these pin the mapping that fixed that.
     #[test]

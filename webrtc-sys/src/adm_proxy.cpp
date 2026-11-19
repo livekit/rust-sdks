@@ -351,22 +351,28 @@ int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
 }
 
 int32_t AdmProxy::Init() {
-  // Init is a no-op - the sub ADMs are initialized at creation time
+  // Init is a no-op. The sub ADMs are initialized at creation time and stay
+  // initialized until the destructor, see Terminate.
   return 0;
 }
 
 int32_t AdmProxy::Terminate() {
+  // The voice engine calls Terminate when the last PeerConnection releases the
+  // media engine, and calls Init again when the next one is created. Init is a
+  // no-op, so the sub ADMs must stay initialized here. They are terminated in
+  // the destructor, same as the Platform ADM after ReleasePlatformAdm.
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    int32_t result = 0;
+    playing_ = false;
+    recording_ = false;
     if (synthetic_adm_) {
-      result = synthetic_adm_->Terminate();
+      synthetic_adm_->StopPlayout();
     }
     if (platform_adm_) {
-      int32_t platform_result = platform_adm_->Terminate();
-      if (result == 0) result = platform_result;
+      platform_adm_->StopPlayout();
+      platform_adm_->StopRecording();
     }
-    return result;
+    return 0;
   });
 }
 
