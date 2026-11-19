@@ -410,79 +410,39 @@ impl PeerTransport {
         }
     }
 
-    fn is_audio_section(section: &[&str]) -> bool {
-        section.first().is_some_and(|line| line.starts_with("m=audio "))
-    }
-
-    /// Returns the payload type of an `a=rtpmap` line.
-    fn rtpmap_pt(line: &str) -> Option<&str> {
-        line.trim().strip_prefix("a=rtpmap:")?.split_whitespace().next()
-    }
-
-    /// Returns the Opus payload types of an m-section.
-    fn opus_pts<'a>(section: &[&'a str]) -> Vec<&'a str> {
-        section
-            .iter()
-            .filter_map(|line| {
-                let mut fields = line.trim().strip_prefix("a=rtpmap:")?.split_whitespace();
-                let pt = fields.next()?;
-                fields.next()?.split('/').next()?.eq_ignore_ascii_case("opus").then_some(pt)
-            })
-            .collect()
-    }
-
-    /// Whether `section` has plain `nack` feedback for payload type `pt`, directly or through
-    /// the `*` wildcard. `nack pli` is a different feedback type and does not count.
-    fn has_nack(section: &[&str], pt: &str) -> bool {
-        section.iter().any(|line| {
-            let Some(feedback) = line.trim().strip_prefix("a=rtcp-fb:") else { return false };
-            let mut fields = feedback.split_whitespace();
-            matches!(fields.next(), Some(p) if p == pt || p == "*")
-                && fields.next() == Some("nack")
-                && fields.next().is_none()
-        })
-    }
-
-    /// Splits SDP lines into the session section followed by one slice per m-section.
-    fn sdp_sections<'a, 'b>(lines: &'b [&'a str]) -> impl Iterator<Item = &'b [&'a str]> {
-        lines.chunk_by(|_, next| !next.starts_with("m="))
-    }
-
     /// Adds `a=rtcp-fb:<pt> nack` after the `a=rtpmap` line of every Opus payload type that
-    /// lacks plain NACK, in each audio m-section for which `wants_nack` holds.
+    /// lacks plain NACK, in each audio section for which `wants_nack` holds.
     ///
     /// libwebrtc advertises only `transport-cc` feedback for Opus, so without this no audio
     /// NACK is negotiated, and lost audio packets are never retransmitted when RED is off
     /// (for example with E2EE).
-    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(&[&str]) -> bool) -> String {
+    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> String {
         let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
-        let lines: Vec<&str> = sdp.split(eol).collect();
-
+        let lines: Vec<&str> = sdp.split_inclusive('\n').collect();
+        let mut munged = String::with_capacity(sdp.len() + 64);
         let mut changed = false;
-        let mut out: Vec<String> = Vec::with_capacity(lines.len() + 3);
-        for section in Self::sdp_sections(&lines) {
-            let mut missing = Vec::new();
-            if Self::is_audio_section(section) && wants_nack(section) {
-                missing = Self::opus_pts(section);
-                missing.retain(|pt| !Self::has_nack(section, pt));
-            }
-            for line in section {
-                out.push(line.to_string());
-                if let Some(pt) = Self::rtpmap_pt(line).filter(|pt| missing.contains(pt)) {
-                    out.push(format!("a=rtcp-fb:{pt} nack"));
-                    changed = true;
+
+        for section in SdpSection::split(&lines) {
+            let add_nack = section.is_audio() && wants_nack(section);
+            for line in section.lines {
+                munged.push_str(line);
+                let Some(pt) = opus_pt(line) else { continue };
+                if !add_nack || section.has_nack(pt) {
+                    continue;
                 }
+                if !line.ends_with('\n') {
+                    munged.push_str(eol);
+                }
+                munged.extend(["a=rtcp-fb:", pt, " nack", eol]);
+                changed = true;
             }
         }
 
-        if !changed {
-            return sdp.to_string();
+        if changed {
+            munged
+        } else {
+            sdp.to_owned()
         }
-        let mut munged = out.join(eol);
-        if !munged.ends_with(eol) {
-            munged.push_str(eol);
-        }
-        munged
     }
 
     /// Adds Opus NACK to every audio section of a single PC offer, whatever its direction.
@@ -496,24 +456,16 @@ impl PeerTransport {
     /// Adds Opus NACK to each audio section of a dual PC answer whose counterpart in `offer`
     /// (matched by mid) has it. libwebrtc drops it from the answer otherwise.
     fn munge_opus_nack_for_answer(answer: &str, offer: &str) -> String {
-        fn section_mid<'a>(section: &[&'a str]) -> Option<&'a str> {
-            section.iter().find_map(|line| line.trim().strip_prefix("a=mid:"))
-        }
-
-        let offer_lines: Vec<&str> = offer.lines().collect();
-        let nack_mids: Vec<&str> = Self::sdp_sections(&offer_lines)
+        let offer_lines: Vec<&str> = offer.split_inclusive('\n').collect();
+        let nack_mids: Vec<&str> = SdpSection::split(&offer_lines)
             .filter(|section| {
-                Self::is_audio_section(section)
-                    && Self::opus_pts(section).iter().any(|pt| Self::has_nack(section, pt))
+                section.is_audio() && section.opus_pts().any(|pt| section.has_nack(pt))
             })
-            .filter_map(section_mid)
+            .filter_map(SdpSection::mid)
             .collect();
-        if nack_mids.is_empty() {
-            return answer.to_string();
-        }
 
         Self::munge_opus_nack(answer, |section| {
-            section_mid(section).is_some_and(|mid| nack_mids.contains(&mid))
+            section.mid().is_some_and(|mid| nack_mids.contains(&mid))
         })
     }
 
@@ -745,10 +697,61 @@ impl PeerTransport {
     }
 }
 
+/// A section of an SDP, the session part or one m-section, as lines with their line endings.
+#[derive(Clone, Copy)]
+struct SdpSection<'a> {
+    lines: &'a [&'a str],
+}
+
+impl<'a> SdpSection<'a> {
+    /// Splits SDP lines into the session section followed by one section per `m=` line.
+    fn split(lines: &'a [&'a str]) -> impl Iterator<Item = Self> {
+        lines.chunk_by(|_, next| !next.starts_with("m=")).map(|lines| Self { lines })
+    }
+
+    /// The values of the `a=` lines, without the `a=` prefix and the line ending.
+    fn attributes(self) -> impl Iterator<Item = &'a str> {
+        self.lines.iter().filter_map(|line| line.trim_end().strip_prefix("a="))
+    }
+
+    fn is_audio(self) -> bool {
+        self.lines.first().is_some_and(|line| line.starts_with("m=audio "))
+    }
+
+    fn mid(self) -> Option<&'a str> {
+        self.attributes().find_map(|attribute| attribute.strip_prefix("mid:"))
+    }
+
+    fn opus_pts(self) -> impl Iterator<Item = &'a str> {
+        self.lines.iter().copied().filter_map(opus_pt)
+    }
+
+    /// Whether payload type `pt` has plain `nack` feedback, directly or through the `*`
+    /// wildcard. `nack pli` is a different feedback type and does not count.
+    fn has_nack(self, pt: &str) -> bool {
+        self.attributes().filter_map(|attribute| attribute.strip_prefix("rtcp-fb:")).any(
+            |feedback| {
+                let mut fields = feedback.split_whitespace();
+                matches!(fields.next(), Some(fb_pt) if fb_pt == pt || fb_pt == "*")
+                    && fields.next() == Some("nack")
+                    && fields.next().is_none()
+            },
+        )
+    }
+}
+
+/// Returns the payload type of an `a=rtpmap` line for Opus, matching the name in any case.
+fn opus_pt(line: &str) -> Option<&str> {
+    let mut fields = line.trim_end().strip_prefix("a=rtpmap:")?.split_whitespace();
+    let pt = fields.next()?;
+    fields.next()?.split('/').next()?.eq_ignore_ascii_case("opus").then_some(pt)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
+    use libwebrtc::prelude::{PeerConnection, PeerConnectionFactory, RtpTransceiverDirection};
     use parking_lot::Mutex;
 
     use super::PeerTransport;
@@ -1395,18 +1398,18 @@ a=rtpmap:0 PCMU/8000\r\n"
     // The tests below run the munges on SDP that libwebrtc writes and parses. They are adapted
     // from livekit/rust-sdks#1695.
 
-    const ALL_DIRECTIONS: [libwebrtc::prelude::RtpTransceiverDirection; 3] = [
-        libwebrtc::prelude::RtpTransceiverDirection::SendOnly,
-        libwebrtc::prelude::RtpTransceiverDirection::RecvOnly,
-        libwebrtc::prelude::RtpTransceiverDirection::SendRecv,
+    const ALL_DIRECTIONS: [RtpTransceiverDirection; 3] = [
+        RtpTransceiverDirection::SendOnly,
+        RtpTransceiverDirection::RecvOnly,
+        RtpTransceiverDirection::SendRecv,
     ];
 
     /// Creates a peer connection with one audio transceiver per direction.
     fn pc_with_audio(
-        factory: &libwebrtc::prelude::PeerConnectionFactory,
-        directions: &[libwebrtc::prelude::RtpTransceiverDirection],
-    ) -> libwebrtc::prelude::PeerConnection {
-        use libwebrtc::prelude::*;
+        factory: &PeerConnectionFactory,
+        directions: &[RtpTransceiverDirection],
+    ) -> PeerConnection {
+        use libwebrtc::prelude::{MediaType, RtcConfiguration, RtpTransceiverInit};
 
         let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
         for &direction in directions {
