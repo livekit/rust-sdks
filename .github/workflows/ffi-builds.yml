@@ -115,7 +115,9 @@ jobs:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         if: steps.get-tag.outputs.tag_name != '' && inputs.dry_run != true
         with:
-          ref: ${{ inputs.ref || inputs.tag_name }}
+          # The tag first: a later release run can finish an older draft,
+          # and its own commit is not the commit of that release.
+          ref: ${{ inputs.tag_name || inputs.ref }}
           fetch-depth: 0
       - name: Check whether the release is complete
         id: state
@@ -220,8 +222,10 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
-          # The tag for a run by hand, whatever ref the operator selected.
-          ref: ${{ inputs.ref || inputs.tag_name }}
+          # The tag of the release, whatever commit the run is on. A later
+          # release run can finish an older draft. `ref` is for a build
+          # without a tag.
+          ref: ${{ inputs.tag_name || inputs.ref }}
           submodules: true
 
       - name: Setup Rust toolchain
@@ -444,7 +448,7 @@ jobs:
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
-          ref: ${{ inputs.ref || inputs.tag_name }}
+          ref: ${{ inputs.tag_name || inputs.ref }}
           fetch-depth: 0 # verwalter reads the tags
 
       # Before the upload, so a mismatch fails before `--clobber` replaces
@@ -493,6 +497,8 @@ jobs:
   uniffi-packages:
     name: UniFFI packages
     needs: [get-tag, release, uniffi-dart]
+    # Named, because `uniffi-dart` has a condition with `!cancelled()`.
+    if: ${{ !cancelled() && needs.uniffi-dart.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/uniffi-packages.yml
@@ -506,9 +512,17 @@ jobs:
   # So this job dispatches uniffi-dart-publish.yml at the tag.
   # `workflow_dispatch` always creates a run, GITHUB_TOKEN included. The job
   # then waits for that run, so its failure makes this run red.
+  # This job and `uniffi-packages` also run for a release that is already
+  # complete, where the build and the upload are skipped. A complete release
+  # says nothing about pub.dev, Maven Central and the Swift package: each of
+  # their workflows asks its registry and skips a version that is there. A
+  # run for a release where one registry failed therefore repairs it.
   uniffi-dart:
     name: UniFFI Dart package
     needs: [get-tag, release]
+    if: >-
+      ${{ !cancelled() && needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
+      && (needs.release.result == 'success' || needs.get-tag.outputs.complete == 'true') }}
     runs-on: ubuntu-latest
     # A Dart run takes 10 to 30 minutes.
     timeout-minutes: 120

@@ -28,8 +28,34 @@ env:
   ANDROID_DIR: livekit-ffi/support/android
 
 jobs:
+  # Safe to run again: a version that Maven Central has is not built and
+  # not published a second time. Maven Central shows a new version some
+  # minutes after the publish, so a second run in that time publishes again
+  # and fails. The coordinates are GROUP and POM_ARTIFACT_ID in
+  # livekit-ffi/support/android/gradle.properties.
+  registry:
+    name: Ask Maven Central for the version
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.ask.outputs.exists }}
+    steps:
+      - id: ask
+        env:
+          URL: https://repo1.maven.org/maven2/io/livekit/livekit-ffi-android/${{ inputs.version }}/
+          WHAT: io.livekit:livekit-ffi-android ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 "$URL")
+          case "$code" in
+            200) echo "${WHAT} is there: nothing to publish."; echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "${WHAT} is not there yet."; echo "exists=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::${URL} answered HTTP ${code}"; exit 1 ;;
+          esac
+
   build-and-publish:
     name: Build & publish Android AAR
+    needs: registry
+    if: ${{ needs.registry.outputs.exists != 'true' || inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

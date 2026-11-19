@@ -35,8 +35,43 @@ env:
   OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitFFI
 
 jobs:
+  # Safe to run again: the publish below opens a pull request in the hosting
+  # repository, and the version exists once a person merges it. A version
+  # that has its tag there, or an open pull request, is not built and not
+  # published a second time.
+  registry:
+    name: Ask the hosting repository for the version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      exists: ${{ steps.ask.outputs.exists }}
+    steps:
+      - id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${HOSTING_REPO}/git/ref/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "${HOSTING_REPO} has the tag ${VERSION}: nothing to publish."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open=$(gh pr list --repo "$HOSTING_REPO" --state open --json title,url \
+            --jq "[.[] | select(.title == \"v${VERSION}\")][0].url // empty")
+          if [ -n "$open" ]; then
+            echo "${open} is open for ${VERSION}: nothing to publish."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "${HOSTING_REPO} does not have ${VERSION} yet."
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+
   build-and-publish:
     name: Build & publish Swift xcframework
+    needs: registry
+    if: ${{ needs.registry.outputs.exists != 'true' || inputs.dry_run }}
     runs-on: macos-26-xlarge
     permissions:
       contents: read
