@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "capture")]
 use super::capture;
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    audio_source, audio_stream, colorcvt, data_stream as data_stream_ffi, data_track,
     participant::FfiParticipant,
     platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1178,8 +1178,9 @@ fn on_byte_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadIncrementalResponse> {
-    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
-    data_stream::read_byte_incremental(server, request.reader_handle, reader);
+    let reader =
+        server.take_handle::<Arc<data_stream_ffi::ByteStreamReader>>(request.reader_handle)?;
+    data_stream_ffi::read_byte_incremental(server, request.reader_handle, reader);
     Ok(proto::ByteStreamReaderReadIncrementalResponse {})
 }
 
@@ -1187,7 +1188,8 @@ fn on_byte_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderReadAllRequest,
 ) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
-    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
+    let reader =
+        server.take_handle::<Arc<data_stream_ffi::ByteStreamReader>>(request.reader_handle)?;
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let result = match reader.take_inner().await {
@@ -1206,7 +1208,8 @@ fn on_byte_stream_reader_write_to_file(
     server: &'static FfiServer,
     request: proto::ByteStreamReaderWriteToFileRequest,
 ) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
-    let reader = server.take_handle::<Arc<data_stream::ByteStreamReader>>(request.reader_handle)?;
+    let reader =
+        server.take_handle::<Arc<data_stream_ffi::ByteStreamReader>>(request.reader_handle)?;
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let result = match reader.take_inner().await {
@@ -1227,8 +1230,9 @@ fn on_text_stream_reader_read_incremental(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadIncrementalRequest,
 ) -> FfiResult<proto::TextStreamReaderReadIncrementalResponse> {
-    let reader = server.take_handle::<Arc<data_stream::TextStreamReader>>(request.reader_handle)?;
-    data_stream::read_text_incremental(server, request.reader_handle, reader);
+    let reader =
+        server.take_handle::<Arc<data_stream_ffi::TextStreamReader>>(request.reader_handle)?;
+    data_stream_ffi::read_text_incremental(server, request.reader_handle, reader);
     Ok(proto::TextStreamReaderReadIncrementalResponse {})
 }
 
@@ -1236,7 +1240,8 @@ fn on_text_stream_reader_read_all(
     server: &'static FfiServer,
     request: proto::TextStreamReaderReadAllRequest,
 ) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
-    let reader = server.take_handle::<Arc<data_stream::TextStreamReader>>(request.reader_handle)?;
+    let reader =
+        server.take_handle::<Arc<data_stream_ffi::TextStreamReader>>(request.reader_handle)?;
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let result = match reader.take_inner().await {
@@ -1292,7 +1297,7 @@ fn on_byte_stream_write(
     request: proto::ByteStreamWriterWriteRequest,
 ) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
     let writer = server
-        .retrieve_handle::<Arc<data_stream::ByteStreamWriter>>(request.writer_handle)?
+        .retrieve_handle::<Arc<data_stream_ffi::ByteStreamWriter>>(request.writer_handle)?
         .clone();
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
@@ -1311,7 +1316,8 @@ fn on_byte_stream_close(
     server: &'static FfiServer,
     request: proto::ByteStreamWriterCloseRequest,
 ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
-    let writer = server.take_handle::<Arc<data_stream::ByteStreamWriter>>(request.writer_handle)?;
+    let writer =
+        server.take_handle::<Arc<data_stream_ffi::ByteStreamWriter>>(request.writer_handle)?;
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());
@@ -1341,7 +1347,7 @@ fn on_text_stream_write(
     request: proto::TextStreamWriterWriteRequest,
 ) -> FfiResult<proto::TextStreamWriterWriteResponse> {
     let writer = server
-        .retrieve_handle::<Arc<data_stream::TextStreamWriter>>(request.writer_handle)?
+        .retrieve_handle::<Arc<data_stream_ffi::TextStreamWriter>>(request.writer_handle)?
         .clone();
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
@@ -1360,7 +1366,8 @@ fn on_text_stream_close(
     server: &'static FfiServer,
     request: proto::TextStreamWriterCloseRequest,
 ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
-    let writer = server.take_handle::<Arc<data_stream::TextStreamWriter>>(request.writer_handle)?;
+    let writer =
+        server.take_handle::<Arc<data_stream_ffi::TextStreamWriter>>(request.writer_handle)?;
     let async_id = server.resolve_async_id(request.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());

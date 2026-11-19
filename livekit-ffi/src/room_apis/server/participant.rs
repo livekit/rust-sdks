@@ -20,7 +20,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     proto,
-    server::{data_stream, data_track, room::RoomInner, FfiHandle, FfiServer},
+    server::{data_stream as data_stream_ffi, data_track, room::RoomInner, FfiHandle, FfiServer},
     FfiError, FfiHandleId, FfiResult,
 };
 
@@ -203,7 +203,7 @@ impl FfiParticipant {
             let result = match local.stream_bytes(request.options.into()).await {
                 Ok(writer) => {
                     let info = writer.info().clone();
-                    let writer = Arc::new(data_stream::ByteStreamWriter::new(writer));
+                    let writer = Arc::new(data_stream_ffi::ByteStreamWriter::new(writer));
                     let ffi_writer = proto::OwnedByteStreamWriter {
                         handle: proto::FfiOwnedHandle { id: writer.ffi_handle_id() },
                         info: info.into(),
@@ -231,7 +231,7 @@ impl FfiParticipant {
             let result = match local.stream_text(request.options.into()).await {
                 Ok(writer) => {
                     let info = writer.info().clone();
-                    let writer = Arc::new(data_stream::TextStreamWriter::new(writer));
+                    let writer = Arc::new(data_stream_ffi::TextStreamWriter::new(writer));
                     let ffi_writer = proto::OwnedTextStreamWriter {
                         handle: proto::FfiOwnedHandle { id: writer.ffi_handle_id() },
                         info: info.into(),
