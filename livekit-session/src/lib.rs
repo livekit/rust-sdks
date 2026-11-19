@@ -27,6 +27,11 @@ mod error;
 mod messages;
 mod session;
 
+// Lets the helpers in `tests/common`, which `e2e_tests` shares with the
+// integration tests, name this crate the way an integration test does.
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+extern crate self as livekit_session;
+
 #[cfg(all(test, feature = "__lk-e2e-test"))]
 mod e2e_tests;
 
