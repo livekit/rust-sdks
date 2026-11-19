@@ -47,6 +47,57 @@ pub struct Message {
     pub is_final: bool,
 }
 
+impl Message {
+    /// Creates a final message timestamped now, e.g. to rebuild a saved
+    /// conversation for [`Session::restore_messages`](crate::Session::restore_messages).
+    ///
+    /// [`seq`](Self::seq) is zero until the message enters a feed, which
+    /// assigns it.
+    ///
+    /// ```
+    /// # use chrono::{TimeZone, Utc};
+    /// # use livekit::prelude::ParticipantIdentity;
+    /// use livekit_session::{Message, MessageOrigin};
+    ///
+    /// # let identity = ParticipantIdentity::from("user".to_owned());
+    /// # let saved_at = Utc.timestamp_opt(1_800_000_000, 0).unwrap();
+    /// let message = Message::new("msg-1", MessageOrigin::UserInput, identity, "hello")
+    ///     .with_timestamp(saved_at);
+    ///
+    /// assert_eq!(message.text, "hello");
+    /// assert!(message.is_final);
+    /// ```
+    pub fn new(
+        id: impl Into<String>,
+        origin: MessageOrigin,
+        participant_identity: ParticipantIdentity,
+        text: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            seq: 0,
+            timestamp: Utc::now(),
+            origin,
+            participant_identity,
+            text: text.into(),
+            is_final: true,
+        }
+    }
+
+    /// Sets [`timestamp`](Self::timestamp), which defaults to the time of
+    /// creation.
+    pub fn with_timestamp(mut self, timestamp: DateTime<Utc>) -> Self {
+        self.timestamp = timestamp;
+        self
+    }
+
+    /// Sets [`is_final`](Self::is_final), which defaults to `true`.
+    pub fn with_is_final(mut self, is_final: bool) -> Self {
+        self.is_final = is_final;
+        self
+    }
+}
+
 /// Where a [`Message`] came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
