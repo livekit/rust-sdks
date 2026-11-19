@@ -16,7 +16,7 @@
 //! packet delivery error, and the wire-packet decode helper.
 
 use livekit_common as common;
-use livekit_data_stream::backend as ds;
+use livekit_data_stream::backend as data_stream;
 use livekit_protocol as proto;
 use prost::Message;
 
@@ -93,20 +93,20 @@ impl From<PacketDeliveryError> for DataStreamError {
 pub(crate) fn decode_data_packet(
     bytes: &[u8],
     encryption_type: common::EncryptionType,
-) -> Option<ds::incoming::PacketReceived> {
+) -> Option<data_stream::incoming::PacketReceived> {
     let mut packet = proto::DataPacket::decode(bytes).ok()?;
     let identity: common::ParticipantIdentity = packet.participant_identity.clone().into();
     let ds_packet = match packet.value.take()? {
         proto::data_packet::Value::StreamHeader(header) => {
-            ds::Packet::Header { header: header.into(), encryption_type }
+            data_stream::Packet::Header { header: header.into(), encryption_type }
         }
         proto::data_packet::Value::StreamChunk(chunk) => {
-            ds::Packet::Chunk { chunk: chunk.into(), encryption_type }
+            data_stream::Packet::Chunk { chunk: chunk.into(), encryption_type }
         }
         proto::data_packet::Value::StreamTrailer(trailer) => {
-            ds::Packet::Trailer { trailer: trailer.into(), encryption_type }
+            data_stream::Packet::Trailer { trailer: trailer.into(), encryption_type }
         }
         _ => return None,
     };
-    Some(ds::incoming::PacketReceived::new(ds_packet, identity))
+    Some(data_stream::incoming::PacketReceived::new(ds_packet, identity))
 }

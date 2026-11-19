@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use livekit_data_stream::{api as data_stream_api, backend as ds};
+use livekit_data_stream::{api as data_stream_api, backend as data_stream};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -33,7 +33,7 @@ use crate::data_stream::{
 /// decompression and reassembly happen on the spawned `run` task in packet order.
 #[derive(uniffi::Object)]
 pub struct IncomingDataStreamManager {
-    input: ds::incoming::ManagerInput,
+    input: data_stream::incoming::ManagerInput,
     _guard: DropGuard,
 }
 
@@ -77,7 +77,7 @@ impl IncomingDataStreamManager {
     ) -> Arc<Self> {
         let token = CancellationToken::new();
         let (manager, input, output) =
-            ds::incoming::Manager::new(max_payload_byte_length.map(|n| n as usize));
+            data_stream::incoming::Manager::new(max_payload_byte_length.map(|n| n as usize));
 
         let rt = crate::runtime::runtime();
         rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
@@ -110,13 +110,14 @@ impl IncomingDataStreamManager {
     /// disconnect). Handler wiring on the foreign side survives, so streams that arrive later
     /// (e.g. after a reconnect) are still processed.
     pub fn abort_all_streams(&self) {
-        let _ = self.input.send(ds::incoming::InputEvent::AbortAllStreams);
+        let _ = self.input.send(data_stream::incoming::InputEvent::AbortAllStreams);
     }
 
     /// Aborts open incoming streams sent by `identity` (e.g. when that participant disconnects
     /// mid-send), so their readers error instead of hanging.
     pub fn abort_streams_from(&self, identity: String) {
-        let _ = self.input.send(ds::incoming::InputEvent::AbortStreamsFrom(identity.into()));
+        let _ =
+            self.input.send(data_stream::incoming::InputEvent::AbortStreamsFrom(identity.into()));
     }
 
     /// Number of currently open incoming streams: streams announced by a header that are still
@@ -128,7 +129,11 @@ impl IncomingDataStreamManager {
     /// a header to register (or an abort to land) without racing the run loop.
     pub async fn open_stream_count(&self) -> u64 {
         let (respond_to, response) = tokio::sync::oneshot::channel();
-        if self.input.send(ds::incoming::InputEvent::QueryOpenStreamCount(respond_to)).is_err() {
+        if self
+            .input
+            .send(data_stream::incoming::InputEvent::QueryOpenStreamCount(respond_to))
+            .is_err()
+        {
             return 0;
         }
         response.await.unwrap_or(0) as u64
@@ -137,7 +142,7 @@ impl IncomingDataStreamManager {
 
 /// Forwards manager output events to the foreign [`IncomingDataStreamManagerDelegate`].
 struct DelegateForwardTask {
-    output: UnboundedReceiver<ds::incoming::OutputEvent>,
+    output: UnboundedReceiver<data_stream::incoming::OutputEvent>,
     delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
     token: CancellationToken,
 }
@@ -155,12 +160,11 @@ impl DelegateForwardTask {
         }
     }
 
-    fn forward_event(&self, event: ds::incoming::OutputEvent) {
+    fn forward_event(&self, event: data_stream::incoming::OutputEvent) {
         match event {
-            ds::incoming::OutputEvent::StreamOpened(ds::incoming::StreamOpened {
-                stream_reader,
-                participant_identity,
-            }) => {
+            data_stream::incoming::OutputEvent::StreamOpened(
+                data_stream::incoming::StreamOpened { stream_reader, participant_identity },
+            ) => {
                 let identity = participant_identity.to_string();
                 match stream_reader {
                     data_stream_api::AnyStreamReader::Byte(reader) => {
@@ -173,23 +177,24 @@ impl DelegateForwardTask {
                     }
                 }
             }
-            ds::incoming::OutputEvent::StreamClosed(ds::incoming::StreamClosed {
-                stream_id,
-                participant_identity,
-                topic: _,
-            }) => {
+            data_stream::incoming::OutputEvent::StreamClosed(
+                data_stream::incoming::StreamClosed { stream_id, participant_identity, topic: _ },
+            ) => {
                 self.delegate
                     .on_stream_closed(stream_id.to_string(), participant_identity.to_string());
             }
             // Deprecated v1 raw chunk/trailer notifications are not surfaced over the FFI boundary.
-            ds::incoming::OutputEvent::ChunkReceived(_)
-            | ds::incoming::OutputEvent::TrailerReceived(_) => {}
+            data_stream::incoming::OutputEvent::ChunkReceived(_)
+            | data_stream::incoming::OutputEvent::TrailerReceived(_) => {}
             _ => log::debug!("ignoring an unknown incoming data stream event"),
         }
     }
 }
 
-async fn shutdown_forward_task(input: ds::incoming::ManagerInput, token: CancellationToken) {
+async fn shutdown_forward_task(
+    input: data_stream::incoming::ManagerInput,
+    token: CancellationToken,
+) {
     token.cancelled().await;
-    let _ = input.send(ds::incoming::InputEvent::Shutdown);
+    let _ = input.send(data_stream::incoming::InputEvent::Shutdown);
 }

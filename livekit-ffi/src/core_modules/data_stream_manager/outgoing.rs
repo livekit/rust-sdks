@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use livekit_common as lk_common;
-use livekit_data_stream::{api as data_stream_api, backend as ds};
+use livekit_data_stream::{api as data_stream_api, backend as data_stream};
 use prost::Message as _;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -32,7 +32,7 @@ use crate::data_stream::{
 /// on recipient capabilities. Outbound packets are handed to a foreign delegate for transport.
 #[derive(uniffi::Object)]
 pub struct OutgoingDataStreamManager {
-    manager: ds::outgoing::Manager,
+    manager: data_stream::outgoing::Manager,
     registry: Arc<dyn lk_common::RemoteParticipantRegistry>,
     _guard: DropGuard,
 }
@@ -98,7 +98,7 @@ impl OutgoingDataStreamManager {
         registry: Arc<dyn RemoteParticipantRegistryDelegate>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
-        let (manager, mut packet_rx) = ds::outgoing::Manager::new();
+        let (manager, mut packet_rx) = data_stream::outgoing::Manager::new();
 
         // Forward each outbound packet batch to the transport delegate, acknowledging the send
         // with the delegate's own result so wire failures propagate back to the originating
