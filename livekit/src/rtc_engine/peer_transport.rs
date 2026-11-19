@@ -419,7 +419,7 @@ impl PeerTransport {
     fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> String {
         let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
         let lines: Vec<&str> = sdp.split_inclusive('\n').collect();
-        let mut munged = String::with_capacity(sdp.len() + 64);
+        let mut munged = String::with_capacity(sdp.len());
         let mut changed = false;
 
         for section in SdpSection::split(&lines) {
