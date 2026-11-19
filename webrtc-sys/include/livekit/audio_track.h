@@ -144,6 +144,7 @@ class AudioTrackSource {
     void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
 
     std::vector<int16_t> silence_buffer_;
+    std::vector<int16_t> padded_buffer_;
 
     int sample_rate_ = 0;
     int num_channels_ = 0;
