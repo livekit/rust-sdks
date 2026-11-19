@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use libwebrtc::{
     native::{
@@ -27,7 +30,10 @@ use libwebrtc::{
 use livekit_protocol::PacketTrailerFeature;
 use parking_lot::Mutex;
 
-use super::{key_provider::KeyProvider, EncryptionType};
+use super::{
+    key_provider::{KeyProvider, KeySetListener},
+    EncryptionType,
+};
 use crate::{
     e2ee::E2eeOptions,
     id::{ParticipantIdentity, TrackSid},
@@ -56,7 +62,33 @@ struct ManagerInner {
     enabled: bool,                // Used to enable/disable e2ee
     dc_encryption_enabled: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
+    /// The tracks among `frame_cryptors` that we publish, whose cryptors encrypt.
+    local_tracks: HashSet<TrackSid>,
     data_packet_cryptor: Option<DataPacketCryptor>,
+    /// Moves the cryptors of our tracks to each new key. Kept here because the key provider
+    /// only holds it weakly.
+    key_set_listener: Option<Arc<KeySetListener>>,
+}
+
+impl ManagerInner {
+    /// Has the tracks we publish as `identity`, or all of ours after a shared key, encrypt
+    /// with the key that is current for them.
+    ///
+    /// Asks the key provider instead of being told an index, so that it does not matter in
+    /// which order the notifications of keys set close together arrive. Tracks of other
+    /// identities are left alone, and with them an index the application chose itself with
+    /// [`FrameCryptor::set_key_index`].
+    fn use_current_key_index(&self, identity: Option<&ParticipantIdentity>) {
+        let Some(options) = self.options.as_ref() else {
+            return;
+        };
+        for ((cryptor_identity, track_sid), cryptor) in &self.frame_cryptors {
+            let is_ours = self.local_tracks.contains(track_sid);
+            if is_ours && identity.is_none_or(|identity| identity == cryptor_identity) {
+                cryptor.set_key_index(options.key_provider.latest_key_index_for(cryptor_identity));
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -75,16 +107,30 @@ impl E2eeManager {
             DataPacketCryptor::new(EncryptionAlgorithm::AesGcm, opts.key_provider.handle.clone())
         });
 
-        Self {
-            inner: Arc::new(Mutex::new(ManagerInner {
-                enabled: options.is_some(), // Enabled by default if options is provided
-                dc_encryption_enabled: options.is_some() && with_dc_encryption,
-                options,
-                frame_cryptors: HashMap::new(),
-                data_packet_cryptor,
-            })),
-            state_changed: Default::default(),
+        let key_provider = options.as_ref().map(|opts| opts.key_provider.clone());
+        let inner = Arc::new(Mutex::new(ManagerInner {
+            enabled: options.is_some(), // Enabled by default if options is provided
+            dc_encryption_enabled: options.is_some() && with_dc_encryption,
+            options,
+            frame_cryptors: HashMap::new(),
+            local_tracks: HashSet::new(),
+            data_packet_cryptor,
+            key_set_listener: None,
+        }));
+
+        if let Some(key_provider) = key_provider {
+            // A new key for the local participant is the one to encrypt with from then on.
+            let weak_inner = Arc::downgrade(&inner);
+            let listener: Arc<KeySetListener> = Arc::new(move |identity| {
+                if let Some(inner) = weak_inner.upgrade() {
+                    inner.lock().use_current_key_index(identity);
+                }
+            });
+            key_provider.subscribe_key_set(&listener);
+            inner.lock().key_set_listener = Some(listener);
         }
+
+        Self { inner, state_changed: Default::default() }
     }
 
     pub(crate) fn cleanup(&self) {
@@ -93,6 +139,12 @@ impl E2eeManager {
             cryptor.set_enabled(false);
         }
         inner.frame_cryptors.clear();
+        inner.local_tracks.clear();
+        // The room is closed: stop listening, so that a key provider that outlives it does
+        // not keep an entry for every room it was used in.
+        if let (Some(listener), Some(options)) = (inner.key_set_listener.take(), &inner.options) {
+            options.key_provider.unsubscribe_key_set(&listener);
+        }
     }
 
     /// Register to e2ee state changes
@@ -198,6 +250,12 @@ impl E2eeManager {
         self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
+        // Start on the key that is current, which need not be the first. Under the lock, so
+        // that a key set meanwhile is either seen here or moves the cryptor along after.
+        if let Some(options) = inner.options.as_ref() {
+            frame_cryptor.set_key_index(options.key_provider.latest_key_index_for(&identity));
+        }
+        inner.local_tracks.insert(publication.sid());
         inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
@@ -305,6 +363,7 @@ impl E2eeManager {
         log::debug!("removing frame cryptor for {}", participant_identity);
 
         let mut inner = self.inner.lock();
+        inner.local_tracks.remove(&track_sid);
         inner.frame_cryptors.remove(&(participant_identity, track_sid));
     }
 
