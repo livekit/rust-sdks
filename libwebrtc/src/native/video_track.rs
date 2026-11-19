@@ -21,7 +21,7 @@ use webrtc_sys::video_track as sys_vt;
 
 use super::media_stream_track::impl_media_stream_track;
 use super::packet_trailer::PacketTrailerHandler;
-use crate::media_stream_track::RtcTrackState;
+use crate::{media_stream_track::RtcTrackState, video_track::ContentHint};
 
 #[derive(Clone)]
 pub struct RtcVideoTrack {
@@ -52,5 +52,50 @@ impl RtcVideoTrack {
     /// Get the packet trailer handler, if one has been set.
     pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
         self.packet_trailer_handler.lock().clone()
+    }
+
+    pub fn content_hint(&self) -> ContentHint {
+        self.sys_handle.content_hint().into()
+    }
+
+    pub fn set_content_hint(&self, hint: ContentHint) {
+        self.sys_handle.set_content_hint(hint.into());
+    }
+}
+
+impl From<sys_vt::ffi::ContentHint> for ContentHint {
+    fn from(hint: sys_vt::ffi::ContentHint) -> Self {
+        match hint {
+            sys_vt::ffi::ContentHint::Fluid => Self::Fluid,
+            sys_vt::ffi::ContentHint::Detailed => Self::Detailed,
+            sys_vt::ffi::ContentHint::Text => Self::Text,
+            // `None` and any value the C++ enum gains later.
+            _ => Self::None,
+        }
+    }
+}
+
+impl From<ContentHint> for sys_vt::ffi::ContentHint {
+    fn from(hint: ContentHint) -> Self {
+        match hint {
+            ContentHint::None => Self::None,
+            ContentHint::Fluid => Self::Fluid,
+            ContentHint::Detailed => Self::Detailed,
+            ContentHint::Text => Self::Text,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_hint_round_trips_through_the_sys_enum() {
+        for hint in
+            [ContentHint::None, ContentHint::Fluid, ContentHint::Detailed, ContentHint::Text]
+        {
+            assert_eq!(ContentHint::from(sys_vt::ffi::ContentHint::from(hint)), hint);
+        }
     }
 }
