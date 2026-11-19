@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use chrono::{DateTime, Utc};
 use livekit::prelude::ParticipantIdentity;
@@ -309,20 +309,28 @@ impl MessageStore {
         &self.messages
     }
 
-    /// Replaces the feed with `messages`, numbered from zero in the order
-    /// given. Of messages sharing an id and participant, the last wins.
-    pub(crate) fn restore(&mut self, messages: &[Message]) {
-        *self = Self::default();
-        for message in messages {
-            self.upsert(MessageUpdate {
-                id: message.id.clone(),
-                timestamp: message.timestamp,
-                origin: message.origin,
-                participant_identity: message.participant_identity.clone(),
-                text: message.text.clone(),
-                is_final: message.is_final,
-            });
+    /// A feed of `messages`, numbered from zero in the order given. Of
+    /// messages sharing an id and participant, the last wins and takes the
+    /// place of the first.
+    pub(crate) fn restored(messages: impl IntoIterator<Item = Message>) -> Self {
+        let mut store = Self::default();
+        for mut message in messages {
+            let key = (message.id.clone(), message.participant_identity.clone());
+            match store.index.entry(key) {
+                Entry::Occupied(entry) => {
+                    let existing = &mut store.messages[*entry.get()];
+                    message.seq = existing.seq;
+                    *existing = message;
+                }
+                Entry::Vacant(entry) => {
+                    message.seq = store.next_seq;
+                    store.next_seq += 1;
+                    entry.insert(store.messages.len());
+                    store.messages.push(message);
+                }
+            }
         }
+        store
     }
 }
 
@@ -506,7 +514,6 @@ mod tests {
     #[test]
     fn restore_keeps_the_given_order_and_renumbers() {
         let mut store = MessageStore::default();
-        store.upsert(update("stale", 0, "dropped by restore"));
 
         // Received first, but stamped later by a skewed sender clock.
         let mut first = store.upsert(update("first", 20, "first"));
@@ -516,9 +523,25 @@ mod tests {
         second.timestamp = at(10);
         second.seq = 3;
 
-        store.restore(&[first, second]);
+        let mut store = MessageStore::restored([first, second]);
         let feed: Vec<_> = store.messages().iter().map(|m| (m.id.as_str(), m.seq)).collect();
         assert_eq!(feed, [("first", 0), ("second", 1)]);
+        assert_eq!(store.upsert(update("next", 0, "next")).seq, 2);
+    }
+
+    #[test]
+    fn restore_keeps_the_last_of_duplicates_in_the_first_position() {
+        let mut store = MessageStore::default();
+        let first = store.upsert(update("first", 0, "partial"));
+        let second = store.upsert(update("second", 1, "second"));
+        let mut grown = first.clone();
+        grown.text = "complete".into();
+
+        let mut store = MessageStore::restored([first, second, grown]);
+        let feed: Vec<_> =
+            store.messages().iter().map(|m| (m.id.as_str(), m.seq, m.text.as_str())).collect();
+        assert_eq!(feed, [("first", 0, "complete"), ("second", 1, "second")]);
+        assert_eq!(store.upsert(update("first", 0, "again")).seq, 0);
         assert_eq!(store.upsert(update("next", 0, "next")).seq, 2);
     }
 }

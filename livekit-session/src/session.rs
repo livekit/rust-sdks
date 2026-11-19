@@ -463,8 +463,12 @@ impl Session {
 
     /// Replaces the feed with `messages`, e.g. a conversation saved from an
     /// earlier run. They keep the order given and are renumbered from zero;
-    /// later messages follow them.
-    pub fn restore_messages(&self, messages: &[Message]) {
+    /// later messages follow them. Of messages sharing an id and participant,
+    /// the last wins and takes the place of the first.
+    ///
+    /// Takes the messages by value; pass `saved.iter().cloned()` to keep
+    /// them.
+    pub fn restore_messages(&self, messages: impl IntoIterator<Item = Message>) {
         self.inner.shared.restore(messages);
     }
 
