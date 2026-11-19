@@ -1,3 +1,9 @@
+## 0.3.1 (2026-11-19)
+
+### Fixes
+
+- Negotiate NACK for Opus. If RED is off, for example with E2EE, lost audio packets are now retransmitted.
+
 ## 0.3.0 (2026-11-18)
 
 ### Breaking Changes
