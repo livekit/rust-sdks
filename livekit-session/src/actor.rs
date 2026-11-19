@@ -110,9 +110,12 @@ impl Shared {
         message
     }
 
-    pub(crate) fn restore(&self, restored: &[Message]) {
+    pub(crate) fn restore(&self, restored: impl IntoIterator<Item = Message>) {
+        // Built before locking, so that the caller's iterator never runs
+        // under the lock.
+        let restored = MessageStore::restored(restored);
         let mut messages = lock(&self.messages);
-        messages.restore(restored);
+        *messages = restored;
         self.events.dispatch(&SessionEvent::MessagesRestored);
     }
 
