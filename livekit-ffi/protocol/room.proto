@@ -386,6 +386,10 @@ message RoomDataStreamOptions {
   // own client-side code on top of the FFI; data streams v2 support is now
   // always advertised. Kept only so the field number is not reused.
   optional bool use_legacy_client_implementation = 2 [deprecated = true];
+  // Maximum number of incoming data streams a single remote participant may
+  // have open at once. Headers for new streams beyond this limit are dropped.
+  // Unset falls back to the SDK default.
+  optional uint32 max_open_streams_per_participant = 3;
 }
 
 message RoomOptions {

@@ -40,6 +40,24 @@ use super::{
 /// Max data stream payload size, defaults to 5gb
 const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
 
+/// Max number of incoming streams a single participant may have open at once, defaults to 500.
+/// Headers for new streams beyond this are dropped, so a participant can't exhaust the receiver's
+/// memory by opening streams it never closes.
+const DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT: usize = 500;
+
+/// Only every this-many headers dropped for being over the open-stream limit are logged, so a
+/// sender flooding headers at the cap can't flood the logs too.
+const OVER_LIMIT_LOG_INTERVAL: u64 = 100;
+
+/// Options for creating a [`Manager`]. Unset fields fall back to the defaults.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ManagerOptions {
+    /// Max number of bytes a single incoming stream may contain, defaults to 5gb.
+    pub max_payload_byte_length: Option<usize>,
+    /// Max number of incoming streams a single participant may have open at once, defaults to 500.
+    pub max_open_streams_per_participant: Option<usize>,
+}
+
 struct Descriptor {
     /// The token its [`StreamCloser`] cancels. Dropping the descriptor cancels it too, which ends
     /// the stream's future in the manager's `closes`.
@@ -49,9 +67,6 @@ struct Descriptor {
     /// Publishes `progress` updates to the reader's `progress()` stream.
     progress_tx: watch::Sender<StreamProgress>,
     encryption_type: EncryptionType,
-    /// Identity of the participant sending this stream; used to abort the stream
-    /// if that participant disconnects mid-send.
-    sender_identity: ParticipantIdentity,
     /// Topic this stream was opened on, reported on chunk/trailer events so the host can recognize
     /// streams it handles internally (chunk and trailer packets carry only a stream id).
     topic: String,
@@ -194,35 +209,48 @@ impl ManagerInput {
 pub struct Manager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
-    /// Yields a stream's id once its close token is cancelled. Each future ends when its
-    /// descriptor is dropped and is removed on the next loop pass, so the set cannot accumulate,
-    /// and shutdown drops it. The futures are `Sync`, so the manager stays `Sync`.
-    closes: FuturesUnordered<Pin<Box<dyn Future<Output = StreamId> + Send + Sync>>>,
+    /// Yields a stream's sender and id once its close token is cancelled. Each future ends when
+    /// its descriptor is dropped and is removed on the next loop pass, so the set cannot
+    /// accumulate, and shutdown drops it. The futures are `Sync`, so the manager stays `Sync`.
+    closes: FuturesUnordered<
+        Pin<Box<dyn Future<Output = (ParticipantIdentity, StreamId)> + Send + Sync>>,
+    >,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
+
+    /// Max number of streams a single participant may have open at once
+    max_open_streams_per_participant: usize,
 }
 
 struct ManagerInner {
-    open_streams: HashMap<StreamId, Descriptor>,
+    open_streams: HashMap<ParticipantIdentity, HashMap<StreamId, Descriptor>>,
+    /// Headers dropped so far for being over the per-participant open-stream limit.
+    dropped_over_limit_count: u64,
     output_tx: UnboundedSender<OutputEvent>,
 }
 
 impl Manager {
-    pub fn new(
-        max_payload_byte_length: Option<usize>,
-    ) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
         // Unbounded: inbound wire packets must never be dropped (a dropped chunk is an
         // unrecoverable `MissedChunk`) and must not head-of-line-block the engine event loop.
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
+            inner: ManagerInner {
+                open_streams: HashMap::new(),
+                dropped_over_limit_count: 0,
+                output_tx,
+            },
             input_rx,
             closes: FuturesUnordered::new(),
 
-            max_payload_byte_length: max_payload_byte_length
+            max_payload_byte_length: options
+                .max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
+            max_open_streams_per_participant: options
+                .max_open_streams_per_participant
+                .unwrap_or(DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT),
         };
         (manager, ManagerInput::new(input_tx), output_rx)
     }
@@ -236,8 +264,8 @@ impl Manager {
             let event = tokio::select! {
                 // Closes first, so an event sent after `close()` finds the stream gone.
                 biased;
-                Some(id) = self.closes.next() => {
-                    self.inner.close_from_reader(&id);
+                Some((identity, id)) = self.closes.next() => {
+                    self.inner.close_from_reader(&identity, &id);
                     continue;
                 }
                 event = self.input_rx.recv() => match event {
@@ -262,7 +290,7 @@ impl Manager {
                 InputEvent::AbortStreamsFrom(identity) => self.handle_abort(identity),
                 InputEvent::AbortAllStreams => self.handle_abort_all(),
                 InputEvent::QueryOpenStreamCount(respond_to) => {
-                    let _ = respond_to.send(self.inner.open_streams.len());
+                    let _ = respond_to.send(self.inner.open_stream_count());
                 }
                 InputEvent::Shutdown => break,
             }
@@ -312,8 +340,24 @@ impl Manager {
         let stream_encryption_type = info.encryption_type();
         let attributes_map = info.attributes_map();
 
-        if self.inner.open_streams.contains_key(&id) {
+        let maybe_sender_streams = self.inner.open_streams.get(&participant_identity);
+        if maybe_sender_streams.is_some_and(|streams| streams.contains_key(&id)) {
             log::error!("Stream '{}' already open", id);
+            return;
+        }
+        if maybe_sender_streams.map_or(0, HashMap::len) >= self.max_open_streams_per_participant {
+            // Logs the first drop, then every `OVER_LIMIT_LOG_INTERVAL`th.
+            if self.inner.dropped_over_limit_count % OVER_LIMIT_LOG_INTERVAL == 0 {
+                log::error!(
+                    "Participant '{}' already has {} streams open, dropping stream '{}' \
+                     ({} dropped over the limit so far)",
+                    participant_identity,
+                    self.max_open_streams_per_participant,
+                    id,
+                    self.inner.dropped_over_limit_count + 1
+                );
+            }
+            self.inner.dropped_over_limit_count += 1;
             return;
         }
 
@@ -381,18 +425,12 @@ impl Manager {
         }
 
         let closed = token.clone().cancelled_owned();
-        let closed_id = id.clone();
-        self.closes.push(Box::pin(async move {
-            closed.await;
-            closed_id
-        }));
         let descriptor = Descriptor {
             close_guard: token.drop_guard(),
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             progress_tx,
             encryption_type: stream_encryption_type,
-            sender_identity: participant_identity,
             topic,
             is_text,
             decompressor: is_compressed
@@ -400,15 +438,27 @@ impl Manager {
             last_chunk_index: None,
             attributes_map,
         };
-        self.inner.open_streams.insert(id, descriptor);
+        self.inner
+            .open_streams
+            .entry(participant_identity.clone())
+            .or_default()
+            .insert(id.clone(), descriptor);
+        self.closes.push(Box::pin(async move {
+            closed.await;
+            (participant_identity, id)
+        }));
     }
 
-    /// Returns the topic of an open stream, or `None` if no stream with this id is open.
+    /// Returns the topic of a stream `identity` has open, or `None` if it has none with this id.
     ///
     /// Reported on chunk/trailer events so the host can apply its own topic policy (e.g. hiding
     /// `lk.rpc_request`); this crate deliberately holds no notion of which topics are internal.
-    fn topic_associated_with_stream_id(&self, id: &StreamId) -> Option<String> {
-        self.inner.open_streams.get(id).map(|d| d.topic.clone())
+    fn topic_associated_with_participant_and_stream_id(
+        &self,
+        identity: &ParticipantIdentity,
+        id: &StreamId,
+    ) -> Option<String> {
+        self.inner.open_streams.get(identity)?.get(id).map(|d| d.topic.clone())
     }
 
     /// Handles an incoming chunk packet.
@@ -421,18 +471,19 @@ impl Manager {
         let id = chunk.stream_id.clone();
         let _ = self.inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
             chunk: chunk.clone(),
-            participant_identity,
-            topic: self.topic_associated_with_stream_id(&id),
+            participant_identity: participant_identity.clone(),
+            topic: self.topic_associated_with_participant_and_stream_id(&participant_identity, &id),
         }));
 
         let inner = &mut self.inner;
-        let Some(descriptor) = inner.open_streams.get_mut(&id) else {
+        let Some(descriptor) = inner.get_stream_mut(&participant_identity, &id) else {
             return;
         };
 
         if descriptor.encryption_type != encryption_type {
             let expected = descriptor.encryption_type;
             inner.close_stream_with_error(
+                &participant_identity,
                 &id,
                 StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
             );
@@ -455,7 +506,7 @@ impl Manager {
             // A gap is unrecoverable for a stateful decompressor.
             let expected = descriptor.last_chunk_index.map(|i| i + 1).unwrap_or(0);
             if chunk.chunk_index != expected {
-                inner.close_stream_with_error(&id, StreamError::MissedChunk);
+                inner.close_stream_with_error(&participant_identity, &id, StreamError::MissedChunk);
                 return;
             }
             descriptor.last_chunk_index = Some(chunk.chunk_index);
@@ -479,7 +530,7 @@ impl Manager {
             let (uncompressed_byte_count, to_yield) = match result {
                 Ok(value) => value,
                 Err(error) => {
-                    inner.close_stream_with_error(&id, error);
+                    inner.close_stream_with_error(&participant_identity, &id, error);
                     return;
                 }
             };
@@ -488,14 +539,18 @@ impl Manager {
             descriptor.progress.bytes_processed += uncompressed_byte_count;
             if let Some(total) = descriptor.progress.bytes_total {
                 if descriptor.progress.bytes_processed > total {
-                    inner.close_stream_with_error(&id, StreamError::LengthExceeded);
+                    inner.close_stream_with_error(
+                        &participant_identity,
+                        &id,
+                        StreamError::LengthExceeded,
+                    );
                     return;
                 }
             }
             if !to_yield.is_empty() {
-                inner.yield_chunk(&id, to_yield);
+                inner.yield_chunk(&participant_identity, &id, to_yield);
             }
-            inner.publish_progress(&id);
+            inner.publish_progress(&participant_identity, &id);
             return;
         }
 
@@ -506,7 +561,7 @@ impl Manager {
             return;
         }
         if descriptor.progress.chunk_index != chunk.chunk_index {
-            inner.close_stream_with_error(&id, StreamError::MissedChunk);
+            inner.close_stream_with_error(&participant_identity, &id, StreamError::MissedChunk);
             return;
         }
 
@@ -516,15 +571,15 @@ impl Manager {
         let bytes_total = descriptor.progress.bytes_total;
 
         if bytes_processed > self.max_payload_byte_length as u64 {
-            inner.close_stream_with_error(&id, StreamError::PayloadTooLarge);
+            inner.close_stream_with_error(&participant_identity, &id, StreamError::PayloadTooLarge);
             return;
         }
         if bytes_total.is_some_and(|total| bytes_processed > total) {
-            inner.close_stream_with_error(&id, StreamError::LengthExceeded);
+            inner.close_stream_with_error(&participant_identity, &id, StreamError::LengthExceeded);
             return;
         }
-        inner.yield_chunk(&id, Bytes::from(chunk.content));
-        inner.publish_progress(&id);
+        inner.yield_chunk(&participant_identity, &id, Bytes::from(chunk.content));
+        inner.publish_progress(&participant_identity, &id);
     }
 
     /// Handles an incoming trailer packet.
@@ -538,14 +593,15 @@ impl Manager {
         let _ = self.inner.output_tx.send(
             TrailerReceived {
                 trailer: trailer.clone(),
-                participant_identity,
-                topic: self.topic_associated_with_stream_id(&id),
+                participant_identity: participant_identity.clone(),
+                topic: self
+                    .topic_associated_with_participant_and_stream_id(&participant_identity, &id),
             }
             .into(),
         );
 
         let inner = &mut self.inner;
-        let Some(descriptor) = inner.open_streams.get_mut(&id) else {
+        let Some(descriptor) = inner.get_stream_mut(&participant_identity, &id) else {
             return;
         };
 
@@ -555,6 +611,7 @@ impl Manager {
         if descriptor.encryption_type != encryption_type {
             let expected = descriptor.encryption_type;
             inner.close_stream_with_error(
+                &participant_identity,
                 &id,
                 StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
             );
@@ -570,17 +627,21 @@ impl Manager {
         // A sender that ends the stream early says why; that reason, not the missing bytes, is the
         // error the reader gets.
         if !trailer.reason.is_empty() {
-            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(trailer.reason));
+            inner.close_stream_with_error(
+                &participant_identity,
+                &id,
+                StreamError::AbnormalEnd(trailer.reason),
+            );
             return;
         }
         if !match descriptor.progress.bytes_total {
             Some(total) => descriptor.progress.bytes_processed >= total,
             None => true,
         } {
-            inner.close_stream_with_error(&id, StreamError::Incomplete);
+            inner.close_stream_with_error(&participant_identity, &id, StreamError::Incomplete);
             return;
         }
-        inner.close_stream(&id);
+        inner.close_stream(&participant_identity, &id);
     }
 
     /// Aborts every open stream being sent by the given participant, erroring each
@@ -590,16 +651,15 @@ impl Manager {
     /// this receiver are terminated so their readers observe an error rather than
     /// hanging forever waiting for chunks that will never arrive.
     fn handle_abort(&mut self, identity: ParticipantIdentity) {
-        self.inner.close_matching_streams_with_error(|_id, descriptor| {
-            if descriptor.sender_identity == identity {
-                let reason = format!(
-                    "Participant {} unexpectedly disconnected in the middle of sending data",
-                    identity
-                );
-                Err(StreamError::AbnormalEnd(reason))
-            } else {
-                Ok(())
-            }
+        let Some(streams) = self.inner.open_streams.remove(&identity) else {
+            return;
+        };
+        let reason = format!(
+            "Participant {} unexpectedly disconnected in the middle of sending data",
+            identity
+        );
+        self.inner.close_streams_with_error(&identity, streams, || {
+            StreamError::AbnormalEnd(reason.clone())
         });
     }
 
@@ -608,71 +668,105 @@ impl Manager {
     /// connection is torn down so no reader hangs waiting for chunks that will never arrive.
     /// The run loop keeps going, so streams opened after (e.g. a reconnect) are still handled.
     fn handle_abort_all(&mut self) {
-        self.inner.close_matching_streams_with_error(|_id, _descriptor| {
-            Err(StreamError::AbnormalEnd("Data stream connection closed".to_string()))
-        });
+        for (identity, streams) in std::mem::take(&mut self.inner.open_streams) {
+            self.inner.close_streams_with_error(&identity, streams, || {
+                StreamError::AbnormalEnd("Data stream connection closed".to_string())
+            });
+        }
     }
 }
 
 impl ManagerInner {
-    fn yield_chunk(&mut self, id: &StreamId, chunk: Bytes) {
-        let Some(descriptor) = self.open_streams.get_mut(id) else {
+    /// Total number of open streams across all senders.
+    fn open_stream_count(&self) -> usize {
+        self.open_streams.values().map(HashMap::len).sum()
+    }
+
+    fn get_stream_mut(
+        &mut self,
+        identity: &ParticipantIdentity,
+        id: &StreamId,
+    ) -> Option<&mut Descriptor> {
+        self.open_streams.get_mut(identity)?.get_mut(id)
+    }
+
+    /// Removes a stream, and its sender's map too once that map is empty. Every single-stream
+    /// removal goes through here so no empty map is left behind.
+    fn remove_stream(
+        &mut self,
+        identity: &ParticipantIdentity,
+        id: &StreamId,
+    ) -> Option<Descriptor> {
+        let streams = self.open_streams.get_mut(identity)?;
+        let descriptor = streams.remove(id);
+        if streams.is_empty() {
+            self.open_streams.remove(identity);
+        }
+        descriptor
+    }
+
+    fn yield_chunk(&mut self, identity: &ParticipantIdentity, id: &StreamId, chunk: Bytes) {
+        let Some(descriptor) = self.get_stream_mut(identity, id) else {
             return;
         };
         if descriptor.chunk_tx.send(Ok(chunk)).is_err() {
             // Reader has been dropped, close the stream.
-            self.close_stream(id);
+            self.close_stream(identity, id);
         }
     }
 
     /// Publishes the descriptor's current progress to the reader's `progress()` stream.
-    fn publish_progress(&self, id: &StreamId) {
-        if let Some(descriptor) = self.open_streams.get(id) {
+    fn publish_progress(&self, identity: &ParticipantIdentity, id: &StreamId) {
+        if let Some(descriptor) = self.open_streams.get(identity).and_then(|s| s.get(id)) {
             // `StreamProgress` is `Copy`; a send error just means the reader was dropped, which the
             // chunk channel already handles, so ignore it.
             let _ = descriptor.progress_tx.send(descriptor.progress);
         }
     }
 
-    fn close_stream(&mut self, id: &StreamId) {
+    fn close_stream(&mut self, identity: &ParticipantIdentity, id: &StreamId) {
         // Dropping the sender closes the channel.
-        if let Some(descriptor) = self.open_streams.remove(id) {
-            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
+        if let Some(descriptor) = self.remove_stream(identity, id) {
+            self.emit_stream_closed(id, identity.clone(), descriptor.topic);
         }
     }
 
     /// Ends a stream on behalf of its reader (see [`StreamCloser`]), unless the stream ended
     /// already or its id now belongs to a later stream, whose own token is not cancelled.
-    fn close_from_reader(&mut self, id: &StreamId) {
-        if self.open_streams.get(id).is_some_and(|d| d.close_guard.token().is_cancelled()) {
-            self.close_stream_with_error(id, StreamError::AlreadyClosed);
+    fn close_from_reader(&mut self, identity: &ParticipantIdentity, id: &StreamId) {
+        if self
+            .open_streams
+            .get(identity)
+            .and_then(|s| s.get(id))
+            .is_some_and(|d| d.close_guard.token().is_cancelled())
+        {
+            self.close_stream_with_error(identity, id, StreamError::AlreadyClosed);
         }
     }
 
-    fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
-        if let Some(descriptor) = self.open_streams.remove(id) {
-            let _ = descriptor.chunk_tx.send(Err(error));
-            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
-        }
-    }
-
-    fn close_matching_streams_with_error(
+    fn close_stream_with_error(
         &mut self,
-        checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
+        identity: &ParticipantIdentity,
+        id: &StreamId,
+        error: StreamError,
     ) {
-        let Self { open_streams, output_tx, .. } = self;
-        open_streams.retain(|id, descriptor| match checker(id, descriptor) {
-            Ok(_) => true,
-            Err(error) => {
-                let _ = descriptor.chunk_tx.send(Err(error));
-                let _ = output_tx.send(OutputEvent::StreamClosed(StreamClosed {
-                    stream_id: id.clone(),
-                    participant_identity: descriptor.sender_identity.clone(),
-                    topic: descriptor.topic.clone(),
-                }));
-                false
-            }
-        });
+        if let Some(descriptor) = self.remove_stream(identity, id) {
+            let _ = descriptor.chunk_tx.send(Err(error));
+            self.emit_stream_closed(id, identity.clone(), descriptor.topic);
+        }
+    }
+
+    /// Errors out every stream in `streams`, a sender's map already taken out of `open_streams`.
+    fn close_streams_with_error(
+        &self,
+        identity: &ParticipantIdentity,
+        streams: HashMap<StreamId, Descriptor>,
+        error: impl Fn() -> StreamError,
+    ) {
+        for (id, descriptor) in streams {
+            let _ = descriptor.chunk_tx.send(Err(error()));
+            self.emit_stream_closed(&id, identity.clone(), descriptor.topic);
+        }
     }
 
     /// Announces that a stream previously announced via [`StreamOpened`] is terminated.
@@ -798,7 +892,17 @@ mod tests {
         }
 
         fn new_with_max_payload_length(max_payload_byte_length: Option<usize>) -> Self {
-            let (manager, input, output_rx) = Manager::new(max_payload_byte_length);
+            let (manager, input, output_rx) =
+                Manager::new(ManagerOptions { max_payload_byte_length, ..Default::default() });
+            tokio::spawn(manager.run());
+            Self { input, output_rx }
+        }
+
+        fn new_with_max_open_streams_per_participant(max_open_streams: Option<usize>) -> Self {
+            let (manager, input, output_rx) = Manager::new(ManagerOptions {
+                max_open_streams_per_participant: max_open_streams,
+                ..Default::default()
+            });
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -1842,7 +1946,7 @@ mod tests {
         use super::*;
         use crate::incoming::TextStreamReader;
 
-        fn open_text_stream(h: &Harness, id: &str) {
+        pub(super) fn open_text_stream(h: &Harness, id: &str) {
             h.send_packet(Packet::Header {
                 header: text_header(id, Some(10), HashMap::new(), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -1853,7 +1957,7 @@ mod tests {
             });
         }
 
-        async fn next_text_reader(h: &mut Harness) -> TextStreamReader {
+        pub(super) async fn next_text_reader(h: &mut Harness) -> TextStreamReader {
             let (AnyStreamReader::Text(reader), _) = h.next_opened().await else {
                 panic!("expected a text reader");
             };
@@ -1863,7 +1967,7 @@ mod tests {
         #[tokio::test]
         async fn closer_after_shutdown_does_nothing() {
             // A manager whose run loop the test owns, with one open text stream.
-            let (manager, input, mut output_rx) = Manager::new(None);
+            let (manager, input, mut output_rx) = Manager::new(ManagerOptions::default());
             let run = tokio::spawn(manager.run());
             let header = text_header("s1", Some(10), HashMap::new(), None, CompressionType::None);
             let packet = Packet::Header { header, encryption_type: EncryptionType::None };
@@ -2055,6 +2159,125 @@ mod tests {
             // The inline stream completes during header handling; no descriptor is registered.
             assert_eq!(h.open_stream_count().await, 0);
             assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
+
+        #[tokio::test]
+        async fn drops_headers_beyond_per_participant_limit() {
+            let mut h = Harness::new();
+            let text_header = |id: &str| Packet::Header {
+                header: text_header(id, None, HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            };
+
+            // Fill the sender's quota with streams that are never closed. Keep the readers alive
+            // so the streams aren't closed by reader drop.
+            let mut readers = Vec::new();
+            for i in 0..DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT {
+                h.send_packet(text_header(&format!("s{i}")));
+                readers.push(h.next_opened().await.0);
+            }
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT);
+
+            // One more from the same sender is dropped.
+            h.send_packet(text_header("over-limit"));
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT);
+
+            // The limit is per participant, so another sender can still open a stream.
+            h.send_packet_from(text_header("other"), "other");
+            let (_other_reader, identity) = h.next_opened().await;
+            assert_eq!(identity.as_str(), "other");
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT + 1);
+
+            // Once one of the sender's streams closes, it can open a new one.
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s0"),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(text_header("after-close"));
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(text_info(&reader).id, "after-close");
+            assert_eq!(h.open_stream_count().await, DEFAULT_MAX_OPEN_STREAMS_PER_PARTICIPANT + 1);
+            drop(readers);
+        }
+
+        #[tokio::test]
+        async fn per_participant_limit_is_configurable() {
+            let mut h = Harness::new_with_max_open_streams_per_participant(Some(2));
+            let text_header = |id: &str| Packet::Header {
+                header: text_header(id, None, HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            };
+
+            h.send_packet(text_header("s1"));
+            let (reader1, _) = h.next_opened().await;
+            h.send_packet(text_header("s2"));
+            let (reader2, _) = h.next_opened().await;
+            h.send_packet(text_header("s3"));
+            assert_eq!(h.open_stream_count().await, 2);
+            drop((reader1, reader2));
+        }
+
+        /// Drives the manager's handlers directly so the test can see `open_streams` itself: the
+        /// count query can't tell an empty sender map from a removed one.
+        #[tokio::test]
+        async fn sender_map_is_removed_once_its_last_stream_closes() {
+            // `_output_rx` holds the readers, so the streams aren't closed by reader drop.
+            let (mut manager, _input, _output_rx) = Manager::new(ManagerOptions::default());
+            let alice = ParticipantIdentity::from(SENDER);
+            let header =
+                |id: &str| text_header(id, None, HashMap::new(), None, CompressionType::None);
+
+            manager.handle_header(header("s1"), alice.clone(), EncryptionType::None).await;
+            manager.handle_header(header("s2"), alice.clone(), EncryptionType::None).await;
+            assert_eq!(manager.inner.open_streams[&alice].len(), 2);
+
+            // A clean close through the trailer.
+            manager.handle_trailer(trailer("s1"), alice.clone(), EncryptionType::None);
+            assert_eq!(manager.inner.open_streams[&alice].len(), 1);
+
+            // An error close: a chunk under the wrong encryption.
+            manager
+                .handle_chunk(chunk("s2", 0, b"x".to_vec()), alice.clone(), EncryptionType::Gcm)
+                .await;
+            assert!(manager.inner.open_streams.is_empty());
+        }
+
+        #[tokio::test]
+        async fn stream_ids_are_scoped_to_their_sender() {
+            let mut h = Harness::new();
+            closer::open_text_stream(&h, "s1");
+            let alice_reader = closer::next_text_reader(&mut h).await;
+
+            // Another participant can't close alice's stream by reusing its id...
+            h.send_packet_from(
+                Packet::Trailer { trailer: trailer("s1"), encryption_type: EncryptionType::None },
+                "mallory",
+            );
+            assert_eq!(h.open_stream_count().await, 1);
+            assert!(h.drain_closed_ids().is_empty());
+
+            // ...but can open its own stream with the same id.
+            h.send_packet_from(
+                Packet::Header {
+                    header: text_header("s1", None, HashMap::new(), None, CompressionType::None),
+                    encryption_type: EncryptionType::None,
+                },
+                "mallory",
+            );
+            let (_mallory_reader, identity) = h.next_opened().await;
+            assert_eq!(identity.as_str(), "mallory");
+            assert_eq!(h.open_stream_count().await, 2);
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, b"world".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(alice_reader.read_all().await.unwrap(), "helloworld");
+            assert_eq!(h.open_stream_count().await, 1);
         }
     }
 
