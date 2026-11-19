@@ -1,0 +1,14 @@
+[package]
+name = "connection_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "livekit-connection-test"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
