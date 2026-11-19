@@ -39,9 +39,9 @@ option csharp_namespace = "LiveKit.Proto";
 // requests that can be made to the ffi server.
 // The server will then respond with a FfiResponse, which is also a oneof message that contains
 // all the possible responses.
-// The first request sent to the server must be an InitializeRequest, which contains the a pointer
-// to the callback function that will be used to send events and async responses to the ffi client.
-// (e.g participant joined, track published, etc...)
+// Before the first request, the ffi client must call the C function livekit_ffi_initialize, passing
+// a pointer to the callback function that will be used to send events and async responses to the
+// ffi client. (e.g participant joined, track published, etc...)
 //
 // **Useful things know when collaborating on the protocol:**
 // Everything is subject to discussion and change :-)
