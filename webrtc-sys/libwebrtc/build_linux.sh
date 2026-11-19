@@ -80,6 +80,8 @@ apply_patch "$COMMAND_DIR/patches/add_deps.patch"
 apply_patch "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch"
 apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
 apply_patch "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch"
+# Scope subnormal handling to Opus calls; preserve the host floating-point mode.
+apply_patch "$COMMAND_DIR/patches/opus_denormals.patch" third_party/opus/src
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
