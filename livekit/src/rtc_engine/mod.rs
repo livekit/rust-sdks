@@ -412,6 +412,21 @@ impl RtcEngine {
         session.add_track(req).await
     }
 
+    /// Completes ordinary publication while reconnect is excluded, including the fast path.
+    pub(crate) async fn publish_track<T>(
+        &self,
+        track: &LocalTrack,
+        options: &TrackPublishOptions,
+        prepared: (proto::AddTrackRequest, Vec<RtpEncodingParameters>),
+        complete: impl FnOnce(proto::TrackInfo) -> T,
+    ) -> EngineResult<T> {
+        let (session, _r_lock) = {
+            let (handle, r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), r_lock)
+        };
+        session.publish_track(track, options, prepared, complete).await
+    }
+
     /// Waits for the server to confirm a track sent with the join request and passes the
     /// confirmation to `complete` while no reconnect can start, so a full reconnect either
     /// happens before (and the track is not completed) or republishes the completed track.

@@ -395,6 +395,8 @@ struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
     fast_publish: AtomicBool,
+    enabled_publish_codecs: Vec<proto::Codec>,
+    publishing_tracks: Mutex<HashSet<String>>,
     /// When this connection attempt began, taken at the top of [`RtcSession::connect`] before
     /// the peer connections or the signal client exist. Every session is one attempt, so a
     /// full restart or a join retry times itself from scratch.
@@ -535,6 +537,60 @@ struct SessionHandle {
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
     dt_sender_task: JoinHandle<()>,
+}
+
+/// Owns one ordinary publication until acceptance, including speculative sender rollback.
+/// The session is borrowed by the publish future, never captured by a stored callback or task.
+struct PendingTrackPublish<'a> {
+    session: &'a Arc<SessionInner>,
+    track: &'a LocalTrack,
+    cid: String,
+    sender: Option<RtpSender>,
+}
+
+impl<'a> PendingTrackPublish<'a> {
+    /// Claims the track and installs its response waiter before any signaling is sent.
+    fn new(
+        session: &'a Arc<SessionInner>,
+        track: &'a LocalTrack,
+        cid: &str,
+    ) -> EngineResult<(Self, oneshot::Receiver<EngineResult<proto::TrackInfo>>)> {
+        {
+            let mut publishing = session.publishing_tracks.lock();
+            if track.transceiver().is_some() || !publishing.insert(cid.to_owned()) {
+                return Err(EngineError::Internal(
+                    "track is already publishing or published".into(),
+                ));
+            }
+        }
+        let rx = match session.register_pending_track(cid) {
+            Ok(rx) => rx,
+            Err(error) => {
+                session.publishing_tracks.lock().remove(cid);
+                return Err(error);
+            }
+        };
+        Ok((Self { session, track, cid: cid.to_owned(), sender: None }, rx))
+    }
+
+    /// Hands the accepted sender to the local publication instead of rolling it back.
+    fn commit(&mut self) {
+        self.sender = None;
+    }
+}
+
+impl Drop for PendingTrackPublish<'_> {
+    fn drop(&mut self) {
+        self.session.pending_tracks.lock().remove(&self.cid);
+        if let Some(sender) = self.sender.take() {
+            if let Err(error) = self.session.remove_track(sender) {
+                log::debug!("failed to remove abandoned publication sender: {error}");
+            }
+            self.track.set_transceiver(None);
+            self.session.publisher_negotiation_needed();
+        }
+        self.session.publishing_tracks.lock().remove(&self.cid);
+    }
 }
 
 /// Publisher transport created before joining, whose offer travels with the join request.
@@ -706,6 +762,8 @@ impl RtcSession {
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
+            enabled_publish_codecs: join_response.enabled_publish_codecs.clone(),
+            publishing_tracks: Default::default(),
             connect_started,
             signal_client,
             publisher_pc,
@@ -961,6 +1019,17 @@ impl RtcSession {
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
+    }
+
+    /// Publishes on this session, optionally overlapping registration and negotiation.
+    pub(crate) async fn publish_track<T>(
+        &self,
+        track: &LocalTrack,
+        options: &TrackPublishOptions,
+        prepared: (proto::AddTrackRequest, Vec<RtpEncodingParameters>),
+        complete: impl FnOnce(proto::TrackInfo) -> T,
+    ) -> EngineResult<T> {
+        self.inner.publish_track(track, options, prepared, complete).await
     }
 
     pub(crate) async fn wait_track_published_by_cid(
@@ -2136,6 +2205,75 @@ impl SessionInner {
         self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await
     }
 
+    /// Uses the fast path only when no publication-response fields are needed to send media.
+    fn can_fast_publish(
+        &self,
+        request: &proto::AddTrackRequest,
+        options: &TrackPublishOptions,
+    ) -> bool {
+        let mime = match request.r#type() {
+            proto::TrackType::Audio => "audio/opus".to_owned(),
+            proto::TrackType::Video => format!("video/{}", options.video_codec.as_str()),
+            _ => return false,
+        };
+        self.fast_publish.load(Ordering::Acquire)
+            && request.encryption() == proto::encryption::Type::None
+            && request.packet_trailer_features.is_empty()
+            && self
+                .enabled_publish_codecs
+                .iter()
+                .any(|codec| codec.mime.eq_ignore_ascii_case(&mime))
+    }
+
+    /// Keeps request, sender, completion, and rollback within a single connection generation.
+    async fn publish_track<T>(
+        self: &Arc<Self>,
+        track: &LocalTrack,
+        options: &TrackPublishOptions,
+        (request, encodings): (proto::AddTrackRequest, Vec<RtpEncodingParameters>),
+        complete: impl FnOnce(proto::TrackInfo) -> T,
+    ) -> EngineResult<T> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(EngineError::Connection("session is closed".into()));
+        }
+        let fast = self.can_fast_publish(&request, options);
+        let (mut pending, rx) = PendingTrackPublish::new(self, track, &request.cid)?;
+        let cid = request.cid.clone();
+        let mut close_rx = self.close_rx.clone();
+        let publish = async {
+            // AddTrack and the later offer share this session's ordered signal connection.
+            self.signal_client.send(proto::signal_request::Message::AddTrack(request)).await;
+            let info = if fast {
+                let transceiver =
+                    self.create_sender(track.clone(), options.clone(), encodings).await?;
+                pending.sender = Some(transceiver.sender());
+                track.set_transceiver(Some(transceiver));
+                self.publisher_negotiation_needed();
+                self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await?
+            } else {
+                let info = self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await?;
+                let transceiver =
+                    self.create_sender(track.clone(), options.clone(), encodings).await?;
+                pending.sender = Some(transceiver.sender());
+                track.set_transceiver(Some(transceiver));
+                info
+            };
+            if self.closed.load(Ordering::Acquire) {
+                return Err(EngineError::Connection("session closed while publishing".into()));
+            }
+            // Completion installs any frame cryptor before the sequential path can negotiate.
+            let publication = complete(info);
+            pending.commit();
+            if !fast {
+                self.publisher_negotiation_needed();
+            }
+            Ok(publication)
+        };
+        cancel_on_close(&mut close_rx, publish)
+            .await
+            .ok_or_else(|| EngineError::Connection("session closed while publishing".into()))?
+    }
+
     async fn wait_track_published_by_cid(
         &self,
         cid: String,
@@ -2252,57 +2390,70 @@ impl SessionInner {
         let transceiver =
             publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
-        if track.kind() == TrackKind::Video {
-            transceiver.sender().set_video_encoder_backend(options.video_encoder);
+        let configured = (|| -> EngineResult<()> {
+            if track.kind() == TrackKind::Video {
+                transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
-            // LocalParticipant already settled on a codec this sender can
-            // produce. Offer only that codec, and never fall back to an empty
-            // preference list: libwebrtc would then offer every codec the
-            // encoder factory lists, including pass-through-only codecs a raw
-            // sender cannot encode.
-            let lk_runtime = LkRuntime::instance();
-            let pc_factory = lk_runtime.pc_factory();
-            let producible = pc_factory
-                .video_encoder_codecs(crate::options::codec_source_backend(options.video_encoder));
-            let is_producible = |mime_type: &str| {
-                producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
-            };
-            let requested_mime_type = format!("video/{}", options.video_codec.as_str());
-
-            let mut matched = Vec::new();
-            let mut partial_matched = Vec::new();
-            let mut producible_codecs = Vec::new();
-
-            for codec in pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs {
-                let mime_type = codec.mime_type.to_lowercase();
-                if mime_type == requested_mime_type {
-                    if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
-                        // for h264 codecs that have sdpFmtpLine available, use only if the
-                        // profile-level-id is 42e01f for cross-browser compatibility
-                        if sdp_fmtp_line.contains("profile-level-id=42e01f") {
-                            matched.push(codec);
-                            continue;
-                        }
-                    }
-                    partial_matched.push(codec);
-                } else if is_producible(&mime_type) {
-                    producible_codecs.push(codec);
-                }
-            }
-
-            matched.append(&mut partial_matched);
-            if matched.is_empty() {
-                log::warn!(
-                    "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
+                // LocalParticipant already settled on a codec this sender can
+                // produce. Offer only that codec, and never fall back to an empty
+                // preference list: libwebrtc would then offer every codec the
+                // encoder factory lists, including pass-through-only codecs a raw
+                // sender cannot encode.
+                let lk_runtime = LkRuntime::instance();
+                let pc_factory = lk_runtime.pc_factory();
+                let producible = pc_factory.video_encoder_codecs(
+                    crate::options::codec_source_backend(options.video_encoder),
                 );
-                matched = producible_codecs;
+                let is_producible = |mime_type: &str| {
+                    producible.iter().any(|codec| mime_type == format!("video/{}", codec.as_str()))
+                };
+                let requested_mime_type = format!("video/{}", options.video_codec.as_str());
+
+                let mut matched = Vec::new();
+                let mut partial_matched = Vec::new();
+                let mut producible_codecs = Vec::new();
+
+                for codec in pc_factory.get_rtp_sender_capabilities(MediaType::Video).codecs {
+                    let mime_type = codec.mime_type.to_lowercase();
+                    if mime_type == requested_mime_type {
+                        if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
+                            // for h264 codecs that have sdpFmtpLine available, use only if the
+                            // profile-level-id is 42e01f for cross-browser compatibility
+                            if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                                matched.push(codec);
+                                continue;
+                            }
+                        }
+                        partial_matched.push(codec);
+                    } else if is_producible(&mime_type) {
+                        producible_codecs.push(codec);
+                    }
+                }
+
+                matched.append(&mut partial_matched);
+                if matched.is_empty() {
+                    log::warn!(
+                        "no sender capability for {requested_mime_type}; offering the codecs this sender can produce"
+                    );
+                    matched = producible_codecs;
+                }
+
+                transceiver.set_codec_preferences(matched)?;
             }
 
-            transceiver.set_codec_preferences(matched)?;
-        }
+            // Before the transceiver can be negotiated, so no frame is sent without these settings.
+            configure_sender(track, options, &transceiver.sender());
 
-        // Before the transceiver can be negotiated, so no frame is sent without these settings.
-        configure_sender(track, options, &transceiver.sender());
+            Ok(())
+        })();
+        if let Err(error) = configured {
+            if let Err(remove_error) =
+                publisher_pc.peer_connection().remove_track(transceiver.sender())
+            {
+                log::debug!("failed to remove unconfigured sender: {remove_error}");
+            }
+            return Err(error);
+        }
 
         Ok(transceiver)
     }
