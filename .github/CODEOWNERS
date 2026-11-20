@@ -11,4 +11,5 @@
 /livekit-wakeword/ @pham-tuan-binh
 /livekit-net/ @jhugman
 /livekit-token-source/ @MaxHeimbrock
+/livekit-session/ @MaxHeimbrock
 /livekit-signaling/ @lukasIO
