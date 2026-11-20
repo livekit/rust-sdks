@@ -125,18 +125,33 @@ async fn wait_publications(room: &Room, expected: usize) -> Result<()> {
     .map_err(|_| anyhow!("subscriber did not see {expected} publications"))
 }
 
-/// Withheld ACKs prove overlap without depending on wall-clock latency thresholds.
-#[test_case(false, false; "dual_sequential")]
-#[test_case(false, true; "dual_fast")]
-#[test_case(true, false; "single_sequential")]
-#[test_case(true, true; "single_fast")]
+/// Withheld ACKs prove overlap independently of the server's publisher warm-up hint.
+#[test_case(false, false, false, false; "dual_lazy_sequential_audio")]
+#[test_case(false, false, false, true; "dual_lazy_sequential_video")]
+#[test_case(false, false, true, false; "dual_lazy_fast_audio")]
+#[test_case(false, false, true, true; "dual_lazy_fast_video")]
+#[test_case(false, true, false, false; "dual_eager_sequential_audio")]
+#[test_case(false, true, false, true; "dual_eager_sequential_video")]
+#[test_case(false, true, true, false; "dual_eager_fast_audio")]
+#[test_case(false, true, true, true; "dual_eager_fast_video")]
+#[test_case(true, false, false, false; "single_lazy_sequential_audio")]
+#[test_case(true, false, false, true; "single_lazy_sequential_video")]
+#[test_case(true, false, true, false; "single_lazy_fast_audio")]
+#[test_case(true, false, true, true; "single_lazy_fast_video")]
+#[test_case(true, true, false, false; "single_eager_sequential_audio")]
+#[test_case(true, true, false, true; "single_eager_sequential_video")]
+#[test_case(true, true, true, false; "single_eager_fast_audio")]
+#[test_case(true, true, true, true; "single_eager_fast_video")]
 #[test_log::test(tokio::test)]
 async fn publication_negotiates_before_ack_only_in_fast_mode(
     single_pc: bool,
+    warm_up: bool,
     fast: bool,
+    video: bool,
 ) -> Result<()> {
     let proxy = SignalProxy::start(ProxyOptions {
-        fast_publish: fast,
+        fast_publish: warm_up,
+        clear_codecs: !fast,
         hold_ack: true,
         ..Default::default()
     })
@@ -144,7 +159,7 @@ async fn publication_negotiates_before_ack_only_in_fast_mode(
     let outcome: Result<()> = async {
         let name = format!("fast_{}", create_random_uuid());
         let (publisher, _) = connect(&proxy, &name, "publisher", room_options(single_pc)).await?;
-        let track = microphone();
+        let track = if video { camera().0 } else { microphone() };
         let cid = track.rtc_track().id();
         let participant = publisher.local_participant();
         let publishing_track = track.clone();
@@ -179,11 +194,11 @@ async fn publication_negotiates_before_ack_only_in_fast_mode(
     outcome
 }
 
-/// Initial-track connect options and ordinary A/V publication work in both transport modes.
-#[test_case(false, false; "dual_sequential")]
-#[test_case(false, true; "dual_fast")]
-#[test_case(true, false; "single_sequential")]
-#[test_case(true, true; "single_fast")]
+/// Initial-track options and ordinary A/V publication work with either publisher warm-up policy.
+#[test_case(false, false; "dual_without_warmup")]
+#[test_case(false, true; "dual_with_warmup")]
+#[test_case(true, false; "single_without_warmup")]
+#[test_case(true, true; "single_with_warmup")]
 #[test_log::test(tokio::test)]
 async fn connect_with_and_without_initial_tracks(single_pc: bool, fast: bool) -> Result<()> {
     for with_initial in [false, true] {
@@ -232,11 +247,13 @@ async fn connect_with_and_without_initial_tracks(single_pc: bool, fast: bool) ->
     Ok(())
 }
 
-/// Missing codec information preserves sequential publication even with fast_publish enabled.
+/// Missing codec information preserves sequential publication with either warm-up policy.
+#[test_case(false; "without_warmup")]
+#[test_case(true; "with_warmup")]
 #[test_log::test(tokio::test)]
-async fn missing_codecs_keep_sequential_fallback() -> Result<()> {
+async fn missing_codecs_keep_sequential_fallback(warm_up: bool) -> Result<()> {
     let proxy = SignalProxy::start(ProxyOptions {
-        fast_publish: true,
+        fast_publish: warm_up,
         hold_ack: true,
         clear_codecs: true,
         ..Default::default()
@@ -461,6 +478,7 @@ async fn cancelled_publication_releases_track() -> Result<()> {
 async fn disconnect_cancels_pending_publication(fast: bool) -> Result<()> {
     let proxy = SignalProxy::start(ProxyOptions {
         fast_publish: fast,
+        clear_codecs: !fast,
         hold_ack: true,
         ..Default::default()
     })
@@ -493,8 +511,8 @@ async fn disconnect_cancels_pending_publication(fast: bool) -> Result<()> {
 }
 
 /// Both server policies republish current tracks once after a full reconnect.
-#[test_case(false; "sequential")]
-#[test_case(true; "fast")]
+#[test_case(false; "without_warmup")]
+#[test_case(true; "with_warmup")]
 #[test_log::test(tokio::test)]
 async fn full_reconnect_does_not_duplicate_publications(fast: bool) -> Result<()> {
     let proxy =

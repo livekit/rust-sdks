@@ -72,7 +72,7 @@ If you are using Rust Analyzer in Visual Studio Code, you can enable the E2E tes
 
 ## Fast track publication
 
-`fast_publish_test.rs` tests ordinary publication with server `fast_publish` enabled and disabled, in single- and dual-peer-connection mode, both with and without `RoomOptions::publish_tracks` at connect time. Its bounded WebSocket proxy holds publication acknowledgments independently of SDP answers to prove the ordering without timing assertions. It also covers concurrent muted audio/video publication, codec/encryption/packet-trailer fallbacks, rejection, cancellation cleanup, duplicate publication, and full reconnect.
+`fast_publish_test.rs` tests ordinary publication with advertised codecs present and absent, independently of the server `fast_publish` warm-up flag, in single- and dual-peer-connection mode, both with and without `RoomOptions::publish_tracks` at connect time. Its bounded WebSocket proxy holds publication acknowledgments independently of SDP answers to prove the ordering without timing assertions. The warm-up flag never disables eligible overlap. It also covers concurrent muted audio/video publication, codec/encryption/packet-trailer fallbacks, rejection, cancellation cleanup, duplicate publication, and full reconnect.
 
 Use a recent server that supports `/rtc/v1`, with isolated ports and loopback candidates:
 
