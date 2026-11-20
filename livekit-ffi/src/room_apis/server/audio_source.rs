@@ -105,7 +105,6 @@ impl FfiAudioSource {
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
         let buffer = capture.buffer;
 
-        let source = self.source.clone();
         let async_id = server.resolve_async_id(capture.request_async_id);
 
         let data = unsafe {
@@ -114,35 +113,31 @@ impl FfiAudioSource {
         }
         .to_vec();
 
+        // Started before spawning, so a clear_buffer request that arrives before the task runs
+        // still cuts this frame.
+        let capture = match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Native(ref source) => Some(source.capture_owned_frame(AudioFrame {
+                data: Cow::Owned(data),
+                sample_rate: buffer.sample_rate,
+                num_channels: buffer.num_channels,
+                samples_per_channel: buffer.samples_per_channel,
+            })),
+            _ => None,
+        };
+
         // Use dedicated audio_runtime for audio capture
         let handle = server.audio_runtime.spawn(async move {
-            // The data must be available as long as the client receive the callback.
-            match source {
-                #[cfg(not(target_arch = "wasm32"))]
-                RtcAudioSource::Native(ref source) => {
-                    let audio_frame = AudioFrame {
-                        data: Cow::Owned(data),
-                        sample_rate: buffer.sample_rate,
-                        num_channels: buffer.num_channels,
-                        samples_per_channel: buffer.samples_per_channel,
-                    };
-
-                    let res = source.capture_frame(&audio_frame).await;
-                    if let Err(e) = server.send_event(
-                        proto::CaptureAudioFrameCallback {
-                            async_id,
-                            error: res.err().map(|e| e.to_string()),
-                        }
-                        .into(),
-                    ) {
-                        log::error!(
-                            "[AUDIO_CAPTURE] Failed to send callback async_id={}: {}",
-                            async_id,
-                            e
-                        );
-                    }
+            let Some(capture) = capture else { return };
+            let res = capture.await;
+            if let Err(e) = server.send_event(
+                proto::CaptureAudioFrameCallback {
+                    async_id,
+                    error: res.err().map(|e| e.to_string()),
                 }
-                _ => {}
+                .into(),
+            ) {
+                log::error!("[AUDIO_CAPTURE] Failed to send callback async_id={}: {}", async_id, e);
             }
         });
         server.watch_panic(handle);
