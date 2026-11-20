@@ -533,17 +533,15 @@ impl LocalParticipant {
             options.video_codec = negotiable_video_codec(&options)?;
         }
 
-        let (req, encodings) =
+        let prepared =
             prepare_publish(&track, &options, self.local.encryption_type, video_send_encodings);
-        let track_info = self.inner.rtc_engine.add_track(req).await?;
-
-        let transceiver =
-            self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
-        track.set_transceiver(Some(transceiver));
-
-        self.inner.rtc_engine.publisher_negotiation_needed();
-
-        Ok(self.complete_publish(track, options, track_info))
+        Ok(self
+            .inner
+            .rtc_engine
+            .publish_track(&track, &options, prepared, |track_info| {
+                self.complete_publish(track.clone(), options.clone(), track_info)
+            })
+            .await?)
     }
 
     /// Finishes publishing `track` once its sender is attached and the server has confirmed it
