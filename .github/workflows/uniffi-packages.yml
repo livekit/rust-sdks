@@ -4,17 +4,15 @@ name: UniFFI packages
 # xcframework → livekit/livekit-ffi-xcframework; Android AAR → Maven
 # Central) for a livekit-ffi release.
 #
-# Trigger note: ffi-builds.yml calls this workflow as a job once its build
-# matrix is green and the release is public. A run therefore implies a green
-# 11-target build, and a failure here makes the release run red. There is no
-# tag-push trigger, on purpose: the tag exists before the FFI build, so a push
-# trigger would publish before that build is green. For a run by hand,
-# dispatch this workflow with `tag_name`.
+# Trigger note: release.yml calls this workflow as a job once the livekit-ffi
+# release is public with its files. A run therefore implies a green build of
+# every target, and a failure here makes the release run red. For a run by
+# hand, dispatch this workflow with `tag_name`.
 #
 # The Dart package, and the cdylib release assets its build hook downloads, are
-# handled by uniffi-dart-publish.yml, which ffi-builds.yml dispatches at the tag
-# (pub.dev requires a run whose ref is the tag) and builds those assets
-# itself so publishing can depend on them directly.
+# handled by release.yml: it builds those assets before the tag exists, and
+# dispatches uniffi-dart-publish.yml at the tag (pub.dev requires a run whose
+# ref is the tag).
 
 on:
   workflow_call:

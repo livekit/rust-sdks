@@ -12,19 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# After the release PR merges: tag and create the GitHub releases, then
-# publish the crates, the FFI libraries and the Node bindings. verwalter
-# reads the tags and the releases and finishes what is missing, so a failed
-# run is run again. Use "Re-run failed jobs" first: it keeps the merge commit.
-# A new run by hand needs `ref`, else it releases from the head of the branch.
+# After the release PR merges, in three stages:
+#
+#   1. Build. If the livekit-ffi release is not complete, build every file it
+#      needs: the FFI libraries, the host libraries and the Node bindings.
+#      Nothing is created yet, so a failed build leaves no tag and no release.
+#   2. Release. verwalter creates the tags and the GitHub releases. The files
+#      go on the livekit-ffi draft, and only then the release becomes public.
+#      A public livekit-ffi release therefore always has its files.
+#   3. Publish. crates.io, npm, Maven, the Swift package and pub.dev. These
+#      steps cannot be undone, so they come last. Each one is safe to repeat:
+#      it asks its registry and skips a version that is there. The last job
+#      then asks each place for the version.
+#
+# verwalter reads the tags and the releases and finishes what is missing, so
+# a failed run is run again. Use "Re-run failed jobs" first: it keeps the
+# merge commit and the built files. A new run by hand needs `ref`, else it
+# releases from the head of the branch.
 name: Release
 
 on:
   pull_request:
     types: [closed]
     branches: [main]
-  # Run by hand after a fix. With `package`, that package is reported again
-  # even when it is complete, so the publish job runs for it.
   workflow_dispatch:
     inputs:
       package:
@@ -38,7 +48,7 @@ on:
         type: string
         default: ""
       dry_run:
-        description: "Dry run: print every tag, release and publish step instead of doing it. The FFI and Node builds run without an upload."
+        description: "Dry run: build everything, then print every tag, release and publish step instead of doing it."
         required: false
         type: boolean
         default: false
@@ -47,18 +57,131 @@ permissions:
   id-token: write
   contents: write
 
+# One release run at a time. A closed PR that is not the release PR starts a
+# run too, with every job skipped. It gets a group of its own: in the shared
+# group it would cancel a release run that waits.
+concurrency:
+  group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'release/')) && 'release' || format('release-skip-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  # ---------------------------------------------------------------- stage 1
+
+  # Decides whether this run builds the livekit-ffi files. The version in
+  # livekit-ffi/Cargo.toml names the release. The files are built unless that
+  # release is public. A public release always has its files, because stage 2
+  # makes it public only after the check of the files. This run never changes
+  # a public release: a later commit must not replace the files of an older
+  # version.
+  plan:
     # Only the release PR that verwalter opened. The branch prefix alone
     # would let any pushed `release/*` branch start a publish.
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/') && github.event.pull_request.user.login == 'verwalter-release[bot]' && contains(github.event.pull_request.body, '<!-- verwalter release -->'))
     runs-on: ubuntu-latest
     permissions:
+      # Write, not read: a token with read access cannot see a draft release.
       contents: write
+    outputs:
+      ffi_tag: ${{ steps.ffi.outputs.tag }}
+      ffi_build: ${{ steps.ffi.outputs.build }}
+      ffi_publish: ${{ steps.ffi.outputs.publish }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      - name: Check the livekit-ffi release
+        id: ffi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ inputs.package }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          tag="livekit-ffi/v${version}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          # A run for one other package does not touch livekit-ffi.
+          if [ -n "$PACKAGE" ] && [ "$PACKAGE" != "livekit-ffi" ]; then
+            echo "This run is for ${PACKAGE} only: no livekit-ffi build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # No release gives an error, and a draft gives "true".
+          build=true
+          if [ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            build=false
+          fi
+          # A dry run always builds: the build is what it rehearses.
+          if [ "$DRY_RUN" = "true" ]; then
+            build=true
+          fi
+          # The UniFFI jobs run with the build. They also run for a run by
+          # hand when the release is complete, where nothing is built. A
+          # complete release says nothing about pub.dev, Maven Central and
+          # the Swift package: each of their workflows asks its registry and
+          # skips a version that is there. Such a run therefore repairs a
+          # release where one registry failed.
+          publish=$build
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            publish=true
+          fi
+          echo "Release ${tag}: build=${build} publish=${publish}"
+          echo "build=${build}" >> "$GITHUB_OUTPUT"
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+
+  ffi-build:
+    name: FFI libraries
+    needs: plan
+    if: needs.plan.outputs.ffi_build == 'true'
+    uses: ./.github/workflows/ffi-builds.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+
+  cdylib-build:
+    name: Host libraries
+    needs: plan
+    if: needs.plan.outputs.ffi_build == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/uniffi-cdylib.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+
+  node-build:
+    name: Node bindings
+    needs: plan
+    if: needs.plan.outputs.ffi_build == 'true'
+    uses: ./.github/workflows/node-builds.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      publish: false
+
+  # ---------------------------------------------------------------- stage 2
+
+  release:
+    needs: [plan, ffi-build, cdylib-build, node-build]
+    # Each build must have passed, or been skipped because livekit-ffi is
+    # complete. The results are named one by one: `!failure()` is not enough,
+    # because a build with a cancelled leg has the result `cancelled`, which
+    # `failure()` does not count.
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.ffi-build.result)
+      && contains(fromJSON('["success", "skipped"]'), needs.cdylib-build.result)
+      && contains(fromJSON('["success", "skipped"]'), needs.node-build.result) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.plan.outputs.ffi_tag }}
     outputs:
       released: ${{ steps.verwalter.outputs.released }}
       releases: ${{ steps.verwalter.outputs.releases }}
-      ffi_tag: ${{ steps.ffi.outputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -68,6 +191,45 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
           fetch-depth: 0
 
+      - name: Download the FFI libraries
+        if: needs.plan.outputs.ffi_build == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ffi-builds-*
+          merge-multiple: true
+          path: dist
+
+      - name: Download the host libraries
+        if: needs.plan.outputs.ffi_build == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cdylib-*
+          merge-multiple: true
+          path: dist
+
+      # Before any tag: a missing file fails the run with nothing created.
+      - name: Check that every release file was built
+        if: needs.plan.outputs.ffi_build == 'true'
+        run: |
+          set -euo pipefail
+          # The list is `release.required_assets` in verwalter.toml.
+          python3 -c 'import tomllib; print(*tomllib.load(open("verwalter.toml", "rb"))["packages"]["livekit-ffi"]["release"]["required_assets"], sep="\n")' > "$RUNNER_TEMP/required.txt"
+          if [ ! -s "$RUNNER_TEMP/required.txt" ]; then
+            echo "::error::release.required_assets of livekit-ffi is empty"
+            exit 1
+          fi
+          missing=0
+          while read -r asset; do
+            if [ ! -s "dist/${asset}" ]; then
+              echo "::error::${asset} was not built"
+              missing=1
+            fi
+          done < "$RUNNER_TEMP/required.txt"
+          exit "$missing"
+
+      # Creates the tags and the releases. Each crate is a draft until
+      # crates.io has the version, and livekit-ffi is a draft until the
+      # files are on it (`release.draft` in verwalter.toml).
       - id: verwalter
         uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
         with:
@@ -75,45 +237,29 @@ jobs:
           dry-run: ${{ inputs.dry_run || false }}
           args: ${{ inputs.package && format('--package {0}', inputs.package) || '' }}
 
-      # The tag of the livekit-ffi release, for the `ffi` and Node jobs.
-      # Empty when livekit-ffi is not in this release.
-      - name: Find the livekit-ffi release
-        id: ffi
-        if: steps.verwalter.outputs.released == 'true' && inputs.dry_run != true
-        env:
-          RELEASES: ${{ steps.verwalter.outputs.releases }}
-        run: |
-          set -euo pipefail
-          TAG=$(jq -r '.[] | select(.package == "livekit-ffi") | .tag' <<<"$RELEASES")
-          echo "livekit-ffi release: '${TAG}'"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+      # Attaches the files and makes the release public. While a file of
+      # `release.required_assets` is missing on the release, verwalter fails
+      # this step and the release stays a draft. A run after a failed upload
+      # replaces the partial files.
+      - name: Attach the files and make the livekit-ffi release public
+        if: needs.plan.outputs.ffi_build == 'true' && inputs.dry_run != true
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: release
+          args: --package livekit-ffi --asset dist --publish
 
-  # The livekit-ffi release is a draft (`release.draft` in verwalter.toml).
-  # ffi-builds.yml builds the libraries, attaches them, makes the release
-  # public, and publishes the UniFFI packages. It is a job of this run, not
-  # a dispatch: a failed build makes this run red, and "Re-run failed jobs"
-  # runs it again on the same commit. A release that is already public and
-  # complete is left alone. A dry run builds and uploads nothing.
-  ffi:
-    name: FFI
-    needs: release
-    if: needs.release.outputs.ffi_tag != '' || inputs.dry_run == true
-    permissions:
-      contents: write # release assets
-      actions: write # the dispatch of uniffi-dart-publish.yml
-    uses: ./.github/workflows/ffi-builds.yml
-    with:
-      tag_name: ${{ needs.release.outputs.ffi_tag }}
-      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
-      dry_run: ${{ inputs.dry_run || false }}
-    secrets: inherit
+  # ---------------------------------------------------------------- stage 3
+  #
+  # Only livekit/rust-sdks publishes to a registry. In a fork, stages 1 and 2
+  # run as they are, the npm publish is a dry run, and the other jobs of this
+  # stage are skipped. A fork can therefore test a release without a publish.
 
   # Runs `cargo publish --no-verify` for each released crate, dependencies
   # first. A version that crates.io has is skipped, so a second run is safe.
   # A failure blocks the dependents of that crate and nothing else.
   publish-crates:
     needs: release
-    if: needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && needs.release.result == 'success' && github.repository == 'livekit/rust-sdks' && (needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     # One crates.io publish at a time, across runs. A second release run
     # reports the drafts of the first one too, so both would publish the same
@@ -155,31 +301,128 @@ jobs:
           dry-run: ${{ inputs.dry_run || false }}
           releases: ${{ needs.release.outputs.releases }}
 
-  # The npm packages carry the livekit-ffi version. `pnpm publish -r` skips a
-  # version that npm has. A run by hand without `package` is the recovery of
-  # a whole release, so it includes the Node bindings. To publish them again
-  # alone, run node-builds.yml, or this workflow with `package: livekit-ffi`.
-  call-node-ffi:
-    name: Call Node FFI Builds
-    needs: release
-    if: needs.release.outputs.ffi_tag != '' || (github.event_name == 'workflow_dispatch' && inputs.package == '')
+  # Publishes the bindings that `node-build` built in this run. The npm
+  # packages carry the livekit-ffi version, and `pnpm publish -r` skips a
+  # version that npm has. To publish them outside a release run, run
+  # node-builds.yml by hand: it builds and publishes.
+  node-publish:
+    name: Node bindings to npm
+    needs: [plan, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_build == 'true' }}
     uses: ./.github/workflows/node-builds.yml
     with:
       ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
-      dry_run: ${{ inputs.dry_run || false }}
+      build: false
+      dry_run: ${{ inputs.dry_run || github.repository != 'livekit/rust-sdks' }}
+
+  # The Swift and Android packages. They build from the tag and publish.
+  # Each one asks its registry first and skips a version that is there.
+  uniffi-packages:
+    name: UniFFI packages
+    needs: [plan, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/uniffi-packages.yml
+    with:
+      tag_name: ${{ needs.plan.outputs.ffi_tag }}
+    secrets: inherit
+
+  # The Dart package cannot be a called job: pub.dev accepts only a run whose
+  # ref is the tag (its OIDC token then has refType "tag"; see the eventName
+  # and refType checks in dart-lang/pub-dev, app/lib/package/backend.dart).
+  # So this job dispatches uniffi-dart-publish.yml at the tag.
+  # `workflow_dispatch` always creates a run, GITHUB_TOKEN included. The job
+  # then waits for that run, so its failure makes this run red.
+  uniffi-dart:
+    name: UniFFI Dart package
+    needs: [plan, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_publish == 'true' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
+    runs-on: ubuntu-latest
+    # A Dart run takes 10 to 30 minutes.
+    timeout-minutes: 120
+    permissions:
+      # Scoped to this job: it also grants cancelling and re-running
+      # workflows and deleting runs, artifacts and caches.
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.plan.outputs.ffi_tag }}
+    steps:
+      # Safe to run again: the step uses the newest publishing Dart run at the
+      # tag. It waits for a run in progress, accepts a run that passed, and
+      # starts a new run only if there is none or the newest one failed. A dry
+      # run of the Dart workflow has another run name and never counts: it
+      # ends as a success, but uploads and publishes nothing.
+      - name: Start uniffi-dart-publish.yml at the tag and wait for it
+        run: |
+          set -euo pipefail
+
+          # The run name that uniffi-dart-publish.yml gives a publishing run.
+          title="Publish Dart package ${TAG}"
+          newest_run() {
+            gh run list --workflow uniffi-dart-publish.yml --branch "$TAG" --limit 20 "$@" \
+              --json databaseId,status,conclusion,displayTitle \
+              --jq "[.[] | select(.displayTitle == \"${title}\")][0] | select(. != null) | \"\(.databaseId) \(.status) \(.conclusion)\""
+          }
+
+          run_id=""
+          read -r id status conclusion <<<"$(newest_run || true)"
+          if [ -n "${id:-}" ] && [ "$status" != "completed" ]; then
+            echo "A publishing Dart run is in progress at ${TAG}."
+            run_id=$id
+          elif [ -n "${id:-}" ] && [ "$conclusion" = "success" ]; then
+            echo "The Dart run ${id} passed for ${TAG} already."
+            exit 0
+          else
+            # One minute back, for a difference between the clocks.
+            since=$(date -u -d '1 minute ago' +%Y-%m-%dT%H:%M:%SZ)
+            gh workflow run uniffi-dart-publish.yml --ref "$TAG" -f tag_name="$TAG"
+            for _ in $(seq 1 30); do
+              read -r run_id _ <<<"$(newest_run --event workflow_dispatch --created ">=${since}" || true)"
+              [ -z "${run_id:-}" ] || break
+              sleep 10
+            done
+          fi
+          if [ -z "${run_id:-}" ]; then
+            echo "::error::uniffi-dart-publish.yml did not start for ${TAG}. Run this job again."
+            exit 1
+          fi
+          echo "Waiting for ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+
+          # One failed request must not fail the release run: only five in a
+          # row do.
+          failures=0
+          while true; do
+            if ! state=$(gh run view "$run_id" --json status,conclusion --jq '"\(.status) \(.conclusion)"'); then
+              failures=$((failures + 1))
+              if [ "$failures" -ge 5 ]; then
+                echo "::error::could not read the state of the Dart run ${run_id}. Run this job again: it waits for the same run."
+                exit 1
+              fi
+              sleep 60
+              continue
+            fi
+            failures=0
+            case "$state" in
+              "completed success") echo "The Dart package run passed."; exit 0 ;;
+              completed*) echo "::error::the Dart package run ended as: ${state#completed }"; exit 1 ;;
+            esac
+            sleep 60
+          done
 
   # The end state, asserted. `status --check` fails if a tag is not on the
   # remote, a GitHub release is missing or still a draft, a file of
   # `release.required_assets` is missing on it, or crates.io does not have a
   # version. The steps after it ask each further place that gets the
-  # livekit-ffi version: npm, pub.dev, Maven Central, the Swift package and
-  # the host libraries on the release. A step that was skipped without an
-  # error ends here. The job runs after a failed job too, and then lists
-  # what is not complete.
+  # livekit-ffi version: npm, pub.dev, Maven Central and the Swift package.
+  # A step that was skipped without an error ends here. The job runs after a
+  # failed job too, and then lists what is not complete.
   verify:
     name: Check the end state
-    needs: [release, ffi, publish-crates, call-node-ffi]
-    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true }}
+    needs: [release, publish-crates, node-publish, uniffi-packages, uniffi-dart]
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # reads only. A draft release is visible only with write access
@@ -210,10 +453,10 @@ jobs:
           done
           exit "$missing"
 
-      # verwalter does not handle these registries: ffi-builds.yml publishes
-      # to them after the livekit-ffi release is public. Each one must have
-      # the version of livekit-ffi/Cargo.toml.
-      - name: Check the UniFFI packages and the host libraries
+      # verwalter does not handle these registries: the last stage of this
+      # run publishes to them. Each one must have the version of
+      # livekit-ffi/Cargo.toml.
+      - name: Check the UniFFI packages
         env:
           GH_TOKEN: ${{ github.token }}
           SWIFT_REPO: livekit/livekit-ffi-xcframework
@@ -253,15 +496,4 @@ jobs:
               missing=1
             fi
           fi
-
-          # One zip and one checksum for each target of uniffi-cdylib.yml.
-          gh release view "$tag" --json assets --jq '.assets[].name' > on-release.txt
-          for target in $(yq -r '.jobs.build.strategy.matrix.include[].target' .github/workflows/uniffi-cdylib.yml); do
-            for asset in "build-${target}.zip" "build-${target}.zip.sha256"; do
-              if ! grep -qxF "$asset" on-release.txt; then
-                echo "::error::release ${tag} does not have ${asset}. Run uniffi-dart-publish.yml at ${tag}."
-                missing=1
-              fi
-            done
-          done
           exit "$missing"
