@@ -175,7 +175,7 @@ pub enum Expect {
     Joined(AgentActivity),
     /// [`AgentFailure::Timeout`], with or without an agent in the room.
     TimedOut,
-    /// [`AgentFailure::Left`].
+    /// [`AgentFailure::Left`] by the agent `AGENT`.
     Left,
 }
 
@@ -186,7 +186,9 @@ impl Expect {
                 agent.identity().as_str() == AGENT && agent.activity() == activity
             }
             (Self::TimedOut, AgentState::Failed(AgentFailure::Timeout { .. })) => true,
-            (Self::Left, AgentState::Failed(AgentFailure::Left)) => true,
+            (Self::Left, AgentState::Failed(AgentFailure::Left { identity, .. })) => {
+                identity.as_str() == AGENT
+            }
             _ => false,
         }
     }
