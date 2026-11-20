@@ -121,7 +121,7 @@ impl AgentState {
         match self {
             Self::Joined(agent) => Some(agent),
             Self::Failed(AgentFailure::Timeout { agent }) => agent.as_ref(),
-            Self::Failed(AgentFailure::Left) | Self::Disconnected | Self::Connecting => None,
+            Self::Failed(AgentFailure::Left { .. }) | Self::Disconnected | Self::Connecting => None,
         }
     }
 }
@@ -253,7 +253,11 @@ pub enum AgentFailure {
         agent: Option<Agent>,
     },
     /// The agent left the room while the session stayed connected.
-    Left,
+    #[non_exhaustive]
+    Left {
+        /// The identity of the agent that left.
+        identity: ParticipantIdentity,
+    },
 }
 
 /// A remote participant, as far as agent projection is concerned.
@@ -329,11 +333,12 @@ fn find_avatar_worker<'a, P: AgentCandidate>(
 }
 
 /// Projects [`AgentState`] from the room, remembering what the projection
-/// needs across calls: whether an agent was ever seen, and whether the
-/// agent-connect timeout fired.
+/// needs across calls: the last agent seen, and whether the agent-connect
+/// timeout fired.
 #[derive(Debug, Default)]
 pub(crate) struct AgentTracker {
-    has_ever_connected: bool,
+    /// The last agent seen since connecting, reported if it leaves.
+    last_agent: Option<ParticipantIdentity>,
     /// Set when the agent-connect timeout fired, to the agent present at the
     /// time (`None` if there was none).
     timed_out: Option<Option<ParticipantIdentity>>,
@@ -359,8 +364,10 @@ impl AgentTracker {
         let Some(agent) = agent else {
             // A full reconnect removes every participant, so an agent missing
             // while reconnecting has not necessarily left.
-            if self.has_ever_connected && connection == SessionConnectionState::Connected {
-                return AgentState::Failed(AgentFailure::Left);
+            if let (Some(identity), SessionConnectionState::Connected) =
+                (&self.last_agent, connection)
+            {
+                return AgentState::Failed(AgentFailure::Left { identity: identity.clone() });
             }
             if self.timed_out == Some(None) {
                 return AgentState::Failed(AgentFailure::Timeout { agent: None });
@@ -368,7 +375,9 @@ impl AgentTracker {
             return AgentState::Connecting;
         };
 
-        self.has_ever_connected = true;
+        if self.last_agent.as_ref() != Some(&agent.identity) {
+            self.last_agent = Some(agent.identity.clone());
+        }
         if agent.activity.is_conversational() {
             self.timed_out = None;
             return AgentState::Joined(agent);
@@ -497,7 +506,10 @@ mod tests {
         AgentState::Failed(AgentFailure::Timeout { agent })
     }
 
-    const LEFT: AgentState = AgentState::Failed(AgentFailure::Left);
+    /// The agent `identity` left.
+    fn left(identity: &str) -> AgentState {
+        AgentState::Failed(AgentFailure::Left { identity: identity.to_owned().into() })
+    }
 
     #[test]
     fn attribute_values_map_to_states() {
@@ -558,7 +570,15 @@ mod tests {
         let mut tracker = AgentTracker::default();
         assert_eq!(project(&mut tracker, NO_ONE), AgentState::Connecting);
         project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
-        assert_eq!(project(&mut tracker, NO_ONE), LEFT);
+        assert_eq!(project(&mut tracker, NO_ONE), left("agent"));
+    }
+
+    #[test]
+    fn left_names_the_last_agent_seen() {
+        let mut tracker = AgentTracker::default();
+        project(&mut tracker, &[Fake::agent("b", Some("listening"))]);
+        project(&mut tracker, &[Fake::agent("a", Some("listening"))]);
+        assert_eq!(project(&mut tracker, NO_ONE), left("a"));
     }
 
     #[test]
@@ -576,7 +596,7 @@ mod tests {
     fn left_recovers_when_an_agent_returns() {
         let mut tracker = AgentTracker::default();
         project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
-        assert_eq!(project(&mut tracker, NO_ONE), LEFT);
+        assert_eq!(project(&mut tracker, NO_ONE), left("agent"));
         assert_eq!(
             project(&mut tracker, &[Fake::agent("agent-2", Some("initializing"))]),
             AgentState::Joined(agent("agent-2", Initializing))
@@ -584,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_resets_has_ever_connected() {
+    fn disconnect_forgets_the_last_agent() {
         let mut tracker = AgentTracker::default();
         project(&mut tracker, &[Fake::agent("agent", Some("listening"))]);
         project_in(&mut tracker, Disconnected, NO_ONE);
@@ -640,7 +660,7 @@ mod tests {
             connected(Unknown),
             timed_out(None),
             timed_out(Some(agent("agent", Initializing))),
-            LEFT,
+            left("agent"),
         ];
         for state in &states {
             let activity = state.activity();
