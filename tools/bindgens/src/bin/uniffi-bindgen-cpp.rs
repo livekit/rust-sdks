@@ -27,7 +27,7 @@ use std::{
 };
 
 const REPOSITORY: &str = "https://github.com/livekit/uniffi-bindgen-cpp.git";
-const REVISION: &str = "ef3f257011291b28ebacfbb543a8e8f99e6f325a"; // C++17 async runtime
+const REVISION: &str = "1e745be678cfbc969e85d4e6922184384ad5d47b"; // Shared C++ async executor
 
 fn main() -> ExitCode {
     match run() {
@@ -71,6 +71,8 @@ fn install_root() -> PathBuf {
 fn install(install_root: &Path) -> Result<(), String> {
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let status = Command::new(cargo)
+        // Revisions can share a crate version, so isolate their build artifacts.
+        .env("CARGO_TARGET_DIR", install_root.join("build"))
         .args(["install", "--locked", "--git", REPOSITORY, "--rev", REVISION, "--root"])
         .arg(install_root)
         .arg("uniffi-bindgen-cpp")
