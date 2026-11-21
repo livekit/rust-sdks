@@ -85,9 +85,10 @@ impl RegionUrlProvider {
     /// server's `Cache-Control: max-age` (or [`RegionCache::DEFAULT_TTL`] when
     /// absent); failures are never cached. Once an entry goes stale a re-fetch
     /// is attempted, but if it fails the stale entry is returned as a fallback
-    /// rather than surfacing the error. Concurrent calls for the same host are
-    /// de-duplicated: only one fetch runs at a time and the rest reuse its
-    /// result.
+    /// rather than surfacing the error. A 401 is the exception: the token is
+    /// rejected in every region, so it is returned. Concurrent calls for the
+    /// same host are de-duplicated: only one fetch runs at a time and the rest
+    /// reuse its result.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
         let host = region_host(url)?;
         // Non-cloud (direct / self-hosted) hosts have no regions.
@@ -120,6 +121,7 @@ impl RegionUrlProvider {
                 cache.insert(host, urls.clone(), max_age);
                 Ok(urls)
             }
+            Err(err @ SignalError::Client(http::StatusCode::UNAUTHORIZED, _)) => Err(err),
             // The fresh fetch failed; fall back to the stale entry if we have
             // one rather than failing outright.
             Err(err) => match stale {
@@ -395,6 +397,23 @@ mod tests {
         assert_eq!(
             region_endpoint("https://myapp.livekit.cloud").unwrap(),
             "https://myapp.livekit.cloud/settings/regions"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_regions_are_not_served_after_a_401() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://stale-401.livekit.cloud";
+        let host = region_host(URL).unwrap();
+        // A zero max-age makes the entry stale at once.
+        region_cache().insert(host, vec!["wss://old.livekit.cloud".into()], Some(Duration::ZERO));
+
+        // The mock answers a request without a token with a 401.
+        let result = RegionUrlProvider::fetch_region_urls(URL, "").await;
+
+        assert!(
+            matches!(result, Err(SignalError::Client(http::StatusCode::UNAUTHORIZED, _))),
+            "expected a 401, got {result:?}"
         );
     }
 
