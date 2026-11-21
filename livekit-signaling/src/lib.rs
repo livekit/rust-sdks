@@ -197,7 +197,8 @@ pub struct SignalOptions {
     /// Turn off when the caller runs its own region failover, so the two retry loops do not stack.
     ///
     /// Defaults to `true`. When off, `connect` returns the first error unchanged and does not
-    /// use the region cache. When on, every error, including a 401, starts the region fallback.
+    /// use the region cache. When on, every error except a cancel and a 401 starts the region
+    /// fallback: a token the server rejects fails in every region.
     pub region_failover: bool,
     /// Signal protocol version sent to the server. Defaults to [`PROTOCOL_VERSION`].
     ///
@@ -413,6 +414,7 @@ impl SignalClient {
             }
             Err(err @ SignalError::Cancelled) => Err(err),
             Err(err) if !options.region_failover => Err(err),
+            Err(err @ SignalError::Client(StatusCode::UNAUTHORIZED, _)) => Err(err),
             Err(err) => {
                 // fallback to region urls
                 if matches!(&err, SignalError::Handshake { status } if status.as_u16() != 403) {
@@ -2386,6 +2388,29 @@ mod tests {
 
         assert!(connect("failover-on.livekit.cloud", true).await.is_err());
         assert!(fetched_regions("failover-on.livekit.cloud"));
+    }
+
+    /// A rejected token fails in every region, so a 401 from `rtc/validate` ends the connect.
+    /// The mock serves a region list for this host, and a region attempt would fail with
+    /// another error.
+    #[tokio::test]
+    async fn connect_skips_region_fallback_on_401() {
+        use crate::test_transport::install_mock_transport;
+        install_mock_transport();
+
+        let result = SignalClient::connect(
+            "wss://unauthorized-connect.livekit.cloud",
+            "tok",
+            SignalOptions::default(),
+            None,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(SignalError::Client(StatusCode::UNAUTHORIZED, _))),
+            "expected the 401, got {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
