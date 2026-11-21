@@ -24,7 +24,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
-use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use super::{proto, SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
@@ -143,6 +143,21 @@ impl RegionUrlProvider {
     pub fn mark_failed(url: &str, failed_url: &str) {
         if let Ok(host) = region_host(url) {
             region_cache().mark_failed(&host, failed_url);
+        }
+    }
+
+    /// Caches the region list that the server sent for `url`'s host, for the
+    /// default TTL. Ignores a host outside LiveKit Cloud and an empty list.
+    pub(crate) fn set_server_regions(url: &str, settings: &proto::RegionSettings) {
+        let Ok(host) = region_host(url) else { return };
+        let urls: Vec<String> = settings
+            .regions
+            .iter()
+            .filter(|region| !region.url.is_empty())
+            .map(|region| region.url.clone())
+            .collect();
+        if is_cloud_host(&host) && !urls.is_empty() {
+            region_cache().insert(host, urls, None);
         }
     }
 
