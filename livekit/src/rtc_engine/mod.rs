@@ -1013,16 +1013,23 @@ impl EngineInner {
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token
         // because the initial join token may have expired)
-        let (url, token, e2ee_manager) = {
+        let (url, project_url, token, e2ee_manager) = {
             let running_handle = self.running_handle.read();
             let signal_client = running_handle.session.signal_client();
             let e2ee_manager = running_handle.session.e2ee_manager();
             (
                 signal_client.url(),
+                signal_client.project_url(),
                 signal_client.token(), // Refreshed token
                 e2ee_manager.clone(),
             )
         };
+        // A full reconnect dials the region the session ran in, and fails over through the
+        // regions of the project URL, which keys the region cache.
+        let mut restart_options = self.options.clone();
+        if url != project_url {
+            restart_options.signal_options.region_url = Some(url);
+        }
 
         // Lifecycle notifications are emitted once per mode: Resuming the first
         // time the episode resumes, Restarting the first time it (re)enters full
@@ -1066,9 +1073,9 @@ impl EngineInner {
                 log::error!("restarting connection... attempt: {}", i);
                 match self
                     .try_restart_connection(
-                        &url,
+                        &project_url,
                         &token,
-                        self.options.clone(),
+                        restart_options.clone(),
                         e2ee_manager.clone(),
                     )
                     .await
