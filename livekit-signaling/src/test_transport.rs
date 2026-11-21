@@ -23,7 +23,7 @@
 //!
 //! MockTransport::connect to a URL containing `silent` instead yields a SilentConn,
 //! which stays open and never sends a frame. A URL containing `unauthorized` fails the
-//! WebSocket upgrade with a 401.
+//! WebSocket upgrade with a 401, and one containing `regions401` fails it with a 503.
 //!
 //! MockTransport::request dispatches deterministically on the request inputs:
 //!
@@ -34,6 +34,7 @@
 //!    - path contains `/settings/regions` → 200 + canned RegionUrlResponse JSON
 //!    - URL contains the marker `unauthorized`, except the region endpoint → 401
 //!      (a rejected token)
+//!    - path contains `/settings/regions` and URL contains the marker `regions401` → 401
 //!    - URL contains the marker `connrefused` → `TransportError::Connection`
 //!      (exercises the `error_with_chain` mapping in `fetch_from_endpoint`)
 //!    - URL contains the marker `badjson` → 200 + non-JSON body
@@ -136,6 +137,9 @@ impl WsClient for MockTransport {
         if url.contains("unauthorized") {
             return Err(TransportError::Http { status: 401 });
         }
+        if url.contains("regions401") {
+            return Err(TransportError::Http { status: 503 });
+        }
         let pong = proto::SignalResponse {
             message: Some(proto::signal_response::Message::PongResp(proto::Pong::default())),
         };
@@ -173,6 +177,13 @@ impl livekit_net::HttpClient for MockTransport {
         }
 
         // Rule 2: dispatch on URL.
+        if url.contains("regions401") && url.contains("/settings/regions") {
+            return Ok(HttpResponse {
+                status: 401,
+                headers: vec![],
+                body: b"invalid token".to_vec(),
+            });
+        }
         if url.contains("unauthorized") && !url.contains("/settings/regions") {
             return Ok(HttpResponse {
                 status: 401,
