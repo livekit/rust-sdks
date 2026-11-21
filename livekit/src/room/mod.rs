@@ -643,6 +643,12 @@ impl Room {
         }
     }
 
+    /// Undoes [`Room::prepare_connection`] for `url`: stops its background refresh, and the next
+    /// connect to `url` starts at `url`.
+    pub fn cancel_prepared_connection(url: &str) {
+        RegionUrlProvider::cancel_prepared(url);
+    }
+
     pub async fn connect(
         url: &str,
         token: &str,

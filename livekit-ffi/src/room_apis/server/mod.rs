@@ -97,6 +97,9 @@ pub struct FfiServer {
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
+    /// The URL and task of each prepare request, so that [`Self::dispose`] can undo them: a
+    /// prepare leaves a region refresh running that no room or handle owns.
+    prepared_connections: Mutex<Vec<(String, JoinHandle<()>)>>,
 }
 
 impl Default for FfiServer {
@@ -145,6 +148,7 @@ impl Default for FfiServer {
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
+            prepared_connections: Default::default(),
         }
     }
 }
@@ -188,6 +192,14 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
+        // Wait for each prepare to finish (its region fetch times out), so that none starts a
+        // refresh after this, then stop the refreshes they started.
+        let prepared = std::mem::take(&mut *self.prepared_connections.lock());
+        for (url, task) in prepared {
+            let _ = task.await;
+            livekit::Room::cancel_prepared_connection(&url);
+        }
+
         // Closing rooms does not release resources owned by FFI handles.
         // Cancel handle watchers first, then drop handles one by one so Drop
         // impls can call drop_handle without re-entering DashMap::clear().
@@ -197,6 +209,14 @@ impl FfiServer {
         for id in leftover {
             let _ = self.ffi_handles.remove(&id);
         }
+    }
+
+    /// Records a prepare request, so that [`Self::dispose`] can undo it. Keeps one finished task
+    /// per URL.
+    pub(crate) fn track_prepared_connection(&self, url: String, task: JoinHandle<()>) {
+        let mut prepared = self.prepared_connections.lock();
+        prepared.retain(|(prepared_url, task)| *prepared_url != url || !task.is_finished());
+        prepared.push((url, task));
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {

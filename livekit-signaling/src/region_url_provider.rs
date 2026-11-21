@@ -163,6 +163,15 @@ impl RegionUrlProvider {
         Ok(())
     }
 
+    /// Undoes [`Self::prepare`] for `url`'s host: stops its refresh, and the next connect starts
+    /// at `url`.
+    pub fn cancel_prepared(url: &str) {
+        let Ok(host) = region_host(url) else { return };
+        if let Some(refresh) = prepared_refreshes().lock().remove(&host) {
+            refresh.abort();
+        }
+    }
+
     /// Stops the refresh that [`Self::prepare`] started for `url`'s host, and returns the first
     /// cached region, which the connect dials first. `None` when `url` was not prepared.
     pub(crate) fn take_prepared(url: &str) -> Option<String> {
@@ -522,6 +531,21 @@ mod tests {
         );
         tokio::time::sleep(RegionCache::DEFAULT_TTL * 4).await;
         assert_eq!(fetches(), 2, "the refresh kept running after the connect took over");
+    }
+
+    /// `cancel_prepared` stops the refresh, and the next connect starts at the project URL.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_prepared_stops_the_refresh() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://maxage0-prepare-cancel.livekit.cloud";
+        let fetches = fetch_counter("maxage0-prepare-cancel.livekit.cloud");
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("prepare");
+        RegionUrlProvider::cancel_prepared(URL);
+        tokio::time::sleep(RegionCache::DEFAULT_TTL * 4).await;
+
+        assert_eq!(fetches(), 1, "the refresh kept running after the cancel");
+        assert_eq!(RegionUrlProvider::take_prepared(URL), None, "the prepare was not undone");
     }
 
     /// A second `prepare` for a host replaces the first refresh instead of adding one.

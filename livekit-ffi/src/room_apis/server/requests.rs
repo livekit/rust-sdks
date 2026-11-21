@@ -125,11 +125,12 @@ fn on_prepare_connection(
     request: proto::PrepareConnectionRequest,
 ) -> FfiResult<proto::PrepareConnectionResponse> {
     let async_id = server.resolve_async_id(request.request_async_id);
+    let url = request.url.clone();
     let handle = server.async_runtime.spawn(async move {
         Room::prepare_connection(&request.url, &request.token).await;
         let _ = server.send_event(proto::PrepareConnectionCallback { async_id }.into());
     });
-    server.watch_panic(handle);
+    server.track_prepared_connection(url, server.watch_panic(handle));
     Ok(proto::PrepareConnectionResponse { async_id })
 }
 
