@@ -997,6 +997,16 @@ async fn signal_task(
 
     let mut rtt = 0; // TODO(theomonnom): Should we expose SignalClient rtt?
 
+    // Keeps the region list fresh for as long as this task runs. Never completes, so its
+    // branch below only drives it.
+    let region_refresh = async {
+        if inner.options.region_failover {
+            RegionUrlProvider::keep_fresh(&inner.project_url, || inner.token.lock().clone()).await;
+        }
+        std::future::pending::<()>().await
+    };
+    tokio::pin!(region_refresh);
+
     let reason = loop {
         tokio::select! {
             // Biased so a cancel wins over a transport loss that lands with it: the cancel is
@@ -1067,6 +1077,7 @@ async fn signal_task(
                 // a resume reconnect (see SignalEvent::Close docs).
                 break "ping timeout";
             }
+            _ = &mut region_refresh => {}
         }
     };
 
@@ -1936,6 +1947,33 @@ mod tests {
         // Without a token the mock answers a region fetch with a 401, so only a cache hit is Ok.
         let urls = RegionUrlProvider::fetch_region_urls(PROJECT_URL, "").await;
         assert_eq!(urls.expect("a cache hit"), vec!["wss://leave-region.livekit.cloud"]);
+        task.abort();
+    }
+
+    /// The signal task keeps the region list fresh with the session's token while it runs.
+    #[tokio::test(start_paused = true)]
+    async fn the_signal_task_refreshes_the_region_list() {
+        use crate::test_transport::{install_mock_transport, HTTP_REQUESTS};
+        install_mock_transport();
+        const PROJECT_URL: &str = "wss://maxage0-task-refresh.livekit.cloud";
+        // A first fetch fills the cache. The mock serves it with a zero max-age, so it is stale.
+        RegionUrlProvider::fetch_region_urls(PROJECT_URL, "tok").await.expect("first fetch");
+        let fetches = || {
+            let endpoint = "https://maxage0-task-refresh.livekit.cloud/settings/regions";
+            HTTP_REQUESTS.lock().unwrap().iter().filter(|url| *url == endpoint).count()
+        };
+
+        let conn = Arc::new(FramesConn { frames: Mutex::new(Vec::new()) });
+        let (stream, stream_events) = SignalStream::spawn(conn);
+        let mut inner = make_stub_inner_with(resumable_join());
+        Arc::get_mut(&mut inner).expect("no other owner yet").project_url = PROJECT_URL.into();
+        *inner.token.lock() = "tok".into();
+        *inner.state.try_write().expect("no other owner yet") = SignalState::Connected(stream);
+        let (emitter, _events) = mpsc::unbounded_channel();
+        let task = tokio::spawn(signal_task(inner.clone(), emitter, stream_events));
+
+        tokio::time::sleep(livekit_region::RegionCache::DEFAULT_TTL * 2).await;
+        assert!(fetches() >= 2, "the signal task did not refresh the region list");
         task.abort();
     }
 
