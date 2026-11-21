@@ -24,7 +24,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
-use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use super::{proto, SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
@@ -143,6 +143,28 @@ impl RegionUrlProvider {
     pub fn mark_failed(url: &str, failed_url: &str) {
         if let Ok(host) = region_host(url) {
             region_cache().mark_failed(&host, failed_url);
+        }
+    }
+
+    /// Caches the region list that the server sent for `url`'s host, for the
+    /// default TTL. Ignores a host outside LiveKit Cloud and an empty list.
+    ///
+    /// Only a `wss` session is trusted, and only its `wss` region URLs: the cache
+    /// is keyed by host, so a list planted on a plaintext session would reach a
+    /// later `wss` connect to the same host, which sends its token there.
+    pub(crate) fn set_server_regions(url: &str, settings: &proto::RegionSettings) {
+        if !url.starts_with("wss://") {
+            return;
+        }
+        let Ok(host) = region_host(url) else { return };
+        let urls: Vec<String> = settings
+            .regions
+            .iter()
+            .filter(|region| region.url.starts_with("wss://"))
+            .map(|region| region.url.clone())
+            .collect();
+        if is_cloud_host(&host) && !urls.is_empty() {
+            region_cache().insert(host, urls, None);
         }
     }
 
@@ -415,6 +437,33 @@ mod tests {
             matches!(result, Err(SignalError::Client(http::StatusCode::UNAUTHORIZED, _))),
             "expected a 401, got {result:?}"
         );
+    }
+
+    /// Server regions are taken only from a `wss` session, and only `wss` ones.
+    #[test]
+    fn server_regions_need_tls() {
+        let settings = |urls: &[&str]| proto::RegionSettings {
+            regions: urls
+                .iter()
+                .map(|url| proto::RegionInfo { url: url.to_string(), ..Default::default() })
+                .collect(),
+        };
+        let cached = |host: &str| match region_cache().get(host) {
+            Cached::Fresh(urls) | Cached::Stale(urls) => urls,
+            Cached::Miss => vec![],
+        };
+
+        RegionUrlProvider::set_server_regions(
+            "ws://plain-regions.livekit.cloud",
+            &settings(&["wss://planted.livekit.cloud"]),
+        );
+        assert!(cached("plain-regions.livekit.cloud").is_empty(), "trusted a plaintext session");
+
+        RegionUrlProvider::set_server_regions(
+            "wss://tls-regions.livekit.cloud",
+            &settings(&["ws://plain.livekit.cloud", "wss://secure.livekit.cloud"]),
+        );
+        assert_eq!(cached("tls-regions.livekit.cloud"), vec!["wss://secure.livekit.cloud"]);
     }
 
     #[tokio::test]
