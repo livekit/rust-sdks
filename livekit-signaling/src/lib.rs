@@ -2626,8 +2626,10 @@ mod tests {
         install_mock_transport();
         let dialed = |host: &str| WS_CONNECTS.lock().unwrap().iter().any(|u| u.contains(host));
 
-        let mut options = SignalOptions::default();
-        options.region_url = Some("wss://dial-first-region.livekit.cloud".into());
+        let options = SignalOptions {
+            region_url: Some("wss://dial-first-region.livekit.cloud".into()),
+            ..Default::default()
+        };
         // The mock regions close before a join response, so the connect fails.
         let _ = SignalClient::connect("wss://dial-first.livekit.cloud", "tok", options, None).await;
 
