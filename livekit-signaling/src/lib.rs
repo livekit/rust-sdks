@@ -456,8 +456,28 @@ impl SignalClient {
                         urls
                     }
                 };
+                // The attempt can outlast the list's max-age. Reading the list again through the
+                // cache refetches it only when it went stale, and checks the cancel token first,
+                // which a cancel during the attempt's cleanup needs.
+                let urls = match urls {
+                    Ok(_) => {
+                        cancel
+                            .run_until_cancelled(RegionUrlProvider::fetch_region_urls(url, token))
+                            .await
+                    }
+                    Err(err) => (!cancel.is_cancelled()).then_some(Err(err)),
+                };
+                let Some(urls) = urls else {
+                    return Err(SignalError::Cancelled);
+                };
                 let urls = match urls {
                     Ok(urls) => urls,
+                    // The dial error may carry no status, for example when `rtc/validate` timed
+                    // out. A rejected token must still reach the caller as one, so that it
+                    // stops retrying.
+                    Err(region_err @ SignalError::Client(StatusCode::UNAUTHORIZED, _)) => {
+                        return Err(region_err)
+                    }
                     Err(region_err) => {
                         log::warn!(
                             "failed to fetch region urls: {region_err}; surfacing original connection error"
@@ -2502,6 +2522,44 @@ mod tests {
         assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
     }
 
+    /// A list that expired during the first attempt is fetched again before the failover. The
+    /// mock serves this host with a zero max-age, so the list is stale as soon as it arrives.
+    #[tokio::test]
+    async fn failover_refreshes_a_list_that_expired_during_the_attempt() {
+        use crate::test_transport::{install_mock_transport, HTTP_REQUESTS};
+        install_mock_transport();
+        const HOST: &str = "maxage0-failover.livekit.cloud";
+
+        // The mock region closes before a join response, so every attempt fails.
+        let _ =
+            SignalClient::connect(&format!("wss://{HOST}"), "tok", SignalOptions::default(), None)
+                .await;
+
+        let endpoint = format!("https://{HOST}/settings/regions");
+        let fetches = HTTP_REQUESTS.lock().unwrap().iter().filter(|u| **u == endpoint).count();
+        assert_eq!(fetches, 2, "expected the early fetch and one refresh at the failover");
+    }
+
+    /// A cancel that lands while a failed attempt closes its transport ends the connect with
+    /// `Cancelled`, also when the region fetch finished during the attempt.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_during_the_attempt_cleanup_returns_cancelled() {
+        use crate::test_transport::{install_mock_transport, stalled_closes};
+        install_mock_transport();
+        // Not a cloud host, so the region list is empty and arrives at once.
+        const URL: &str = "wss://stalledclose-cancel.example.com";
+
+        let options = SignalOptions::default();
+        let cancel = options.cancellation_token.clone();
+        let connect =
+            tokio::spawn(async move { SignalClient::connect(URL, "t", options, None).await });
+        eventually(|| stalled_closes(URL) == 1, "the failed attempt is closing").await;
+        cancel.cancel();
+
+        let result = connect.await.expect("connect task panicked");
+        assert!(matches!(result, Err(SignalError::Cancelled)), "got {:?}", result.err());
+    }
+
     /// A rejected token fails in every region, so a 401 from `rtc/validate` ends the connect.
     /// The mock serves a region list for this host, and a region attempt would fail with
     /// another error.
@@ -2512,6 +2570,28 @@ mod tests {
 
         let result = SignalClient::connect(
             "wss://unauthorized-connect.livekit.cloud",
+            "tok",
+            SignalOptions::default(),
+            None,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(SignalError::Client(StatusCode::UNAUTHORIZED, _))),
+            "expected the 401, got {:?}",
+            result.err()
+        );
+    }
+
+    /// A 401 from the region endpoint reaches the caller, also when the dial failed without an
+    /// auth status, so that the caller stops retrying a rejected token.
+    #[tokio::test]
+    async fn connect_returns_a_401_from_region_discovery() {
+        use crate::test_transport::install_mock_transport;
+        install_mock_transport();
+
+        let result = SignalClient::connect(
+            "wss://regions401-connect.livekit.cloud",
             "tok",
             SignalOptions::default(),
             None,
