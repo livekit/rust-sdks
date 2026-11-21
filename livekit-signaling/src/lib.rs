@@ -418,7 +418,11 @@ impl SignalClient {
             ))
         };
 
-        let first_url = options.region_url.as_deref().unwrap_or(url);
+        // A connect after `RegionUrlProvider::prepare` stops its refresh, and dials the best
+        // region unless the caller runs its own failover or names a region itself.
+        let prepared_url =
+            RegionUrlProvider::take_prepared(url).filter(|_| options.region_failover);
+        let first_url = options.region_url.as_deref().or(prepared_url.as_deref()).unwrap_or(url);
 
         // Fetch the region list next to the first attempt, so a failover does not wait for it.
         // The fetch is dropped when the attempt succeeds.
@@ -2578,6 +2582,24 @@ mod tests {
         cancel.cancel();
         let result = connect.await.expect("connect task panicked");
         assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
+    }
+
+    /// A connect after `prepare` dials the prepared region instead of the project URL, once.
+    #[tokio::test]
+    async fn connect_after_prepare_dials_the_prepared_region() {
+        use crate::test_transport::{install_mock_transport, WS_CONNECTS};
+        install_mock_transport();
+        const HOST: &str = "prepare-first.livekit.cloud";
+        let url = format!("wss://{HOST}");
+        let dialed_project = || WS_CONNECTS.lock().unwrap().iter().any(|u| u.contains(HOST));
+
+        RegionUrlProvider::prepare(&url, "tok").await.expect("prepare");
+        // The mock region closes before a join response, so the connect fails.
+        let _ = SignalClient::connect(&url, "tok", SignalOptions::default(), None).await;
+        assert!(!dialed_project(), "the prepared connect dialed the project URL");
+
+        let _ = SignalClient::connect(&url, "tok", SignalOptions::default(), None).await;
+        assert!(dialed_project(), "a second connect used the prepared region again");
     }
 
     /// A list that expired during the first attempt is fetched again before the failover. The

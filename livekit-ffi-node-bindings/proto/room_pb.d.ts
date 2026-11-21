@@ -522,6 +522,94 @@ export declare class DisconnectCallback extends Message<DisconnectCallback> {
 }
 
 /**
+ * Pick the best region of a LiveKit Cloud project before connecting, so that
+ * the next ConnectRequest to the same URL dials that region directly. The
+ * region list is refreshed in the background until that connect, until a
+ * later PrepareConnectionRequest to the same URL, or until the token expires.
+ * Best effort: the callback carries no error.
+ *
+ * @generated from message livekit.proto.PrepareConnectionRequest
+ */
+export declare class PrepareConnectionRequest extends Message<PrepareConnectionRequest> {
+  /**
+   * @generated from field: required string url = 1;
+   */
+  url?: string;
+
+  /**
+   * @generated from field: required string token = 2;
+   */
+  token?: string;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<PrepareConnectionRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrepareConnectionRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrepareConnectionRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrepareConnectionRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrepareConnectionRequest;
+
+  static equals(a: PrepareConnectionRequest | PlainMessage<PrepareConnectionRequest> | undefined, b: PrepareConnectionRequest | PlainMessage<PrepareConnectionRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.PrepareConnectionResponse
+ */
+export declare class PrepareConnectionResponse extends Message<PrepareConnectionResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<PrepareConnectionResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrepareConnectionResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrepareConnectionResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrepareConnectionResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrepareConnectionResponse;
+
+  static equals(a: PrepareConnectionResponse | PlainMessage<PrepareConnectionResponse> | undefined, b: PrepareConnectionResponse | PlainMessage<PrepareConnectionResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.PrepareConnectionCallback
+ */
+export declare class PrepareConnectionCallback extends Message<PrepareConnectionCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<PrepareConnectionCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PrepareConnectionCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrepareConnectionCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PrepareConnectionCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PrepareConnectionCallback;
+
+  static equals(a: PrepareConnectionCallback | PlainMessage<PrepareConnectionCallback> | undefined, b: PrepareConnectionCallback | PlainMessage<PrepareConnectionCallback> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.SimulateScenarioRequest
  */
 export declare class SimulateScenarioRequest extends Message<SimulateScenarioRequest> {
