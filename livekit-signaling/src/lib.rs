@@ -408,7 +408,22 @@ impl SignalClient {
             ))
         };
 
-        match SignalInner::connect(url, token, options.clone(), initial_publish.clone()).await {
+        // Fetch the region list next to the first attempt, so a failover does not wait for it.
+        // The fetch is dropped when the attempt succeeds.
+        let attempt = SignalInner::connect(url, token, options.clone(), initial_publish.clone());
+        let fetch = RegionUrlProvider::fetch_region_urls(url, token);
+        tokio::pin!(attempt, fetch);
+        let mut fetched = None;
+        let attempt_result = loop {
+            tokio::select! {
+                result = &mut attempt => break result,
+                urls = &mut fetch, if options.region_failover && fetched.is_none() => {
+                    fetched = Some(urls);
+                }
+            }
+        };
+
+        match attempt_result {
             Ok((inner, join_response, stream_events)) => {
                 handle_success(inner, join_response, stream_events)
             }
@@ -428,10 +443,27 @@ impl SignalClient {
                 // that must NOT be fatal: log a warning and fall back to the
                 // original connection error rather than masking it with the
                 // fetch error.
-                let Some(urls) = cancel
-                    .run_until_cancelled(RegionUrlProvider::fetch_region_urls(url, token))
-                    .await
-                else {
+                let urls = match fetched {
+                    Some(urls) => urls,
+                    None => {
+                        let Some(urls) = cancel.run_until_cancelled(fetch).await else {
+                            return Err(SignalError::Cancelled);
+                        };
+                        urls
+                    }
+                };
+                // The attempt can outlast the list's max-age. Reading the list again through the
+                // cache refetches it only when it went stale, and checks the cancel token first,
+                // which a cancel during the attempt's cleanup needs.
+                let urls = match urls {
+                    Ok(_) => {
+                        cancel
+                            .run_until_cancelled(RegionUrlProvider::fetch_region_urls(url, token))
+                            .await
+                    }
+                    Err(err) => (!cancel.is_cancelled()).then_some(Err(err)),
+                };
+                let Some(urls) = urls else {
                     return Err(SignalError::Cancelled);
                 };
                 let urls = match urls {
@@ -1858,9 +1890,8 @@ mod tests {
     /// transport it opened. A cancelled connect is not retried on other regions.
     #[tokio::test]
     async fn cancel_interrupts_an_attempt_waiting_on_the_server() {
-        use crate::test_transport::{install_mock_transport, silent_conns, HTTP_REQUESTS};
+        use crate::test_transport::{install_mock_transport, silent_conns};
         install_mock_transport();
-        // A cloud host, so a region fallback would show up as a `/settings/regions` request.
         const URL: &str = "wss://silent-cancel.livekit.cloud";
 
         let options = SignalOptions::default();
@@ -1870,12 +1901,9 @@ mod tests {
         eventually(|| silent_conns(URL) == 1, "connect opened its transport").await;
         cancel.cancel();
         let result = connect.await.expect("connect task panicked");
+        // A region attempt would end with the error of the mock region instead.
         assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
         assert_eq!(silent_conns(URL), 0, "a cancelled connect left the socket open");
-        assert!(
-            !HTTP_REQUESTS.lock().unwrap().iter().any(|url| url.contains("silent-cancel")),
-            "a cancelled connect fell back to other regions"
-        );
 
         let mut inner = make_stub_inner_with(resumable_join());
         let cancel = CancellationToken::new();
@@ -2394,6 +2422,70 @@ mod tests {
 
         assert!(connect("failover-on.livekit.cloud", true).await.is_err());
         assert!(fetched_regions("failover-on.livekit.cloud"));
+    }
+
+    /// The region list is fetched while the first attempt still waits on the server, so a
+    /// failover does not wait for it.
+    #[tokio::test]
+    async fn connect_fetches_regions_during_the_first_attempt() {
+        use crate::test_transport::{install_mock_transport, silent_conns, HTTP_REQUESTS};
+        install_mock_transport();
+        const HOST: &str = "silent-early-fetch.livekit.cloud";
+
+        let options = SignalOptions::default();
+        let cancel = options.cancellation_token.clone();
+        let connect = tokio::spawn(async move {
+            SignalClient::connect(&format!("wss://{HOST}"), "t", options, None).await
+        });
+        let endpoint = format!("https://{HOST}/settings/regions");
+        eventually(
+            || HTTP_REQUESTS.lock().unwrap().contains(&endpoint),
+            "regions fetched during the first attempt",
+        )
+        .await;
+        assert_eq!(silent_conns(HOST), 1, "the first attempt is still waiting");
+
+        cancel.cancel();
+        let result = connect.await.expect("connect task panicked");
+        assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
+    }
+
+    /// A list that expired during the first attempt is fetched again before the failover. The
+    /// mock serves this host with a zero max-age, so the list is stale as soon as it arrives.
+    #[tokio::test]
+    async fn failover_refreshes_a_list_that_expired_during_the_attempt() {
+        use crate::test_transport::{install_mock_transport, HTTP_REQUESTS};
+        install_mock_transport();
+        const HOST: &str = "maxage0-failover.livekit.cloud";
+
+        // The mock region closes before a join response, so every attempt fails.
+        let _ =
+            SignalClient::connect(&format!("wss://{HOST}"), "tok", SignalOptions::default(), None)
+                .await;
+
+        let endpoint = format!("https://{HOST}/settings/regions");
+        let fetches = HTTP_REQUESTS.lock().unwrap().iter().filter(|u| **u == endpoint).count();
+        assert_eq!(fetches, 2, "expected the early fetch and one refresh at the failover");
+    }
+
+    /// A cancel that lands while a failed attempt closes its transport ends the connect with
+    /// `Cancelled`, also when the region fetch finished during the attempt.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_during_the_attempt_cleanup_returns_cancelled() {
+        use crate::test_transport::{install_mock_transport, stalled_closes};
+        install_mock_transport();
+        // Not a cloud host, so the region list is empty and arrives at once.
+        const URL: &str = "wss://stalledclose-cancel.example.com";
+
+        let options = SignalOptions::default();
+        let cancel = options.cancellation_token.clone();
+        let connect =
+            tokio::spawn(async move { SignalClient::connect(URL, "t", options, None).await });
+        eventually(|| stalled_closes(URL) == 1, "the failed attempt is closing").await;
+        cancel.cancel();
+
+        let result = connect.await.expect("connect task panicked");
+        assert!(matches!(result, Err(SignalError::Cancelled)), "got {:?}", result.err());
     }
 
     /// A rejected token fails in every region, so a 401 from `rtc/validate` ends the connect.
