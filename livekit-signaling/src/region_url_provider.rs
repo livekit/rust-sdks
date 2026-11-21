@@ -161,6 +161,29 @@ impl RegionUrlProvider {
         }
     }
 
+    /// Refetches the region list for `url`'s host whenever it goes stale, but at
+    /// most every [`RegionCache::DEFAULT_TTL`], so a failover finds a fresh list.
+    /// `token` is read before each fetch, so a refreshed token is used. Returns
+    /// when `url` is not a LiveKit Cloud URL or the server rejects the token.
+    pub(crate) async fn keep_fresh(url: &str, token: impl Fn() -> String) {
+        let Ok(host) = region_host(url) else { return };
+        if !is_cloud_host(&host) {
+            return;
+        }
+        loop {
+            // The floor also paces the retries: a failed fetch leaves the entry stale.
+            tokio::time::sleep(region_cache().fresh_for(&host).max(RegionCache::DEFAULT_TTL)).await;
+            match Self::fetch_region_urls(url, &token()).await {
+                Ok(_) => {}
+                Err(SignalError::Client(http::StatusCode::UNAUTHORIZED, _)) => {
+                    log::debug!("token rejected, stopping the region refresh for {host}");
+                    return;
+                }
+                Err(err) => log::debug!("region refresh for {host} failed: {err}"),
+            }
+        }
+    }
+
     /// Invalidates the cached region list for `url`'s host, forcing a fresh
     /// fetch on the next [`Self::fetch_region_urls`] call.
     pub fn invalidate(url: &str) {
@@ -413,6 +436,36 @@ mod tests {
             region_endpoint("https://myapp.livekit.cloud").unwrap(),
             "https://myapp.livekit.cloud/settings/regions"
         );
+    }
+
+    /// The refresh refetches a stale list, but waits at least the default TTL.
+    /// The cache ages on the real clock, so this test starts from a stale entry.
+    #[tokio::test(start_paused = true)]
+    async fn keep_fresh_refetches_a_stale_list() {
+        use crate::test_transport::HTTP_REQUESTS;
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://keep-fresh.livekit.cloud";
+        let endpoint = "https://keep-fresh.livekit.cloud/settings/regions".to_string();
+        let fetched = || HTTP_REQUESTS.lock().unwrap().contains(&endpoint);
+        let host = region_host(URL).unwrap();
+        region_cache().insert(host, vec!["wss://r.livekit.cloud".into()], Some(Duration::ZERO));
+
+        let refresh = tokio::spawn(RegionUrlProvider::keep_fresh(URL, || "tok".into()));
+        tokio::time::sleep(RegionCache::DEFAULT_TTL - Duration::from_secs(1)).await;
+        assert!(!fetched(), "refetched before the default TTL");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(fetched(), "did not refetch the stale list");
+        refresh.abort();
+    }
+
+    /// The refresh stops when the server rejects the token.
+    #[tokio::test(start_paused = true)]
+    async fn keep_fresh_stops_on_a_401() {
+        crate::test_transport::install_mock_transport();
+        // The mock answers a request without a token with a 401.
+        let refresh =
+            RegionUrlProvider::keep_fresh("wss://keep-fresh-401.livekit.cloud", String::new);
+        tokio::time::timeout(Duration::from_secs(60), refresh).await.expect("the refresh stopped");
     }
 
     #[tokio::test]

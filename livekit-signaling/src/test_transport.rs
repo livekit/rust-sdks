@@ -31,7 +31,8 @@
 //!    returns 401. This means any test that expects `Ok` from `validate()` or
 //!    `fetch_from_endpoint()` implicitly proves the Bearer token was forwarded.
 //! 2. Else dispatches on the URL path:
-//!    - path contains `/settings/regions` → 200 + canned RegionUrlResponse JSON
+//!    - path contains `/settings/regions` → 200 + canned RegionUrlResponse JSON,
+//!      with `Cache-Control: max-age=0` when the URL contains the marker `maxage0`
 //!    - URL contains the marker `unauthorized`, except the region endpoint → 401
 //!      (a rejected token)
 //!    - URL contains the marker `connrefused` → `TransportError::Connection`
@@ -197,7 +198,12 @@ impl livekit_net::HttpClient for MockTransport {
         if url.contains("/settings/regions") {
             // Serve a canned RegionUrlResponse JSON for region discovery tests.
             let body = br#"{"regions":[{"region":"us-mock-1","url":"wss://us-mock.livekit.cloud","distance":"10"}]}"#;
-            return Ok(HttpResponse { status: 200, headers: vec![], body: body.to_vec() });
+            let headers = if url.contains("maxage0") {
+                vec![Header { name: "cache-control".into(), value: "max-age=0".into() }]
+            } else {
+                vec![]
+            };
+            return Ok(HttpResponse { status: 200, headers, body: body.to_vec() });
         }
         // Default: validate or any other endpoint — return 200 with empty body.
         Ok(HttpResponse { status: 200, headers: vec![], body: vec![] })
