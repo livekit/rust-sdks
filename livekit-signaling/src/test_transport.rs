@@ -23,7 +23,8 @@
 //!
 //! MockTransport::connect to a URL containing `silent` instead yields a SilentConn,
 //! which stays open and never sends a frame. A URL containing `unauthorized` fails the
-//! WebSocket upgrade with a 401, and one containing `regions401` fails it with a 503.
+//! WebSocket upgrade with a 401, and one containing `regions401` fails it with a 503. A URL
+//! containing `stalledclose` yields a connection that ends at once and never finishes closing.
 //!
 //! MockTransport::request dispatches deterministically on the request inputs:
 //!
@@ -31,7 +32,8 @@
 //!    returns 401. This means any test that expects `Ok` from `validate()` or
 //!    `fetch_from_endpoint()` implicitly proves the Bearer token was forwarded.
 //! 2. Else dispatches on the URL path:
-//!    - path contains `/settings/regions` → 200 + canned RegionUrlResponse JSON
+//!    - path contains `/settings/regions` → 200 + canned RegionUrlResponse JSON,
+//!      with `Cache-Control: max-age=0` when the URL contains the marker `maxage0`
 //!    - URL contains the marker `unauthorized`, except the region endpoint → 401
 //!      (a rejected token)
 //!    - path contains `/settings/regions` and URL contains the marker `regions401` → 401
@@ -72,6 +74,35 @@ impl WsConnection for MockConn {
     }
 
     async fn close(&self) {}
+}
+
+/// The URL of every connection to a URL containing `stalledclose` whose close began.
+static STALLED_CLOSES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Closes begun on connections to URLs containing `marker`.
+pub fn stalled_closes(marker: &str) -> usize {
+    STALLED_CLOSES.lock().unwrap().iter().filter(|url| url.contains(marker)).count()
+}
+
+/// Ends before a join response, like [`MockConn`], but never finishes closing.
+struct StalledCloseConn {
+    url: String,
+}
+
+#[async_trait::async_trait]
+impl WsConnection for StalledCloseConn {
+    async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+        Ok(None)
+    }
+
+    async fn close(&self) {
+        STALLED_CLOSES.lock().unwrap().push(self.url.clone());
+        std::future::pending().await
+    }
 }
 
 /// The URL of every open connection to a URL containing `silent`.
@@ -133,6 +164,9 @@ impl WsClient for MockTransport {
     ) -> Result<WsConnectResult, TransportError> {
         if url.contains("silent") {
             return Ok(WsConnectResult { connection: Arc::new(SilentConn::new(url)) });
+        }
+        if url.contains("stalledclose") {
+            return Ok(WsConnectResult { connection: Arc::new(StalledCloseConn { url }) });
         }
         if url.contains("unauthorized") {
             return Err(TransportError::Http { status: 401 });
@@ -208,7 +242,12 @@ impl livekit_net::HttpClient for MockTransport {
         if url.contains("/settings/regions") {
             // Serve a canned RegionUrlResponse JSON for region discovery tests.
             let body = br#"{"regions":[{"region":"us-mock-1","url":"wss://us-mock.livekit.cloud","distance":"10"}]}"#;
-            return Ok(HttpResponse { status: 200, headers: vec![], body: body.to_vec() });
+            let headers = if url.contains("maxage0") {
+                vec![Header { name: "cache-control".into(), value: "max-age=0".into() }]
+            } else {
+                vec![]
+            };
+            return Ok(HttpResponse { status: 200, headers, body: body.to_vec() });
         }
         // Default: validate or any other endpoint — return 200 with empty body.
         Ok(HttpResponse { status: 200, headers: vec![], body: vec![] })
