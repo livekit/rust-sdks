@@ -436,6 +436,12 @@ impl SignalClient {
                 };
                 let urls = match urls {
                     Ok(urls) => urls,
+                    // The dial error may carry no status, for example when `rtc/validate` timed
+                    // out. A rejected token must still reach the caller as one, so that it
+                    // stops retrying.
+                    Err(region_err @ SignalError::Client(StatusCode::UNAUTHORIZED, _)) => {
+                        return Err(region_err)
+                    }
                     Err(region_err) => {
                         log::warn!(
                             "failed to fetch region urls: {region_err}; surfacing original connection error"
@@ -2400,6 +2406,28 @@ mod tests {
 
         let result = SignalClient::connect(
             "wss://unauthorized-connect.livekit.cloud",
+            "tok",
+            SignalOptions::default(),
+            None,
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(SignalError::Client(StatusCode::UNAUTHORIZED, _))),
+            "expected the 401, got {:?}",
+            result.err()
+        );
+    }
+
+    /// A 401 from the region endpoint reaches the caller, also when the dial failed without an
+    /// auth status, so that the caller stops retrying a rejected token.
+    #[tokio::test]
+    async fn connect_returns_a_401_from_region_discovery() {
+        use crate::test_transport::install_mock_transport;
+        install_mock_transport();
+
+        let result = SignalClient::connect(
+            "wss://regions401-connect.livekit.cloud",
             "tok",
             SignalOptions::default(),
             None,
