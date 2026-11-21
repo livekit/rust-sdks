@@ -119,6 +119,20 @@ fn on_simulate_scenario(
     Ok(proto::SimulateScenarioResponse { async_id })
 }
 
+/// Pick the best region before a connect. Best effort, so the callback carries no error.
+fn on_prepare_connection(
+    server: &'static FfiServer,
+    request: proto::PrepareConnectionRequest,
+) -> FfiResult<proto::PrepareConnectionResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    let handle = server.async_runtime.spawn(async move {
+        Room::prepare_connection(&request.url, &request.token).await;
+        let _ = server.send_event(proto::PrepareConnectionCallback { async_id }.into());
+    });
+    server.watch_panic(handle);
+    Ok(proto::PrepareConnectionResponse { async_id })
+}
+
 /// Mark the room event listener as ready so room event forwarding can begin.
 /// The FFI client should send this once it has installed its event listener.
 fn on_ready_for_room_event(
@@ -1404,6 +1418,7 @@ pub fn handle_request(
         Request::Connect(req) => on_connect(server, req)?.into(),
         Request::Disconnect(req) => on_disconnect(server, req)?.into(),
         Request::SimulateScenario(req) => on_simulate_scenario(server, req)?.into(),
+        Request::PrepareConnection(req) => on_prepare_connection(server, req)?.into(),
         Request::ReadyForRoomEvent(req) => on_ready_for_room_event(server, req)?.into(),
         Request::PublishTrack(req) => on_publish_track(server, req)?.into(),
         Request::UnpublishTrack(req) => on_unpublish_track(server, req)?.into(),

@@ -68,6 +68,19 @@ message DisconnectRequest {
 message DisconnectResponse { required uint64 async_id = 1; }
 message DisconnectCallback { required uint64 async_id = 1; }
 
+// Pick the best region of a LiveKit Cloud project before connecting, so that
+// the next ConnectRequest to the same URL dials that region directly. The
+// region list is refreshed in the background until that connect, until a
+// later PrepareConnectionRequest to the same URL, or until the token expires.
+// Best effort: the callback carries no error.
+message PrepareConnectionRequest {
+  required string url = 1;
+  required string token = 2;
+  optional uint64 request_async_id = 3;
+}
+message PrepareConnectionResponse { required uint64 async_id = 1; }
+message PrepareConnectionCallback { required uint64 async_id = 1; }
+
 // Simulate a reconnection scenario for testing. Mirrors the variants of
 // `livekit::SimulateScenario`. The Resume / FullReconnect variants are
 // the relevant ones for verifying that resume preserves publications and

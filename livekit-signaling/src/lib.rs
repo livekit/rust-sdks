@@ -411,10 +411,16 @@ impl SignalClient {
             ))
         };
 
+        // A connect after `RegionUrlProvider::prepare` stops its refresh, and dials the best
+        // region unless the caller runs its own failover.
+        let prepared_url =
+            RegionUrlProvider::take_prepared(url).filter(|_| options.region_failover);
+        let first_url = prepared_url.as_deref().unwrap_or(url);
+
         // Fetch the region list next to the first attempt, so a failover does not wait for it.
         // The fetch is dropped when the attempt succeeds.
         let attempt =
-            SignalInner::connect(url, url, token, options.clone(), initial_publish.clone());
+            SignalInner::connect(first_url, url, token, options.clone(), initial_publish.clone());
         let fetch = RegionUrlProvider::fetch_region_urls(url, token);
         tokio::pin!(attempt, fetch);
         let mut fetched = None;
@@ -466,12 +472,16 @@ impl SignalClient {
                     }
                 };
 
+                if let Some(prepared_url) = &prepared_url {
+                    RegionUrlProvider::mark_failed(url, prepared_url);
+                }
+
                 // With no region URLs to try, this surfaces the original error.
                 // Otherwise we keep the most recent region attempt error, so that
                 // if every region fails the caller sees why the last region
                 // connection failed.
                 let mut last_err = err;
-                for region_url in urls.iter() {
+                for region_url in urls.iter().filter(|u| Some(*u) != prepared_url.as_ref()) {
                     log::info!("fallback connection to: {}", region_url);
                     match SignalInner::connect(
                         region_url,
@@ -2538,6 +2548,24 @@ mod tests {
         cancel.cancel();
         let result = connect.await.expect("connect task panicked");
         assert!(matches!(result, Err(SignalError::Cancelled)), "expected a cancel");
+    }
+
+    /// A connect after `prepare` dials the prepared region instead of the project URL, once.
+    #[tokio::test]
+    async fn connect_after_prepare_dials_the_prepared_region() {
+        use crate::test_transport::{install_mock_transport, WS_CONNECTS};
+        install_mock_transport();
+        const HOST: &str = "prepare-first.livekit.cloud";
+        let url = format!("wss://{HOST}");
+        let dialed_project = || WS_CONNECTS.lock().unwrap().iter().any(|u| u.contains(HOST));
+
+        RegionUrlProvider::prepare(&url, "tok").await.expect("prepare");
+        // The mock region closes before a join response, so the connect fails.
+        let _ = SignalClient::connect(&url, "tok", SignalOptions::default(), None).await;
+        assert!(!dialed_project(), "the prepared connect dialed the project URL");
+
+        let _ = SignalClient::connect(&url, "tok", SignalOptions::default(), None).await;
+        assert!(dialed_project(), "a second connect used the prepared region again");
     }
 
     /// A rejected token fails in every region, so a 401 from `rtc/validate` ends the connect.
