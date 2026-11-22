@@ -428,7 +428,8 @@ async fn test_v1_publisher_offer_subscribes_late_publish() -> Result<()> {
 }
 
 /// Subscribing to the same track again and again keeps working: each `set_subscribed(true)`
-/// gets one `TrackSubscribed`, and one for a track already subscribed gets none.
+/// gets one `TrackSubscribed`, one for a track already subscribed gets none, and one cancelled
+/// before its track arrives leaves it detached.
 #[test_log::test(tokio::test)]
 async fn test_v1_resubscribe_same_track_repeatedly() -> Result<()> {
     test_resubscribe_same_track_impl(SignalingMode::SinglePC).await
@@ -511,6 +512,19 @@ async fn test_resubscribe_same_track_impl(mode: SignalingMode) -> Result<()> {
             .await
             .with_context(|| format!("[{}] cycle {cycle}", mode.name()))?;
     }
+
+    // A resubscribe cancelled before its track arrives leaves the track detached.
+    publication.set_subscribed(true);
+    publication.set_subscribed(false);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    while let Ok(event) = sub_events.try_recv() {
+        assert!(
+            !matches!(event, RoomEvent::TrackSubscribed { .. }),
+            "[{}] cancelled resubscribe caused {event:?}",
+            mode.name()
+        );
+    }
+    assert!(publication.track().is_none(), "[{}] cancelled resubscribe attached", mode.name());
     Ok(())
 }
 

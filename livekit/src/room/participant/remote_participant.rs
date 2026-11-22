@@ -225,8 +225,12 @@ impl RemoteParticipant {
             self.add_publication_inner(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
-                                                       // publication
+            // Fires TrackSubscribed on the publication, unless the application unsubscribed
+            // while this delivery was on its way.
+            if !remote_publication.attach_track(track.clone()) {
+                track.disable();
+                log::debug!("track {:?} delivered after an unsubscribe; not attached", sid);
+            }
         } else {
             let closed = self.remote.closed.lock();
             if *closed {
