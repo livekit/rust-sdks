@@ -763,6 +763,9 @@ NvDecoder::~NvDecoder() {
     if (m_hDecoder) {
         cuvidDestroyDecoder(m_hDecoder);
     }
+    if (m_cuvidStream) {
+        cuStreamDestroy(m_cuvidStream);
+    }
 
     std::lock_guard<std::mutex> lock(m_mtxVPFrame);
 
