@@ -29,7 +29,7 @@ namespace {
 #if defined(_WIN32)
 constexpr char kNvencLibrary[] = "nvEncodeAPI64.dll";
 void* LoadNvenc() {
-  return LoadLibraryA(kNvencLibrary);
+  return LoadLibraryExA(kNvencLibrary, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
 }
 void* NvencSymbol(void* module, const char* name) {
   return reinterpret_cast<void*>(
@@ -53,6 +53,7 @@ void UnloadNvenc(void* module) {
 
 struct NvencProbeResult {
   bool encoder_supported = false;
+  bool hevc_supported = false;
   bool av1_supported = false;
 };
 
@@ -238,6 +239,8 @@ NvencProbeResult ProbeNvencSupport() {
     }
 
     result.encoder_supported = true;
+    result.hevc_supported =
+        SupportsEncodeGuid(fnList, hEncoder, NV_ENC_CODEC_HEVC_GUID);
     result.av1_supported = SupportsAv1Encoding(fnList, hEncoder);
   } while (false);
 
@@ -262,10 +265,15 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
   };
   supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
 
-  // Advertise HEVC/H265 with default parameters.
-  supported_formats_.push_back(SdpVideoFormat("H265"));
-  // Some stacks use 'HEVC' name.
-  supported_formats_.push_back(SdpVideoFormat("HEVC"));
+  if (IsHevcSupported()) {
+    // Advertise HEVC/H265 with default parameters.
+    supported_formats_.push_back(SdpVideoFormat("H265"));
+    // Some stacks use 'HEVC' name.
+    supported_formats_.push_back(SdpVideoFormat("HEVC"));
+  } else {
+    RTC_LOG(LS_INFO)
+        << "NVIDIA H.265 NVENC encoder is not supported on this GPU.";
+  }
 
   if (IsAv1Supported()) {
     absl::InlinedVector<ScalabilityMode, kScalabilityModeCount>
@@ -308,6 +316,10 @@ const NvencProbeResult& CachedNvencProbe() {
 
 bool NvidiaVideoEncoderFactory::IsSupported() {
   return CachedNvencProbe().encoder_supported;
+}
+
+bool NvidiaVideoEncoderFactory::IsHevcSupported() {
+  return CachedNvencProbe().hevc_supported;
 }
 
 bool NvidiaVideoEncoderFactory::IsAv1Supported() {

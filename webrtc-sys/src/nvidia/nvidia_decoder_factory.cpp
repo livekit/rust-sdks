@@ -48,7 +48,8 @@ namespace {
 
 bool IsNvdecRuntimeAvailable() {
 #if defined(_WIN32)
-  HMODULE hModule = LoadLibraryA(kNvdecRuntimeLibrary);
+  HMODULE hModule =
+      LoadLibraryExA(kNvdecRuntimeLibrary, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
 #else
   void* hModule = dlopen(kNvdecRuntimeLibrary, RTLD_LAZY | RTLD_LOCAL);
 #endif
@@ -81,6 +82,21 @@ static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
   return major;
 }
 
+// Whether the device decodes 8-bit 4:2:0 H.265; GPUs before second-generation Maxwell don't.
+bool SupportsHevcDecoding(CUcontext context) {
+  CUVIDDECODECAPS caps = {};
+  caps.eCodecType = cudaVideoCodec_HEVC;
+  caps.eChromaFormat = cudaVideoChromaFormat_420;
+  caps.nBitDepthMinus8 = 0;
+  if (cuCtxPushCurrent(context) != CUDA_SUCCESS) {
+    return false;
+  }
+  CUresult result = cuvidGetDecoderCaps(&caps);
+  CUcontext popped;
+  cuCtxPopCurrent(&popped);
+  return result == CUDA_SUCCESS && caps.bIsSupported;
+}
+
 std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
   std::vector<SdpVideoFormat> supportedFormats;
 
@@ -108,9 +124,11 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
                          webrtc::H264Level::kLevel5_1, "1"),
         CreateH264Format(webrtc::H264Profile::kProfileMain,
                          webrtc::H264Level::kLevel5_1, "1"),
-        SdpVideoFormat("H265"),
-        SdpVideoFormat("HEVC"),
     };
+    if (SupportsHevcDecoding(context)) {
+      supportedFormats.push_back(SdpVideoFormat("H265"));
+      supportedFormats.push_back(SdpVideoFormat("HEVC"));
+    }
   }
 
   for (auto& format : supportedFormats) {

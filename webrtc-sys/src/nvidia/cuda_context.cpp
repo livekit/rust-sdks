@@ -29,9 +29,10 @@ namespace livekit_ffi {
     return ret;                                             \
   }
 
+// For functions returning bool: a failed call returns false.
 #define CUCTX_CUDA_CALL_ERROR(call) \
   do {                              \
-    __CUCTX_CUDA_CALL(call, err__); \
+    __CUCTX_CUDA_CALL(call, false); \
   } while (0)
 
 static void* s_module_ptr = nullptr;
@@ -50,7 +51,9 @@ static bool load_cuda_modules() {
 
 #if defined(_WIN32)
   // dll delay load
-  HMODULE module = LoadLibrary(TEXT("nvcuda.dll"));
+  // System32 only, where the driver installs it, not the current directory.
+  HMODULE module =
+      LoadLibraryExA("nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (!module) {
     RTC_LOG(LS_INFO) << "nvcuda.dll is not found.";
     return false;

@@ -10,12 +10,14 @@
 namespace {
 
 FARPROC Resolve(const char* name) {
-  static HMODULE module = LoadLibraryA("nvcuda.dll");
+  static HMODULE module =
+      LoadLibraryExA("nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   return module ? GetProcAddress(module, name) : nullptr;
 }
 
 FARPROC ResolveCuvid(const char* name) {
-  static HMODULE module = LoadLibraryA("nvcuvid.dll");
+  static HMODULE module =
+      LoadLibraryExA("nvcuvid.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   return module ? GetProcAddress(module, name) : nullptr;
 }
 
@@ -43,9 +45,18 @@ CU_EXPAND(cuDeviceGetCount, (int* count), (count))
 CU_EXPAND(cuDeviceGetName, (char* name, int len, CUdevice dev), (name, len, dev))
 CU_EXPAND(cuGetErrorName, (CUresult error, const char** str), (error, str))
 #if CUDA_VERSION >= 13000
-CU_EXPAND(cuCtxCreate,
-          (CUcontext* ctx, CUctxCreateParams* params, unsigned int flags, CUdevice dev),
-          (ctx, params, flags, dev))
+// Drivers older than CUDA 13 lack cuCtxCreate_v4; without extended parameters the
+// cuCtxCreate_v2 they export does the same.
+extern "C" CUresult CUDAAPI cuCtxCreate(CUcontext* ctx, CUctxCreateParams* params,
+                                        unsigned int flags, CUdevice dev) {
+  static auto fn = reinterpret_cast<decltype(&cuCtxCreate)>(Resolve(CU_NAME(cuCtxCreate)));
+  using Legacy = CUresult(CUDAAPI*)(CUcontext*, unsigned int, CUdevice);
+  static auto legacy = reinterpret_cast<Legacy>(Resolve("cuCtxCreate_v2"));
+  if (fn) {
+    return fn(ctx, params, flags, dev);
+  }
+  return legacy && !params ? legacy(ctx, flags, dev) : CUDA_ERROR_NOT_INITIALIZED;
+}
 #else
 CU_EXPAND(cuCtxCreate, (CUcontext* ctx, unsigned int flags, CUdevice dev), (ctx, flags, dev))
 #endif

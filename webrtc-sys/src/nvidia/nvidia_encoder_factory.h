@@ -33,6 +33,7 @@ class NvidiaVideoEncoderFactory : public VideoEncoderFactory {
   }
 
  private:
+  static bool IsHevcSupported();
   static bool IsAv1Supported();
 
   std::vector<SdpVideoFormat> supported_formats_;
