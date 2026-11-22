@@ -22,7 +22,7 @@ use {
     futures_util::StreamExt,
     libwebrtc::video_stream::native::NativeVideoStream,
     livekit::e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
+        key_provider::{KeyProvider, KeyProviderOptions, DEFAULT_RATCHET_WINDOW_SIZE},
         E2eeOptions, EncryptionType,
     },
     livekit::{options::VideoCodec, prelude::*},
@@ -350,5 +350,68 @@ async fn test_e2ee_shared_key_ratchet_one_publisher() -> Result<()> {
     assert!((luma - LUMA_A as f64).abs() < 30.0, "A's luma {luma:.1} after its ratchet");
     let luma = next_frames_luma(&remote_b, 10).await?;
     assert!((luma - LUMA_B as f64).abs() < 30.0, "B's luma {luma:.1} after A's ratchet");
+    Ok(())
+}
+
+/// The next subscribed video track.
+#[cfg(feature = "__lk-e2e-test")]
+async fn next_video_track(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<RoomEvent>,
+) -> Result<RemoteVideoTrack> {
+    timeout(Duration::from_secs(15), async {
+        loop {
+            match events.recv().await {
+                Some(RoomEvent::TrackSubscribed { track: RemoteTrack::Video(track), .. }) => {
+                    return Ok(track)
+                }
+                Some(_) => continue,
+                None => return Err(anyhow!("Never received the track")),
+            }
+        }
+    })
+    .await?
+}
+
+/// With a shared key, a new track from a sender who ratcheted past the ratchet window since the
+/// subscriber first decrypted it is still readable: the ratchets learned for that sender carry
+/// over to the new track's receiver.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
+    const LUMA_FIRST: u8 = 60;
+    const LUMA_SECOND: u8 = 200;
+    let mut rooms =
+        test_rooms_with_options([shared_key_options(true).into(), shared_key_options(true).into()])
+            .await?;
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_sub_room, mut sub_events) = rooms.pop().unwrap();
+    let pub_room = Arc::new(pub_room);
+    let mut first = SolidColorTrack::new(
+        pub_room.clone(),
+        SolidColorParams { width: 320, height: 240, luma: LUMA_FIRST },
+    );
+    first.publish(VideoCodec::VP8, false).await?;
+    let remote_first = next_video_track(&mut sub_events).await?;
+
+    // One step at a time, with frames in between, so the subscriber follows every step.
+    let key_provider = pub_room.e2ee_manager().key_provider().ok_or_else(|| anyhow!("no keys"))?;
+    for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
+        key_provider.ratchet_shared_key(0).ok_or_else(|| anyhow!("ratchet failed"))?;
+        let luma = next_frames_luma(&remote_first, 5)
+            .await
+            .map_err(|err| anyhow!("no frames after ratchet {step}: {err}"))?;
+        assert!((luma - LUMA_FIRST as f64).abs() < 30.0, "luma {luma:.1} after ratchet {step}");
+    }
+
+    let mut second = SolidColorTrack::new(
+        pub_room.clone(),
+        SolidColorParams { width: 320, height: 240, luma: LUMA_SECOND },
+    );
+    second.publish(VideoCodec::VP8, false).await?;
+    let remote_second = next_video_track(&mut sub_events).await?;
+    let luma = next_frames_luma(&remote_second, 10)
+        .await
+        .map_err(|err| anyhow!("no frames of the new track: {err}"))?;
+    assert!((luma - LUMA_SECOND as f64).abs() < 30.0, "new track's luma {luma:.1}");
     Ok(())
 }
