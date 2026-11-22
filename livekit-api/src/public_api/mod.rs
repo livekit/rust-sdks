@@ -24,7 +24,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 pub(crate) use generated::{types, Client};
-use livekit_token::{AccessToken, AgentGrants, AgentThreadGrants};
+use livekit_token::{AccessToken, AgentDatabaseGrants, AgentThreadGrants};
 use progenitor_client::{ClientHooks, OperationInfo};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
@@ -67,28 +67,22 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    async fn bearer(&self) -> Result<HeaderValue, ServiceError> {
-        let agent = AgentGrants { database_admin: true, ..Default::default() };
-        let threads = AgentThreadGrants {
-            all: true,
-            list: true,
-            create: true,
-            write: true,
-            read: true,
-            delete: true,
-            ..Default::default()
-        };
+    async fn bearer(
+        &self,
+        info: &OperationInfo,
+        url: &reqwest::Url,
+    ) -> Result<HeaderValue, ServiceError> {
+        let grants = scoped(info.operation_id, url);
         let token = match &self.base {
             ServiceBase::Token(token) => token.clone(),
             ServiceBase::Provider(provider) => {
-                let grants = TokenGrants { agent, agent_thread: threads, ..Default::default() };
                 provider.token(grants).await.map_err(ServiceError::TokenProvider)?
             }
             ServiceBase::ApiKeySecret { api_key, api_secret } => {
                 AccessToken::with_api_key(api_key, api_secret)
                     .with_ttl(TOKEN_TTL)
-                    .with_agent_grants(agent)
-                    .with_agent_thread_grants(threads)
+                    .with_agent_thread_grants(grants.agent_thread)
+                    .with_agent_database_grants(grants.agent_database)
                     .to_jwt()?
             }
         };
@@ -98,13 +92,64 @@ impl Credentials {
     }
 }
 
+/// Grants only what the call needs: a database call reaches only the database it names.
+fn scoped(operation_id: &str, url: &reqwest::Url) -> TokenGrants {
+    let database = |grants: AgentDatabaseGrants| AgentDatabaseGrants {
+        database_ids: vec![database_id(url)],
+        ..grants
+    };
+    let with_database =
+        |agent_database: AgentDatabaseGrants| TokenGrants { agent_database, ..Default::default() };
+    let with_thread =
+        |agent_thread: AgentThreadGrants| TokenGrants { agent_thread, ..Default::default() };
+    match operation_id {
+        "database_service_create_database" => {
+            with_database(AgentDatabaseGrants { create: true, ..Default::default() })
+        }
+        "database_service_list_databases" => {
+            with_database(AgentDatabaseGrants { list: true, ..Default::default() })
+        }
+        "database_service_delete_database" => {
+            with_database(database(AgentDatabaseGrants { delete: true, ..Default::default() }))
+        }
+        "database_service_get_database" | "database_service_export_database" => {
+            let id = database_id(url);
+            if id.starts_with("AT_") {
+                // a thread's database is read through its thread
+                with_thread(AgentThreadGrants {
+                    thread_ids: vec![id],
+                    sql: true,
+                    ..Default::default()
+                })
+            } else {
+                with_database(database(AgentDatabaseGrants { read: true, ..Default::default() }))
+            }
+        }
+        _ => with_thread(AgentThreadGrants {
+            all: true,
+            list: true,
+            create: true,
+            write: true,
+            read: true,
+            delete: true,
+            ..Default::default()
+        }),
+    }
+}
+
+/// The database a `/databases/{id}` or `/databases/{id}:export` request names.
+fn database_id(url: &reqwest::Url) -> String {
+    let last = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or_default();
+    last.split(':').next().unwrap_or_default().to_owned()
+}
+
 impl ClientHooks<Credentials> for Client {
     async fn pre<E>(
         &self,
         request: &mut reqwest::Request,
-        _: &OperationInfo,
+        info: &OperationInfo,
     ) -> Result<(), progenitor_client::Error<E>> {
-        let bearer = match self.inner.bearer().await {
+        let bearer = match self.inner.bearer(info, request.url()).await {
             Ok(bearer) => bearer,
             Err(e) => {
                 let msg = e.to_string();
@@ -212,7 +257,32 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use super::public_api_url;
+    use livekit_token::Claims;
+
+    use super::{public_api_url, scoped};
+
+    fn claims(operation_id: &str, path: &str) -> Claims {
+        let url = reqwest::Url::parse(&format!("https://x/v0/projects/p_/{path}")).unwrap();
+        scoped(operation_id, &url)
+    }
+
+    #[test]
+    fn database_calls_carry_only_their_grant() {
+        let c = claims("database_service_create_database", "databases");
+        assert!(c.agent_database.can_create() && !c.agent_database.can_list());
+        assert!(!c.agent_thread.can_list(""));
+        let c = claims("database_service_list_databases", "databases");
+        assert!(c.agent_database.can_list() && !c.agent_database.can_create());
+        let c = claims("database_service_get_database", "databases/DB_a");
+        assert!(c.agent_database.can_read("DB_a") && !c.agent_database.can_read("DB_b"));
+        let c = claims("database_service_export_database", "databases/AT_t:export");
+        assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
+        assert!(!c.agent_database.can_read("AT_t"));
+        let c = claims("database_service_delete_database", "databases/DB_a");
+        assert!(c.agent_database.can_delete("DB_a") && !c.agent_database.can_read("DB_a"));
+        let c = claims("thread_service_get_thread", "threads/AT_t");
+        assert!(c.agent_thread.can_read("AT_t") && !c.agent_database.can_list());
+    }
 
     #[test]
     fn public_api_url_from_project_url() {

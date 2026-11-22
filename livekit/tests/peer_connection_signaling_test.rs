@@ -52,6 +52,7 @@ use libwebrtc::prelude::{AudioSourceOptions, RtcAudioSource, RtcVideoSource, Vid
 use libwebrtc::video_source::native::NativeVideoSource;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
+use livekit::rtc_engine::{EngineOptions, RtcEngine};
 use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
 use livekit_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
@@ -66,6 +67,44 @@ use crate::common::{
     audio::{SineParameters, SineTrack},
     test_rooms_with_options,
 };
+
+/// The first single PC offer and the server's answer both carry Opus NACK, so lost audio
+/// is retransmitted. Adapted from livekit/rust-sdks#1695.
+#[test_log::test(tokio::test)]
+async fn v1_opus_nack_negotiates_initial_offer() -> Result<()> {
+    let (url, key, secret) = get_env_for_mode(SignalingMode::SinglePC);
+    let room_name = format!("test_opus_nack_{}", create_random_uuid());
+    let token = create_token(&key, &secret, &room_name, "publisher")?;
+    let mut options = EngineOptions::default();
+    options.single_peer_connection = true;
+    options.signal_options.single_peer_connection = true;
+    let (engine, ..) = RtcEngine::connect(&url, &token, options, None, &[]).await?;
+    let session = engine.session();
+    let single_pc = session.is_single_pc_mode();
+    let pc = session.publisher().peer_connection();
+    let offer = pc.current_local_description().map(|sd| sd.to_string());
+    let answer = pc.current_remote_description().map(|sd| sd.to_string());
+    engine.close(livekit::DisconnectReason::ClientInitiated).await;
+
+    assert!(single_pc, "the server did not negotiate single PC mode");
+    let offer = offer.context("no local offer")?;
+    let answer = answer.context("no remote answer")?;
+    for (description, sdp) in [("initial offer", offer), ("server answer", answer)] {
+        let pts: Vec<&str> = sdp
+            .lines()
+            .filter_map(|line| {
+                let (pt, codec) = line.strip_prefix("a=rtpmap:")?.split_once(' ')?;
+                codec.to_ascii_lowercase().starts_with("opus/").then_some(pt)
+            })
+            .collect();
+        assert!(!pts.is_empty(), "{description} has no Opus");
+        for pt in pts {
+            let nack = format!("a=rtcp-fb:{pt} nack");
+            assert!(sdp.lines().any(|line| line == nack), "{description} has no Opus NACK");
+        }
+    }
+    Ok(())
+}
 
 /// Signaling mode for tests
 #[derive(Debug, Clone, Copy, PartialEq)]

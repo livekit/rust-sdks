@@ -149,9 +149,10 @@ pub async fn test_engine() -> Result<RtcEngine> {
         .to_jwt()
         .context("Failed to generate JWT")?;
 
-    let (engine, _, _) = RtcEngine::connect(&test_env.server_url, &token, Default::default(), None)
-        .await
-        .context("Failed to connect to engine")?;
+    let (engine, ..) =
+        RtcEngine::connect(&test_env.server_url, &token, Default::default(), None, &[])
+            .await
+            .context("Failed to connect to engine")?;
 
     Ok(engine)
 }

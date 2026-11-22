@@ -14,6 +14,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use livekit_protocol::semconv::{self, event};
+
 use crate::TelemetryEvent;
 
 /// Declares the pipeline's health counters once: the shared atomics ([`Counters`]), their
@@ -50,8 +52,10 @@ macro_rules! counters {
 }
 
 counters! {
-    /// Records evicted from the in-memory queue (`max_queue_size`), and spans dropped from a full
-    /// span buffer (open spans abandoned, finished ones past its capacity).
+    /// Records evicted from the in-memory queue (`max_queue_size`), spans dropped from a full
+    /// span buffer (open spans abandoned, finished ones past its capacity), and tracks a session
+    /// did not wait on past `MAX_PENDING_TRACKS` (a subscribe's span, a published track's fast
+    /// polling).
     queue_full,
     /// Records lost because no cache, not even memory, could take their batch.
     cache_error,
@@ -141,7 +145,7 @@ impl Snapshot {
     /// persisted on its own, never an extra request — plus one at shutdown, so every session
     /// leaves a summary the fleet's success rates can be computed from.
     pub fn report(&self, cached_batches: u64) -> TelemetryEvent {
-        let mut event = TelemetryEvent::new("lk.telemetry.report")
+        let mut event = TelemetryEvent::new(event::LK_TELEMETRY_REPORT)
             .with_body(format!(
                 "telemetry: {} batches sent ({} B), {} failed, {} dropped, {} cached",
                 self.uploads_sent,
@@ -150,25 +154,25 @@ impl Snapshot {
                 self.problem_drops(),
                 cached_batches
             ))
-            .with_attribute("lk.telemetry.uploads.sent", int(self.uploads_sent))
-            .with_attribute("lk.telemetry.uploads.bytes", int(self.upload_bytes))
-            .with_attribute("lk.telemetry.uploads.failed", int(self.upload_failures))
-            .with_attribute("lk.telemetry.cache.batches", int(cached_batches));
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_SENT, int(self.uploads_sent))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_BYTES, int(self.upload_bytes))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_FAILED, int(self.upload_failures))
+            .with_attribute(semconv::LK_TELEMETRY_CACHE_BATCHES, int(cached_batches));
         for (key, value) in [
-            ("lk.telemetry.uploads.timeouts", self.upload_timeouts),
-            ("lk.telemetry.uploads.unauthorized", self.auth_denied),
-            ("lk.telemetry.holds.capped", self.hold_cap_hits),
-            ("lk.telemetry.cache.write_errors", self.cache_write_errors),
-            ("lk.telemetry.dropped.queue_full", self.queue_full),
-            ("lk.telemetry.dropped.cache_error", self.cache_error),
-            ("lk.telemetry.dropped.cache_full", self.cache_full),
-            ("lk.telemetry.dropped.expired", self.expired),
-            ("lk.telemetry.dropped.corrupt", self.corrupt),
-            ("lk.telemetry.dropped.invalid", self.invalid),
-            ("lk.telemetry.dropped.rejected", self.rejected),
-            ("lk.telemetry.dropped.oversized", self.oversized),
-            ("lk.telemetry.dropped.throttled", self.throttled),
-            ("lk.telemetry.dropped.rate_limited", self.rate_limited),
+            (semconv::LK_TELEMETRY_UPLOADS_TIMEOUTS, self.upload_timeouts),
+            (semconv::LK_TELEMETRY_UPLOADS_UNAUTHORIZED, self.auth_denied),
+            (semconv::LK_TELEMETRY_HOLDS_CAPPED, self.hold_cap_hits),
+            (semconv::LK_TELEMETRY_CACHE_WRITE_ERRORS, self.cache_write_errors),
+            (semconv::LK_TELEMETRY_DROPPED_QUEUE_FULL, self.queue_full),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_ERROR, self.cache_error),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_FULL, self.cache_full),
+            (semconv::LK_TELEMETRY_DROPPED_EXPIRED, self.expired),
+            (semconv::LK_TELEMETRY_DROPPED_CORRUPT, self.corrupt),
+            (semconv::LK_TELEMETRY_DROPPED_INVALID, self.invalid),
+            (semconv::LK_TELEMETRY_DROPPED_REJECTED, self.rejected),
+            (semconv::LK_TELEMETRY_DROPPED_OVERSIZED, self.oversized),
+            (semconv::LK_TELEMETRY_DROPPED_THROTTLED, self.throttled),
+            (semconv::LK_TELEMETRY_DROPPED_RATE_LIMITED, self.rate_limited),
         ] {
             if value > 0 {
                 event = event.with_attribute(key, int(value));
@@ -192,7 +196,9 @@ pub enum TelemetryStatus {
     /// Uploads wait for a connect/reconnect to finish or for the device (Low Data Mode, low
     /// battery); capped at 60 s.
     Held,
-    /// The last upload failed; retrying after a jittered exponential backoff.
+    /// A failed upload waits to retry while its batch stays cached: a destination backs off
+    /// (jittered exponential backoff), or a batch that is too large and cannot be split waits
+    /// for its next attempt. Other destinations and batches can still upload meanwhile.
     Paused,
     /// The collector asked for a pause (`Retry-After`).
     Throttled,
@@ -225,7 +231,9 @@ pub struct TelemetryStats {
     pub status: TelemetryStatus,
     /// Records lost for any reason (sum of the `dropped_*` fields).
     pub dropped: u64,
-    /// Records evicted from the in-memory queue, and spans dropped from a full span buffer.
+    /// Records evicted from the in-memory queue, spans dropped from a full span buffer, and
+    /// tracks a session did not wait on past 256 at once (a subscribe loses its span, a published
+    /// track its fast polling).
     pub dropped_queue_full: u64,
     /// Records lost because no cache, not even memory, could take their batch.
     pub dropped_cache_error: u64,

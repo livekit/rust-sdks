@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.11.0 (2026-11-18)
+
+### Breaking Changes
+
+- Upgrade to the breaking `livekit-protocol` release that moves the submodule to `538dd3f0`: `livekit-api`'s own method signatures are unchanged and its two request literals fill the new `UpdateStreamRequest` and `TransferSipParticipantRequest` fields with defaults, but the protocol types it exposes publicly change with it (for example `EgressOutput::Stream(proto::StreamOutput)` now carries `destinations` and `StreamOutput` no longer derives `Eq` and `Hash`), so callers that destructure or construct those payloads, or that pass values from an older `livekit-protocol`, need to update.
+
+### Features
+
+- Add `RoomOptions::publish_tracks`, a list of tracks and their publish options published while connecting and sent with the join request in single peer connection mode to save the round trips of a separate `AddTrackRequest` and SDP negotiation; `livekit-signaling`'s `SignalClient::connect` now takes an `InitialPublish` instead of a bare publisher offer, and `RtcEngine::connect` takes the tracks to publish with the join. Local tracks now keep the WebRTC runtime that created them alive, so tracks created before connecting stay usable in the room; call `enable_zero_playout_delay` before creating local tracks, since it fails once the runtime is active. Publishing a track now fails as soon as the server refuses it instead of after the publish timeout, and a track muted before or while it is published stays muted instead of being re-enabled.
+
+### Fixes
+
+- Preserve all seven framework task states and absent versus empty task names in thread listings, retaining typed status filters.
+- AgentDB wire errors carry a numeric code with its name and description, and Hello carries the client version.
+- Allow LiveKitApi to reuse a caller-supplied HTTP client so services share its TLS configuration and connection pool.
+
+## 0.10.2 (2026-11-13)
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+- Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
+- Report the .NET SDK as `ClientInfo.SDK.DOTNET` in the join request. The `dotnet` SDK name fell through to `UNKNOWN` on the single peer connection path. - #1669 (@MaxHeimbrock)
+
 ## 0.10.1 (2026-11-04)
 
 ### Fixes

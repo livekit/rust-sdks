@@ -767,7 +767,7 @@ impl SIPClient {
             play_dialtone: options.play_dialtone.unwrap_or(false),
             headers: options.headers.unwrap_or_default(),
             ringing_timeout: Self::duration_to_proto(ringing_timeout),
-            dialtone: Default::default(),
+            ..Default::default()
         };
         let headers = self
             .base
