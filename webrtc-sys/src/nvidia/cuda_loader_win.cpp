@@ -49,7 +49,8 @@ CU_EXPAND(cuGetErrorName, (CUresult error, const char** str), (error, str))
 // cuCtxCreate_v2 they export does the same.
 extern "C" CUresult CUDAAPI cuCtxCreate(CUcontext* ctx, CUctxCreateParams* params,
                                         unsigned int flags, CUdevice dev) {
-  static auto fn = reinterpret_cast<decltype(&cuCtxCreate)>(Resolve(CU_NAME(cuCtxCreate)));
+  // Named directly: CU_NAME(cuCtxCreate) would stringize the unexpanded macro name.
+  static auto fn = reinterpret_cast<decltype(&cuCtxCreate)>(Resolve("cuCtxCreate_v4"));
   using Legacy = CUresult(CUDAAPI*)(CUcontext*, unsigned int, CUdevice);
   static auto legacy = reinterpret_cast<Legacy>(Resolve("cuCtxCreate_v2"));
   if (fn) {
