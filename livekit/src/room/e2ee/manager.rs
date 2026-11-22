@@ -56,6 +56,8 @@ struct ManagerInner {
     enabled: bool,                // Used to enable/disable e2ee
     dc_encryption_enabled: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
+    /// By receiver track id, the cryptors set on receivers as they are created.
+    receivers: HashMap<String, ReceiverCryptor>,
     data_packet_cryptor: Option<DataPacketCryptor>,
 }
 
@@ -63,6 +65,24 @@ struct ManagerInner {
 pub struct E2eeManager {
     inner: Arc<Mutex<ManagerInner>>,
     state_changed: Arc<Mutex<Option<StateChangedHandler>>>,
+}
+
+/// A shared-key cryptor set on a receiver as soon as the receiver exists.
+struct ReceiverCryptor {
+    cryptor: FrameCryptor,
+    /// The participant whose track the receiver carries, for state changes.
+    owner: Arc<Mutex<Option<ParticipantIdentity>>>,
+    /// False while the receiver carries a track sent in the clear. A receiver that carries no
+    /// track yet decrypts, so an encrypted track's first frames are decrypted.
+    encrypted: bool,
+}
+
+impl ReceiverCryptor {
+    fn assign(&mut self, owner: Option<ParticipantIdentity>, encrypted: bool, enabled: bool) {
+        *self.owner.lock() = owner;
+        self.encrypted = encrypted;
+        self.cryptor.set_enabled(enabled && encrypted);
+    }
 }
 
 impl E2eeManager {
@@ -81,6 +101,7 @@ impl E2eeManager {
                 dc_encryption_enabled: options.is_some() && with_dc_encryption,
                 options,
                 frame_cryptors: HashMap::new(),
+                receivers: HashMap::new(),
                 data_packet_cryptor,
             })),
             state_changed: Default::default(),
@@ -93,6 +114,54 @@ impl E2eeManager {
             cryptor.set_enabled(false);
         }
         inner.frame_cryptors.clear();
+        for receiver in inner.receivers.values() {
+            receiver.cryptor.set_enabled(false);
+        }
+        inner.receivers.clear();
+    }
+
+    /// Drops the cryptors of a previous session's receivers.
+    pub(crate) fn forget_receivers(&self) {
+        let mut inner = self.inner.lock();
+        for receiver in inner.receivers.values() {
+            receiver.cryptor.set_enabled(false);
+        }
+        inner.receivers.clear();
+    }
+
+    /// Attaches a shared-key cryptor to a new `receiver`, so its first frames are decrypted:
+    /// a cryptor attached on `TrackSubscribed` misses the frames the server sent before it.
+    /// With per-participant keys the sender isn't known yet, and the cryptor is made on
+    /// subscribe as before.
+    pub(crate) fn prepare_receiver(&self, receiver: RtpReceiver) {
+        let mut inner = self.inner.lock();
+        let Some(options) = inner.options.as_ref() else { return };
+        let Some(track) = receiver.track() else { return };
+        if !options.key_provider.shared {
+            return;
+        }
+        let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
+            LkRuntime::instance().pc_factory(),
+            String::new(),
+            EncryptionAlgorithm::AesGcm,
+            options.key_provider.handle.clone(),
+            receiver,
+        );
+        frame_cryptor.set_enabled(inner.enabled);
+        let owner = Arc::new(Mutex::new(None::<ParticipantIdentity>));
+        let state_changed = self.state_changed.clone();
+        frame_cryptor.on_state_change(Some(Box::new({
+            let owner = owner.clone();
+            move |_, state| {
+                let owner = owner.lock().clone();
+                if let (Some(owner), Some(state_changed)) = (owner, state_changed.lock().as_ref()) {
+                    state_changed(owner, state);
+                }
+            }
+        })));
+        inner
+            .receivers
+            .insert(track.id(), ReceiverCryptor { cryptor: frame_cryptor, owner, encrypted: true });
     }
 
     /// Register to e2ee state changes
@@ -145,14 +214,37 @@ impl E2eeManager {
         }
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
+            // A track sent in the clear: the receiver's cryptor would drop its frames.
+            if let Some(track) = receiver.track() {
+                let mut inner = self.inner.lock();
+                let enabled = inner.enabled;
+                if let Some(prepared) = inner.receivers.get_mut(&track.id()) {
+                    prepared.assign(Some(identity), false, enabled);
+                }
+            }
             return;
         }
 
-        let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+        let prepared = receiver.track().and_then(|track| {
+            let mut inner = self.inner.lock();
+            let enabled = inner.enabled;
+            let prepared = inner.receivers.get_mut(&track.id())?;
+            prepared.assign(Some(identity.clone()), true, enabled);
+            Some(prepared.cryptor.clone())
+        });
+        let frame_cryptor = match prepared {
+            Some(frame_cryptor) => frame_cryptor,
+            None => {
+                let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+                self.setup_cryptor(&frame_cryptor);
+                frame_cryptor
+            }
+        };
+        // A reused receiver keeps the previous track's handler when this one has none. It
+        // only strips frames that end in the trailer magic, so frames without one pass.
         if let Some(handler) = packet_trailer_handler.as_ref() {
             frame_cryptor.set_packet_trailer_handler(handler);
         }
-        self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
         inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
@@ -222,11 +314,17 @@ impl E2eeManager {
     /// Called by the room
     pub(crate) fn on_track_unsubscribed(
         &self,
-        _: RemoteTrack,
+        track: RemoteTrack,
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     ) {
         self.remove_frame_cryptor(participant.identity(), publication.sid());
+        // The receiver may carry another track next: it decrypts again, for no one yet.
+        let mut inner = self.inner.lock();
+        let enabled = inner.enabled;
+        if let Some(prepared) = inner.receivers.get_mut(&track.rtc_track().id()) {
+            prepared.assign(None, true, enabled);
+        }
     }
 
     pub fn frame_cryptors(&self) -> HashMap<(ParticipantIdentity, TrackSid), FrameCryptor> {
@@ -250,6 +348,9 @@ impl E2eeManager {
         inner.enabled = enabled;
         for (_, cryptor) in inner.frame_cryptors.iter() {
             cryptor.set_enabled(enabled);
+        }
+        for receiver in inner.receivers.values() {
+            receiver.cryptor.set_enabled(enabled && receiver.encrypted);
         }
     }
 

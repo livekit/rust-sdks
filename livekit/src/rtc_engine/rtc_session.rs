@@ -578,11 +578,16 @@ impl RtcSession {
 
         let use_single_pc = options.signal_options.single_peer_connection;
 
+        // A full reconnect reuses the manager; the previous session's receivers are gone.
+        if let Some(e2ee_manager) = e2ee_manager.as_ref() {
+            e2ee_manager.forget_receivers();
+        }
+
         let early_publisher = if use_single_pc {
             Self::create_early_publisher(
                 &options.rtc_config,
                 &emitter,
-                e2ee_manager.as_ref().map_or(EncryptionType::None, |e2ee| e2ee.encryption_type()),
+                e2ee_manager.as_ref(),
                 publish_tracks,
             )
             .await?
@@ -608,6 +613,9 @@ impl RtcSession {
             Err(err) => {
                 if let Some(early) = early_publisher {
                     early.discard(publish_tracks);
+                    if let Some(e2ee_manager) = e2ee_manager.as_ref() {
+                        e2ee_manager.forget_receivers();
+                    }
                 }
                 return Err(err.into());
             }
@@ -648,6 +656,9 @@ impl RtcSession {
             Some(early) if !single_pc_mode => {
                 // The v1 path was unavailable, so the server never saw the initial publish.
                 early.discard(publish_tracks);
+                if let Some(e2ee_manager) = e2ee_manager.as_ref() {
+                    e2ee_manager.forget_receivers();
+                }
                 None
             }
             early => early,
@@ -822,9 +833,11 @@ impl RtcSession {
     async fn create_early_publisher(
         rtc_config: &RtcConfiguration,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
-        encryption_type: EncryptionType,
+        e2ee_manager: Option<&E2eeManager>,
         publish_tracks: &[(LocalTrack, TrackPublishOptions)],
     ) -> EngineResult<Option<EarlyPublisher>> {
+        let encryption_type =
+            e2ee_manager.map_or(EncryptionType::None, |e2ee| e2ee.encryption_type());
         let pc = PeerTransport::new(
             LkRuntime::instance().pc_factory().create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
@@ -835,7 +848,7 @@ impl RtcSession {
             // Negotiated channels are replaced after joining if the server turns out not to
             // support them.
             let data_channels = Self::create_data_channels(&pc, emitter, true)?;
-            Self::add_recv_media_sections(&pc.peer_connection(), 3, 3)?;
+            Self::add_recv_media_sections(&pc.peer_connection(), 3, 3, e2ee_manager)?;
 
             // The offer must carry a media section for every track sent with the join.
             let mut add_track_requests = Vec::with_capacity(publish_tracks.len());
@@ -921,6 +934,7 @@ impl RtcSession {
         pc: &PeerConnection,
         audio_count: u32,
         video_count: u32,
+        e2ee_manager: Option<&E2eeManager>,
     ) -> EngineResult<()> {
         let recvonly_init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::RecvOnly,
@@ -928,11 +942,14 @@ impl RtcSession {
             send_encodings: Vec::new(),
         };
 
-        for _ in 0..audio_count {
-            pc.add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
-        }
-        for _ in 0..video_count {
-            pc.add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
+        let kinds = std::iter::repeat_n(MediaType::Audio, audio_count as usize)
+            .chain(std::iter::repeat_n(MediaType::Video, video_count as usize));
+        for kind in kinds {
+            let transceiver = pc.add_transceiver_for_media(kind, recvonly_init.clone())?;
+            // Decrypting before the server sends anything to it.
+            if let Some(e2ee_manager) = e2ee_manager {
+                e2ee_manager.prepare_receiver(transceiver.receiver());
+            }
         }
         Ok(())
     }
@@ -1795,6 +1812,7 @@ impl SessionInner {
             &self.publisher_pc.peer_connection(),
             req.num_audios,
             req.num_videos,
+            self.e2ee_manager.as_ref(),
         )?;
 
         // Trigger renegotiation
