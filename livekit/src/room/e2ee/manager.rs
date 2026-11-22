@@ -58,8 +58,8 @@ struct ManagerInner {
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
     /// By receiver track id, the cryptors set on receivers as they are created.
     receivers: HashMap<String, ReceiverCryptor>,
-    /// By sender, the key-handler id of the receiver last adopted for its track: the keys
-    /// ratcheted for that sender. Kept across reconnects.
+    /// By sender, the key-handler id of a receiver that carried its track, the latest one still
+    /// carrying one if any: the keys ratcheted for that sender. Kept across reconnects.
     sender_keys: HashMap<ParticipantIdentity, String>,
     data_packet_cryptor: Option<DataPacketCryptor>,
 }
@@ -196,22 +196,25 @@ impl E2eeManager {
     }
 
     /// Gives the key handler `key_id`, now decrypting `sender`'s track, the keys ratcheted for
-    /// that sender on its previous receiver, so a new track from a sender who ratcheted past
-    /// the ratchet window since the shared key was set is still readable. Those keys are never
-    /// behind the shared key, so a receiver that already followed a few ratchets on its own
-    /// stays within the window.
+    /// that sender on its previous receiver, or the shared keys if it had none: a receiver may
+    /// still hold another sender's ratchets, and ratchets only go forward. So a new track from
+    /// a sender who ratcheted past the ratchet window since the shared key was set is still
+    /// readable. A receiver that already followed a few ratchets on its own falls back by at
+    /// most the window and catches up again.
     fn adopt_keys(inner: &mut ManagerInner, sender: &ParticipantIdentity, key_id: String) {
-        let Some(previous) = inner.sender_keys.insert(sender.clone(), key_id.clone()) else {
-            return;
-        };
-        let Some(options) = inner.options.as_ref() else { return };
-        if previous == key_id {
+        let previous = inner.sender_keys.insert(sender.clone(), key_id.clone());
+        if previous.as_ref() == Some(&key_id) || (previous.is_none() && key_id == sender.as_str()) {
+            // The handler already holds this sender's keys.
             return;
         }
+        let Some(options) = inner.options.as_ref() else { return };
         let handle = &options.key_provider.handle;
         for index in 0..handle.key_ring_size() {
-            if let Some(key) = handle.get_key(previous.clone(), index).filter(|key| !key.is_empty())
-            {
+            let key = match &previous {
+                Some(previous) => handle.get_key(previous.clone(), index),
+                None => handle.get_shared_key(index),
+            };
+            if let Some(key) = key.filter(|key| !key.is_empty()) {
                 handle.set_key(key_id.clone(), index, key);
             }
         }
@@ -393,8 +396,19 @@ impl E2eeManager {
         // The receiver may carry another track next: it decrypts again, for no one yet.
         let mut inner = self.inner.lock();
         let enabled = inner.enabled;
-        if let Some(prepared) = inner.receivers.get_mut(&track.rtc_track().id()) {
-            prepared.assign(None, true, enabled);
+        let Some(prepared) = inner.receivers.get_mut(&track.rtc_track().id()) else { return };
+        prepared.assign(None, true, enabled);
+        let key_id = prepared.key_id.clone();
+        // The sender's keys stop following its ratchets here: take them from a receiver that
+        // still carries one of its tracks, if any.
+        let identity = participant.identity();
+        if inner.sender_keys.get(&identity) == Some(&key_id) {
+            let live = inner.receivers.values().find(|receiver| {
+                receiver.encrypted && receiver.owner.lock().as_ref() == Some(&identity)
+            });
+            if let Some(live) = live.map(|receiver| receiver.key_id.clone()) {
+                inner.sender_keys.insert(identity, live);
+            }
         }
     }
 
@@ -492,8 +506,11 @@ impl E2eeManager {
 
         let data_packet_cryptor = inner.data_packet_cryptor.as_ref()?;
 
+        // The handler that follows the sender's ratchets, as for its tracks.
+        let identity = ParticipantIdentity::from(participant_identity.to_owned());
+        let key_id = inner.sender_keys.get(&identity).map_or(participant_identity, String::as_str);
         let encrypted_packet = EncryptedPacket { data, iv, key_index };
-        match data_packet_cryptor.decrypt(participant_identity, &encrypted_packet) {
+        match data_packet_cryptor.decrypt(key_id, &encrypted_packet) {
             Ok(decrypted_data) => Some(decrypted_data),
             Err(e) => {
                 log::warn!("handle_encrypted_data error: {}", e);
