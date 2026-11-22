@@ -622,6 +622,11 @@ impl RtcSession {
         };
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
+        // Before any remote description is applied: prepared receivers decrypt from the first
+        // frame, and the native decryptor reads the trailer without the provider's lock.
+        if let Some(key_provider) = e2ee_manager.as_ref().and_then(|e2ee| e2ee.key_provider()) {
+            key_provider.set_sif_trailer(join_response.sif_trailer.clone());
+        }
         let subscriber_primary = join_response.subscriber_primary;
 
         // Determine if single PC mode is active based on the path used

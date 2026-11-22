@@ -685,10 +685,6 @@ impl Room {
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
 
-        if let Some(key_provider) = e2ee_manager.key_provider() {
-            key_provider.set_sif_trailer(join_response.sif_trailer);
-        }
-
         let pi = join_response.participant.unwrap();
         let pi_kind = pi.kind().into();
         let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);

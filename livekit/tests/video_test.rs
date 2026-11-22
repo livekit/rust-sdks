@@ -268,3 +268,87 @@ async fn test_e2ee_shared_key_clear_track_across_toggle() -> Result<()> {
     assert!((luma - LUMA as f64).abs() < 30.0, "frame luma {luma:.1} after the toggle");
     Ok(())
 }
+
+/// Average luma of the next `frames` frames decoded from `track` after this call.
+#[cfg(feature = "__lk-e2e-test")]
+async fn next_frames_luma(track: &RemoteVideoTrack, frames: usize) -> Result<f64> {
+    let mut stream = NativeVideoStream::new(track.rtc_track());
+    timeout(Duration::from_secs(10), async {
+        let mut sum = 0.0;
+        for _ in 0..frames {
+            let frame = stream.next().await.ok_or_else(|| anyhow!("Stream ended"))?;
+            let i420 = frame.buffer.to_i420();
+            let (data_y, _, _) = i420.data();
+            sum += data_y.iter().map(|&b| b as f64).sum::<f64>() / data_y.len() as f64;
+        }
+        Ok(sum / frames as f64)
+    })
+    .await?
+}
+
+/// With a shared key, one publisher ratcheting its key moves only its own receiver's key on
+/// the subscriber: another publisher still sending with the old key stays readable.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_e2ee_shared_key_ratchet_one_publisher() -> Result<()> {
+    const LUMA_A: u8 = 60;
+    const LUMA_B: u8 = 200;
+    let mut rooms = test_rooms_with_options([
+        shared_key_options(true).into(),
+        shared_key_options(true).into(),
+        shared_key_options(true).into(),
+    ])
+    .await?;
+    let (pub_b, _) = rooms.pop().unwrap();
+    let (pub_a, _) = rooms.pop().unwrap();
+    let (_sub_room, mut sub_events) = rooms.pop().unwrap();
+    let pub_a = Arc::new(pub_a);
+    let identity_a = pub_a.local_participant().identity();
+    let mut track_a = SolidColorTrack::new(
+        pub_a.clone(),
+        SolidColorParams { width: 320, height: 240, luma: LUMA_A },
+    );
+    let mut track_b = SolidColorTrack::new(
+        Arc::new(pub_b),
+        SolidColorParams { width: 320, height: 240, luma: LUMA_B },
+    );
+    track_a.publish(VideoCodec::VP8, false).await?;
+    track_b.publish(VideoCodec::VP8, false).await?;
+
+    let (mut remote_a, mut remote_b) = (None, None);
+    timeout(Duration::from_secs(15), async {
+        while remote_a.is_none() || remote_b.is_none() {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed {
+                    track: RemoteTrack::Video(track),
+                    participant,
+                    ..
+                }) => {
+                    if participant.identity() == identity_a {
+                        remote_a = Some(track);
+                    } else {
+                        remote_b = Some(track);
+                    }
+                }
+                Some(_) => continue,
+                None => return Err(anyhow!("Never received both tracks")),
+            }
+        }
+        Ok(())
+    })
+    .await??;
+    let (remote_a, remote_b) = (remote_a.unwrap(), remote_b.unwrap());
+    let luma = next_frames_luma(&remote_b, 3).await?;
+    assert!((luma - LUMA_B as f64).abs() < 30.0, "B's luma {luma:.1} before the ratchet");
+
+    pub_a
+        .e2ee_manager()
+        .key_provider()
+        .and_then(|key_provider| key_provider.ratchet_shared_key(0))
+        .ok_or_else(|| anyhow!("ratchet failed"))?;
+    let luma = next_frames_luma(&remote_a, 30).await?;
+    assert!((luma - LUMA_A as f64).abs() < 30.0, "A's luma {luma:.1} after its ratchet");
+    let luma = next_frames_luma(&remote_b, 10).await?;
+    assert!((luma - LUMA_B as f64).abs() < 30.0, "B's luma {luma:.1} after A's ratchet");
+    Ok(())
+}

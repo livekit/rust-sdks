@@ -75,6 +75,9 @@ struct ReceiverCryptor {
     /// False while the receiver carries a track sent in the clear. A receiver that carries no
     /// track yet decrypts, so an encrypted track's first frames are decrypted.
     encrypted: bool,
+    /// A clear track's packet-trailer handler replaced the cryptor as the receiver's frame
+    /// transformer, so the cryptor no longer sees the receiver's frames.
+    detached: bool,
 }
 
 impl ReceiverCryptor {
@@ -140,9 +143,12 @@ impl E2eeManager {
         if !options.key_provider.shared {
             return;
         }
+        // Its own key-handler id until it is known whose track the receiver carries: the native
+        // provider keeps ratcheted keys per id, so one sender's ratchet must not move the key
+        // other senders' receivers use. Shared-key sets and ratchets still reach every id.
         let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
             LkRuntime::instance().pc_factory(),
-            String::new(),
+            format!("receiver:{}", track.id()),
             EncryptionAlgorithm::AesGcm,
             options.key_provider.handle.clone(),
             receiver,
@@ -159,9 +165,10 @@ impl E2eeManager {
                 }
             }
         })));
-        inner
-            .receivers
-            .insert(track.id(), ReceiverCryptor { cryptor: frame_cryptor, owner, encrypted: true });
+        inner.receivers.insert(
+            track.id(),
+            ReceiverCryptor { cryptor: frame_cryptor, owner, encrypted: true, detached: false },
+        );
     }
 
     /// Register to e2ee state changes
@@ -220,6 +227,7 @@ impl E2eeManager {
                 let enabled = inner.enabled;
                 if let Some(prepared) = inner.receivers.get_mut(&track.id()) {
                     prepared.assign(Some(identity), false, enabled);
+                    prepared.detached |= packet_trailer_handler.is_some();
                 }
             }
             return;
@@ -229,6 +237,14 @@ impl E2eeManager {
             let mut inner = self.inner.lock();
             let enabled = inner.enabled;
             let prepared = inner.receivers.get_mut(&track.id())?;
+            if prepared.detached && packet_trailer_handler.is_none() {
+                // Nothing would put the cryptor back on the receiver: make a new one below.
+                let detached = inner.receivers.remove(&track.id())?;
+                detached.cryptor.set_enabled(false);
+                return None;
+            }
+            // Setting the trailer handler below chains the cryptor back onto the receiver.
+            prepared.detached = false;
             prepared.assign(Some(identity.clone()), true, enabled);
             Some(prepared.cryptor.clone())
         });
