@@ -38,6 +38,7 @@ pub mod ffi {
         source_type: SourceType,
         include_cursor: bool,
         allow_sck_system_picker: bool,
+        persist_restore_token: bool,
     }
 
     enum CaptureResult {
@@ -57,6 +58,9 @@ pub mod ffi {
         fn get_source_list(self: &DesktopCapturer) -> Vec<Source>;
         fn select_source(self: &DesktopCapturer, id: u64) -> bool;
         fn start(self: Pin<&mut DesktopCapturer>, callback: Box<DesktopCapturerCallbackWrapper>);
+        // The Wayland portal's restore token (empty elsewhere).
+        fn set_restore_token(self: Pin<&mut DesktopCapturer>, token: &str);
+        fn restore_token(self: &DesktopCapturer) -> String;
 
         fn width(self: &DesktopFrame) -> i32;
         fn height(self: &DesktopFrame) -> i32;

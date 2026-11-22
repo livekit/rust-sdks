@@ -18,6 +18,11 @@
 
 #include "modules/desktop_capture/desktop_capture_options.h"
 
+#ifdef WEBRTC_USE_PIPEWIRE
+#include "modules/desktop_capture/linux/wayland/base_capturer_pipewire.h"
+#include "modules/desktop_capture/linux/wayland/shared_screencast_stream.h"
+#endif
+
 using SourceList = webrtc::DesktopCapturer::SourceList;
 
 namespace livekit_ffi {
@@ -53,6 +58,31 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   // cursor in the frame
   webrtc_options.set_prefer_cursor_embedded(options.include_cursor);
 
+#ifdef WEBRTC_USE_PIPEWIRE
+  // On Wayland, a capturer that persists its restore token makes the portal itself rather than
+  // letting the capturer do it, so the portal can ask for a token that outlives the app and be
+  // given a saved one: libwebrtc's own asks for a token that lasts only while the app runs.
+  if (options.persist_restore_token &&
+      options.source_type == SourceType::Generic &&
+      webrtc::DesktopCapturer::IsRunningUnderWayland()) {
+    if (!webrtc_options.screencast_stream()) {
+      webrtc_options.set_screencast_stream(
+          webrtc::SharedScreenCastStream::CreateDefault());
+    }
+    auto forwarder = std::make_unique<PortalForwarder>();
+    auto portal = std::make_unique<webrtc::ScreenCastPortal>(
+        webrtc::CaptureType::kAnyScreenContent, forwarder.get(),
+        options.include_cursor);
+    portal->SetPersistMode(webrtc::ScreenCastPortal::PersistMode::kPersistent);
+    forwarder->portal = portal.get();
+    auto pipewire = std::make_unique<webrtc::BaseCapturerPipeWire>(
+        webrtc_options, std::move(portal));
+    forwarder->target = pipewire.get();
+    return std::make_unique<DesktopCapturer>(std::move(forwarder),
+                                             std::move(pipewire));
+  }
+#endif
+
   std::unique_ptr<webrtc::DesktopCapturer> capturer = nullptr;
   switch (options.source_type) {
     case SourceType::Window:
@@ -77,6 +107,7 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
 void DesktopCapturer::start(
     rust::Box<DesktopCapturerCallbackWrapper> callback) {
   this->callback = std::move(callback);
+  started = true;
   capturer->Start(this);
 }
 
@@ -101,6 +132,24 @@ void DesktopCapturer::OnCaptureResult(
     (*callback)->on_capture_result(
         ret_result, std::make_unique<DesktopFrame>(std::move(frame)));
   }
+}
+
+void DesktopCapturer::set_restore_token(rust::Str token) {
+#ifdef WEBRTC_USE_PIPEWIRE
+  // Before start, the portal has no thread of its own yet.
+  if (forwarder && !started) {
+    forwarder->portal->SetRestoreToken(std::string(token));
+  }
+#endif
+}
+
+rust::String DesktopCapturer::restore_token() const {
+#ifdef WEBRTC_USE_PIPEWIRE
+  if (forwarder) {
+    return rust::String(forwarder->token());
+  }
+#endif
+  return rust::String();
 }
 
 rust::Vec<Source> DesktopCapturer::get_source_list() const {
