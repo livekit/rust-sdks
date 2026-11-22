@@ -30,6 +30,8 @@ class NvidiaH265DecoderImpl : public VideoDecoder {
   DecoderInfo GetDecoderInfo() const override;
 
  private:
+  bool CreateDecoder();
+
   CUcontext cu_context_;
   std::unique_ptr<NvDecoder> decoder_;
   bool is_configured_decoder_;

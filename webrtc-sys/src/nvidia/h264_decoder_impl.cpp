@@ -89,6 +89,10 @@ int32_t NvidiaH264DecoderImpl::RegisterDecodeCompleteCallback(
 
 int32_t NvidiaH264DecoderImpl::Release() {
   buffer_pool_.Release();
+  // Frees the GPU decoder too, also when the software fallback takes over; Configure makes a
+  // new one.
+  decoder_.reset();
+  is_configured_decoder_ = false;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 

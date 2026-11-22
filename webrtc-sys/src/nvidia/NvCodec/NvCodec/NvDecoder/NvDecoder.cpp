@@ -503,7 +503,7 @@ int NvDecoder::setReconfigParams(const Rect *pCropRect, const Dim *pResizeDim)
         }
         else
         {
-            delete pFrame;
+            delete[] pFrame;
         }
     }
 
