@@ -3,7 +3,7 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -12,7 +12,7 @@
 #include <iostream>
 #include <mutex>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 static const char CUDA_DYNAMIC_LIBRARY[] = "nvcuda.dll";
 #else
 static const char CUDA_DYNAMIC_LIBRARY[] = "libcuda.so.1";
@@ -48,7 +48,7 @@ static bool load_cuda_modules() {
   if (s_module_ptr)
     return true;
 
-#if defined(WIN32)
+#if defined(_WIN32)
   // dll delay load
   HMODULE module = LoadLibrary(TEXT("nvcuda.dll"));
   if (!module) {
@@ -240,7 +240,7 @@ void CudaContext::Shutdown() {
     }
   }
   if (s_module_ptr) {
-#if defined(WIN32)
+#if defined(_WIN32)
     FreeLibrary((HMODULE)s_module_ptr);
 #elif defined(__linux__)
     dlclose(s_module_ptr);

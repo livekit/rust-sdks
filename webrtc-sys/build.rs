@@ -134,6 +134,8 @@ fn main() {
 
     // Link webrtc library
     println!("cargo:rustc-link-lib=static=webrtc");
+    // CUDA_HOME holds the CUDA headers for NVENC.
+    println!("cargo:rerun-if-env-changed=CUDA_HOME");
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -169,6 +171,33 @@ fn main() {
                 //.flag("/wd4819")
                 //.flag("/wd4068")
                 .flag("/EHsc");
+
+            // NVENC and NVDEC on Windows. Only the headers are needed at build time;
+            // the driver's nvcuda.dll, nvEncodeAPI64.dll and nvcuvid.dll are loaded at run time.
+            if let Ok(cuda_home) = env::var("CUDA_HOME") {
+                let cuda_include_dir = PathBuf::from(cuda_home).join("include");
+                if cuda_include_dir.join("cuda.h").exists() {
+                    builder
+                        .include(cuda_include_dir)
+                        .flag("-Isrc/nvidia/NvCodec/include")
+                        .flag("-Isrc/nvidia/NvCodec/NvCodec")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+                        .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
+                        .file("src/nvidia/h264_encoder_impl.cpp")
+                        .file("src/nvidia/h265_encoder_impl.cpp")
+                        .file("src/nvidia/av1_encoder_impl.cpp")
+                        .file("src/nvidia/h264_decoder_impl.cpp")
+                        .file("src/nvidia/h265_decoder_impl.cpp")
+                        .file("src/nvidia/nvidia_encoder_factory.cpp")
+                        .file("src/nvidia/nvidia_decoder_factory.cpp")
+                        .file("src/nvidia/cuda_context.cpp")
+                        .file("src/nvidia/cuda_loader_win.cpp")
+                        .define("USE_NVIDIA_VIDEO_CODEC", "1");
+                } else {
+                    println!("cargo:warning=cuda.h not found; building without NVENC");
+                }
+            }
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=rt");

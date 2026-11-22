@@ -19,7 +19,8 @@
 #include <time.h>
 
 #ifdef _WIN32
-#include <winsock.h>
+// Winsock2.h, which libwebrtc includes too; the two clash.
+#include <winsock2.h>
 #include <windows.h>
 
 #pragma comment(lib, "ws2_32.lib")
