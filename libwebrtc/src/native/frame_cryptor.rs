@@ -137,6 +137,12 @@ impl KeyProvider {
         self.sys_handle.get_key(participant_id, key_index).ok()
     }
 
+    /// Shared keys only: the cryptor made for `participant_id` decrypts with `target`'s key
+    /// handler from its next frame on, or with its own again if `target` is empty.
+    pub fn bind_shared_key(&self, participant_id: String, target: String) {
+        self.sys_handle.bind_shared_key(participant_id, target)
+    }
+
     pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
         self.sys_handle.set_sif_trailer(trailer);
     }

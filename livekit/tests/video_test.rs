@@ -382,7 +382,8 @@ fn ratchet(pub_room: &Room) -> Result<()> {
 
 /// With a shared key, a new track from a sender who ratcheted past the ratchet window since the
 /// subscriber first decrypted it is still readable: the ratchets one of its receivers followed
-/// carry over, even when the receiver of its last subscribed track got no frames.
+/// carry over, even when the receiver of its last subscribed track got no frames. That receiver
+/// reads its track again when the frames come back.
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
@@ -405,10 +406,14 @@ async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
     let _live = publish(LUMA_LIVE).await?;
     let remote_live = next_video_track(&mut sub_events).await?;
     let _idle = publish(LUMA_IDLE).await?;
-    let idle_publication = timeout(Duration::from_secs(15), async {
+    let (idle_publication, remote_idle) = timeout(Duration::from_secs(15), async {
         loop {
             match sub_events.recv().await {
-                Some(RoomEvent::TrackSubscribed { publication, .. }) => return Ok(publication),
+                Some(RoomEvent::TrackSubscribed {
+                    publication,
+                    track: RemoteTrack::Video(track),
+                    ..
+                }) => return Ok((publication, track)),
                 Some(_) => continue,
                 None => return Err(anyhow!("Never received the second track")),
             }
@@ -418,7 +423,8 @@ async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
     // Still subscribed, but the server stops forwarding its frames.
     idle_publication.set_enabled(false);
 
-    for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
+    // More than twice the window: the new track is only readable if every ratchet carried over.
+    for step in 0..=2 * DEFAULT_RATCHET_WINDOW_SIZE {
         ratchet(&pub_room)?;
         let luma = next_frames_luma(&remote_live, 5)
             .await
@@ -432,6 +438,12 @@ async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
         .await
         .map_err(|err| anyhow!("no frames of the new track: {err}"))?;
     assert!((luma - LUMA_NEW as f64).abs() < 30.0, "new track's luma {luma:.1}");
+
+    idle_publication.set_enabled(true);
+    let luma = next_frames_luma(&remote_idle, 10)
+        .await
+        .map_err(|err| anyhow!("no frames of the resumed track: {err}"))?;
+    assert!((luma - LUMA_IDLE as f64).abs() < 30.0, "resumed track's luma {luma:.1}");
     Ok(())
 }
 
@@ -460,7 +472,8 @@ async fn send_and_read(
 }
 
 /// With a shared key, ratchets the subscriber followed through a sender's data messages carry
-/// over to its first track, and those followed through its track carry over to its data.
+/// over to its first track and to that track after it got no frames for a while, and those
+/// followed through its track carry over to its data.
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_e2ee_shared_key_ratchets_between_data_and_media() -> Result<()> {
@@ -482,13 +495,39 @@ async fn test_e2ee_shared_key_ratchets_between_data_and_media() -> Result<()> {
         SolidColorParams { width: 320, height: 240, luma: LUMA },
     );
     track.publish(VideoCodec::VP8, false).await?;
-    let remote = next_video_track(&mut sub_events).await?;
+    let (publication, remote) = timeout(Duration::from_secs(15), async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed {
+                    publication,
+                    track: RemoteTrack::Video(track),
+                    ..
+                }) => return Ok((publication, track)),
+                Some(_) => continue,
+                None => return Err(anyhow!("Never received the track")),
+            }
+        }
+    })
+    .await??;
     let luma = next_frames_luma(&remote, 10)
         .await
         .map_err(|err| anyhow!("no frames of the track: {err}"))?;
     assert!((luma - LUMA as f64).abs() < 30.0, "track's luma {luma:.1}");
 
+    // Still subscribed, but the server stops forwarding its frames while data follows.
+    publication.set_enabled(false);
     for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
+        ratchet(&pub_room)?;
+        send_and_read(&pub_room, &mut sub_events, step as u8).await?;
+    }
+    publication.set_enabled(true);
+    let luma = next_frames_luma(&remote, 10)
+        .await
+        .map_err(|err| anyhow!("no frames of the resumed track: {err}"))?;
+    assert!((luma - LUMA as f64).abs() < 30.0, "resumed track's luma {luma:.1}");
+
+    // More than twice the window: the message is only readable if every ratchet carried over.
+    for step in 0..=2 * DEFAULT_RATCHET_WINDOW_SIZE {
         ratchet(&pub_room)?;
         let luma = next_frames_luma(&remote, 5)
             .await

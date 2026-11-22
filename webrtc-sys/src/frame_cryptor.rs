@@ -77,6 +77,8 @@ pub mod ffi {
 
         pub fn set_sif_trailer(&self, trailer: Vec<u8>);
 
+        pub fn bind_shared_key(self: &KeyProvider, participant_id: String, target: String);
+
         pub fn set_key(
             self: &KeyProvider,
             participant_id: String,

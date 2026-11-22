@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "api/crypto/frame_crypto_transformer.h"
@@ -40,6 +41,42 @@ enum class Algorithm : ::std::int32_t;
 class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 class PacketTrailerHandler;
+
+/// WebRTC's key provider, where a cryptor can be pointed at another id's shared-key handler.
+/// A cryptor looks its handler up once per frame, so a frame already being decrypted keeps
+/// using, and writing its ratchets to, the handler it started with.
+class BindingKeyProvider : public webrtc::DefaultKeyProviderImpl {
+ public:
+  explicit BindingKeyProvider(webrtc::KeyProviderOptions options)
+      : webrtc::DefaultKeyProviderImpl(options) {}
+
+  const webrtc::scoped_refptr<webrtc::ParticipantKeyHandler> GetSharedKey(
+      const std::string participant_id) override {
+    std::string id = participant_id;
+    {
+      webrtc::MutexLock lock(&bindings_mutex_);
+      auto it = bindings_.find(participant_id);
+      if (it != bindings_.end()) {
+        id = it->second;
+      }
+    }
+    return webrtc::DefaultKeyProviderImpl::GetSharedKey(id);
+  }
+
+  /// An empty `target` points `participant_id` back at its own handler.
+  void Bind(const std::string& participant_id, const std::string& target) {
+    webrtc::MutexLock lock(&bindings_mutex_);
+    if (target.empty()) {
+      bindings_.erase(participant_id);
+    } else {
+      bindings_[participant_id] = target;
+    }
+  }
+
+ private:
+  webrtc::Mutex bindings_mutex_;
+  std::unordered_map<std::string, std::string> bindings_;
+};
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
@@ -130,6 +167,14 @@ class KeyProvider {
     return vec;
   }
 
+  /// Shared keys only: the cryptor `participant_id` decrypts with `target`'s key handler,
+  /// or its own again if `target` is empty.
+  void bind_shared_key(const ::rust::String participant_id,
+                       const ::rust::String target) const {
+    impl_->Bind(std::string(participant_id.data(), participant_id.size()),
+                std::string(target.data(), target.size()));
+  }
+
   void set_sif_trailer(rust::Vec<::std::uint8_t> trailer) const {
     std::vector<uint8_t> trailer_vec;
     std::copy(trailer.begin(), trailer.end(), std::back_inserter(trailer_vec));
@@ -141,7 +186,7 @@ class KeyProvider {
   webrtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
 
  private:
-  webrtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
+  webrtc::scoped_refptr<BindingKeyProvider> impl_;
   int32_t key_ring_size_ = 16;
 };
 

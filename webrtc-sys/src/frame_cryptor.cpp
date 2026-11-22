@@ -120,7 +120,7 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
       KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
           options.key_derivation_algorithm);
   impl_ =
-      new webrtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
+      new webrtc::RefCountedObject<BindingKeyProvider>(rtc_options);
 }
 
 FrameCryptor::FrameCryptor(
