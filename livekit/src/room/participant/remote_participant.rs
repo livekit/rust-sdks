@@ -428,6 +428,9 @@ impl RemoteParticipant {
             move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
+                // Decided now, while a publication that is already subscribed still has its
+                // track: asking for that one again must not announce it twice.
+                let wanted_again = subscribed && publication.track().is_none();
                 tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
@@ -444,6 +447,9 @@ impl RemoteParticipant {
                             update_subscription,
                         ))
                         .await;
+                    if wanted_again {
+                        rtc_engine.session().track_wanted_again(publication.sid().as_str());
+                    }
                 });
             }
         });

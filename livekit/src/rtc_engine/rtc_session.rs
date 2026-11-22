@@ -959,6 +959,29 @@ impl RtcSession {
         self.inner.publisher_negotiation_needed()
     }
 
+    /// Asked to receive `track_sid` again, announce it again too. A transceiver the server
+    /// reuses for it keeps its `(mid, stream_id)`, which `process_remote_track_addition` would
+    /// skip as already announced, and an unsubscribe and a subscribe that reach the server
+    /// together cancel out, so it doesn't renegotiate at all. Forget those pairs and
+    /// renegotiate: the answer says where the track is.
+    pub(crate) fn track_wanted_again(&self, track_sid: &str) {
+        let mids: HashSet<String> = self
+            .inner
+            .mid_to_track_id
+            .lock()
+            .iter()
+            .filter(|(_, sid)| sid.as_str() == track_sid)
+            .map(|(mid, _)| mid.clone())
+            .collect();
+        if mids.is_empty() {
+            return;
+        }
+        self.inner.dispatched_streams.lock().retain(|(mid, _)| !mids.contains(mid));
+        if self.inner.single_pc_mode {
+            self.inner.publisher_negotiation_needed();
+        }
+    }
+
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         self.inner.add_track(req).await
     }
