@@ -109,6 +109,11 @@ pub struct LocalVideoTrack {
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
     /// Last qualities requested by dynacast, re-applied after renegotiation.
     subscribed_qualities: Arc<Mutex<Option<Vec<proto::SubscribedQuality>>>>,
+    /// Held across reading the sender's parameters and setting them: a read in between, such as
+    /// [Self::publishing_layers] on another thread, makes libwebrtc refuse the set ("the
+    /// transaction_id doesn't match"), and the layers stay as they were. Shared by the track's
+    /// clones, which drive the same sender.
+    parameters: Arc<Mutex<()>>,
     /// The runtime whose factory created the native track. Its threads must outlive the track,
     /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
     _runtime: Arc<LkRuntime>,
@@ -167,6 +172,7 @@ impl LocalVideoTrack {
             packet_trailer_handler: Arc::new(Mutex::new(None)),
             publish_timing_tx: Arc::new(Mutex::new(None)),
             subscribed_qualities: Arc::new(Mutex::new(None)),
+            parameters: Arc::new(Mutex::new(())),
             _runtime: runtime,
         }
     }
@@ -359,6 +365,7 @@ impl LocalVideoTrack {
             log::debug!("dynacast: no transceiver, returning empty layers");
             return Vec::new();
         };
+        let _parameters = self.parameters_lock();
         let params = transceiver.sender().parameters();
         params
             .encodings
@@ -395,6 +402,7 @@ impl LocalVideoTrack {
         })?;
 
         let sender = transceiver.sender();
+        let _parameters = self.parameters_lock();
         let mut params = sender.parameters();
 
         if params.encodings.is_empty() {
@@ -440,6 +448,11 @@ impl LocalVideoTrack {
         }
 
         Ok(())
+    }
+
+    /// Hold while reading and then setting the sender's parameters; see the field.
+    pub(crate) fn parameters_lock(&self) -> parking_lot::MutexGuard<'_, ()> {
+        self.parameters.lock()
     }
 
     /// Applies publishing-layer quality state for end-to-end tests.
