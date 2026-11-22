@@ -159,6 +159,7 @@ impl RemoteParticipant {
         sid: TrackSid,
         media_track: MediaStreamTrack,
         transceiver: RtpTransceiver,
+        replay: bool,
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -225,11 +226,11 @@ impl RemoteParticipant {
             self.add_publication_inner(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            // Fires TrackSubscribed on the publication, unless the application unsubscribed
-            // while this delivery was on its way.
-            if !remote_publication.attach_track(track.clone()) {
+            // Fires TrackSubscribed on the publication, unless this is a replay the application
+            // no longer wants.
+            if !remote_publication.attach_track(track.clone(), replay) {
                 track.disable();
-                log::debug!("track {:?} delivered after an unsubscribe; not attached", sid);
+                log::debug!("track {:?} announced again after an unsubscribe; not attached", sid);
             }
         } else {
             let closed = self.remote.closed.lock();

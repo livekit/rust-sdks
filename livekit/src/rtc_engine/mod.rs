@@ -142,6 +142,7 @@ pub enum EngineEvent {
         track: MediaStreamTrack,
         stream: MediaStream,
         transceiver: RtpTransceiver,
+        replay: bool,
     },
     Data {
         participant_sid: Option<ParticipantSid>,
@@ -788,8 +789,13 @@ impl EngineInner {
             SessionEvent::RpcAck { request_id } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });
             }
-            SessionEvent::MediaTrack { track, stream, transceiver } => {
-                let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });
+            SessionEvent::MediaTrack { track, stream, transceiver, replay } => {
+                let _ = self.engine_tx.send(EngineEvent::MediaTrack {
+                    track,
+                    stream,
+                    transceiver,
+                    replay,
+                });
             }
             SessionEvent::ParticipantUpdate { updates } => {
                 let _ = self.engine_tx.send(EngineEvent::ParticipantUpdate { updates });

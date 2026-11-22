@@ -47,15 +47,13 @@ struct RemoteEvents {
 struct RemoteInfo {
     subscribed: bool,
     allowed: bool,
-    /// The application's last `set_subscribed` call was `false`.
-    unsubscribed: bool,
 }
 
 struct RemoteInner {
     info: RwLock<RemoteInfo>,
     events: RemoteEvents,
-    /// Serializes an unsubscribe with attaching a delivered track, so a delivery already on its
-    /// way can't attach the track after the application unsubscribed.
+    /// Serializes an unsubscribe with attaching a replayed track, so a replay already on its way
+    /// can't attach the track after the application unsubscribed.
     attach: Mutex<()>,
 }
 
@@ -91,22 +89,20 @@ impl RemoteTrackPublication {
         Self {
             inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
-                info: RwLock::new(RemoteInfo {
-                    subscribed: auto_subscribe,
-                    allowed: true,
-                    unsubscribed: false,
-                }),
+                info: RwLock::new(RemoteInfo { subscribed: auto_subscribe, allowed: true }),
                 events: Default::default(),
                 attach: Mutex::new(()),
             }),
         }
     }
 
-    /// Attaches a track the server delivered, unless the application unsubscribed meanwhile.
+    /// Attaches a track the server delivered. A `replay` (the track announced again after a
+    /// local resubscribe) is dropped if the application unsubscribed meanwhile; a fresh
+    /// delivery, such as a subscription made through the server API, always attaches.
     /// Returns whether it was attached.
-    pub(crate) fn attach_track(&self, track: RemoteTrack) -> bool {
+    pub(crate) fn attach_track(&self, track: RemoteTrack, replay: bool) -> bool {
         let _attach = self.remote.attach.lock();
-        if self.remote.info.read().unsubscribed {
+        if replay && !self.remote.info.read().subscribed {
             return false;
         }
         self.set_track(Some(track));
@@ -271,7 +267,6 @@ impl RemoteTrackPublication {
             {
                 let mut info = self.remote.info.write();
                 info.subscribed = subscribed;
-                info.unsubscribed = !subscribed;
 
                 if subscribed {
                     info.allowed = true;

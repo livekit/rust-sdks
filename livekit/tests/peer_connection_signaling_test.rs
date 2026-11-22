@@ -54,6 +54,7 @@ use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::rtc_engine::{EngineOptions, RtcEngine};
 use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
+use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
 use std::env;
@@ -525,6 +526,20 @@ async fn test_resubscribe_same_track_impl(mode: SignalingMode) -> Result<()> {
         );
     }
     assert!(publication.track().is_none(), "[{}] cancelled resubscribe attached", mode.name());
+
+    // A subscription made through the server API attaches, whatever the client last asked for.
+    let (url, api_key, api_secret) = get_env_for_mode(mode);
+    RoomClient::with_api_key(&url.replacen("ws", "http", 1), &api_key, &api_secret)
+        .update_subscriptions(
+            &sub_room.name(),
+            sub_room.local_participant().identity().as_str(),
+            vec![sid.to_string()],
+            true,
+        )
+        .await?;
+    next_subscription_event(&mut sub_events, true)
+        .await
+        .with_context(|| format!("[{}] server-side subscribe", mode.name()))?;
     Ok(())
 }
 
