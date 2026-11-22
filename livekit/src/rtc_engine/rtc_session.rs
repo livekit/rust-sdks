@@ -425,9 +425,9 @@ struct SessionInner {
     /// diffing receiver streams across each setRemoteDescription and dispatching
     /// `track` events for newly-added streams.
     dispatched_streams: Mutex<HashSet<(String, String)>>,
-    /// Mids `track_wanted_again` removed from `dispatched_streams`, whose next dispatch is a
-    /// replay.
-    replayed_mids: Mutex<HashSet<String>>,
+    /// The `(mid, stream_id)` pairs `track_wanted_again` removed from `dispatched_streams`,
+    /// whose next dispatch is a replay. Locked after `dispatched_streams`.
+    replayed_streams: Mutex<HashSet<(String, String)>>,
 
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<EngineResult<proto::TrackInfo>>>>,
 
@@ -718,7 +718,7 @@ impl RtcSession {
             single_pc_mode,
             mid_to_track_id: Mutex::new(HashMap::new()),
             dispatched_streams: Mutex::new(HashSet::new()),
-            replayed_mids: Default::default(),
+            replayed_streams: Default::default(),
             pending_tracks: Default::default(),
             lossy_dc,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
@@ -982,8 +982,15 @@ impl RtcSession {
         if mids.is_empty() {
             return;
         }
-        self.inner.dispatched_streams.lock().retain(|(mid, _)| !mids.contains(mid));
-        self.inner.replayed_mids.lock().extend(mids);
+        // Under the dispatch lock, so a dispatch sees either both changes or neither.
+        let mut dispatched = self.inner.dispatched_streams.lock();
+        let evicted: Vec<_> =
+            dispatched.iter().filter(|(mid, _)| mids.contains(mid)).cloned().collect();
+        for key in &evicted {
+            dispatched.remove(key);
+        }
+        self.inner.replayed_streams.lock().extend(evicted);
+        drop(dispatched);
         if self.inner.single_pc_mode {
             self.inner.publisher_negotiation_needed();
         }
@@ -1293,7 +1300,7 @@ impl SessionInner {
         let mut dispatched = self.dispatched_streams.lock();
         dispatched.retain(|key| current.contains_key(key));
         // A forgotten pair is dispatched again on the first pass that still finds it.
-        let replayed_mids = std::mem::take(&mut *self.replayed_mids.lock());
+        let replayed = std::mem::take(&mut *self.replayed_streams.lock());
 
         for (key, (stream, track, transceiver)) in current {
             if dispatched.insert(key.clone()) {
@@ -1302,7 +1309,8 @@ impl SessionInner {
                     key.0,
                     key.1
                 );
-                let replay = replayed_mids.contains(&key.0);
+                // The same pair, so the same track: the stream id names it.
+                let replay = replayed.contains(&key);
                 let _ = self.emitter.send(SessionEvent::MediaTrack {
                     stream,
                     track,
