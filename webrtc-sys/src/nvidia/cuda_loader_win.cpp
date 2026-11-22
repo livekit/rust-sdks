@@ -79,6 +79,7 @@ CU_EXPAND(cuMemcpy2DAsync, (const CUDA_MEMCPY2D* copy, CUstream stream), (copy, 
 CU_EXPAND(cuArrayDestroy, (CUarray array), (array))
 CU_EXPAND(cuStreamCreate, (CUstream* stream, unsigned int flags), (stream, flags))
 CU_EXPAND(cuStreamSynchronize, (CUstream stream), (stream))
+CU_EXPAND(cuStreamDestroy, (CUstream stream), (stream))
 
 CUVID_EXPAND(cuvidCtxLockCreate, (CUvideoctxlock* lock, CUcontext ctx), (lock, ctx))
 CUVID_EXPAND(cuvidCtxLockDestroy, (CUvideoctxlock lock), (lock))
