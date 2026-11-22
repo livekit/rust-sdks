@@ -289,6 +289,9 @@ void AdmProxy::SwitchPlayoutMode() {
       synthetic_adm_->StopPlayout();
     }
     if (platform_adm_) {
+      if (!platform_adm_->PlayoutIsInitialized()) {
+        LogDevice(true);
+      }
       platform_adm_->InitPlayout();
       platform_adm_->StartPlayout();
     }
@@ -312,6 +315,9 @@ void AdmProxy::SwitchRecordingAdm() {
   // Start if new ADM supports recording
   auto* adm = RecordingAdm();
   if (adm) {
+    if (!adm->RecordingIsInitialized()) {
+      LogDevice(false);
+    }
     adm->InitRecording();
     adm->StartRecording();
   } else {
@@ -469,6 +475,9 @@ int32_t AdmProxy::InitPlayout() {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
     if (IsPlatformPlayoutActive()) {
+      if (!platform_adm_->PlayoutIsInitialized()) {
+        LogDevice(true);
+      }
       return platform_adm_->InitPlayout();
     }
     // Synthetic mode
@@ -510,8 +519,40 @@ int32_t AdmProxy::InitRecording() {
       // Return success to avoid breaking WebRTC's initialization flow
       return 0;
     }
+    if (!adm->RecordingIsInitialized()) {
+      LogDevice(false);
+    }
     return adm->InitRecording();
   });
+}
+
+void AdmProxy::LogDevice(bool playout) const {
+  const char* what = playout ? "playout" : "recording";
+  const auto& selected =
+      playout ? selected_playout_device_ : selected_recording_device_;
+  if (!selected.has_value()) {
+    RTC_LOG(LS_INFO) << "AdmProxy: initializing " << what
+                     << " with the default device, none selected";
+    return;
+  }
+  auto* index = std::get_if<uint16_t>(&*selected);
+  if (!index) {
+    bool communications = std::get<WindowsDeviceType>(*selected) ==
+                          webrtc::AudioDeviceModule::kDefaultCommunicationDevice;
+    RTC_LOG(LS_INFO) << "AdmProxy: initializing " << what
+                     << " with the system's "
+                     << (communications ? "communications" : "default")
+                     << " device";
+    return;
+  }
+  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+  char guid[webrtc::kAdmMaxGuidSize] = {0};
+  int32_t result =
+      playout ? platform_adm_->PlayoutDeviceName(*index, name, guid)
+              : platform_adm_->RecordingDeviceName(*index, name, guid);
+  RTC_LOG(LS_INFO) << "AdmProxy: initializing " << what
+                   << " with selected device " << *index << ": "
+                   << (result == 0 ? name : "name unavailable");
 }
 
 bool AdmProxy::RecordingIsInitialized() const {
