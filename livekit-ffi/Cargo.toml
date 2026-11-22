@@ -41,9 +41,7 @@ room-apis = [
 # downstream language and is a transitional step to migrating eventually someday to the full
 # room-apis mode - swift, android, flutter, etc.
 core-modules = [
-  "dep:livekit-common",
   "dep:livekit-data-stream",
-  "dep:livekit-datatrack",
   "dep:livekit-net",
   "dep:livekit-signaling",
   "dep:livekit-telemetry",
@@ -51,9 +49,6 @@ core-modules = [
   "dep:prost",
   "dep:async-trait",
   "dep:once_cell",
-  "dep:tokio-util",
-  "livekit-common/uniffi",
-  "livekit-datatrack/uniffi",
   "livekit-net/uniffi",
   "livekit-telemetry/net",
   "livekit-telemetry/uniffi",
@@ -81,6 +76,10 @@ capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
+# End-to-end tests against a LiveKit server, as in the `livekit` crate. These
+# drive the room-apis request surface, so they imply it.
+__lk-e2e-test = ["room-apis"]
+
 [dependencies]
 # Shared by both surfaces.
 livekit-protocol = { workspace = true }
@@ -90,6 +89,9 @@ futures-util = { workspace = true, default-features = false, features = ["sink"]
 bytes = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+livekit-common = { workspace = true, features = ["uniffi"] }
+livekit-datatrack = { workspace = true, features = ["uniffi"] }
+tokio-util = { workspace = true }
 
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.
@@ -97,16 +99,13 @@ livekit = { workspace = true, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
 # core-modules only.
-livekit-common = { workspace = true, optional = true }
 livekit-token = { workspace = true, optional = true }
-livekit-datatrack = { workspace = true, optional = true }
 livekit-net = { workspace = true, optional = true }
 livekit-telemetry = { workspace = true, optional = true }
 livekit-data-stream = { workspace = true, optional = true }
 # Default features, so the signalling client stays transport-blind and uses
 # whatever the host registered with livekit-net.
 livekit-signaling = { workspace = true, optional = true }
-tokio-util = { workspace = true, optional = true }
 once_cell = { version = "1.21.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 

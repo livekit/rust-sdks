@@ -12,86 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::common::{
-    deserialize_signal_response, DataTrackFrame, DataTrackInfo, DataTrackSchemaId,
-    HandleSignalResponseError,
-};
+use super::common::{deserialize_signal_response, HandleSignalResponseError};
+use crate::data_track::local::{DataTrackOptions, LocalDataTrack};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, DataTrackFrameEncoding, Local, PublishError, PushFrameErrorReason},
+    api::PublishError,
     backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
 use prost::Message;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
-
-/// Data track published by the local participant.
-#[derive(uniffi::Object)]
-pub struct LocalDataTrack(DataTrack<Local>);
-
-#[uniffi::export(async_runtime = "tokio")]
-impl LocalDataTrack {
-    /// Whether or not the track is currently published.
-    pub fn is_published(&self) -> bool {
-        self.0.is_published()
-    }
-
-    /// Waits asynchronously until the track is unpublished.
-    ///
-    /// Use this to trigger follow-up work once the track is no longer published.
-    /// If the track is already unpublished, this method returns immediately.
-    ///
-    pub async fn wait_for_unpublish(&self) {
-        self.0.wait_for_unpublish().await
-    }
-
-    /// Information about the data track.
-    pub fn info(&self) -> DataTrackInfo {
-        self.0.info().into()
-    }
-
-    /// Try pushing a frame to subscribers of the track.
-    pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
-        // `PushFrameError` returns ownership of the unpublished frame to the caller because Rust's
-        // `try_push` moves it. Across the FFI boundary the frame is lowered by copy, so the caller
-        // still holds its own value and can retry with it directly; just provide the reason.
-        self.0.try_push(frame.into()).map_err(|err| err.reason())
-    }
-
-    /// Unpublishes the track.
-    pub fn unpublish(&self) {
-        self.0.unpublish();
-    }
-}
-
-/// Options for publishing a data track.
-///
-/// FFI wrapper around [`livekit_datatrack::api::DataTrackOptions`]. The underlying type uses the
-/// builder pattern with private fields.
-///
-#[derive(uniffi::Record)]
-pub struct DataTrackOptions {
-    pub name: String,
-    #[uniffi(default)]
-    pub schema: Option<DataTrackSchemaId>,
-    #[uniffi(default)]
-    pub frame_encoding: Option<DataTrackFrameEncoding>,
-}
-
-impl From<DataTrackOptions> for livekit_datatrack::api::DataTrackOptions {
-    fn from(source: DataTrackOptions) -> Self {
-        let mut options = livekit_datatrack::api::DataTrackOptions::new(source.name);
-        if let Some(schema) = source.schema {
-            options = options.with_schema(schema.into());
-        }
-        if let Some(frame_encoding) = source.frame_encoding {
-            options = options.with_frame_encoding(frame_encoding);
-        }
-        options
-    }
-}
 
 /// System for managing data track publications.
 #[derive(uniffi::Object)]
@@ -143,7 +75,7 @@ impl LocalDataTrackManager {
         &self,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
-        self.input.publish_track(options.into()).await.map(LocalDataTrack)
+        self.input.publish_track(options.into()).await.map(LocalDataTrack::new)
     }
 
     /// Get serialized publish responses for all currently published tracks to support sync state.
