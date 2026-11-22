@@ -14,11 +14,14 @@
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
-use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
+use livekit_token::{AccessToken, AccessTokenError, Claims, SIPGrants, VideoGrants};
 
 pub use crate::public_api::public_api_url;
 pub use livekit_api::LiveKitApi;
@@ -48,6 +51,8 @@ mod twirp_client;
 
 #[cfg(all(test, feature = "services"))]
 mod api_test;
+#[cfg(all(test, feature = "services"))]
+mod token_provider_test;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";
 
@@ -59,9 +64,45 @@ pub enum ServiceError {
     AccessToken(#[from] AccessTokenError),
     #[error("server error: {0}")]
     Twirp(#[from] ServerError),
+    #[error("token provider failed: {0}")]
+    TokenProvider(TokenProviderError),
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
+
+/// The grants a [`TokenProvider`] is asked for. Today these are v1 claims ([`Claims`]); grants v2
+/// will be accepted here too. The provider does not convert between the two: it passes the
+/// grants on with [`Claims::to_claims_json`], and the server that signs the token converts them to
+/// the format of its key.
+pub type TokenGrants = Claims;
+
+/// Why a [`TokenProvider`] returned no token.
+pub type TokenProviderError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Returns a token that carries the given grants.
+///
+/// [`LiveKitApi`] calls it before each request, in place of signing a token with an API key and
+/// secret, with the grants that request needs. It may cache tokens. Any
+/// `Fn(TokenGrants) -> impl Future<Output = Result<String, TokenProviderError>>` is one.
+pub trait TokenProvider: Send + Sync {
+    fn token(
+        &self,
+        grants: TokenGrants,
+    ) -> Pin<Box<dyn Future<Output = Result<String, TokenProviderError>> + Send + '_>>;
+}
+
+impl<F, Fut> TokenProvider for F
+where
+    F: Fn(TokenGrants) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String, TokenProviderError>> + Send + 'static,
+{
+    fn token(
+        &self,
+        grants: TokenGrants,
+    ) -> Pin<Box<dyn Future<Output = Result<String, TokenProviderError>> + Send + '_>> {
+        Box::pin(self(grants))
+    }
+}
 
 // The two authentication modes are mutually exclusive, so they're distinct
 // variants rather than a struct where an invalid combination is representable.
@@ -72,6 +113,9 @@ pub(crate) enum ServiceBase {
     /// Send a caller-supplied token verbatim; grants are ignored (the caller,
     /// typically a browser client, signed it out of band).
     Token(String),
+    /// Ask a [`TokenProvider`] for a token with the grants of each request, in
+    /// place of signing one (a process without the API secret).
+    Provider(Arc<dyn TokenProvider>),
 }
 
 impl Debug for ServiceBase {
@@ -82,6 +126,9 @@ impl Debug for ServiceBase {
                 f.debug_struct("ServiceBase").field("api_key", api_key).finish_non_exhaustive()
             }
             Self::Token(_) => f.debug_struct("ServiceBase").field("token", &"<redacted>").finish(),
+            Self::Provider(_) => {
+                f.debug_struct("ServiceBase").field("token_provider", &"<provider>").finish()
+            }
         }
     }
 }
@@ -95,13 +142,25 @@ impl ServiceBase {
         Self::Token(token.to_owned())
     }
 
-    pub fn auth_header(
+    pub fn with_token_provider(provider: Arc<dyn TokenProvider>) -> Self {
+        Self::Provider(provider)
+    }
+
+    pub async fn auth_header(
         &self,
         grants: VideoGrants,
         sip: Option<SIPGrants>,
-    ) -> Result<HeaderMap, AccessTokenError> {
+    ) -> ServiceResult<HeaderMap> {
         let token = match self {
             Self::Token(token) => token.clone(),
+            Self::Provider(provider) => {
+                let grants = TokenGrants {
+                    video: grants,
+                    sip: sip.unwrap_or_default(),
+                    ..Default::default()
+                };
+                provider.token(grants).await.map_err(ServiceError::TokenProvider)?
+            }
             Self::ApiKeySecret { api_key, api_secret } => {
                 let mut tok = AccessToken::with_api_key(api_key, api_secret).with_grants(grants);
                 if let Some(sip_grants) = sip {
@@ -111,8 +170,10 @@ impl ServiceBase {
             }
         };
 
+        let bearer = HeaderValue::from_str(&format!("Bearer {}", token))
+            .map_err(|error| ServiceError::TokenProvider(Box::new(error)))?;
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+        headers.insert(AUTHORIZATION, bearer);
         Ok(headers)
     }
 }

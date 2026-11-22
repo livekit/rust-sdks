@@ -159,7 +159,8 @@ impl RoomClient {
                 "CreateRoom",
                 request,
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -173,7 +174,8 @@ impl RoomClient {
                 "ListRooms",
                 proto::ListRoomsRequest { names },
                 self.base
-                    .auth_header(VideoGrants { room_list: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_list: true, ..Default::default() }, None)
+                    .await?,
             )
             .await?;
 
@@ -187,7 +189,8 @@ impl RoomClient {
                 "DeleteRoom",
                 proto::DeleteRoomRequest { room: room.to_owned() },
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -206,10 +209,16 @@ impl RoomClient {
                     room: room.to_owned(),
                     metadata: metadata.to_owned(),
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -225,10 +234,16 @@ impl RoomClient {
                 SVC,
                 "ListParticipants",
                 proto::ListParticipantsRequest { room: room.to_owned() },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await?;
 
@@ -249,10 +264,16 @@ impl RoomClient {
                     identity: identity.to_owned(),
                     ..Default::default()
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -278,10 +299,16 @@ impl RoomClient {
                     identity: identity.to_owned(),
                     revoke_token_ts: options.revoke_token_ts,
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -302,15 +329,17 @@ impl RoomClient {
                     identity: identity.to_owned(),
                     destination_room: destination_room.to_owned(),
                 },
-                self.base.auth_header(
-                    VideoGrants {
-                        room_admin: true,
-                        room: room.to_owned(),
-                        destination_room: destination_room.to_owned(),
-                        ..Default::default()
-                    },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            destination_room: destination_room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -331,15 +360,17 @@ impl RoomClient {
                     identity: identity.to_owned(),
                     destination_room: destination_room.to_owned(),
                 },
-                self.base.auth_header(
-                    VideoGrants {
-                        room_admin: true,
-                        room: room.to_owned(),
-                        destination_room: destination_room.to_owned(),
-                        ..Default::default()
-                    },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            destination_room: destination_room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -363,10 +394,16 @@ impl RoomClient {
                     track_sid: track_sid.to_owned(),
                     muted,
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await?;
 
@@ -391,10 +428,16 @@ impl RoomClient {
                     attributes: options.attributes.to_owned(),
                     name: options.name,
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -418,10 +461,16 @@ impl RoomClient {
                     subscribe,
                     ..Default::default()
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -451,10 +500,16 @@ impl RoomClient {
                     destination_identities: options.destination_identities,
                     nonce,
                 },
-                self.base.auth_header(
-                    VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
-                    None,
-                )?,
+                self.base
+                    .auth_header(
+                        VideoGrants {
+                            room_admin: true,
+                            room: room.to_owned(),
+                            ..Default::default()
+                        },
+                        None,
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)

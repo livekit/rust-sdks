@@ -20,6 +20,7 @@
 #[allow(clippy::all, dead_code, unused_mut, clippy::needless_lifetimes)]
 mod generated;
 
+use std::cell::Cell;
 use std::time::Duration;
 
 pub(crate) use generated::{types, Client};
@@ -28,7 +29,9 @@ use progenitor_client::{ClientHooks, OperationInfo};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
 
-use crate::services::{ServerError, ServerErrorCode, ServiceBase, ServiceError, ServiceResult};
+use crate::services::{
+    ServerError, ServerErrorCode, ServiceBase, ServiceError, ServiceResult, TokenGrants,
+};
 
 /// The project id that names the project of the request's token.
 pub(crate) const PROJECT: &str = "p_";
@@ -64,26 +67,34 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    fn bearer(&self) -> Result<String, livekit_token::AccessTokenError> {
+    async fn bearer(&self) -> Result<HeaderValue, ServiceError> {
+        let agent = AgentGrants { database_admin: true, ..Default::default() };
+        let threads = AgentThreadGrants {
+            all: true,
+            list: true,
+            create: true,
+            write: true,
+            read: true,
+            delete: true,
+            ..Default::default()
+        };
         let token = match &self.base {
             ServiceBase::Token(token) => token.clone(),
+            ServiceBase::Provider(provider) => {
+                let grants = TokenGrants { agent, agent_thread: threads, ..Default::default() };
+                provider.token(grants).await.map_err(ServiceError::TokenProvider)?
+            }
             ServiceBase::ApiKeySecret { api_key, api_secret } => {
                 AccessToken::with_api_key(api_key, api_secret)
                     .with_ttl(TOKEN_TTL)
-                    .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
-                    .with_agent_thread_grants(AgentThreadGrants {
-                        all: true,
-                        list: true,
-                        create: true,
-                        write: true,
-                        read: true,
-                        delete: true,
-                        ..Default::default()
-                    })
+                    .with_agent_grants(agent)
+                    .with_agent_thread_grants(threads)
                     .to_jwt()?
             }
         };
-        Ok(format!("Bearer {token}"))
+        // the same error as the other services return for a token that is no header value
+        HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|error| ServiceError::TokenProvider(Box::new(error)))
     }
 }
 
@@ -93,11 +104,16 @@ impl ClientHooks<Credentials> for Client {
         request: &mut reqwest::Request,
         _: &OperationInfo,
     ) -> Result<(), progenitor_client::Error<E>> {
-        let bearer =
-            self.inner.bearer().map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
-        let value = HeaderValue::from_str(&bearer)
-            .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
-        request.headers_mut().insert(AUTHORIZATION, value);
+        let bearer = match self.inner.bearer().await {
+            Ok(bearer) => bearer,
+            Err(e) => {
+                let msg = e.to_string();
+                // `call` returns the error itself; the hook can return only its message.
+                let _ = BEARER_ERROR.try_with(|slot| slot.set(Some(e)));
+                return Err(progenitor_client::Error::Custom(msg));
+            }
+        };
+        request.headers_mut().insert(AUTHORIZATION, bearer);
         *request.timeout_mut() = Some(self.inner.timeout);
         Ok(())
     }
@@ -156,16 +172,29 @@ pub(crate) async fn error(err: progenitor_client::Error<()>) -> ServiceError {
     ServiceError::Twirp(err)
 }
 
-/// Awaits a generated call, mapping its error.
+tokio::task_local! {
+    /// Why the [`call`] in progress got no bearer token, such as a token provider's error.
+    static BEARER_ERROR: Cell<Option<ServiceError>>;
+}
+
+/// Awaits a generated call, mapping its error. A failure to get the bearer token is returned as
+/// it is (such as [`ServiceError::TokenProvider`]), as the other services return it.
 pub(crate) async fn call<T>(
     fut: impl std::future::Future<
         Output = Result<progenitor_client::ResponseValue<T>, progenitor_client::Error<()>>,
     >,
 ) -> ServiceResult<T> {
-    match fut.await {
-        Ok(v) => Ok(v.into_inner()),
-        Err(e) => Err(error(e).await),
-    }
+    BEARER_ERROR
+        .scope(Cell::new(None), async {
+            match fut.await {
+                Ok(v) => Ok(v.into_inner()),
+                Err(e) => match BEARER_ERROR.with(Cell::take) {
+                    Some(bearer_error) => Err(bearer_error),
+                    None => Err(error(e).await),
+                },
+            }
+        })
+        .await
 }
 
 /// An empty string or zero limit is unset.

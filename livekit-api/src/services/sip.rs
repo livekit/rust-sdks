@@ -279,10 +279,12 @@ impl SIPClient {
                         media: Default::default(),
                     }),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -325,10 +327,12 @@ impl SIPClient {
                         media: Default::default(),
                     }),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -351,10 +355,12 @@ impl SIPClient {
                     sip_trunk_id: trunk_id,
                     action: Some(proto::update_sip_inbound_trunk_request::Action::Update(update)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -376,10 +382,12 @@ impl SIPClient {
                     sip_trunk_id: trunk_id,
                     action: Some(proto::update_sip_inbound_trunk_request::Action::Replace(trunk)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -400,10 +408,12 @@ impl SIPClient {
                     sip_trunk_id: trunk_id,
                     action: Some(proto::update_sip_outbound_trunk_request::Action::Update(update)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -424,10 +434,12 @@ impl SIPClient {
                     sip_trunk_id: trunk_id,
                     action: Some(proto::update_sip_outbound_trunk_request::Action::Replace(trunk)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -447,10 +459,12 @@ impl SIPClient {
                     // TODO support these attributes
                     page: Default::default(),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await?;
 
@@ -472,10 +486,12 @@ impl SIPClient {
                     trunk_ids: Default::default(),
                     numbers: Default::default(),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await?;
 
@@ -497,10 +513,12 @@ impl SIPClient {
                     trunk_ids: Default::default(),
                     numbers: Default::default(),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await?;
 
@@ -513,10 +531,12 @@ impl SIPClient {
                 SVC,
                 "DeleteSIPTrunk",
                 proto::DeleteSipTrunkRequest { sip_trunk_id: sip_trunk_id.to_owned() },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -545,10 +565,12 @@ impl SIPClient {
                     }),
                     ..Default::default()
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -569,10 +591,12 @@ impl SIPClient {
                     sip_dispatch_rule_id: dispatch_rule_id,
                     action: Some(proto::update_sip_dispatch_rule_request::Action::Update(update)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -593,10 +617,12 @@ impl SIPClient {
                     sip_dispatch_rule_id: dispatch_rule_id,
                     action: Some(proto::update_sip_dispatch_rule_request::Action::Replace(rule)),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -617,10 +643,12 @@ impl SIPClient {
                     dispatch_rule_ids: Default::default(),
                     trunk_ids: Default::default(),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await?;
 
@@ -638,10 +666,12 @@ impl SIPClient {
                 proto::DeleteSipDispatchRuleRequest {
                     sip_dispatch_rule_id: sip_dispatch_rule_id.to_owned(),
                 },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { admin: true, ..Default::default() }),
-                )?,
+                self.base
+                    .auth_header(
+                        Default::default(),
+                        Some(SIPGrants { admin: true, ..Default::default() }),
+                    )
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -685,10 +715,10 @@ impl SIPClient {
             media_encryption: options.media_encryption.map(|e| e as i32).unwrap_or_default(),
             ..Default::default()
         };
-        let headers = self.base.auth_header(
-            Default::default(),
-            Some(SIPGrants { call: true, ..Default::default() }),
-        )?;
+        let headers = self
+            .base
+            .auth_header(Default::default(), Some(SIPGrants { call: true, ..Default::default() }))
+            .await?;
 
         // A user-specified timeout wins; otherwise waiting for an answer dials a
         // phone, which takes longer and must outlast ringing. Without waiting the
@@ -737,11 +767,15 @@ impl SIPClient {
             play_dialtone: options.play_dialtone.unwrap_or(false),
             headers: options.headers.unwrap_or_default(),
             ringing_timeout: Self::duration_to_proto(ringing_timeout),
+            dialtone: Default::default(),
         };
-        let headers = self.base.auth_header(
-            VideoGrants { room_admin: true, room: room_name, ..Default::default() },
-            Some(SIPGrants { call: true, ..Default::default() }),
-        )?;
+        let headers = self
+            .base
+            .auth_header(
+                VideoGrants { room_admin: true, room: room_name, ..Default::default() },
+                Some(SIPGrants { call: true, ..Default::default() }),
+            )
+            .await?;
 
         self.client
             .request_with_timeout(

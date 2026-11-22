@@ -22,9 +22,10 @@ use super::ingress::IngressClient;
 use super::room::RoomClient;
 use super::sip::SIPClient;
 use super::threads::ThreadClient;
-use super::{ServiceBase, ServiceResult};
+use super::{ServiceBase, ServiceResult, TokenProvider};
 use crate::http_client;
 use livekit_token::get_env_keys;
+use std::sync::Arc;
 
 /// A single entry point to every LiveKit server API, exposing each service
 /// through an accessor (`room()`, `egress()`, `ingress()`, `sip()`,
@@ -33,7 +34,9 @@ use livekit_token::get_env_keys;
 /// Construct it with an API key and secret ([`with_api_key`](Self::with_api_key),
 /// or [`new`](Self::new) to read them from the environment) for backend use, or
 /// with a pre-signed token ([`with_token`](Self::with_token)) for client-side use
-/// where the API secret must not be exposed.
+/// where the API secret must not be exposed, or with a [`TokenProvider`]
+/// ([`with_token_provider`](Self::with_token_provider)) that gets a token with
+/// the grants of each call.
 #[derive(Debug)]
 pub struct LiveKitApi {
     room: RoomClient,
@@ -77,6 +80,26 @@ impl LiveKitApi {
         // One HTTP client shared across every service (see `with_api_key`).
         let http = http_client::client();
         let base = || ServiceBase::with_token(token);
+        Self {
+            room: RoomClient::build(host, base(), http.clone()),
+            egress: EgressClient::build(host, base(), http.clone()),
+            ingress: IngressClient::build(host, base(), http.clone()),
+            sip: SIPClient::build(host, base(), http.clone()),
+            agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
+            connector: ConnectorClient::build(host, base(), http.clone()),
+            threads: ThreadClient::build(host, base(), http.clone()),
+            databases: DatabaseClient::build(host, base(), http),
+        }
+    }
+
+    /// Asks `provider` for a token with the grants of each request, in place of
+    /// signing one with an API key and secret: for a process that holds no
+    /// secret, such as an agent worker in token mode.
+    pub fn with_token_provider(host: &str, provider: impl TokenProvider + 'static) -> Self {
+        // One HTTP client shared across every service (see `with_api_key`).
+        let http = http_client::client();
+        let provider: Arc<dyn TokenProvider> = Arc::new(provider);
+        let base = || ServiceBase::with_token_provider(provider.clone());
         Self {
             room: RoomClient::build(host, base(), http.clone()),
             egress: EgressClient::build(host, base(), http.clone()),

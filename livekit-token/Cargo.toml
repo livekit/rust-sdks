@@ -11,6 +11,7 @@ readme = "README.md"
 livekit-protocol = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 sha2 = "0.10"
 
 # access_token: HS256 only, via the in-crate HMAC CryptoProvider (jwt_provider.rs).
@@ -18,9 +19,6 @@ sha2 = "0.10"
 jsonwebtoken = { version = "10", default-features = false }
 hmac = "0.12"
 signature = "2"
-
-[dev-dependencies]
-serde_json = { workspace = true }
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.

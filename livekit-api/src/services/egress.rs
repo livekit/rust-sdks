@@ -185,7 +185,8 @@ impl EgressClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -218,7 +219,8 @@ impl EgressClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -250,7 +252,8 @@ impl EgressClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -282,7 +285,8 @@ impl EgressClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -312,7 +316,8 @@ impl EgressClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -331,7 +336,8 @@ impl EgressClient {
                 "StartEgress",
                 request,
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -351,7 +357,8 @@ impl EgressClient {
                     layout: layout.to_owned(),
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -371,9 +378,11 @@ impl EgressClient {
                     egress_id: egress_id.to_owned(),
                     add_output_urls,
                     remove_output_urls,
+                    add_destinations: Vec::new(),
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -404,7 +413,8 @@ impl EgressClient {
                     page_token: options.page_token,
                 },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await?;
 
@@ -418,7 +428,8 @@ impl EgressClient {
                 "StopEgress",
                 proto::StopEgressRequest { egress_id: egress_id.to_owned() },
                 self.base
-                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)

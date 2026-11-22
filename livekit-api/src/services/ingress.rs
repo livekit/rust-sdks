@@ -131,7 +131,8 @@ impl IngressClient {
                     enabled: Default::default(), // TODO: support this attribute
                 },
                 self.base
-                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -160,7 +161,8 @@ impl IngressClient {
                     enabled: Default::default(), // TODO: support this attribute
                 },
                 self.base
-                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -187,7 +189,8 @@ impl IngressClient {
                     page_token: Default::default(),
                 },
                 self.base
-                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)
+                    .await?,
             )
             .await?;
 
@@ -201,7 +204,8 @@ impl IngressClient {
                 "DeleteIngress",
                 proto::DeleteIngressRequest { ingress_id: ingress_id.to_owned() },
                 self.base
-                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)

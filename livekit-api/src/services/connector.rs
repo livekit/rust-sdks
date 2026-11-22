@@ -181,7 +181,8 @@ impl ConnectorClient {
                     ringing_timeout: Default::default(),
                 },
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -240,7 +241,8 @@ impl ConnectorClient {
                     disconnect_reason: reason as i32,
                 },
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -269,7 +271,8 @@ impl ConnectorClient {
                     ..Default::default()
                 },
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
@@ -314,8 +317,10 @@ impl ConnectorClient {
             ringing_timeout: None,
             wait_until_answered,
         };
-        let headers =
-            self.base.auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?;
+        let headers = self
+            .base
+            .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+            .await?;
 
         // When waiting for the inbound party to join, the request can block, so
         // default its timeout to the standard ring window; otherwise the client
@@ -369,7 +374,8 @@ impl ConnectorClient {
                     destination_country: options.destination_country.unwrap_or_default(),
                 },
                 self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
+                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)
+                    .await?,
             )
             .await
             .map_err(Into::into)
