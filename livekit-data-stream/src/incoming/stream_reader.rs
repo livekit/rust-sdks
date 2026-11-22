@@ -172,22 +172,46 @@ impl ByteStreamReader {
         // path must not be truncated, and a symlink sitting at that path must not be followed
         // to a destination outside `directory`. The check and the open are the same syscall
         // (`O_CREAT | O_EXCL`), so there is no window between them.
-        let mut file = tokio::fs::OpenOptions::new()
+        let file = tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&file_path)
             .await
             .map_err(StreamError::Io)?;
+        // We created this file, so an interrupted transfer (error or cancellation) removes it
+        // again; otherwise the partial file would block a retry to the same name.
+        let mut partial = PartialFile { file: Some(file), path: Some(file_path) };
+        let file = partial.file.as_mut().expect("set above");
 
         while let Some(result) = self.next().await {
             let bytes = result?;
-            tokio::io::AsyncWriteExt::write_all(&mut file, &bytes)
-                .await
-                .map_err(StreamError::Io)?;
+            tokio::io::AsyncWriteExt::write_all(file, &bytes).await.map_err(StreamError::Io)?;
         }
-        tokio::io::AsyncWriteExt::flush(&mut file).await.map_err(StreamError::Io)?;
+        tokio::io::AsyncWriteExt::flush(file).await.map_err(StreamError::Io)?;
 
-        Ok(file_path)
+        Ok(partial.keep())
+    }
+}
+
+/// A file `write_to_file` created, removed on drop unless [`PartialFile::keep`] was called.
+struct PartialFile {
+    file: Option<tokio::fs::File>,
+    path: Option<std::path::PathBuf>,
+}
+
+impl PartialFile {
+    fn keep(mut self) -> std::path::PathBuf {
+        self.path.take().expect("path is only taken here")
+    }
+}
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        // Close the handle first: Windows will not remove a file that is still open.
+        drop(self.file.take());
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -362,10 +386,40 @@ mod tests {
         )
     }
 
+    /// A new, empty directory under the system temp dir. `create_dir` fails if the path
+    /// already exists, so fixtures are never written into a directory someone else prepared.
+    fn fresh_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "lk-ds-{tag}-{}-{:016x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&dir).expect("create a fresh test directory");
+        dir
+    }
+
+    #[tokio::test]
+    async fn write_to_file_removes_a_partial_file_so_a_retry_succeeds() {
+        let dir = fresh_dir("partial");
+
+        let (reader, chunk_tx) = byte_reader("report.bin");
+        chunk_tx.send(Ok(Bytes::from_static(b"first half"))).unwrap();
+        chunk_tx.send(Err(StreamError::AbnormalEnd("sender left".into()))).unwrap();
+        let result = reader.write_to_file(Some(&dir), None).await;
+        assert!(result.is_err(), "interrupted transfer must fail, got {result:?}");
+        assert!(!dir.join("report.bin").exists(), "partial file must be removed");
+
+        let (reader, chunk_tx) = byte_reader("report.bin");
+        chunk_tx.send(Ok(Bytes::from_static(b"complete"))).unwrap();
+        drop(chunk_tx);
+        let path = reader.write_to_file(Some(&dir), None).await.expect("retry succeeds");
+        assert_eq!(std::fs::read(&path).unwrap(), b"complete");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn write_to_file_does_not_overwrite_an_existing_file() {
-        let dir = std::env::temp_dir().join(format!("lk-ds-overwrite-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = fresh_dir("overwrite");
         let victim = dir.join("victim.txt");
         std::fs::write(&victim, b"original").expect("seed the victim file");
 
@@ -386,12 +440,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn write_to_file_does_not_follow_a_symlink() {
-        let dir = std::env::temp_dir().join(format!("lk-ds-symlink-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = fresh_dir("symlink");
         let outside = dir.join("outside.txt");
         std::fs::write(&outside, b"original").expect("seed the target file");
         let link = dir.join("link.txt");
-        let _ = std::fs::remove_file(&link);
         std::os::unix::fs::symlink(&outside, &link).expect("create the symlink");
 
         let (reader, chunk_tx) = byte_reader("link.txt");
