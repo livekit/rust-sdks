@@ -57,8 +57,8 @@ struct RemoteInfo {
     /// resubscribed publication's queued settings can't race the new ones. Unbounded: one
     /// message per application call, never sent in a loop.
     settings: mpsc::UnboundedSender<proto::UpdateTrackSettings>,
-    /// Sends the queued settings. It ends when the last sender drops, or is aborted on
-    /// teardown; it holds the engine, not the participant.
+    /// Sends the queued settings. It holds the engine, not the participant, and is aborted
+    /// when the participant leaves or the room closes.
     settings_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Serializes publication mutation with teardown; true permanently rejects new updates.
     closed: Mutex<bool>,
@@ -154,9 +154,7 @@ impl RemoteParticipant {
             return;
         }
         *closed = true;
-        if let Some(settings_task) = self.remote.settings_task.lock().take() {
-            settings_task.abort();
-        }
+        self.stop_settings();
 
         // Removing the last encrypted publication normally emits a participant notification.
         // A room closing locally must not enqueue that event and retain this participant.
@@ -168,6 +166,20 @@ impl RemoteParticipant {
             }
             publication.set_track(None);
         }
+    }
+
+    /// Stops the settings worker. Publications the application still holds keep its queue open,
+    /// so it is stopped when the participant leaves or the room closes, not when the queue drops.
+    pub(crate) fn stop_settings(&self) {
+        if let Some(settings_task) = self.remote.settings_task.lock().take() {
+            settings_task.abort();
+        }
+    }
+
+    /// Test-only: whether the settings worker has ended.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn settings_worker_finished(&self) -> bool {
+        self.remote.settings_task.lock().as_ref().map_or(true, |task| task.is_finished())
     }
 
     /// Test-only: returns a probe that reports whether this participant's state has been
