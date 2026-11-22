@@ -104,6 +104,21 @@ NvidiaH264EncoderImpl::NvidiaH264EncoderImpl(
     nv_enc_level_ = webrtc::H264LevelToNvEncLevel(level_);
   }
 
+  // The negotiated profile; nv_profile_guid_ was otherwise uninitialized. NVENC's Baseline
+  // profile stays within Constrained Baseline (no B-frames, FMO or ASO).
+  switch (profile_) {
+    case H264Profile::kProfileConstrainedBaseline:
+    case H264Profile::kProfileBaseline:
+      nv_profile_guid_ = NV_ENC_H264_PROFILE_BASELINE_GUID;
+      break;
+    case H264Profile::kProfileMain:
+      nv_profile_guid_ = NV_ENC_H264_PROFILE_MAIN_GUID;
+      break;
+    default:
+      nv_profile_guid_ = NV_ENC_H264_PROFILE_HIGH_GUID;
+      break;
+  }
+
   RTC_CHECK_NE(cu_memory_type_, CU_MEMORYTYPE_HOST);
 }
 
