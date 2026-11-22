@@ -51,7 +51,10 @@ class PortalForwarder : public webrtc::ScreenCastPortal::PortalNotifier {
                                  int fd) override {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      token_ = portal->RestoreToken();
+      // A cancelled or failed request leaves the supplied token in the portal: no new one.
+      token_ = result == webrtc::xdg_portal::RequestResponse::kSuccess
+                   ? portal->RestoreToken()
+                   : std::string();
     }
     target->OnScreenCastRequestResult(result, stream_node_id, fd);
   }

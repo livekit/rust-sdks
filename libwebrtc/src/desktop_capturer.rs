@@ -156,7 +156,10 @@ impl DesktopCapturer {
 
     /// The restore token the portal returned for this share, to save for the next one (a token
     /// is single-use). Empty until the portal has answered, which is before the first frame
-    /// callback, and for capturers that don't persist a token.
+    /// callback, if the request was cancelled or failed, and for capturers that don't persist a
+    /// token. When the user shares but declines restoring, the portal returns no token and this
+    /// is still the token passed to [`set_restore_token`](Self::set_restore_token); a portal
+    /// that no longer accepts it shows its dialog again next time.
     pub fn restore_token(&self) -> String {
         self.handle.restore_token()
     }
