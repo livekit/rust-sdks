@@ -137,10 +137,21 @@ impl KeyProvider {
         self.sys_handle.get_key(participant_id, key_index).ok()
     }
 
-    /// Shared keys only: the cryptor made for `participant_id` decrypts with `target`'s key
-    /// handler from its next frame on, or with its own again if `target` is empty.
-    pub fn bind_shared_key(&self, participant_id: String, target: String) {
-        self.sys_handle.bind_shared_key(participant_id, target)
+    /// Shared keys only: makes `id` a receiver, a cryptor id whose shared-key handler this
+    /// provider holds until [`Self::remove_receiver`], starting from the shared keys.
+    pub fn add_receiver(&self, id: String) {
+        self.sys_handle.add_receiver(id)
+    }
+
+    /// The cryptor of receiver `id` decrypts with `participant_id`'s shared-key handler from
+    /// its next frame on, or with its own handler again if `participant_id` is empty.
+    pub fn bind_receiver(&self, id: String, participant_id: String) {
+        self.sys_handle.bind_receiver(id, participant_id)
+    }
+
+    /// Drops receiver `id` and its handler.
+    pub fn remove_receiver(&self, id: String) {
+        self.sys_handle.remove_receiver(id)
     }
 
     pub fn set_sif_trailer(&self, trailer: Vec<u8>) {

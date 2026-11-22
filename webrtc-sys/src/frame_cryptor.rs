@@ -77,7 +77,11 @@ pub mod ffi {
 
         pub fn set_sif_trailer(&self, trailer: Vec<u8>);
 
-        pub fn bind_shared_key(self: &KeyProvider, participant_id: String, target: String);
+        pub fn add_receiver(self: &KeyProvider, id: String);
+
+        pub fn bind_receiver(self: &KeyProvider, id: String, participant_id: String);
+
+        pub fn remove_receiver(self: &KeyProvider, id: String);
 
         pub fn set_key(
             self: &KeyProvider,
@@ -275,6 +279,39 @@ mod tests {
 
         let key_provider = ffi::new_key_provider(options);
         let _cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, key_provider);
+    }
+
+    #[test]
+    fn test_key_provider_receivers() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = ffi::new_key_provider(options);
+        assert!(kp.set_shared_key(0, b"shared".to_vec()));
+        assert!(kp.set_key("alice".into(), 0, b"alice".to_vec()));
+        assert!(kp.set_key("bob".into(), 0, b"bob".to_vec()));
+        let key = |id: &str| kp.get_key(id.into(), 0).ok();
+
+        kp.add_receiver("receiver:1".into());
+        assert_eq!(key("receiver:1"), Some(b"shared".to_vec()));
+        kp.bind_receiver("receiver:1".into(), "alice".into());
+        assert_eq!(key("receiver:1"), Some(b"alice".to_vec()));
+        kp.bind_receiver("receiver:1".into(), "bob".into());
+        assert_eq!(key("receiver:1"), Some(b"bob".to_vec()));
+        assert_eq!(key("alice"), Some(b"alice".to_vec()));
+
+        // Back on its own handler, which shared-key ratchets still reach.
+        kp.bind_receiver("receiver:1".into(), String::new());
+        let ratcheted = kp.ratchet_shared_key(0).unwrap();
+        assert_eq!(key("receiver:1"), Some(ratcheted));
+
+        kp.remove_receiver("receiver:1".into());
+        assert_eq!(key("receiver:1"), None);
     }
 
     #[test]

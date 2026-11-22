@@ -96,7 +96,7 @@ impl ReceiverCryptor {
         enabled: bool,
     ) {
         let target = owner.as_ref().filter(|_| encrypted).map(|owner| owner.to_string());
-        keys.bind_shared_key(self.key_id.clone(), target.unwrap_or_default());
+        keys.bind_receiver(self.key_id.clone(), target.unwrap_or_default());
         *self.owner.lock() = owner;
         self.encrypted = encrypted;
         self.cryptor.set_enabled(enabled && encrypted);
@@ -143,7 +143,7 @@ impl E2eeManager {
         for receiver in receivers.into_values() {
             receiver.cryptor.set_enabled(false);
             if let Some(options) = inner.options.as_ref() {
-                options.key_provider.handle.bind_shared_key(receiver.key_id, String::new());
+                options.key_provider.handle.remove_receiver(receiver.key_id);
             }
         }
     }
@@ -159,11 +159,14 @@ impl E2eeManager {
         if !options.key_provider.shared {
             return;
         }
-        // Its own key-handler id, as it isn't known whose track the receiver will carry: the
-        // native provider keeps ratcheted keys per id, so one sender's ratchet must not move the
-        // key other senders' receivers use. Shared-key sets and ratchets still reach every id.
-        // Once its sender is known, it decrypts with the sender's handler (`assign`).
+        // Its own key handler, as it isn't known whose track the receiver will carry: the
+        // native provider keeps ratcheted keys per handler, so one sender's ratchet must not move
+        // the key other senders' receivers use. Shared-key sets and ratchets still reach it.
+        // Once its sender is known, it decrypts with the sender's handler (`assign`). WebRTC
+        // names a new receiver's track with a random UUID made here, so no participant identity
+        // can be chosen to match the id.
         let key_id = format!("receiver:{}", track.id());
+        options.key_provider.handle.add_receiver(key_id.clone());
         let owner = Arc::new(Mutex::new(None));
         let frame_cryptor = self.receiver_cryptor(
             &options.key_provider.handle,
@@ -385,10 +388,14 @@ impl E2eeManager {
         let mut inner = self.inner.lock();
         let inner = &mut *inner;
         let keys = inner.options.as_ref().map(|options| &options.key_provider.handle);
+        let identity = participant.identity();
         if let (Some(keys), Some(prepared)) =
             (keys, inner.receivers.get_mut(&track.rtc_track().id()))
         {
-            prepared.assign(keys, None, true, inner.enabled);
+            // Unless the receiver already carries its next track.
+            if prepared.owner.lock().as_ref() == Some(&identity) {
+                prepared.assign(keys, None, true, inner.enabled);
+            }
         }
     }
 

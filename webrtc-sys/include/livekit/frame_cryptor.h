@@ -42,9 +42,10 @@ class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 class PacketTrailerHandler;
 
-/// WebRTC's key provider, where a cryptor can be pointed at another id's shared-key handler.
-/// A cryptor looks its handler up once per frame, so a frame already being decrypted keeps
-/// using, and writing its ratchets to, the handler it started with.
+/// WebRTC's key provider with receivers: shared-key handlers held here rather than in the
+/// default provider's map, which can't remove one, each of which can be pointed at a
+/// participant's handler. A cryptor looks its handler up once per frame, so a frame already
+/// being decrypted keeps using, and writing its ratchets to, the handler it started with.
 class BindingKeyProvider : public webrtc::DefaultKeyProviderImpl {
  public:
   explicit BindingKeyProvider(webrtc::KeyProviderOptions options)
@@ -54,28 +55,101 @@ class BindingKeyProvider : public webrtc::DefaultKeyProviderImpl {
       const std::string participant_id) override {
     std::string id = participant_id;
     {
-      webrtc::MutexLock lock(&bindings_mutex_);
-      auto it = bindings_.find(participant_id);
-      if (it != bindings_.end()) {
-        id = it->second;
+      webrtc::MutexLock lock(&receivers_mutex_);
+      auto it = receivers_.find(participant_id);
+      if (it != receivers_.end()) {
+        if (!it->second.participant_id.empty()) {
+          id = it->second.participant_id;
+        } else {
+          if (!it->second.keys) {
+            auto shared = GetKey("shared");
+            if (!shared) {
+              return nullptr;
+            }
+            it->second.keys = shared->Clone();
+          }
+          return it->second.keys;
+        }
       }
     }
     return webrtc::DefaultKeyProviderImpl::GetSharedKey(id);
   }
 
-  /// An empty `target` points `participant_id` back at its own handler.
-  void Bind(const std::string& participant_id, const std::string& target) {
-    webrtc::MutexLock lock(&bindings_mutex_);
-    if (target.empty()) {
-      bindings_.erase(participant_id);
-    } else {
-      bindings_[participant_id] = target;
+  bool SetSharedKey(int key_index, std::vector<uint8_t> key) override {
+    if (!webrtc::DefaultKeyProviderImpl::SetSharedKey(key_index, key)) {
+      return false;
+    }
+    webrtc::MutexLock lock(&receivers_mutex_);
+    for (auto& receiver : receivers_) {
+      if (receiver.second.keys) {
+        receiver.second.keys->SetKey(key, key_index);
+      }
+    }
+    return true;
+  }
+
+  const std::vector<uint8_t> RatchetSharedKey(int key_index) override {
+    auto key = webrtc::DefaultKeyProviderImpl::RatchetSharedKey(key_index);
+    if (!key.empty() && options().shared_key) {
+      webrtc::MutexLock lock(&receivers_mutex_);
+      for (auto& receiver : receivers_) {
+        if (receiver.second.keys) {
+          receiver.second.keys->SetKey(key, key_index);
+        }
+      }
+    }
+    return key;
+  }
+
+  /// The key a receiver currently decrypts with, for a receiver id.
+  const std::vector<uint8_t> ExportKey(const std::string participant_id,
+                                       int key_index) const override {
+    std::string id = participant_id;
+    {
+      webrtc::MutexLock lock(&receivers_mutex_);
+      auto it = receivers_.find(participant_id);
+      if (it != receivers_.end()) {
+        if (!it->second.participant_id.empty()) {
+          id = it->second.participant_id;
+        } else {
+          auto key_set =
+              it->second.keys ? it->second.keys->GetKeySet(key_index) : nullptr;
+          return key_set ? key_set->material : std::vector<uint8_t>();
+        }
+      }
+    }
+    return webrtc::DefaultKeyProviderImpl::ExportKey(id, key_index);
+  }
+
+  void AddReceiver(const std::string& id) {
+    webrtc::MutexLock lock(&receivers_mutex_);
+    auto shared = GetKey("shared");
+    receivers_[id].keys = shared ? shared->Clone() : nullptr;
+  }
+
+  /// An empty `participant_id` puts the receiver back on its own handler.
+  void BindReceiver(const std::string& id, const std::string& participant_id) {
+    webrtc::MutexLock lock(&receivers_mutex_);
+    auto it = receivers_.find(id);
+    if (it != receivers_.end()) {
+      it->second.participant_id = participant_id;
     }
   }
 
+  void RemoveReceiver(const std::string& id) {
+    webrtc::MutexLock lock(&receivers_mutex_);
+    receivers_.erase(id);
+  }
+
  private:
-  webrtc::Mutex bindings_mutex_;
-  std::unordered_map<std::string, std::string> bindings_;
+  struct Receiver {
+    /// Its own handler, a copy of the shared one (made on first use if there was none).
+    webrtc::scoped_refptr<webrtc::ParticipantKeyHandler> keys;
+    /// The participant whose handler it uses instead, if any.
+    std::string participant_id;
+  };
+  mutable webrtc::Mutex receivers_mutex_;
+  std::unordered_map<std::string, Receiver> receivers_;
 };
 
 /// Shared secret key for frame encryption.
@@ -167,12 +241,18 @@ class KeyProvider {
     return vec;
   }
 
-  /// Shared keys only: the cryptor `participant_id` decrypts with `target`'s key handler,
-  /// or its own again if `target` is empty.
-  void bind_shared_key(const ::rust::String participant_id,
-                       const ::rust::String target) const {
-    impl_->Bind(std::string(participant_id.data(), participant_id.size()),
-                std::string(target.data(), target.size()));
+  void add_receiver(const ::rust::String id) const {
+    impl_->AddReceiver(std::string(id.data(), id.size()));
+  }
+
+  void bind_receiver(const ::rust::String id,
+                     const ::rust::String participant_id) const {
+    impl_->BindReceiver(std::string(id.data(), id.size()),
+                        std::string(participant_id.data(), participant_id.size()));
+  }
+
+  void remove_receiver(const ::rust::String id) const {
+    impl_->RemoveReceiver(std::string(id.data(), id.size()));
   }
 
   void set_sif_trailer(rust::Vec<::std::uint8_t> trailer) const {
