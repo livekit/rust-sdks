@@ -545,11 +545,21 @@ void AdmProxy::LogDevice(bool playout) const {
                      << " device";
     return;
   }
-  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-  char guid[webrtc::kAdmMaxGuidSize] = {0};
-  int32_t result =
-      playout ? platform_adm_->PlayoutDeviceName(*index, name, guid)
-              : platform_adm_->RecordingDeviceName(*index, name, guid);
+#if defined(WEBRTC_IOS)
+  // iOS routes audio itself; its device-name calls are DCHECK_NOTREACHED.
+  const bool can_name = false;
+#else
+  const bool can_name = platform_adm_ != nullptr;
+#endif
+  // One byte more than the ADM may fill: PulseAudio can fill the whole buffer without a
+  // terminating null.
+  char name[webrtc::kAdmMaxDeviceNameSize + 1] = {0};
+  char guid[webrtc::kAdmMaxGuidSize + 1] = {0};
+  int32_t result = -1;
+  if (can_name) {
+    result = playout ? platform_adm_->PlayoutDeviceName(*index, name, guid)
+                     : platform_adm_->RecordingDeviceName(*index, name, guid);
+  }
   RTC_LOG(LS_INFO) << "AdmProxy: initializing " << what
                    << " with selected device " << *index << ": "
                    << (result == 0 ? name : "name unavailable");
