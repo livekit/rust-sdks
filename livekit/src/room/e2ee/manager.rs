@@ -58,6 +58,9 @@ struct ManagerInner {
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
     /// By receiver track id, the cryptors set on receivers as they are created.
     receivers: HashMap<String, ReceiverCryptor>,
+    /// By sender, the key-handler id of the receiver last adopted for its track: the keys
+    /// ratcheted for that sender. Kept across reconnects.
+    sender_keys: HashMap<ParticipantIdentity, String>,
     data_packet_cryptor: Option<DataPacketCryptor>,
 }
 
@@ -67,17 +70,24 @@ pub struct E2eeManager {
     state_changed: Arc<Mutex<Option<StateChangedHandler>>>,
 }
 
-/// The shared-key cryptor a receiver uses: set as soon as the receiver exists, replaced by the
-/// sender's cryptor when its track is subscribed.
+/// A shared-key cryptor set on a receiver as soon as the receiver exists.
 struct ReceiverCryptor {
     cryptor: FrameCryptor,
+    /// The cryptor's key-handler id.
+    key_id: String,
+    /// The participant whose track the receiver carries, for state changes.
+    owner: Arc<Mutex<Option<ParticipantIdentity>>>,
     /// False while the receiver carries a track sent in the clear. A receiver that carries no
     /// track yet decrypts, so an encrypted track's first frames are decrypted.
     encrypted: bool,
+    /// A clear track's packet-trailer handler replaced the cryptor as the receiver's frame
+    /// transformer, so the cryptor no longer sees the receiver's frames.
+    detached: bool,
 }
 
 impl ReceiverCryptor {
-    fn set_encrypted(&mut self, encrypted: bool, enabled: bool) {
+    fn assign(&mut self, owner: Option<ParticipantIdentity>, encrypted: bool, enabled: bool) {
+        *self.owner.lock() = owner;
         self.encrypted = encrypted;
         self.cryptor.set_enabled(enabled && encrypted);
     }
@@ -100,6 +110,7 @@ impl E2eeManager {
                 options,
                 frame_cryptors: HashMap::new(),
                 receivers: HashMap::new(),
+                sender_keys: HashMap::new(),
                 data_packet_cryptor,
             })),
             state_changed: Default::default(),
@@ -116,6 +127,7 @@ impl E2eeManager {
             receiver.cryptor.set_enabled(false);
         }
         inner.receivers.clear();
+        inner.sender_keys.clear();
     }
 
     /// Drops the cryptors of a previous session's receivers.
@@ -138,22 +150,40 @@ impl E2eeManager {
         if !options.key_provider.shared {
             return;
         }
-        // Its own key-handler id until it is known whose track the receiver carries: the native
-        // provider keeps ratcheted keys per id, so one sender's ratchet must not move the key
-        // other senders' receivers use. Shared-key sets and ratchets still reach every id.
-        // On subscribe, a cryptor with the sender's id, and the ratchets learned for it, takes
-        // over.
+        // Its own key-handler id, as it isn't known whose track the receiver will carry: the
+        // native provider keeps ratcheted keys per id, so one sender's ratchet must not move the
+        // key other senders' receivers use. Shared-key sets and ratchets still reach every id.
+        // The keys ratcheted for the sender are copied in once it is known (`adopt_keys`).
+        let key_id = format!("receiver:{}", track.id());
         let frame_cryptor = FrameCryptor::new_for_rtp_receiver(
             LkRuntime::instance().pc_factory(),
-            format!("receiver:{}", track.id()),
+            key_id.clone(),
             EncryptionAlgorithm::AesGcm,
             options.key_provider.handle.clone(),
             receiver,
         );
         frame_cryptor.set_enabled(inner.enabled);
-        inner
-            .receivers
-            .insert(track.id(), ReceiverCryptor { cryptor: frame_cryptor, encrypted: true });
+        let owner = Arc::new(Mutex::new(None::<ParticipantIdentity>));
+        let state_changed = self.state_changed.clone();
+        frame_cryptor.on_state_change(Some(Box::new({
+            let owner = owner.clone();
+            move |_, state| {
+                let owner = owner.lock().clone();
+                if let (Some(owner), Some(state_changed)) = (owner, state_changed.lock().as_ref()) {
+                    state_changed(owner, state);
+                }
+            }
+        })));
+        inner.receivers.insert(
+            track.id(),
+            ReceiverCryptor {
+                cryptor: frame_cryptor,
+                key_id,
+                owner,
+                encrypted: true,
+                detached: false,
+            },
+        );
     }
 
     /// Register to e2ee state changes
@@ -163,6 +193,28 @@ impl E2eeManager {
         handler: impl Fn(ParticipantIdentity, EncryptionState) + Send + 'static,
     ) {
         *self.state_changed.lock() = Some(Box::new(handler));
+    }
+
+    /// Gives the key handler `key_id`, now decrypting `sender`'s track, the keys ratcheted for
+    /// that sender on its previous receiver, so a new track from a sender who ratcheted past
+    /// the ratchet window since the shared key was set is still readable. Those keys are never
+    /// behind the shared key, so a receiver that already followed a few ratchets on its own
+    /// stays within the window.
+    fn adopt_keys(inner: &mut ManagerInner, sender: &ParticipantIdentity, key_id: String) {
+        let Some(previous) = inner.sender_keys.insert(sender.clone(), key_id.clone()) else {
+            return;
+        };
+        let Some(options) = inner.options.as_ref() else { return };
+        if previous == key_id {
+            return;
+        }
+        let handle = &options.key_provider.handle;
+        for index in 0..handle.key_ring_size() {
+            if let Some(key) = handle.get_key(previous.clone(), index).filter(|key| !key.is_empty())
+            {
+                handle.set_key(key_id.clone(), index, key);
+            }
+        }
     }
 
     pub(crate) fn initialized(&self) -> bool {
@@ -211,27 +263,61 @@ impl E2eeManager {
                 let mut inner = self.inner.lock();
                 let enabled = inner.enabled;
                 if let Some(prepared) = inner.receivers.get_mut(&track.id()) {
-                    prepared.set_encrypted(false, enabled);
+                    prepared.assign(Some(identity), false, enabled);
+                    prepared.detached |= packet_trailer_handler.is_some();
                 }
             }
             return;
         }
 
         let receiver_track_id = receiver.track().map(|track| track.id());
-        let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+        let prepared = receiver_track_id.as_ref().and_then(|track_id| {
+            let mut inner = self.inner.lock();
+            let enabled = inner.enabled;
+            let prepared = inner.receivers.get_mut(track_id)?;
+            if prepared.detached && packet_trailer_handler.is_none() {
+                // Nothing would put the cryptor back on the receiver: make a new one below.
+                prepared.cryptor.set_enabled(false);
+                return None;
+            }
+            // Setting the trailer handler below chains the cryptor back onto the receiver.
+            prepared.detached = false;
+            prepared.assign(Some(identity.clone()), true, enabled);
+            let (frame_cryptor, key_id) = (prepared.cryptor.clone(), prepared.key_id.clone());
+            Self::adopt_keys(&mut inner, &identity, key_id);
+            Some(frame_cryptor)
+        });
+        let frame_cryptor = match prepared {
+            Some(frame_cryptor) => frame_cryptor,
+            None => {
+                let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+                self.setup_cryptor(&frame_cryptor);
+                let mut inner = self.inner.lock();
+                if let Some(prepared) =
+                    receiver_track_id.as_ref().and_then(|id| inner.receivers.get_mut(id))
+                {
+                    // The receiver's cryptor now, so a clear track it carries next turns it off.
+                    *prepared = ReceiverCryptor {
+                        cryptor: frame_cryptor.clone(),
+                        key_id: identity.to_string(),
+                        owner: Arc::new(Mutex::new(Some(identity.clone()))),
+                        encrypted: true,
+                        detached: false,
+                    };
+                }
+                if inner.options.as_ref().is_some_and(|options| options.key_provider.shared) {
+                    Self::adopt_keys(&mut inner, &identity, identity.to_string());
+                }
+                frame_cryptor
+            }
+        };
         // A reused receiver keeps the previous track's handler when this one has none. It
         // only strips frames that end in the trailer magic, so frames without one pass.
         if let Some(handler) = packet_trailer_handler.as_ref() {
             frame_cryptor.set_packet_trailer_handler(handler);
         }
-        self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
-        if let Some(prepared) = receiver_track_id.and_then(|id| inner.receivers.get_mut(&id)) {
-            // The sender's cryptor is the receiver's frame transformer now.
-            prepared.cryptor.set_enabled(false);
-            *prepared = ReceiverCryptor { cryptor: frame_cryptor.clone(), encrypted: true };
-        }
         inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
@@ -304,12 +390,11 @@ impl E2eeManager {
         participant: RemoteParticipant,
     ) {
         self.remove_frame_cryptor(participant.identity(), publication.sid());
-        // The receiver may carry another track next: it decrypts again until that track's sender's
-        // cryptor takes over.
+        // The receiver may carry another track next: it decrypts again, for no one yet.
         let mut inner = self.inner.lock();
         let enabled = inner.enabled;
         if let Some(prepared) = inner.receivers.get_mut(&track.rtc_track().id()) {
-            prepared.set_encrypted(true, enabled);
+            prepared.assign(None, true, enabled);
         }
     }
 
