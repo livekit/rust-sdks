@@ -22,7 +22,7 @@ use std::{
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
-use tokio::time::timeout;
+use tokio::{sync::mpsc, time::timeout};
 
 use super::{
     ClientCapability, ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
@@ -52,6 +52,14 @@ struct RemoteEvents {
 struct RemoteInfo {
     events: Arc<RemoteEvents>,
     auto_subscribe: bool, // better way to access this from room?
+    /// The participant's track settings go out from one task, in the order they are asked
+    /// (#1653). One queue for the participant's life, not one per subscription, so a
+    /// resubscribed publication's queued settings can't race the new ones. Unbounded: one
+    /// message per application call, never sent in a loop.
+    settings: mpsc::UnboundedSender<proto::UpdateTrackSettings>,
+    /// Sends the queued settings. It ends when the last sender drops, or is aborted on
+    /// teardown; it holds the engine, not the participant.
+    settings_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Serializes publication mutation with teardown; true permanently rejects new updates.
     closed: Mutex<bool>,
 }
@@ -90,6 +98,19 @@ impl RemoteParticipant {
         client_protocol: i32,
         capabilities: Vec<ClientCapability>,
     ) -> Self {
+        let (settings, mut queued) = mpsc::unbounded_channel();
+        let settings_task = tokio::spawn({
+            let rtc_engine = rtc_engine.clone();
+            async move {
+                while let Some(update_track_settings) = queued.recv().await {
+                    rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await
+                }
+            }
+        });
         Self {
             inner: super::new_inner(
                 rtc_engine,
@@ -110,6 +131,8 @@ impl RemoteParticipant {
                 events: Default::default(),
                 auto_subscribe,
                 closed: Mutex::new(false),
+                settings,
+                settings_task: Mutex::new(Some(settings_task)),
             }),
         }
     }
@@ -131,6 +154,9 @@ impl RemoteParticipant {
             return;
         }
         *closed = true;
+        if let Some(settings_task) = self.remote.settings_task.lock().take() {
+            settings_task.abort();
+        }
 
         // Removing the last encrypted publication normally emits a participant notification.
         // A room closing locally must not enqueue that event and retain this participant.
@@ -468,80 +494,51 @@ impl RemoteParticipant {
             }
         });
 
+        let settings_tx = self.remote.settings.clone();
         publication.on_enabled_status_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
+            let settings_tx = settings_tx.clone();
             move |publication, enabled| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let TrackDimension(width, height) = publication.dimension();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        disabled: !enabled,
-                        width,
-                        height,
-                        ..Default::default()
-                    };
-
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
+                let tsid: String = publication.sid().into();
+                let TrackDimension(width, height) = publication.dimension();
+                let _ = settings_tx.send(proto::UpdateTrackSettings {
+                    track_sids: vec![tsid],
+                    disabled: !enabled,
+                    width,
+                    height,
+                    ..Default::default()
                 });
             }
         });
 
         publication.on_video_dimensions_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
+            let settings_tx = settings_tx.clone();
             move |publication, dimension| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let TrackDimension(width, height) = dimension;
-                    let enabled = publication.is_enabled();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        disabled: !enabled,
-                        width,
-                        height,
-                        ..Default::default()
-                    };
-
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
+                let tsid: String = publication.sid().into();
+                let TrackDimension(width, height) = dimension;
+                let enabled = publication.is_enabled();
+                let _ = settings_tx.send(proto::UpdateTrackSettings {
+                    track_sids: vec![tsid],
+                    disabled: !enabled,
+                    width,
+                    height,
+                    ..Default::default()
                 });
             }
         });
 
-        publication.on_video_quality_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
-            move |publication, quality| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let quality: i32 = proto::VideoQuality::from(quality).into();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        quality,
-                        ..Default::default()
-                    };
-
-                    log::info!(
-                        "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
-                        tsid,
-                        proto::VideoQuality::try_from(quality),
-                    );
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
-                });
-            }
+        publication.on_video_quality_changed(move |publication, quality| {
+            let tsid: String = publication.sid().into();
+            let quality: i32 = proto::VideoQuality::from(quality).into();
+            log::info!(
+                "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
+                tsid,
+                proto::VideoQuality::try_from(quality),
+            );
+            let _ = settings_tx.send(proto::UpdateTrackSettings {
+                track_sids: vec![tsid],
+                quality,
+                ..Default::default()
+            });
         });
     }
 
