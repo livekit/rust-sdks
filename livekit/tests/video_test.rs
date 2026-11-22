@@ -372,46 +372,128 @@ async fn next_video_track(
     .await?
 }
 
+/// Ratchets `pub_room`'s shared key once.
+#[cfg(feature = "__lk-e2e-test")]
+fn ratchet(pub_room: &Room) -> Result<()> {
+    let key_provider = pub_room.e2ee_manager().key_provider().ok_or_else(|| anyhow!("no keys"))?;
+    key_provider.ratchet_shared_key(0).ok_or_else(|| anyhow!("ratchet failed"))?;
+    Ok(())
+}
+
 /// With a shared key, a new track from a sender who ratcheted past the ratchet window since the
-/// subscriber first decrypted it is still readable: the ratchets learned for that sender carry
-/// over to the new track's receiver.
+/// subscriber first decrypted it is still readable: the ratchets one of its receivers followed
+/// carry over, even when the receiver of its last subscribed track got no frames.
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
-    const LUMA_FIRST: u8 = 60;
-    const LUMA_SECOND: u8 = 200;
+    const LUMA_LIVE: u8 = 60;
+    const LUMA_IDLE: u8 = 120;
+    const LUMA_NEW: u8 = 200;
     let mut rooms =
         test_rooms_with_options([shared_key_options(true).into(), shared_key_options(true).into()])
             .await?;
     let (pub_room, _) = rooms.pop().unwrap();
     let (_sub_room, mut sub_events) = rooms.pop().unwrap();
     let pub_room = Arc::new(pub_room);
-    let mut first = SolidColorTrack::new(
-        pub_room.clone(),
-        SolidColorParams { width: 320, height: 240, luma: LUMA_FIRST },
-    );
-    first.publish(VideoCodec::VP8, false).await?;
-    let remote_first = next_video_track(&mut sub_events).await?;
+    let publish = |luma| {
+        let mut track = SolidColorTrack::new(
+            pub_room.clone(),
+            SolidColorParams { width: 320, height: 240, luma },
+        );
+        async move { track.publish(VideoCodec::VP8, false).await.map(|_| track) }
+    };
+    let _live = publish(LUMA_LIVE).await?;
+    let remote_live = next_video_track(&mut sub_events).await?;
+    let _idle = publish(LUMA_IDLE).await?;
+    let idle_publication = timeout(Duration::from_secs(15), async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed { publication, .. }) => return Ok(publication),
+                Some(_) => continue,
+                None => return Err(anyhow!("Never received the second track")),
+            }
+        }
+    })
+    .await??;
+    // Still subscribed, but the server stops forwarding its frames.
+    idle_publication.set_enabled(false);
 
-    // One step at a time, with frames in between, so the subscriber follows every step.
-    let key_provider = pub_room.e2ee_manager().key_provider().ok_or_else(|| anyhow!("no keys"))?;
     for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
-        key_provider.ratchet_shared_key(0).ok_or_else(|| anyhow!("ratchet failed"))?;
-        let luma = next_frames_luma(&remote_first, 5)
+        ratchet(&pub_room)?;
+        let luma = next_frames_luma(&remote_live, 5)
             .await
             .map_err(|err| anyhow!("no frames after ratchet {step}: {err}"))?;
-        assert!((luma - LUMA_FIRST as f64).abs() < 30.0, "luma {luma:.1} after ratchet {step}");
+        assert!((luma - LUMA_LIVE as f64).abs() < 30.0, "luma {luma:.1} after ratchet {step}");
     }
 
-    let mut second = SolidColorTrack::new(
-        pub_room.clone(),
-        SolidColorParams { width: 320, height: 240, luma: LUMA_SECOND },
-    );
-    second.publish(VideoCodec::VP8, false).await?;
-    let remote_second = next_video_track(&mut sub_events).await?;
-    let luma = next_frames_luma(&remote_second, 10)
+    let _new = publish(LUMA_NEW).await?;
+    let remote_new = next_video_track(&mut sub_events).await?;
+    let luma = next_frames_luma(&remote_new, 10)
         .await
         .map_err(|err| anyhow!("no frames of the new track: {err}"))?;
-    assert!((luma - LUMA_SECOND as f64).abs() < 30.0, "new track's luma {luma:.1}");
+    assert!((luma - LUMA_NEW as f64).abs() < 30.0, "new track's luma {luma:.1}");
     Ok(())
+}
+
+/// Sends `byte` as a data message and waits for the subscriber to read it.
+#[cfg(feature = "__lk-e2e-test")]
+async fn send_and_read(
+    pub_room: &Room,
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<RoomEvent>,
+    byte: u8,
+) -> Result<()> {
+    let packet = DataPacket { payload: vec![byte; 16], reliable: true, ..Default::default() };
+    pub_room.local_participant().publish_data(packet).await?;
+    timeout(Duration::from_secs(10), async {
+        loop {
+            match events.recv().await {
+                Some(RoomEvent::DataReceived { payload, .. }) => {
+                    assert_eq!(payload.to_vec(), vec![byte; 16]);
+                    return Ok(());
+                }
+                Some(_) => continue,
+                None => return Err(anyhow!("Never received message {byte}")),
+            }
+        }
+    })
+    .await?
+}
+
+/// With a shared key, ratchets the subscriber followed through a sender's data messages carry
+/// over to its first track, and those followed through its track carry over to its data.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_e2ee_shared_key_ratchets_between_data_and_media() -> Result<()> {
+    const LUMA: u8 = 200;
+    let mut rooms =
+        test_rooms_with_options([shared_key_options(true).into(), shared_key_options(true).into()])
+            .await?;
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_sub_room, mut sub_events) = rooms.pop().unwrap();
+    let pub_room = Arc::new(pub_room);
+
+    for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
+        ratchet(&pub_room)?;
+        send_and_read(&pub_room, &mut sub_events, step as u8).await?;
+    }
+
+    let mut track = SolidColorTrack::new(
+        pub_room.clone(),
+        SolidColorParams { width: 320, height: 240, luma: LUMA },
+    );
+    track.publish(VideoCodec::VP8, false).await?;
+    let remote = next_video_track(&mut sub_events).await?;
+    let luma = next_frames_luma(&remote, 10)
+        .await
+        .map_err(|err| anyhow!("no frames of the track: {err}"))?;
+    assert!((luma - LUMA as f64).abs() < 30.0, "track's luma {luma:.1}");
+
+    for step in 0..=DEFAULT_RATCHET_WINDOW_SIZE {
+        ratchet(&pub_room)?;
+        let luma = next_frames_luma(&remote, 5)
+            .await
+            .map_err(|err| anyhow!("no frames after ratchet {step}: {err}"))?;
+        assert!((luma - LUMA as f64).abs() < 30.0, "luma {luma:.1} after ratchet {step}");
+    }
+    send_and_read(&pub_room, &mut sub_events, 255).await
 }
