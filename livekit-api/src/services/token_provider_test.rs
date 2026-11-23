@@ -94,6 +94,20 @@ async fn every_service_returns_the_same_error_for_a_token_that_is_no_header_valu
 }
 
 #[tokio::test]
+async fn a_fixed_token_that_is_no_header_value_is_not_a_provider_error() {
+    // The token fails before a request is sent, so nothing listens on the host.
+    let api = LiveKitApi::with_token("http://127.0.0.1:1", "line\nbreak").with_failover(false);
+    let errors = [
+        api.room().list_participants("r").await.map(drop).unwrap_err(),
+        api.threads().get("AT_x").await.map(drop).unwrap_err(),
+        api.databases().get("DB_x").await.map(drop).unwrap_err(),
+    ];
+    for error in errors {
+        assert!(matches!(error, ServiceError::InvalidToken), "{error:?}");
+    }
+}
+
+#[tokio::test]
 async fn livekit_api_sends_the_providers_token_as_the_bearer() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let host = format!("http://{}", listener.local_addr().unwrap());

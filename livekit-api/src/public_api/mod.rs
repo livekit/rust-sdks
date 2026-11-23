@@ -87,8 +87,7 @@ impl Credentials {
             }
         };
         // the same error as the other services return for a token that is no header value
-        HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|error| ServiceError::TokenProvider(Box::new(error)))
+        self.base.bearer(&token)
     }
 }
 

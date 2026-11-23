@@ -66,6 +66,8 @@ pub enum ServiceError {
     Twirp(#[from] ServerError),
     #[error("token provider failed: {0}")]
     TokenProvider(TokenProviderError),
+    #[error("the token is not a valid header value")]
+    InvalidToken,
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
@@ -170,11 +172,18 @@ impl ServiceBase {
             }
         };
 
-        let bearer = HeaderValue::from_str(&format!("Bearer {}", token))
-            .map_err(|error| ServiceError::TokenProvider(Box::new(error)))?;
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, bearer);
+        headers.insert(AUTHORIZATION, self.bearer(&token)?);
         Ok(headers)
+    }
+
+    /// The `Authorization` value of a token. A token that is no header value is the
+    /// provider's failure only if a provider returned it.
+    pub(crate) fn bearer(&self, token: &str) -> ServiceResult<HeaderValue> {
+        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|error| match self {
+            Self::Provider(_) => ServiceError::TokenProvider(Box::new(error)),
+            _ => ServiceError::InvalidToken,
+        })
     }
 }
 
