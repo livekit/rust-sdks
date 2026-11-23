@@ -72,20 +72,29 @@ pub enum ServiceError {
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
-/// The grants a [`TokenProvider`] is asked for. Today these are v1 claims ([`Claims`]); grants v2
-/// will be accepted here too. The provider does not convert between the two: it passes the
-/// grants on with [`Claims::to_claims_json`], and the server that signs the token converts them to
-/// the format of its key.
+/// The grants that a request needs. A [`TokenProvider`] receives them and returns a token that
+/// carries them.
+///
+/// A provider normally sends the grants to a server that signs the token. Use
+/// [`Claims::to_claims_json`] to get the grants in the form that the server reads.
 pub type TokenGrants = Claims;
 
-/// Why a [`TokenProvider`] returned no token.
+/// The error a [`TokenProvider`] returns when it cannot get a token.
 pub type TokenProviderError = Box<dyn std::error::Error + Send + Sync>;
 
-/// Returns a token that carries the given grants.
+/// Supplies the token for each request, for a process that has no API secret.
 ///
-/// [`LiveKitApi`] calls it before each request, in place of signing a token with an API key and
-/// secret, with the grants that request needs. It may cache tokens. Any
-/// `Fn(TokenGrants) -> impl Future<Output = Result<String, TokenProviderError>>` is one.
+/// [`LiveKitApi`] calls [`token`](Self::token) before each request, with the grants that the
+/// request needs. The provider returns a token that carries those grants. It may cache tokens.
+///
+/// An async closure is a provider:
+///
+/// ```ignore
+/// let api = LiveKitApi::with_token_provider(host, |grants: TokenGrants| async move {
+///     let token = ask_my_server_for_a_token(grants.to_claims_json()?).await?;
+///     Ok::<_, TokenProviderError>(token)
+/// });
+/// ```
 pub trait TokenProvider: Send + Sync {
     fn token(
         &self,
@@ -115,8 +124,8 @@ pub(crate) enum ServiceBase {
     /// Send a caller-supplied token verbatim; grants are ignored (the caller,
     /// typically a browser client, signed it out of band).
     Token(String),
-    /// Ask a [`TokenProvider`] for a token with the grants of each request, in
-    /// place of signing one (a process without the API secret).
+    /// Ask a [`TokenProvider`] for the token of each request. For a process
+    /// that has no API secret.
     Provider(Arc<dyn TokenProvider>),
 }
 
@@ -177,8 +186,10 @@ impl ServiceBase {
         Ok(headers)
     }
 
-    /// The `Authorization` value of a token. A token that is no header value is the
-    /// provider's failure only if a provider returned it.
+    /// Builds the `Authorization` header value for a token.
+    ///
+    /// Fails if the token has a character that a header cannot hold, such as a newline. The
+    /// error is `TokenProvider` if a provider returned the token, and `InvalidToken` otherwise.
     pub(crate) fn bearer(&self, token: &str) -> ServiceResult<HeaderValue> {
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|error| match self {
             Self::Provider(_) => ServiceError::TokenProvider(Box::new(error)),

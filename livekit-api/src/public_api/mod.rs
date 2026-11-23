@@ -86,7 +86,7 @@ impl Credentials {
                     .to_jwt()?
             }
         };
-        // the same error as the other services return for a token that is no header value
+        // A token with a character that a header cannot hold (such as a newline) is an error.
         self.base.bearer(&token)
     }
 }
@@ -152,7 +152,8 @@ impl ClientHooks<Credentials> for Client {
             Ok(bearer) => bearer,
             Err(e) => {
                 let msg = e.to_string();
-                // `call` returns the error itself; the hook can return only its message.
+                // This hook can only return a string, so the typed error would be lost.
+                // Store it here, and `call` returns it to the caller.
                 let _ = BEARER_ERROR.try_with(|slot| slot.set(Some(e)));
                 return Err(progenitor_client::Error::Custom(msg));
             }
@@ -217,12 +218,14 @@ pub(crate) async fn error(err: progenitor_client::Error<()>) -> ServiceError {
 }
 
 tokio::task_local! {
-    /// Why the [`call`] in progress got no bearer token, such as a token provider's error.
+    /// The error from getting the bearer token for the current [`call`], if that step failed.
     static BEARER_ERROR: Cell<Option<ServiceError>>;
 }
 
-/// Awaits a generated call, mapping its error. A failure to get the bearer token is returned as
-/// it is (such as [`ServiceError::TokenProvider`]), as the other services return it.
+/// Awaits a generated call and converts its error to a [`ServiceError`].
+///
+/// If the call failed because there was no bearer token, the original error is returned
+/// unchanged. For example, a token provider error stays [`ServiceError::TokenProvider`].
 pub(crate) async fn call<T>(
     fut: impl std::future::Future<
         Output = Result<progenitor_client::ResponseValue<T>, progenitor_client::Error<()>>,

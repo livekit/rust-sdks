@@ -35,8 +35,8 @@ use std::sync::Arc;
 /// or [`new`](Self::new) to read them from the environment) for backend use, or
 /// with a pre-signed token ([`with_token`](Self::with_token)) for client-side use
 /// where the API secret must not be exposed, or with a [`TokenProvider`]
-/// ([`with_token_provider`](Self::with_token_provider)) that gets a token with
-/// the grants of each call.
+/// ([`with_token_provider`](Self::with_token_provider)) that supplies the token
+/// for each request.
 #[derive(Debug)]
 pub struct LiveKitApi {
     room: RoomClient,
@@ -101,9 +101,11 @@ impl LiveKitApi {
         }
     }
 
-    /// Asks `provider` for a token with the grants of each request, in place of
-    /// signing one with an API key and secret: for a process that holds no
-    /// secret, such as an agent worker in token mode.
+    /// Authenticates each request with a token from `provider`.
+    ///
+    /// Use this in a process that has no API secret, such as an agent worker in
+    /// token mode. Before each request, `provider` receives the grants that the
+    /// request needs and returns a token.
     pub fn with_token_provider(host: &str, provider: impl TokenProvider + 'static) -> Self {
         // One HTTP client shared across every service (see `with_api_key`).
         let http = http_client::client();

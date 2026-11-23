@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! How a call is authenticated with a token provider: the provider gets the grants of each call,
-//! and its token is the bearer. Hermetic: a loopback socket stands in for the server.
+//! Tests for requests that are authenticated with a token provider.
+//!
+//! The provider must receive the grants of each request, and its token must be sent as the
+//! bearer token. No real server is needed: a local socket plays the server.
 
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +25,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{LiveKitApi, ServiceBase, ServiceError, TokenGrants, TokenProviderError};
 
-/// A provider that records the grants it is asked for and answers `provider-token-<n>`.
+/// A provider that records the grants of each request. It returns `provider-token-1` for the
+/// first request, `provider-token-2` for the second, and so on.
 fn recording() -> (Arc<Mutex<Vec<TokenGrants>>>, ServiceBase) {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let recorded = asked.clone();
@@ -64,7 +67,7 @@ async fn a_failing_provider_fails_the_call_with_its_reason() {
 async fn every_service_returns_the_providers_error_as_it_is() {
     let failing =
         |_: TokenGrants| async { Err::<String, TokenProviderError>("no job token".into()) };
-    // The provider fails before a request is sent, so nothing listens on the host.
+    // The provider fails before any request is sent, so the host needs no server.
     let api = LiveKitApi::with_token_provider("http://127.0.0.1:1", failing).with_failover(false);
     let errors = [
         api.room().list_participants("r").await.map(drop).unwrap_err(),
@@ -81,7 +84,7 @@ async fn every_service_returns_the_providers_error_as_it_is() {
 async fn every_service_returns_the_same_error_for_a_token_that_is_no_header_value() {
     let malformed =
         |_: TokenGrants| async { Ok::<_, TokenProviderError>("line\nbreak".to_owned()) };
-    // The token fails before a request is sent, so nothing listens on the host.
+    // The token is refused before any request is sent, so the host needs no server.
     let api = LiveKitApi::with_token_provider("http://127.0.0.1:1", malformed).with_failover(false);
     let errors = [
         api.room().list_participants("r").await.map(drop).unwrap_err(),
@@ -95,7 +98,7 @@ async fn every_service_returns_the_same_error_for_a_token_that_is_no_header_valu
 
 #[tokio::test]
 async fn a_fixed_token_that_is_no_header_value_is_not_a_provider_error() {
-    // The token fails before a request is sent, so nothing listens on the host.
+    // The token is refused before any request is sent, so the host needs no server.
     let api = LiveKitApi::with_token("http://127.0.0.1:1", "line\nbreak").with_failover(false);
     let errors = [
         api.room().list_participants("r").await.map(drop).unwrap_err(),
