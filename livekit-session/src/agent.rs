@@ -28,7 +28,8 @@ use crate::session::SessionConnectionState;
 /// tracks.
 ///
 /// Most code needs only the methods: [`is_connected`](Self::is_connected) to
-/// show that the agent is there, [`is_pending`](Self::is_pending) to show
+/// show that the agent is there, [`can_listen`](Self::can_listen) to show
+/// that the user can speak, [`is_pending`](Self::is_pending) to show
 /// that it is on its way, [`is_finished`](Self::is_finished) to show that it
 /// is gone or never came, and [`activity`](Self::activity),
 /// [`audio_track`](Self::audio_track) and
@@ -71,6 +72,16 @@ impl AgentState {
     /// still [`Initializing`](AgentActivity::Initializing) is not connected.
     pub fn is_connected(&self) -> bool {
         matches!(self, Self::Joined(agent) if agent.activity.is_conversational())
+    }
+
+    /// Whether the user can speak to the agent: it is listening, thinking or
+    /// speaking.
+    ///
+    /// Same as [`is_connected`](Self::is_connected) for now. Once the session
+    /// supports a pre-connect audio buffer, this also holds while the session
+    /// is connecting and buffering the user's speech for the agent.
+    pub fn can_listen(&self) -> bool {
+        self.is_connected()
     }
 
     /// Whether an agent is expected but not yet conversational: connecting,
@@ -670,6 +681,7 @@ mod tests {
                     && matches!(activity, Some(Listening | Thinking | Speaking)),
                 "{state:?}"
             );
+            assert_eq!(state.can_listen(), state.is_connected(), "{state:?}");
             assert_eq!(
                 state.is_pending(),
                 matches!(state, AgentState::Connecting)
