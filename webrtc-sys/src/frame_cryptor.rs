@@ -315,6 +315,44 @@ mod tests {
     }
 
     #[test]
+    fn test_key_provider_receivers_during_ratchets() {
+        struct Provider(cxx::SharedPtr<ffi::KeyProvider>);
+        // The native provider is thread-safe; the test only shares it between two threads.
+        unsafe impl Send for Provider {}
+        unsafe impl Sync for Provider {}
+
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = Provider(ffi::new_key_provider(options));
+        assert!(kp.0.set_shared_key(0, b"shared".to_vec()));
+        let receivers = 200;
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for _ in 0..receivers {
+                    kp.0.ratchet_shared_key(0).unwrap();
+                }
+            });
+            scope.spawn(|| {
+                for i in 0..receivers {
+                    kp.0.add_receiver(format!("receiver:{i}"));
+                }
+            });
+        });
+
+        // Every receiver, whenever it was added, ends on the shared key.
+        let shared = kp.0.get_shared_key(0).unwrap();
+        for i in 0..receivers {
+            assert_eq!(kp.0.get_key(format!("receiver:{i}"), 0).unwrap(), shared);
+        }
+    }
+
+    #[test]
     fn test_key_provider_out_of_bounds() {
         let options = ffi::KeyProviderOptions {
             shared_key: true,

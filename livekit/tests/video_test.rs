@@ -423,7 +423,7 @@ async fn test_e2ee_shared_key_new_track_after_ratchets() -> Result<()> {
     // Still subscribed, but the server stops forwarding its frames.
     idle_publication.set_enabled(false);
 
-    // More than twice the window: the new track is only readable if every ratchet carried over.
+    // The new track remains readable after ratcheting past twice the window.
     for step in 0..=2 * DEFAULT_RATCHET_WINDOW_SIZE {
         ratchet(&pub_room)?;
         let luma = next_frames_luma(&remote_live, 5)
@@ -526,7 +526,7 @@ async fn test_e2ee_shared_key_ratchets_between_data_and_media() -> Result<()> {
         .map_err(|err| anyhow!("no frames of the resumed track: {err}"))?;
     assert!((luma - LUMA as f64).abs() < 30.0, "resumed track's luma {luma:.1}");
 
-    // More than twice the window: the message is only readable if every ratchet carried over.
+    // The message remains readable after ratcheting past twice the window.
     for step in 0..=2 * DEFAULT_RATCHET_WINDOW_SIZE {
         ratchet(&pub_room)?;
         let luma = next_frames_luma(&remote, 5)

@@ -162,9 +162,8 @@ impl E2eeManager {
         // Its own key handler, as it isn't known whose track the receiver will carry: the
         // native provider keeps ratcheted keys per handler, so one sender's ratchet must not move
         // the key other senders' receivers use. Shared-key sets and ratchets still reach it.
-        // Once its sender is known, it decrypts with the sender's handler (`assign`). WebRTC
-        // names a new receiver's track with a random UUID made here, so no participant identity
-        // can be chosen to match the id.
+        // Once its sender is known, it decrypts with the sender's handler (`assign`). The track
+        // id is locally generated, so a remote publisher can't choose it.
         let key_id = format!("receiver:{}", track.id());
         options.key_provider.handle.add_receiver(key_id.clone());
         let owner = Arc::new(Mutex::new(None));
