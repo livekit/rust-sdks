@@ -444,6 +444,11 @@ impl RtcEngine {
                                      // happen on bad timing and it is safe to ignore)
     }
 
+    pub fn stop_transceiver(&self, transceiver: &RtpTransceiver) -> EngineResult<()> {
+        let session = self.inner.running_handle.read().session.clone();
+        session.stop_transceiver(transceiver)
+    }
+
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;

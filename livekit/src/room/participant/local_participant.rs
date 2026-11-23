@@ -741,7 +741,7 @@ impl LocalParticipant {
             // Stopping the transceiver lets libwebrtc drop the send stream and its encoder;
             // a transceiver left inactive keeps them alive until the peer connection closes.
             if remove_result.is_ok() {
-                if let Err(err) = transceiver.stop() {
+                if let Err(err) = self.inner.rtc_engine.stop_transceiver(&transceiver) {
                     log::warn!("failed to stop the transceiver of an unpublished track: {err:?}");
                 }
             }

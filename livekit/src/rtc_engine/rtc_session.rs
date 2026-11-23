@@ -955,6 +955,10 @@ impl RtcSession {
         self.inner.remove_track(sender)
     }
 
+    pub fn stop_transceiver(&self, transceiver: &RtpTransceiver) -> EngineResult<()> {
+        self.inner.stop_transceiver(transceiver)
+    }
+
     pub fn publisher_negotiation_needed(&self) {
         self.inner.publisher_negotiation_needed()
     }
@@ -2207,6 +2211,31 @@ impl SessionInner {
 
         self.publisher_pc.peer_connection().remove_track(sender)?;
 
+        Ok(())
+    }
+
+    /// Stops the transceiver of an unpublished track unless it holds the last live m-section of
+    /// the publisher connection. Rejecting every m-section drops the ICE and DTLS transport, and
+    /// the next publish would need a new one on the same connection. See
+    /// livekit/client-sdk-js#2282.
+    fn stop_transceiver(&self, transceiver: &RtpTransceiver) -> EngineResult<()> {
+        let pc = self.publisher_pc.peer_connection();
+        // a negotiated data channel section also keeps the transport
+        let has_sctp = pc
+            .current_local_description()
+            .is_some_and(|desc| desc.to_string().contains("m=application"));
+        let live_sections = pc
+            .transceivers()
+            .iter()
+            .filter(|t| {
+                t.direction() != RtpTransceiverDirection::Stopped
+                    && t.current_direction() != Some(RtpTransceiverDirection::Stopped)
+            })
+            .count()
+            + usize::from(has_sctp);
+        if live_sections > 1 {
+            transceiver.stop()?;
+        }
         Ok(())
     }
 

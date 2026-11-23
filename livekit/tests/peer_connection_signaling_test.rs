@@ -260,6 +260,13 @@ async fn test_v0_audio_track() -> Result<()> {
     test_audio_track_impl(SignalingMode::DualPC).await
 }
 
+/// Test that a track published after the only track was unpublished still sends media,
+/// with V0 signaling
+#[test_log::test(tokio::test)]
+async fn test_v0_republish_after_unpublish() -> Result<()> {
+    test_republish_after_unpublish_impl(SignalingMode::DualPC).await
+}
+
 /// Test reconnection with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_reconnect() -> Result<()> {
@@ -302,6 +309,13 @@ async fn test_v1_two_participants() -> Result<()> {
 #[test_log::test(tokio::test)]
 async fn test_v1_audio_track() -> Result<()> {
     test_audio_track_impl(SignalingMode::SinglePC).await
+}
+
+/// Test that a track published after the only track was unpublished still sends media,
+/// with V1 signaling
+#[test_log::test(tokio::test)]
+async fn test_v1_republish_after_unpublish() -> Result<()> {
+    test_republish_after_unpublish_impl(SignalingMode::SinglePC).await
 }
 
 /// Test reconnection with V1 signaling
@@ -670,6 +684,84 @@ async fn test_publish_ten_video_and_ten_audio_tracks_impl(mode: SignalingMode) -
     for publication in publications {
         pub_room.local_participant().unpublish_track(&publication.sid()).await?;
     }
+    Ok(())
+}
+
+/// Unpublishes the only track of the publisher and publishes a new one. The publisher
+/// connection must keep its transport, so the subscriber receives audio from the new track.
+async fn test_republish_after_unpublish_impl(mode: SignalingMode) -> Result<()> {
+    log::info!("[{}] Testing republish after unpublish", mode.name());
+    let mut rooms = test_rooms_with_options([room_options(mode), room_options(mode)]).await?;
+    let (_sub_room, mut sub_events) = rooms.pop().unwrap();
+    let (pub_room, _pub_events) = rooms.pop().unwrap();
+    let pub_room = Arc::new(pub_room);
+    let sine_params =
+        SineParameters { freq: 440.0, amplitude: 1.0, sample_rate: 48000, num_channels: 1 };
+
+    let mut first = SineTrack::new(pub_room.clone(), sine_params.clone());
+    first.publish().await?;
+    receive_audio_frames(&mut sub_events, mode, "first track").await?;
+
+    first.unpublish().await?;
+    let wait_unpublished = async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackUnpublished { .. }) => return Ok(()),
+                Some(_) => {}
+                None => return Err(anyhow!("Event channel closed")),
+            }
+        }
+    };
+    timeout(Duration::from_secs(10), wait_unpublished)
+        .await
+        .context("Timeout waiting for the first track to be unpublished")??;
+
+    let mut second = SineTrack::new(pub_room, sine_params);
+    second.publish().await?;
+    receive_audio_frames(&mut sub_events, mode, "second track").await?;
+
+    log::info!("[{}] Test passed - republished track sends media", mode.name());
+    Ok(())
+}
+
+/// Waits for the next subscribed audio track and reads 50 frames from it.
+async fn receive_audio_frames(
+    sub_events: &mut UnboundedReceiver<RoomEvent>,
+    mode: SignalingMode,
+    label: &str,
+) -> Result<()> {
+    let receive_track = async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed { track, .. }) => return Ok(track),
+                Some(_) => {}
+                None => return Err(anyhow!("Event channel closed")),
+            }
+        }
+    };
+    let track = timeout(Duration::from_secs(15), receive_track)
+        .await
+        .with_context(|| format!("Timeout waiting for the subscription of the {label}"))??;
+    let RemoteTrack::Audio(audio_track) = track else {
+        return Err(anyhow!("Expected an audio track for the {label}"));
+    };
+
+    let mut stream = NativeAudioStream::new(audio_track.rtc_track(), 48000, 1);
+    let mut frames_received = 0;
+    let receive_frames = async {
+        while let Some(frame) = stream.next().await {
+            if !frame.data.is_empty() {
+                frames_received += 1;
+            }
+            if frames_received >= 50 {
+                break;
+            }
+        }
+    };
+    timeout(Duration::from_secs(10), receive_frames)
+        .await
+        .with_context(|| format!("Timeout receiving audio frames of the {label}"))?;
+    log::info!("[{}] Received {} audio frames of the {}", mode.name(), frames_received, label);
     Ok(())
 }
 
