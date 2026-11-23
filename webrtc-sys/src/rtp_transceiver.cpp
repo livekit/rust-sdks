@@ -87,14 +87,24 @@ void RtpTransceiver::set_direction(RtpTransceiverDirection direction) const {
   }
 }
 
+// The directions are empty until a description is applied. std::optional::value() would abort
+// on an empty value under _HAS_EXCEPTIONS=0, so the empty case is reported as an error.
 RtpTransceiverDirection RtpTransceiver::current_direction() const {
-  return static_cast<RtpTransceiverDirection>(
-      transceiver_->current_direction().value());
+  auto direction = transceiver_->current_direction();
+  if (!direction.has_value()) {
+    throw BridgeException(serialize_error(to_error(webrtc::RTCError(
+        webrtc::RTCErrorType::INVALID_STATE, "no current direction yet"))));
+  }
+  return static_cast<RtpTransceiverDirection>(*direction);
 }
 
 RtpTransceiverDirection RtpTransceiver::fired_direction() const {
-  return static_cast<RtpTransceiverDirection>(
-      transceiver_->fired_direction().value());
+  auto direction = transceiver_->fired_direction();
+  if (!direction.has_value()) {
+    throw BridgeException(serialize_error(to_error(webrtc::RTCError(
+        webrtc::RTCErrorType::INVALID_STATE, "no fired direction yet"))));
+  }
+  return static_cast<RtpTransceiverDirection>(*direction);
 }
 
 void RtpTransceiver::stop_standard() const {
