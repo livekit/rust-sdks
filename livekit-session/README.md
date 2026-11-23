@@ -8,10 +8,11 @@ Android and Flutter SDKs.
 
 ```rust
 use livekit_session::{Session, SessionOptions};
-use livekit_token_source::development_token_server;
+use livekit_token_source::{development_token_server, TokenSourceFetchOptions};
 
 let token_source = development_token_server("<token server id>");
-let session = Session::with_agent(token_source, "my-agent", SessionOptions::default());
+let fetch_options = TokenSourceFetchOptions::new().with_agent_name("my-agent");
+let session = Session::new(SessionOptions::new_configurable_source(token_source, fetch_options));
 
 session.start().await?;
 session.state().wait_for(|state| state.agent.is_connected()).await?;
@@ -22,13 +23,14 @@ See [`examples/session`](../examples/session) for a complete text chat.
 
 ## Credentials
 
-Which constructor to use depends on the kind of token source:
+`Session::new` takes a `SessionOptions`, which holds the token source. Which `SessionOptions`
+constructor to use depends on the kind of token source:
 
-- `Session::with_agent` takes a configurable source and the name of the agent to dispatch, as
-  above;
-- `Session::with_fetch_options` takes a configurable source with its full `TokenSourceFetchOptions`,
-  for agent metadata, a room name or a participant identity;
-- `Session::new` takes a fixed source, such as a `literal` one holding a pre-generated token.
+- `SessionOptions::new_configurable_source` takes a configurable source with its
+  `TokenSourceFetchOptions`, for the agent to dispatch (as above), agent metadata, a room name or a
+  participant identity;
+- `SessionOptions::new_fixed_source` takes a fixed source, such as a `literal` one holding a
+  pre-generated token.
 
 Every `start` fetches credentials anew, so pass the source itself rather than one wrapped in
 `cached()`. Agents do not rejoin a room that already existed, and a cached token names the previous

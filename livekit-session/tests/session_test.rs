@@ -60,7 +60,7 @@ async fn start_publishes_the_microphone_and_end_releases_the_audio_devices() -> 
         return Ok(());
     };
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), SessionOptions::default());
+    let session = Session::new(SessionOptions::new_fixed_source(env.user_source(false)));
 
     session.start().await?;
     assert_eq!(probe.ref_count(), 2);
@@ -77,7 +77,7 @@ async fn start_publishes_the_microphone_and_end_releases_the_audio_devices() -> 
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_leaving_is_reported_as_left() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
@@ -91,8 +91,9 @@ async fn agent_leaving_is_reported_as_left() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()> {
     let env = TestEnv::new();
-    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
-    let session = Session::new(env.user_source(true), options);
+    let options =
+        text_options(env.user_source(true)).with_agent_connect_timeout(Duration::from_millis(500));
+    let session = Session::new(options);
     session.start().await?;
     wait_for_agent(&session, Expect::TimedOut).await?;
 
@@ -105,10 +106,11 @@ async fn timeout_fires_without_an_agent_and_a_late_agent_recovers() -> Result<()
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_is_armed_without_dispatch() -> Result<()> {
     let env = TestEnv::new();
-    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
+    let options =
+        text_options(env.user_source(false)).with_agent_connect_timeout(Duration::from_millis(500));
     // An agent registered without a name is dispatched automatically, so a
     // token naming none still waits for one.
-    let session = Session::new(env.user_source(false), options);
+    let session = Session::new(options);
     session.start().await?;
     wait_for_agent(&session, Expect::TimedOut).await?;
     session.end().await;
@@ -118,10 +120,11 @@ async fn timeout_is_armed_without_dispatch() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
     let env = TestEnv::new();
-    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
+    let options =
+        text_options(env.user_source(true)).with_agent_connect_timeout(Duration::from_millis(500));
     // Joined first, so the agent is present before the timeout can fire.
     let (agent, _agent_events) = env.join_agent(AGENT, "initializing").await?;
-    let session = Session::new(env.user_source(true), options);
+    let session = Session::new(options);
     session.start().await?;
     wait_for_agent(&session, Expect::TimedOut).await?;
 
@@ -151,7 +154,7 @@ async fn next_message(
 #[tokio::test(flavor = "multi_thread")]
 async fn messages_merge_chat_and_transcripts() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     let mut events = session.subscribe();
     session.start().await?;
     let (agent, mut agent_events) = env.join_agent(AGENT, "listening").await?;
@@ -226,7 +229,7 @@ async fn messages_merge_chat_and_transcripts() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn streams_on_other_topics_are_left_to_the_app() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     session.start().await?;
     let mut app_events = session.room().ok_or_else(|| anyhow!("no room"))?.subscribe();
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
@@ -288,7 +291,7 @@ fn is_subscribed(session: &Session, sid: &TrackSid) -> bool {
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     assert!(current(&session).agent.audio_track().is_none());
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
@@ -322,7 +325,7 @@ async fn agent_audio_track_is_the_agents_microphone_once_subscribed() -> Result<
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     session.start().await?;
     let (agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
@@ -364,11 +367,12 @@ async fn agent_avatar_video_track_is_the_avatar_workers_camera_once_subscribed()
 #[tokio::test(flavor = "multi_thread")]
 async fn timed_out_agent_keeps_its_audio_track() -> Result<()> {
     let env = TestEnv::new();
-    let options = text_options().with_agent_connect_timeout(Duration::from_millis(500));
+    let options =
+        text_options(env.user_source(true)).with_agent_connect_timeout(Duration::from_millis(500));
     // An agent that never reports a state is idle, so it times out while it
     // is in the room and publishing.
     let (agent, _agent_events) = env.join_agent(AGENT, "idle").await?;
-    let session = Session::new(env.user_source(true), options);
+    let session = Session::new(options);
     session.start().await?;
     wait_for_agent(&session, Expect::TimedOut).await?;
 

@@ -35,7 +35,7 @@ use livekit::SimulateScenario;
 use livekit_api::services::room::RoomClient;
 use livekit_token_source::{
     literal, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
-    TokenSourceResponse, TokenSourceResult,
+    TokenSourceLiteral, TokenSourceResponse, TokenSourceResult,
 };
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
@@ -60,16 +60,25 @@ fn is_idle(session: &Session) -> bool {
 }
 
 /// [`text_options`] for a room that gives up after its first failed join.
-fn text_options_without_retries() -> SessionOptions {
+fn text_options_without_retries(token_source: TokenSourceLiteral) -> SessionOptions {
     let mut room_options = RoomOptions::default();
     room_options.join_retries = 0;
-    text_options().with_room_options(room_options)
+    text_options(token_source).with_room_options(room_options)
+}
+
+/// Options for a session that fetches from `token_source` with no fetch
+/// options and stays off the machine's audio devices.
+fn configurable_text_options(
+    token_source: impl TokenSourceConfigurable + Send + Sync + 'static,
+) -> SessionOptions {
+    SessionOptions::new_configurable_source(token_source, TokenSourceFetchOptions::new())
+        .with_platform_audio(false)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     assert_eq!(current(&session), SessionState::default());
     assert!(session.room().is_none());
 
@@ -105,7 +114,7 @@ async fn start_projects_the_agent_and_end_disconnects() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn full_reconnect_does_not_report_left() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     session.start().await?;
     let (_agent, _agent_events) = env.join_agent(AGENT, "listening").await?;
     wait_for_agent(&session, Expect::Joined(AgentActivity::Listening)).await?;
@@ -135,7 +144,7 @@ async fn full_reconnect_does_not_report_left() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn restarting_after_a_server_side_disconnect() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     let rooms =
         RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
     let disconnect = || async {
@@ -163,8 +172,8 @@ async fn restarting_after_a_server_side_disconnect() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rejected_token_fails_the_start() -> Result<()> {
     let env = TestEnv::new();
-    let options = text_options_without_retries();
-    let session = Session::new(literal(env.url.clone(), "not a token"), options);
+    let options = text_options_without_retries(literal(env.url.clone(), "not a token"));
+    let session = Session::new(options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
     assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
@@ -183,8 +192,7 @@ impl TokenSourceConfigurable for PendingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn end_cancels_a_pending_start() -> Result<()> {
-    let session =
-        Session::with_fetch_options(PendingSource, TokenSourceFetchOptions::new(), text_options());
+    let session = Session::new(configurable_text_options(PendingSource));
     let start = tokio::spawn({
         let session = session.clone();
         async move { session.start().await }
@@ -231,16 +239,17 @@ impl SilentServer {
 
     /// A session connecting to this server.
     fn session(&self, env: &TestEnv) -> Session {
-        Session::new(literal(self.url.clone(), env.token(USER, |t| t)), Self::session_options())
+        Session::new(self.session_options(env))
     }
 
     /// Options for a session connecting to this server.
-    fn session_options() -> SessionOptions {
+    fn session_options(&self, env: &TestEnv) -> SessionOptions {
         let mut room_options = RoomOptions::default();
         room_options.join_retries = 0;
         // Long enough that only a cancel can end the handshake.
         room_options.connect_timeout = Duration::from_secs(60);
-        text_options().with_room_options(room_options)
+        text_options(literal(self.url.clone(), env.token(USER, |t| t)))
+            .with_room_options(room_options)
     }
 }
 
@@ -297,8 +306,7 @@ async fn dropping_a_start_during_connect_resets_the_session() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
-    let session =
-        Session::with_fetch_options(PendingSource, TokenSourceFetchOptions::new(), text_options());
+    let session = Session::new(configurable_text_options(PendingSource));
     assert!(timeout(Duration::from_millis(100), session.start()).await.is_err());
     assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
@@ -314,7 +322,7 @@ async fn a_failed_microphone_publish_closes_the_room() -> Result<()> {
     // Keeps the room open, so that the server can be asked who is in it.
     let (_observer, _) = env.join_observer().await?;
     let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
-    let session = Session::new(env.unpublishable_user_source(), SessionOptions::default());
+    let session = Session::new(SessionOptions::new_fixed_source(env.unpublishable_user_source()));
 
     // The server rejects the publish, which fails the start.
     let result = timeout(WAIT, session.start()).await?;
@@ -348,7 +356,7 @@ async fn a_failed_microphone_publish_closes_the_room() -> Result<()> {
 async fn dropping_the_session_closes_the_room() -> Result<()> {
     let env = TestEnv::new();
     let (_observer, mut observer_events) = env.join_observer().await?;
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     session.start().await?;
     // Otherwise the server may fold the user's join and leave into nothing.
     next_participant_event(&mut observer_events, |event| {
@@ -389,7 +397,7 @@ async fn next_participant_event(
 #[tokio::test(flavor = "multi_thread")]
 async fn repeated_start_and_end_leave_nothing_behind() -> Result<()> {
     let env = TestEnv::new();
-    let session = Session::new(env.user_source(false), text_options());
+    let session = Session::new(text_options(env.user_source(false)));
     let metrics = tokio::runtime::Handle::current().metrics();
     let settle = || async {
         // Room teardown finishes in tasks of its own after close returns.
@@ -427,8 +435,7 @@ impl TokenSourceConfigurable for FailingSource {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn failed_starts_spawn_nothing() -> Result<()> {
-    let session =
-        Session::with_fetch_options(FailingSource, TokenSourceFetchOptions::new(), text_options());
+    let session = Session::new(configurable_text_options(FailingSource));
     for _ in 0..2 {
         assert!(matches!(session.start().await, Err(SessionStartError::Token(_))));
         assert_eq!(current(&session), SessionState::default());
@@ -437,8 +444,8 @@ async fn failed_starts_spawn_nothing() -> Result<()> {
     assert_eq!(weak_shared(&session).strong_count(), 1);
 
     let env = TestEnv::new();
-    let options = text_options_without_retries();
-    let session = Session::new(literal("ws://127.0.0.1:1", env.token(USER, |t| t)), options);
+    let options = text_options_without_retries(literal("ws://127.0.0.1:1", env.token(USER, |t| t)));
+    let session = Session::new(options);
     assert!(matches!(session.start().await, Err(SessionStartError::Connect(_))));
     assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));

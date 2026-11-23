@@ -34,11 +34,11 @@ struct Args {
     text: bool,
 }
 
-/// Creates a session with credentials from a pre-generated token if one is
-/// given, and from a development token server otherwise.
-fn create_session(args: Args, options: SessionOptions) -> Result<Session, Box<dyn Error>> {
+/// Creates session options with credentials from a pre-generated token if one
+/// is given, and from a development token server otherwise.
+fn create_options(args: Args) -> Result<SessionOptions, Box<dyn Error>> {
     if let (Some(url), Some(token)) = (args.url, args.token) {
-        return Ok(Session::new(literal(url, token), options));
+        return Ok(SessionOptions::new_fixed_source(literal(url, token)));
     }
     let token_server_id = args
         .token_server_id
@@ -47,10 +47,9 @@ fn create_session(args: Args, options: SessionOptions) -> Result<Session, Box<dy
     if let Some(agent_name) = args.agent_name {
         fetch_options = fetch_options.with_agent_name(agent_name);
     }
-    Ok(Session::with_fetch_options(
+    Ok(SessionOptions::new_configurable_source(
         development_token_server(token_server_id),
         fetch_options,
-        options,
     ))
 }
 
@@ -81,10 +80,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // By default the session captures the microphone and plays the agent's
     // audio, with echo cancellation between the two. `--text` keeps the
     // conversation to typed lines, e.g. on a machine without audio devices.
-    let session_options = SessionOptions::default()
+    let text = args.text;
+    let session_options = create_options(args)?
         .with_agent_connect_timeout(Duration::from_secs(15))
-        .with_platform_audio(!args.text);
-    let session = create_session(args, session_options)?;
+        .with_platform_audio(!text);
+    let session = Session::new(session_options);
     let mut events = session.subscribe();
     session.start().await?;
 

@@ -212,9 +212,10 @@ pub fn current(session: &Session) -> SessionState {
     session.state().borrow().clone()
 }
 
-/// Options for a session that stays off the machine's audio devices.
-pub fn text_options() -> SessionOptions {
-    SessionOptions::default().with_platform_audio(false)
+/// Options for a session that gets credentials from `token_source` and stays
+/// off the machine's audio devices.
+pub fn text_options(token_source: TokenSourceLiteral) -> SessionOptions {
+    SessionOptions::new_fixed_source(token_source).with_platform_audio(false)
 }
 
 /// The machine's audio devices, or `None` when it has no microphone to
