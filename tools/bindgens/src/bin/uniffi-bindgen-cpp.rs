@@ -27,7 +27,7 @@ use std::{
 };
 
 const REPOSITORY: &str = "https://github.com/livekit/uniffi-bindgen-cpp.git";
-const REVISION: &str = "899eb26ce709dd4019c4ec941cfd83b8914c1582"; // C++ async support stack
+const REVISION: &str = "391904a883647adc0a3222195fbab9582c8a06a6"; // C++ async support stack
 
 fn main() -> ExitCode {
     match run() {
