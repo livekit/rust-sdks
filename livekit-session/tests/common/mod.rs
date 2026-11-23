@@ -104,8 +104,7 @@ impl TestEnv {
     }
 
     /// Credentials for a user who may join but not publish. The server
-    /// answers such a user's microphone publish with nothing, so the publish
-    /// stays pending until the client gives up on it.
+    /// rejects such a user's microphone publish.
     pub fn unpublishable_user_source(&self) -> TokenSourceLiteral {
         let token = self.token(USER, |token| {
             token.with_grants(VideoGrants { can_publish: Some(false), ..self.grants() })

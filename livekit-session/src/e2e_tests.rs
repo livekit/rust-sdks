@@ -51,10 +51,6 @@ use common::*;
 #[path = "../tests/common/mod.rs"]
 mod common;
 
-/// How long the client waits for the server to answer a publish before it
-/// gives up on it: `TRACK_PUBLISH_TIMEOUT` in `livekit`'s engine.
-const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
-
 fn weak_shared(session: &Session) -> Weak<Shared> {
     Arc::downgrade(&session.inner.shared)
 }
@@ -309,70 +305,41 @@ async fn dropping_a_pending_start_resets_the_session() -> Result<()> {
     Ok(())
 }
 
-/// Asserts that a start cut short during the microphone publish closed its
-/// room, so the observer sees the user leave, and left no actor or task
-/// behind.
-async fn assert_cut_short_publish_left_nothing(
-    session: &Session,
-    observer_events: &mut UnboundedReceiver<RoomEvent>,
-    baseline_tasks: usize,
-) -> Result<()> {
-    next_participant_event(observer_events, |event| {
-        matches!(event, RoomEvent::ParticipantDisconnected(p) if p.identity().as_str() == USER)
-    })
-    .await?;
-    eventually("the final state", || current(session) == SessionState::default()).await?;
-    assert!(is_idle(session));
-    eventually("the actor to stop", || weak_shared(session).strong_count() == 1).await?;
-    let metrics = tokio::runtime::Handle::current().metrics();
-    eventually("tasks to return to baseline", || metrics.num_alive_tasks() <= baseline_tasks).await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn dropping_a_start_during_the_microphone_publish_closes_the_room() -> Result<()> {
-    let Some(_probe) = microphone_probe() else {
-        return Ok(());
-    };
-    let env = TestEnv::new();
-    let (_observer, mut observer_events) = env.join_observer().await?;
-    let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
-    let session = Session::new(env.unpublishable_user_source(), SessionOptions::default());
-    let mut start = Box::pin(session.start());
-    // The session has a room once its actor owns it, which is then publishing.
-    // The observer must have seen the user join by then, or the server may
-    // fold the join and the leave into nothing.
-    let publishing = async {
-        eventually("the actor to own the room", || session.room().is_some()).await?;
-        next_participant_event(&mut observer_events, |event| {
-            matches!(event, RoomEvent::ParticipantConnected(p) if p.identity().as_str() == USER)
-        })
-        .await
-    };
-    tokio::select! {
-        result = &mut start => bail!("start resolved during the publish: {result:?}"),
-        publishing = publishing => publishing?,
-    }
-
-    drop(start);
-    assert_cut_short_publish_left_nothing(&session, &mut observer_events, baseline_tasks).await
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_microphone_publish_closes_the_room() -> Result<()> {
     let Some(_probe) = microphone_probe() else {
         return Ok(());
     };
     let env = TestEnv::new();
-    let (_observer, mut observer_events) = env.join_observer().await?;
+    // Keeps the room open, so that the server can be asked who is in it.
+    let (_observer, _) = env.join_observer().await?;
     let baseline_tasks = tokio::runtime::Handle::current().metrics().num_alive_tasks();
     let session = Session::new(env.unpublishable_user_source(), SessionOptions::default());
 
-    // The client gives up on the unanswered publish after its own timeout.
-    let result = timeout(PUBLISH_TIMEOUT + WAIT, session.start()).await?;
+    // The server rejects the publish, which fails the start.
+    let result = timeout(WAIT, session.start()).await?;
     assert!(matches!(result, Err(SessionStartError::Microphone(_))), "{result:?}");
     assert_eq!(current(&session), SessionState::default());
     assert!(is_idle(&session));
-    assert_cut_short_publish_left_nothing(&session, &mut observer_events, baseline_tasks).await
+    eventually("the actor to stop", || weak_shared(&session).strong_count() == 1).await?;
+    let metrics = tokio::runtime::Handle::current().metrics();
+    eventually("tasks to return to baseline", || metrics.num_alive_tasks() <= baseline_tasks)
+        .await?;
+
+    // The user joins and leaves so quickly that the server may fold the two
+    // into nothing, so the observer cannot wait for the leave. Ask the server
+    // instead. This runs after the task check, as the HTTP client can spawn
+    // tasks of its own.
+    let rooms =
+        RoomClient::with_api_key(&env.url.replacen("ws", "http", 1), &env.api_key, &env.api_secret);
+    timeout(WAIT, async {
+        while rooms.list_participants(&env.room).await?.iter().any(|p| p.identity == USER) {
+            sleep(Duration::from_millis(100)).await;
+        }
+        anyhow::Ok(())
+    })
+    .await
+    .map_err(|_| anyhow!("timed out waiting for the user to leave the room"))?
 }
 
 // Lifecycle (AGENTS.md "Memory lifecycle")
