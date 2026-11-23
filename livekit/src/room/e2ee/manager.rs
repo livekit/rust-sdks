@@ -62,6 +62,18 @@ struct ManagerInner {
     data_packet_cryptor: Option<DataPacketCryptor>,
 }
 
+impl Drop for ManagerInner {
+    /// A join dropped before its session took the receivers over, such as a cancelled
+    /// `Room::connect`, still frees them in a key provider the app may keep.
+    fn drop(&mut self) {
+        if let Some(options) = self.options.as_ref() {
+            for receiver in self.receivers.values() {
+                options.key_provider.handle.remove_receiver(receiver.key_id.clone());
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct E2eeManager {
     inner: Arc<Mutex<ManagerInner>>,
@@ -531,6 +543,43 @@ impl Debug for E2eeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropped_manager_frees_its_receivers() {
+        use libwebrtc::prelude::{
+            MediaType, RtcConfiguration, RtpTransceiverDirection, RtpTransceiverInit,
+        };
+
+        use crate::e2ee::key_provider::KeyProviderOptions;
+
+        let key_provider =
+            KeyProvider::with_shared_key(KeyProviderOptions::default(), b"key".to_vec());
+        let manager = E2eeManager::new(
+            Some(E2eeOptions {
+                encryption_type: EncryptionType::Gcm,
+                key_provider: key_provider.clone(),
+            }),
+            false,
+        );
+        let pc = LkRuntime::instance()
+            .pc_factory()
+            .create_peer_connection(RtcConfiguration::default())
+            .unwrap();
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::RecvOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+        let receiver = pc.add_transceiver_for_media(MediaType::Video, init).unwrap().receiver();
+        let key_id =
+            ParticipantIdentity(format!("\u{1f}receiver:{}", receiver.track().unwrap().id()));
+        manager.prepare_receiver(receiver);
+        assert!(key_provider.get_key(&key_id, 0).is_some());
+
+        // As when the `Room::connect` future is dropped during signalling.
+        drop(manager);
+        assert!(key_provider.get_key(&key_id, 0).is_none());
+    }
 
     #[test]
     fn receiver_packet_trailer_handler_is_skipped_without_features() {

@@ -324,6 +324,39 @@ mod tests {
     }
 
     #[test]
+    fn test_key_provider_participant_named_shared() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = ffi::new_key_provider(options);
+        assert!(kp.set_shared_key(0, b"room".to_vec()));
+        let key = |id: &str| kp.get_key(id.into(), 0).ok();
+        let cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, kp.clone());
+        let receiver = "\u{1f}receiver:1";
+        kp.add_receiver(receiver.into());
+        kp.bind_receiver(receiver.into(), "shared".into());
+        assert!(cryptor.encrypt("shared", 0, b"probe").is_ok());
+        assert_eq!(key("shared"), Some(b"room".to_vec()));
+
+        // Its ratchets stay its own: the room's key and later participants keep the seed.
+        let ratcheted = kp.ratchet_key("shared".into(), 0).unwrap();
+        assert_eq!(key(receiver), Some(ratcheted));
+        assert_eq!(kp.get_shared_key(0).unwrap(), b"room".to_vec());
+        assert!(cryptor.encrypt("bob", 0, b"probe").is_ok());
+        assert_eq!(key("bob"), Some(b"room".to_vec()));
+
+        // Shared-key updates still reach it.
+        assert!(kp.set_shared_key(0, b"room 2".to_vec()));
+        assert_eq!(key("shared"), Some(b"room 2".to_vec()));
+        assert_eq!(key(receiver), Some(b"room 2".to_vec()));
+    }
+
+    #[test]
     fn test_key_provider_receivers_during_ratchets() {
         struct Provider(cxx::SharedPtr<ffi::KeyProvider>);
         // The native provider is thread-safe; the test only shares it between threads.
