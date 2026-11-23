@@ -53,8 +53,9 @@ class PacketTrailerHandler;
 /// the receivers' handlers in one step.
 class BindingKeyProvider : public webrtc::DefaultKeyProviderImpl {
  public:
-  /// Receiver ids start with this (the Rust E2EE manager makes them).
-  static constexpr const char* kReceiverPrefix = "receiver:";
+  /// Receiver ids start with this (the Rust E2EE manager makes them). The control character
+  /// keeps them apart from real participant identities.
+  static constexpr const char* kReceiverPrefix = "\x1freceiver:";
 
   explicit BindingKeyProvider(webrtc::KeyProviderOptions options)
       : webrtc::DefaultKeyProviderImpl(options) {}

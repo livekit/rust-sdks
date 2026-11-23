@@ -142,6 +142,8 @@ impl E2eeManager {
         let receivers = std::mem::take(&mut inner.receivers);
         for receiver in receivers.into_values() {
             receiver.cryptor.set_enabled(false);
+            // A frame already past the enabled check finds no key: it reports for no one.
+            *receiver.owner.lock() = None;
             if let Some(options) = inner.options.as_ref() {
                 options.key_provider.handle.remove_receiver(receiver.key_id);
             }
@@ -164,7 +166,7 @@ impl E2eeManager {
         // the key other senders' receivers use. Shared-key sets and ratchets still reach it.
         // Once its sender is known, it decrypts with the sender's handler (`assign`). The track
         // id is locally generated, so a remote publisher can't choose it.
-        let key_id = format!("receiver:{}", track.id());
+        let key_id = format!("\u{1f}receiver:{}", track.id());
         options.key_provider.handle.add_receiver(key_id.clone());
         let owner = Arc::new(Mutex::new(None));
         let frame_cryptor = self.receiver_cryptor(

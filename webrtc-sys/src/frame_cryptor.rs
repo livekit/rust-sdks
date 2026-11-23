@@ -297,27 +297,36 @@ mod tests {
         assert!(kp.set_key("bob".into(), 0, b"bob".to_vec()));
         let key = |id: &str| kp.get_key(id.into(), 0).ok();
 
-        kp.add_receiver("receiver:1".into());
-        assert_eq!(key("receiver:1"), Some(b"shared".to_vec()));
-        kp.bind_receiver("receiver:1".into(), "alice".into());
-        assert_eq!(key("receiver:1"), Some(b"alice".to_vec()));
-        kp.bind_receiver("receiver:1".into(), "bob".into());
-        assert_eq!(key("receiver:1"), Some(b"bob".to_vec()));
+        let receiver = "\u{1f}receiver:1";
+        kp.add_receiver(receiver.into());
+        assert_eq!(key(receiver), Some(b"shared".to_vec()));
+        kp.bind_receiver(receiver.into(), "alice".into());
+        assert_eq!(key(receiver), Some(b"alice".to_vec()));
+        kp.bind_receiver(receiver.into(), "bob".into());
+        assert_eq!(key(receiver), Some(b"bob".to_vec()));
         assert_eq!(key("alice"), Some(b"alice".to_vec()));
 
         // Back on its own handler, which shared-key ratchets still reach.
-        kp.bind_receiver("receiver:1".into(), String::new());
+        kp.bind_receiver(receiver.into(), String::new());
         let ratcheted = kp.ratchet_shared_key(0).unwrap();
-        assert_eq!(key("receiver:1"), Some(ratcheted));
+        assert_eq!(key(receiver), Some(ratcheted));
 
-        kp.remove_receiver("receiver:1".into());
-        assert_eq!(key("receiver:1"), None);
+        // Data packets look keys up as frames do.
+        let cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, kp.clone());
+        assert!(cryptor.encrypt(receiver, 0, b"probe").is_ok());
+        kp.remove_receiver(receiver.into());
+        assert_eq!(key(receiver), None);
+        // A late lookup gets no key, and leaves none behind.
+        assert!(cryptor.encrypt(receiver, 0, b"probe").is_err());
+        assert_eq!(key(receiver), None);
+        // A participant whose identity looks like a receiver id is unaffected.
+        assert!(cryptor.encrypt("receiver:1", 0, b"probe").is_ok());
     }
 
     #[test]
     fn test_key_provider_receivers_during_ratchets() {
         struct Provider(cxx::SharedPtr<ffi::KeyProvider>);
-        // The native provider is thread-safe; the test only shares it between two threads.
+        // The native provider is thread-safe; the test only shares it between threads.
         unsafe impl Send for Provider {}
         unsafe impl Sync for Provider {}
 
@@ -331,24 +340,25 @@ mod tests {
         };
         let kp = Provider(ffi::new_key_provider(options));
         assert!(kp.0.set_shared_key(0, b"shared".to_vec()));
-        let receivers = 200;
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                for _ in 0..receivers {
-                    kp.0.ratchet_shared_key(0).unwrap();
-                }
+        let id = |i| format!("\u{1f}receiver:{i}");
+        let (before, rounds) = (20, 10_000);
+        for i in 0..before {
+            kp.0.add_receiver(id(i));
+        }
+        // Each round, two shared-key updates race to reach the receivers while a receiver is
+        // added; then every receiver must be on the shared key. Only the last update of a run
+        // shows in its end state, hence the many short rounds.
+        for round in 0..rounds {
+            std::thread::scope(|scope| {
+                scope.spawn(|| kp.0.ratchet_shared_key(0).unwrap());
+                scope.spawn(|| kp.0.set_shared_key(0, format!("key {round}").into_bytes()));
+                scope.spawn(|| kp.0.add_receiver(id(before)));
             });
-            scope.spawn(|| {
-                for i in 0..receivers {
-                    kp.0.add_receiver(format!("receiver:{i}"));
-                }
-            });
-        });
-
-        // Every receiver, whenever it was added, ends on the shared key.
-        let shared = kp.0.get_shared_key(0).unwrap();
-        for i in 0..receivers {
-            assert_eq!(kp.0.get_key(format!("receiver:{i}"), 0).unwrap(), shared);
+            let shared = kp.0.get_shared_key(0).unwrap();
+            for i in 0..=before {
+                assert_eq!(kp.0.get_key(id(i), 0).unwrap(), shared, "round {round}, receiver {i}");
+            }
+            kp.0.remove_receiver(id(before));
         }
     }
 

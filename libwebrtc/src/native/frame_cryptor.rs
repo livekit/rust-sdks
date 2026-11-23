@@ -140,8 +140,8 @@ impl KeyProvider {
     /// Shared keys only: makes `id` a receiver, a cryptor id whose shared-key handler this
     /// provider holds until [`Self::remove_receiver`], starting from the shared keys. While it
     /// is a receiver, a participant with the same id gets the receiver's keys instead of its own.
-    /// `id` starts with `receiver:`: a frame that looks up such an id once it is removed, or
-    /// before it is added, has no key, rather than one the provider would never free.
+    /// `id` starts with `"\u{1f}receiver:"`: a frame that looks up such an id once it is
+    /// removed, or before it is added, has no key, rather than one the provider would never free.
     pub fn add_receiver(&self, id: String) {
         self.sys_handle.add_receiver(id)
     }
