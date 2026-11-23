@@ -26,12 +26,19 @@ import "stats.proto";
 import "data_stream.proto";
 import "data_track.proto";
 
+// A local track prepared before connecting. The caller retains ownership of the track handle.
+message InitialTrack {
+  required uint64 track_handle = 1;
+  required TrackPublishOptions options = 2;
+}
+
 // Connect to a new LiveKit room
 message ConnectRequest {
   required string url = 1;
   required string token = 2;
   required RoomOptions options = 3;
   optional uint64 request_async_id = 4;
+  repeated InitialTrack publish_tracks = 5;
 }
 message ConnectResponse {
   required uint64 async_id = 1;
@@ -45,10 +52,16 @@ message ConnectCallback {
     repeated OwnedTrackPublication publications = 2;
   }
 
+  message InitialPublication {
+    required uint64 track_handle = 1;
+    required OwnedTrackPublication publication = 2;
+  }
+
   message Result {
     required OwnedRoom room = 1;
     required OwnedParticipant local_participant = 2;
     repeated ParticipantWithTracks participants = 3;
+    repeated InitialPublication local_publications = 4;
   }
 
   required uint64 async_id = 1;

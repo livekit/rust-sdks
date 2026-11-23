@@ -162,8 +162,24 @@ impl FfiRoom {
         }
 
         let connect = async move {
-            match Room::connect(&connect.url, &connect.token, options.clone()).await {
-                Ok((room, mut events)) => {
+            let result = async {
+                // Resolve handles before connecting. Track clones keep the native sources alive
+                // until connect completes, without storing another foreign-owned handle.
+                let mut initial_tracks = Vec::with_capacity(connect.publish_tracks.len());
+                for initial in &connect.publish_tracks {
+                    let ffi_track = server.retrieve_handle::<FfiTrack>(initial.track_handle)?;
+                    let track = LocalTrack::try_from(ffi_track.track.clone()).map_err(|_| {
+                        FfiError::InvalidRequest("track is not a LocalTrack".into())
+                    })?;
+                    options.publish_tracks.push((track.clone(), initial.options.clone().into()));
+                    initial_tracks.push((initial.track_handle, track));
+                }
+                let (room, events) = Room::connect(&connect.url, &connect.token, options).await?;
+                Ok::<_, FfiError>((room, events, initial_tracks))
+            }
+            .await;
+            match result {
+                Ok((room, mut events, initial_tracks)) => {
                     // initialize audio filters
                     let result = server
                         .async_runtime
@@ -223,6 +239,36 @@ impl FfiRoom {
                     let (local_info, remote_infos) =
                         build_initial_states(server, &inner, participants_with_tracks);
 
+                    // Initial publications must be visible to the client before room events
+                    // start. This also releases the normal LocalTrackPublished event barrier.
+                    let publications = inner.room.local_participant().track_publications();
+                    let mut local_publications = Vec::with_capacity(initial_tracks.len());
+                    for (track_handle, track) in initial_tracks {
+                        let Some(publication) = publications.values().find(|publication| {
+                            publication.track().is_some_and(|published| {
+                                published.rtc_track().id() == track.rtc_track().id()
+                            })
+                        }) else {
+                            continue;
+                        };
+                        let handle_id = server.next_id();
+                        let ffi_publication = FfiPublication {
+                            handle: handle_id,
+                            publication: TrackPublication::Local(publication.clone()),
+                        };
+                        let info = proto::TrackPublicationInfo::from(&ffi_publication);
+                        server.store_handle(handle_id, ffi_publication);
+                        inner.local_publication_lookup.lock().insert(publication.sid(), handle_id);
+                        inner.pending_published_tracks.lock().insert(publication.sid());
+                        local_publications.push(proto::connect_callback::InitialPublication {
+                            track_handle,
+                            publication: proto::OwnedTrackPublication {
+                                handle: proto::FfiOwnedHandle { id: handle_id },
+                                info,
+                            },
+                        });
+                    }
+
                     // Send callback
                     let ffi_room = Self {
                         inner: inner.clone(),
@@ -252,6 +298,7 @@ impl FfiRoom {
                                     },
                                     local_participant: local_info,
                                     participants: remote_infos,
+                                    local_publications,
                                 },
                             )),
                         }
