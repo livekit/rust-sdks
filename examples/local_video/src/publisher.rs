@@ -33,6 +33,8 @@ use yuv_sys;
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 mod argus;
+mod capture_timestamp;
+use capture_timestamp::validate_backend_capture_timestamp_us;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
@@ -277,31 +279,11 @@ fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
 }
 
-const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
-
 #[derive(Default)]
 struct CaptureTimestampLogState {
     logged_source: bool,
     logged_missing: bool,
     logged_invalid: bool,
-}
-
-fn validate_backend_capture_timestamp_us(
-    capture_timestamp: Duration,
-    read_wall_time_us: u64,
-) -> Result<u64, &'static str> {
-    let capture_timestamp_us =
-        u64::try_from(capture_timestamp.as_micros()).map_err(|_| "overflows u64")?;
-    if capture_timestamp_us == 0 {
-        return Err("is zero");
-    }
-    if capture_timestamp_us > read_wall_time_us {
-        return Err("is in the future");
-    }
-    if read_wall_time_us - capture_timestamp_us > MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US {
-        return Err("is too old");
-    }
-    Ok(capture_timestamp_us)
 }
 
 fn select_capture_wall_time_us(

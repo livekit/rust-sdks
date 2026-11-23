@@ -43,6 +43,7 @@ members = [
     "examples/screensharing",
     "examples/telemetry_ping",
     "examples/token_source",
+    "examples/vector_video",
     "examples/webhooks",
 ]
 
@@ -124,6 +125,20 @@ cc = { version = "1.0", features = ["parallel"] }
 [profile.dev]
 debug = "line-tables-only"
 # Set to `true` instead for enhanced debugging at the cost of slower builds.
+
+# The live example must process each camera frame within its capture interval.
+[profile.dev.package.vector_video]
+opt-level = 3
+
+# Face guidance also runs inference inside these crates on every landmark refresh.
+[profile.dev.package.tract-core]
+opt-level = 3
+
+[profile.dev.package.tract-linalg]
+opt-level = 3
+
+[profile.dev.package.tract-data]
+opt-level = 3
 
 [profile.release]
 opt-level = "z"
