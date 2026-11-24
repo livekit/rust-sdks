@@ -12,17 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::OnceLock;
-use tokio::runtime::Runtime;
+//! Data track objects from the [`livekit-datatrack`] crate.
+//!
+//! Exported by both surfaces, so a client SDK sees the same [`local::LocalDataTrack`],
+//! [`remote::RemoteDataTrack`] and [`remote::DataTrackStream`] whichever one it builds. Only how
+//! a track is obtained differs: core-modules SDKs drive the data track managers themselves,
+//! while room-apis SDKs receive tracks from the room.
+//!
 
-/// Returns the process-global Tokio runtime, initializing it on first use.
-pub(crate) fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("livekit-ffi-core")
-            .build()
-            .expect("Failed to build livekit-ffi core-modules tokio runtime")
-    })
-}
+pub mod common;
+pub mod local;
+pub mod remote;
