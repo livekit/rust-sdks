@@ -83,7 +83,11 @@ for name in RustLiveKitFFI Headers Modules Resources; do
     ln -s "Versions/Current/$name" "$FRAMEWORK/$name"
 done
 codesign --force --sign - "$FRAMEWORK"
+codesign --verify --deep --strict "$FRAMEWORK"
 xcodebuild -create-xcframework -framework "$FRAMEWORK" -output "$OUT/RustLiveKitFFI.xcframework"
+# Subsequent copies must preserve the versioned framework symlinks.
+codesign --verify --deep --strict \
+    "$OUT/RustLiveKitFFI.xcframework/macos-arm64/RustLiveKitFFI.framework"
 
 # The repository templates, development profile: a local path to the xcframework.
 for manifest in Package.swift Package@swift-6.2.swift; do

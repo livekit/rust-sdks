@@ -135,7 +135,8 @@ optional fields retain core absence. Event payloads count against cursor bounds.
 `NativeRoomSession.set_track_subscription_permissions(all_participants_allowed,
 permissions)` accepts `NativeTrackPermission { participant_identity, allow_all,
 allowed_track_sids }`. Invalid SIDs fail with `InvalidState`; successful completion
-updates core's desired permissions and is not an SFU acknowledgement. Current core
+means core stored the desired permissions; it does not guarantee the signaling request
+was sent or acknowledged by the SFU. Current core
 may retain stale permission/attached-track status after revoking an existing subscription;
 the wrapper does not synthesize status or callbacks to conceal that limit.
 
