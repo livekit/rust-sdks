@@ -1,5 +1,5 @@
 name: UniFFI Dart package
-# ffi-builds.yml finds a run by this exact name. Only a run named
+# release.yml finds a run by this exact name. Only a run named
 # "Publish Dart package <tag>" counts as the publish for that tag: a dry run
 # uploads and publishes nothing, but ends as a success too.
 run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ inputs.tag_name }}
@@ -12,21 +12,20 @@ run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ input
 # a *tag* matching the pattern configured on the package
 # (livekit-ffi/v{{version}}); a release-event-triggered workflow is rejected.
 #
-# The livekit-ffi release starts as a draft, and the tag that release.yml
-# creates with GITHUB_TOKEN emits no push event (#1256). So the normal trigger
-# is ffi-builds.yml dispatching this workflow with `--ref <tag>` once the
-# release is published: workflow_dispatch is exempt from GitHub's recursion
-# guard, and dispatching at the tag still gives the run refType "tag". The
-# tag exists before the FFI build, so there is no tag-push trigger: it would
-# publish before that build is green. For a run by hand, dispatch this workflow
-# at the tag (select the tag as the ref) with `tag_name`.
+# The tag that release.yml creates with GITHUB_TOKEN emits no push event
+# (#1256). So the normal trigger is release.yml dispatching this workflow with
+# `--ref <tag>` once the release is public: workflow_dispatch is exempt from
+# GitHub's recursion guard, and dispatching at the tag still gives the run
+# refType "tag". For a run by hand, dispatch this workflow at the tag (select
+# the tag as the ref) with `tag_name`.
 #
 # The package's hook/build.dart downloads build-<triple>.zip assets from the
 # GitHub release at consumer build time, so a pub.dev version whose assets are
 # missing would be broken on arrival, and pub.dev versions cannot be
-# unpublished. The cdylib job below builds and attaches those assets in this
-# same run, and the publish job depends on it, so the package can only be
-# published once every asset is on the release.
+# unpublished. release.yml builds those assets before it creates the tag and
+# attaches them before the release becomes public. This workflow builds none:
+# its first job fails unless the release is public and has every file of
+# `release.required_assets` in verwalter.toml.
 #
 # Publishing is enabled. The run publishes to pub.dev through OIDC
 # (dart-lang/setup-dart exchanges the job token), and pub.dev accepts that
@@ -39,7 +38,7 @@ run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ input
 #     over
 #   - repository `livekit/rust-sdks`, tag pattern `livekit-ffi/v{{version}}`
 #   - "Enable publishing from `workflow_dispatch` events" is checked, since
-#     that is how ffi-builds.yml starts this run
+#     that is how release.yml starts this run
 #   - "Require GitHub Actions environment" is checked, with `pub.dev` as the
 #     name, matching the `environment:` on the publish job below
 #
@@ -49,9 +48,9 @@ run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ input
 # server-side, so editing this file cannot get around it.
 #
 # Recovery: if a run fails, fix the cause and re-run the failed jobs, or
-# dispatch this workflow with the tag. A dispatch rebuilds and re-attaches the
-# assets (with --clobber), re-validates, and publishes -- so set dry_run when
-# only exercising the workflow.
+# dispatch this workflow with the tag. A dispatch checks the release assets,
+# re-validates, and publishes -- so set dry_run when only exercising the
+# workflow.
 
 on:
   workflow_dispatch:
@@ -61,7 +60,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: "Build everything but skip the release asset upload."
+        description: "Build and validate the package but do not publish it."
         type: boolean
         default: false
 
@@ -75,7 +74,7 @@ env:
 permissions:
   contents: read
 
-# One run for each tag. ffi-builds.yml waits for this run, and a second run of
+# One run for each tag. release.yml waits for this run, and a second run of
 # that job must not publish at the same time as the first one.
 concurrency:
   group: uniffi-dart-${{ inputs.tag_name }}
@@ -106,14 +105,16 @@ jobs:
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#livekit-ffi/v}" >> "$GITHUB_OUTPUT"
 
-      # Fast fail on a mis-pointed tag before spending runner time on the
-      # cdylib matrix: the tag version must match the crate version the tag
-      # carries (it is also what the pubspec, and pub.dev's tag-pattern check,
-      # will see). Only the manifest is needed here.
+      # Fast fail on a mis-pointed tag: the tag version must match the crate
+      # version the tag carries (it is also what the pubspec, and pub.dev's
+      # tag-pattern check, will see). Only the manifest and the asset list are
+      # needed here.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ steps.tag.outputs.tag_name }}
-          sparse-checkout: livekit-ffi/Cargo.toml
+          sparse-checkout: |
+            livekit-ffi/Cargo.toml
+            verwalter.toml
           sparse-checkout-cone-mode: false
 
       - name: Check tag matches crate version
@@ -127,8 +128,7 @@ jobs:
           fi
 
       # Safe to run again: pub.dev versions cannot be replaced, so a version
-      # that pub.dev has is not built and not published a second time. The
-      # host libraries were attached before that publish.
+      # that pub.dev has is not built and not published a second time.
       - name: Ask pub.dev for the version
         id: ask
         env:
@@ -143,24 +143,32 @@ jobs:
             *) echo "::error::${URL} answered HTTP ${code}"; exit 1 ;;
           esac
 
-  # Builds build-<triple>.zip (+ .sha256) for every target and attaches them to
-  # the release. Runs here rather than in uniffi-packages.yml so the publish
-  # job can depend on it directly instead of polling the release for assets.
-  cdylib:
-    needs: resolve-tag
-    if: ${{ needs.resolve-tag.outputs.published != 'true' || inputs.dry_run }}
-    permissions:
-      # The upload step attaches assets to the release with the workflow token.
-      contents: write
-    uses: ./.github/workflows/uniffi-cdylib.yml
-    with:
-      version: ${{ needs.resolve-tag.outputs.version }}
-      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
-      dry_run: ${{ inputs.dry_run || false }}
+      # pub.dev versions cannot be unpublished, and the package downloads
+      # its native libraries from the release. So the release must be public
+      # and complete before anything is published. A draft release is not
+      # visible to this token and fails here too.
+      - name: Check that the release is public and has every file
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          python3 -c 'import tomllib; print(*tomllib.load(open("verwalter.toml", "rb"))["packages"]["livekit-ffi"]["release"]["required_assets"], sep="\n")' > "$RUNNER_TEMP/required.txt"
+          gh release view "$TAG" --json isDraft,assets \
+            --jq 'select(.isDraft == false) | .assets[].name' > on-release.txt
+          missing=0
+          while read -r asset; do
+            if ! grep -qxF "$asset" on-release.txt; then
+              echo "::error::release ${TAG} is not public with ${asset}"
+              missing=1
+            fi
+          done < "$RUNNER_TEMP/required.txt"
+          exit "$missing"
 
   build-and-publish:
     name: Build & publish Dart package
-    needs: [resolve-tag, cdylib]
+    needs: resolve-tag
     if: ${{ needs.resolve-tag.outputs.published != 'true' || inputs.dry_run }}
     runs-on: ubuntu-latest
     # Names the environment in the OIDC token so pub.dev's "Require GitHub

@@ -22,6 +22,16 @@ on:
         required: false
         type: string
         default: ""
+      build:
+        description: "Build the native bindings."
+        required: false
+        type: boolean
+        default: true
+      publish:
+        description: "Publish to npm. Without `build`, the bindings come from the artifacts of the same run."
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       dry_run:
@@ -39,13 +49,27 @@ on:
         required: false
         type: string
         default: ""
+      build:
+        description: "Build the native bindings."
+        required: false
+        type: boolean
+        default: true
+      publish:
+        description: "Publish to npm. Without `build`, the bindings come from the artifacts of the same run."
+        required: false
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
   APP_NAME: rtc-node
 
 jobs:
+  # release.yml calls this workflow twice in one run: first with `publish`
+  # off, before the tag exists, and after the release with `build` off. The
+  # artifacts belong to the run, so the second call finds them.
   build:
+    if: ${{ inputs.build }}
     strategy:
       fail-fast: false
       matrix:
@@ -208,6 +232,8 @@ jobs:
 
   publish:
     needs: build
+    # `!failure()`: also run when the build job is skipped (`build` off).
+    if: ${{ !cancelled() && !failure() && inputs.publish }}
     name: Publish to npm
     runs-on: ubuntu-latest
     # One npm publish at a time, across runs. npm moves `latest` to the
