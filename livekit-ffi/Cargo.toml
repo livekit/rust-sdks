@@ -23,6 +23,7 @@ room-apis = [
   "dep:imgproc",
   # The typed surface exports the same access token helpers as `core-modules`.
   "dep:livekit-token",
+  "dep:livekit-signaling", # typed SignalError causes from the authoritative room
   "dep:livekit-data-stream",
   "dep:prost",
   "dep:dashmap",

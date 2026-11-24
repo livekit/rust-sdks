@@ -41,6 +41,7 @@ use tokio::{
 };
 
 mod encryption;
+mod errors;
 mod events;
 mod helpers;
 mod media;
@@ -753,6 +754,7 @@ impl NativeRoomSession {
                     reason: "connect was already called".to_owned(),
                 });
             }
+            options.validate()?;
             inner.connection = NativeConnectionState::Connecting;
             inner.revision += 1;
             let task = shared.clone().run(url, token, options.into());

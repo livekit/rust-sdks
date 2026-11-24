@@ -381,6 +381,14 @@ pub enum DataStreamError {
     #[error("I/O error: {reason}")]
     Io { reason: String },
 
+    /// Typed filesystem cause; the previous Io(reason) case remains constructible.
+    #[error("I/O error: {kind:?}: {reason}")]
+    IoFailure { kind: StreamIoErrorKind, raw_os_error: Option<i32>, reason: String },
+    #[error("stream command cancelled")]
+    Cancelled,
+    #[error("stream command invalid state: {reason}")]
+    InvalidState { reason: String },
+
     #[error("internal error")]
     Internal,
 
@@ -398,6 +406,99 @@ pub enum DataStreamError {
 
     #[error("file name must be a plain file name without path separators or '..'")]
     InvalidFileName,
+}
+
+/// Stable std::io error categories, kept separate from human-readable context.
+/// Unknown represents future or nightly-only ErrorKind variants; raw_os_error is still preserved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum StreamIoErrorKind {
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    HostUnreachable,
+    NetworkUnreachable,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    NetworkDown,
+    BrokenPipe,
+    AlreadyExists,
+    WouldBlock,
+    NotADirectory,
+    IsADirectory,
+    DirectoryNotEmpty,
+    ReadOnlyFilesystem,
+    StaleNetworkFileHandle,
+    InvalidInput,
+    InvalidData,
+    TimedOut,
+    WriteZero,
+    StorageFull,
+    NotSeekable,
+    QuotaExceeded,
+    FileTooLarge,
+    ResourceBusy,
+    ExecutableFileBusy,
+    Deadlock,
+    CrossesDevices,
+    TooManyLinks,
+    InvalidFilename,
+    ArgumentListTooLong,
+    Interrupted,
+    Unsupported,
+    UnexpectedEof,
+    OutOfMemory,
+    Other,
+    Unknown,
+}
+impl From<std::io::ErrorKind> for StreamIoErrorKind {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        use std::io::ErrorKind as K;
+        match kind {
+            K::NotFound => Self::NotFound,
+            K::PermissionDenied => Self::PermissionDenied,
+            K::ConnectionRefused => Self::ConnectionRefused,
+            K::ConnectionReset => Self::ConnectionReset,
+            K::HostUnreachable => Self::HostUnreachable,
+            K::NetworkUnreachable => Self::NetworkUnreachable,
+            K::ConnectionAborted => Self::ConnectionAborted,
+            K::NotConnected => Self::NotConnected,
+            K::AddrInUse => Self::AddrInUse,
+            K::AddrNotAvailable => Self::AddrNotAvailable,
+            K::NetworkDown => Self::NetworkDown,
+            K::BrokenPipe => Self::BrokenPipe,
+            K::AlreadyExists => Self::AlreadyExists,
+            K::WouldBlock => Self::WouldBlock,
+            K::NotADirectory => Self::NotADirectory,
+            K::IsADirectory => Self::IsADirectory,
+            K::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            K::ReadOnlyFilesystem => Self::ReadOnlyFilesystem,
+            K::StaleNetworkFileHandle => Self::StaleNetworkFileHandle,
+            K::InvalidInput => Self::InvalidInput,
+            K::InvalidData => Self::InvalidData,
+            K::TimedOut => Self::TimedOut,
+            K::WriteZero => Self::WriteZero,
+            K::StorageFull => Self::StorageFull,
+            K::NotSeekable => Self::NotSeekable,
+            K::QuotaExceeded => Self::QuotaExceeded,
+            K::FileTooLarge => Self::FileTooLarge,
+            K::ResourceBusy => Self::ResourceBusy,
+            K::ExecutableFileBusy => Self::ExecutableFileBusy,
+            K::Deadlock => Self::Deadlock,
+            K::CrossesDevices => Self::CrossesDevices,
+            K::TooManyLinks => Self::TooManyLinks,
+            K::InvalidFilename => Self::InvalidFilename,
+            K::ArgumentListTooLong => Self::ArgumentListTooLong,
+            K::Interrupted => Self::Interrupted,
+            K::Unsupported => Self::Unsupported,
+            K::UnexpectedEof => Self::UnexpectedEof,
+            K::OutOfMemory => Self::OutOfMemory,
+            K::Other => Self::Other,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 /// A foreign transport failed to deliver outbound packets; thrown by hosts from
@@ -437,7 +538,11 @@ impl From<ds_api::StreamError> for DataStreamError {
             ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
             ds_api::StreamError::Incomplete => Self::Incomplete,
             ds_api::StreamError::SendFailed => Self::SendFailed,
-            ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
+            ds_api::StreamError::Io(error) => Self::IoFailure {
+                kind: error.kind().into(),
+                raw_os_error: error.raw_os_error(),
+                reason: error.to_string(),
+            },
             ds_api::StreamError::Internal => Self::Internal,
             ds_api::StreamError::EncryptionTypeMismatch { expected, received } => {
                 Self::EncryptionTypeMismatch {

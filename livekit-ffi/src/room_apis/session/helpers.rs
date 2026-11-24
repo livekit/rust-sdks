@@ -28,6 +28,15 @@ use crate::data_track::{
 use bytes::Bytes;
 use std::future::Future;
 
+fn stream_session_error(error: NativeSessionError) -> DataStreamError {
+    match error {
+        NativeSessionError::Cancelled => DataStreamError::Cancelled,
+        NativeSessionError::Closed => DataStreamError::AlreadyClosed,
+        NativeSessionError::InvalidState { reason } => DataStreamError::InvalidState { reason },
+        _ => DataStreamError::Internal,
+    }
+}
+
 impl NativeRoomSession {
     async fn stream_command<
         T: Send + 'static,
@@ -36,8 +45,8 @@ impl NativeRoomSession {
         &self,
         work: impl FnOnce(std::sync::Arc<livekit::Room>) -> F + Send + 'static,
     ) -> Result<T, DataStreamError> {
-        let room = self.shared.room().map_err(|_| DataStreamError::AlreadyClosed)?;
-        self.shared.command(work(room)).await.map_err(|_| DataStreamError::AlreadyClosed)?
+        let room = self.shared.room().map_err(stream_session_error)?;
+        self.shared.command(work(room)).await.map_err(stream_session_error)?
     }
 }
 

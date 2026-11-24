@@ -91,6 +91,10 @@ fn connect_options() -> NativeConnectOptions {
         max_stream_payload_bytes: None,
         sdk_version: None,
         encryption: None,
+        ice_servers: vec![],
+        ice_transport_policy: None,
+        continual_gathering_policy: None,
+        client_protocol: None,
     }
 }
 
@@ -293,7 +297,13 @@ fn connect_failure_reports_the_cause_and_finishes() {
 
     let result =
         block_on(session.connect(format!("ws://127.0.0.1:{port}"), "t".into(), connect_options()));
-    assert!(matches!(result, Err(NativeSessionError::Connection { .. })), "{result:?}");
+    assert!(
+        matches!(
+            result,
+            Err(NativeSessionError::Connection { .. } | NativeSessionError::Signal { .. })
+        ),
+        "{result:?}"
+    );
 
     assert_eq!(
         next(&cursor),
@@ -1175,6 +1185,25 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
         }
         producer.join().expect("audio producer");
         assert!(audible, "synthetic audio did not survive Opus transport");
+        let outgoing = block_on(audio.get_statistics()).expect("local audio stats");
+        let first_outbound = outgoing
+            .iter()
+            .find_map(|s| match &s.stats {
+                Some(crate::proto::rtc_stats::Stats::OutboundRtp(rtp))
+                    if rtp.stream.kind == "audio" =>
+                {
+                    Some(rtp)
+                }
+                _ => None,
+            })
+            .expect("outbound audio RTP group");
+        assert!(first_outbound.sent.bytes_sent > 0 && first_outbound.sent.packets_sent > 0);
+        assert!(first_outbound.rtc.timestamp > 0 && !first_outbound.rtc.id.is_empty());
+        assert!(outgoing.iter().any(|s| matches!(&s.stats, Some(crate::proto::rtc_stats::Stats::Codec(codec)) if codec.rtc.id == first_outbound.stream.codec_id)));
+        let incoming = block_on(remote.get_statistics()).expect("remote audio stats");
+        assert!(incoming.iter().any(|s| matches!(&s.stats, Some(crate::proto::rtc_stats::Stats::InboundRtp(rtp)) if rtp.inbound.bytes_received > 0 && rtp.received.packets_received > 0 && rtp.rtc.timestamp > 0)));
+        assert!(!block_on(remote_publication.get_statistics()).unwrap().is_empty());
+
         if encrypted {
             receiver.expect(|event| match event {
                 NativeRoomEvent::EncryptionStateChanged {
@@ -1204,6 +1233,20 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
             NativeRoomEvent::TrackUnmuted { publication } if publication.sid == sid => Some(()),
             _ => None,
         });
+        let second_stats = block_on(audio.get_statistics()).unwrap();
+        let second_outbound = second_stats
+            .iter()
+            .find_map(|s| match &s.stats {
+                Some(crate::proto::rtc_stats::Stats::OutboundRtp(rtp))
+                    if rtp.rtc.id == first_outbound.rtc.id =>
+                {
+                    Some(rtp)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(second_outbound.rtc.timestamp >= first_outbound.rtc.timestamp);
+        assert!(second_outbound.sent.bytes_sent >= first_outbound.sent.bytes_sent);
         frames.cancel();
         assert!(block_on(frames.next()).expect("cancelled sink").is_none());
         block_on(remote_publication.set_subscribed(false)).expect("unsubscribe");
@@ -1289,11 +1332,17 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
         }
         producer.join().expect("video producer");
         assert!(colored, "synthetic color did not survive VP8 transport");
+        assert!(block_on(video.get_statistics()).unwrap().iter().any(|s| matches!(&s.stats,
+            Some(crate::proto::rtc_stats::Stats::OutboundRtp(rtp)) if rtp.stream.kind == "video" && rtp.outbound.frames_encoded > 0 && rtp.sent.bytes_sent > 0)));
+        assert!(block_on(remote_video.get_statistics()).unwrap().iter().any(|s| matches!(&s.stats,
+            Some(crate::proto::rtc_stats::Stats::InboundRtp(rtp)) if rtp.stream.kind == "video" && rtp.inbound.frames_decoded > 0)));
+
         let weak = Arc::downgrade(&receiver.session.shared);
         receiver.leave();
         assert!(weak.upgrade().is_none(), "media child retained disconnected session");
         assert!(block_on(video_frames.next()).is_err());
         assert!(remote_video.info().is_err());
+        assert!(block_on(remote_video.get_statistics()).is_err());
         sender.leave();
         assert!(video.info().is_err());
     }
@@ -1422,4 +1471,184 @@ fn encryption_provider_defaults_and_unsupported_options() {
     {
         assert!(core.e2ee.is_some());
     }
+}
+
+#[test]
+fn typed_stats_preserve_large_numbers_groups_and_timestamps() {
+    use livekit::webrtc::stats::{OutboundRtpStats, RtcStats};
+    let mut core = OutboundRtpStats::default();
+    core.rtc.id = "outbound".into();
+    core.rtc.timestamp = 1_700_000_000_123_456;
+    core.sent.bytes_sent = (1u64 << 53) + 1;
+    core.stream.ssrc = 42;
+    core.outbound.quality_limitation_durations.insert("cpu".into(), 0.125);
+    let ffi: crate::proto::RtcStats = RtcStats::OutboundRtp(core).into();
+    let Some(crate::proto::rtc_stats::Stats::OutboundRtp(outbound)) = ffi.stats else {
+        panic!("group changed")
+    };
+    assert_eq!(outbound.rtc.timestamp, 1_700_000_000_123_456);
+    assert_eq!(outbound.sent.bytes_sent, (1u64 << 53) + 1);
+    assert_eq!(outbound.stream.ssrc, 42);
+    assert_eq!(outbound.outbound.quality_limitation_durations["cpu"], 0.125);
+}
+
+#[test]
+fn connect_ice_options_and_protocol_boundary() {
+    let mut options = connect_options();
+    options.ice_servers = vec![NativeIceServer {
+        urls: vec!["turn:127.0.0.1:3478".into()],
+        username: "user".into(),
+        password: "credential".into(),
+    }];
+    options.ice_transport_policy = Some(NativeIceTransportPolicy::Relay);
+    options.continual_gathering_policy = Some(NativeContinualGatheringPolicy::GatherOnce);
+    options.client_protocol = Some(livekit_signaling::SignalOptions::default().client_protocol);
+    options.validate().unwrap();
+    let core: RoomOptions = options.clone().into();
+    assert_eq!(core.rtc_config.ice_servers[0].urls, options.ice_servers[0].urls);
+    assert_eq!(core.rtc_config.ice_servers[0].username, "user");
+    assert_eq!(core.rtc_config.ice_servers[0].password, "credential");
+    assert_eq!(core.rtc_config.ice_transport_type, NativeIceTransportPolicy::Relay);
+    assert_eq!(
+        core.rtc_config.continual_gathering_policy,
+        NativeContinualGatheringPolicy::GatherOnce
+    );
+    options.client_protocol = Some(0);
+    let session = NativeRoomSession::new();
+    assert!(matches!(
+        block_on(session.connect("ws://127.0.0.1:1".into(), "t".into(), options)),
+        Err(NativeSessionError::Unsupported { .. })
+    ));
+    assert_eq!(session.state().connection, NativeConnectionState::Idle);
+    block_on(session.disconnect());
+}
+
+#[test]
+fn structured_error_codes_are_not_derived_from_text() {
+    use super::errors::*;
+    use livekit_signaling::SignalError;
+    let http = NativeSessionError::from(SignalError::Client(
+        401.try_into().unwrap(),
+        "not a classification string".into(),
+    ));
+    assert!(matches!(
+        http,
+        NativeSessionError::Signal {
+            failure: NativeSignalFailure::Http {
+                source: NativeHttpFailureSource::ClientValidation,
+                status: 401,
+                ..
+            }
+        }
+    ));
+    let handshake =
+        NativeSessionError::from(SignalError::Handshake { status: 403.try_into().unwrap() });
+    assert!(matches!(
+        handshake,
+        NativeSessionError::Signal {
+            failure: NativeSignalFailure::Http {
+                source: NativeHttpFailureSource::WebSocketHandshake,
+                status: 403,
+                ..
+            }
+        }
+    ));
+    assert!(matches!(
+        NativeSessionError::from(RoomError::Request {
+            reason: livekit_protocol::request_response::Reason::NotAllowed,
+            message: "401 timeout unrelated text".into()
+        }),
+        NativeSessionError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
+    ));
+    assert!(matches!(
+        NativeSessionError::from(SignalError::Timeout("403".into())),
+        NativeSessionError::Signal { failure: NativeSignalFailure::Timeout { .. } }
+    ));
+    assert!(matches!(
+        NativeSessionError::from(SignalError::Connection("401 unauthorized".into())),
+        NativeSessionError::Signal { failure: NativeSignalFailure::Transport { .. } }
+    ));
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local LiveKit server"]
+fn real_structured_connection_and_stream_errors() {
+    use super::errors::*;
+    use crate::data_stream::common::{DataStreamError, StreamByteOptions, StreamIoErrorKind};
+    let failed = NativeRoomSession::new();
+    let error = block_on(failed.connect(
+        env_or("LK_TEST_URL", "ws://127.0.0.1:7880"),
+        "not-a-valid-token".into(),
+        connect_options(),
+    ))
+    .expect_err("invalid token accepted");
+    assert!(
+        matches!(
+            error,
+            NativeSessionError::Signal {
+                failure: NativeSignalFailure::Http {
+                    status: 401,
+                    source: NativeHttpFailureSource::ClientValidation,
+                    ..
+                }
+            }
+        ),
+        "{error:?}"
+    );
+    block_on(failed.disconnect());
+    let restricted = NativeRoomSession::new();
+    let token = AccessToken::with_api_key(
+        &env_or("LK_TEST_API_KEY", "devkey"),
+        &env_or("LK_TEST_API_SECRET", "secret"),
+    )
+    .with_identity("restricted")
+    .with_grants(VideoGrants {
+        room_join: true,
+        room: unique("permission"),
+        can_update_own_metadata: Some(false),
+        ..Default::default()
+    })
+    .to_jwt()
+    .unwrap();
+    block_on(restricted.connect(
+        env_or("LK_TEST_URL", "ws://127.0.0.1:7880"),
+        token,
+        connect_options(),
+    ))
+    .unwrap();
+    let error = block_on(restricted.set_name("not-allowed".into())).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            NativeSessionError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
+        ),
+        "{error:?}"
+    );
+    block_on(restricted.disconnect());
+    let peer = Peer::join(&unique("typed-errors"), "sender");
+    let error = block_on(
+        peer.session
+            .send_file(format!("/nonexistent/{}", unique("missing")), StreamByteOptions::default()),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, DataStreamError::IoFailure { kind: StreamIoErrorKind::NotFound, .. }),
+        "{error:?}"
+    );
+    peer.session.cancel();
+    assert!(matches!(
+        block_on(peer.session.send_bytes(bytes::Bytes::new(), StreamByteOptions::default())),
+        Err(DataStreamError::Cancelled)
+    ));
+    block_on(peer.session.disconnect());
+    let weak = Arc::downgrade(&peer.session.shared);
+    drop(peer);
+    assert!(weak.upgrade().is_none());
+    let idle = NativeRoomSession::new();
+    assert!(matches!(
+        block_on(idle.send_bytes(bytes::Bytes::new(), StreamByteOptions::default())),
+        Err(DataStreamError::InvalidState { .. })
+    ));
+    block_on(idle.disconnect());
 }

@@ -18,6 +18,7 @@
 //! bindings never collide with the public types of a host SDK.
 
 use super::encryption::NativeEncryptionOptions;
+use super::errors::{NativeRequestFailureCode, NativeRtcFailureKind, NativeSignalFailure};
 pub use livekit::webrtc::native::frame_cryptor::EncryptionState as NativeEncryptionState;
 use std::{collections::HashMap, time::Duration};
 
@@ -191,6 +192,15 @@ pub enum NativeSessionError {
     /// The server refused a request.
     #[error("request refused: {reason}")]
     Request { reason: String },
+    /// Exact signaling cause when the public core retains it. Older string cases remain for compatibility.
+    #[error("signal failure: {failure:?}")]
+    Signal { failure: NativeSignalFailure },
+    #[error("request refused: {code:?}: {reason}")]
+    RequestFailure { code: NativeRequestFailureCode, reason: String },
+    #[error("RTC failure: {kind:?}: {reason}")]
+    Rtc { kind: NativeRtcFailureKind, reason: String },
+    #[error("track is already published")]
+    TrackAlreadyPublished,
     /// The consumer did not keep up and the event backlog passed its limit.
     #[error("event backlog overflow at {items} items and {bytes} bytes")]
     Overflow { items: u32, bytes: u64 },
@@ -201,23 +211,40 @@ pub enum NativeSessionError {
     Internal { reason: String },
 }
 
-impl From<RoomError> for NativeSessionError {
-    fn from(error: RoomError) -> Self {
-        match error {
-            RoomError::Engine(e) => Self::Connection { reason: e.to_string() },
-            RoomError::AlreadyClosed => Self::Closed,
-            RoomError::Request { .. } => Self::Request { reason: error.to_string() },
-            other => Self::Internal { reason: other.to_string() },
-        }
-    }
-}
-
 /// Returns `true` when `error` means that the session or cursor ended.
 ///
 /// The classification stays in Rust so that every binding agrees on it.
 #[uniffi::export]
 pub fn native_session_error_is_shutdown(error: NativeSessionError) -> bool {
     matches!(error, NativeSessionError::Cancelled | NativeSessionError::Closed)
+}
+
+/// ICE server credentials forwarded directly to core RTC configuration.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct NativeIceServer {
+    pub urls: Vec<String>,
+    #[uniffi(default = "")]
+    pub username: String,
+    #[uniffi(default = "")]
+    pub password: String,
+}
+
+pub use livekit::webrtc::peer_connection_factory::{
+    ContinualGatheringPolicy as NativeContinualGatheringPolicy,
+    IceTransportsType as NativeIceTransportPolicy,
+};
+/// Core ICE candidate policy.
+#[uniffi::remote(Enum)]
+pub enum NativeIceTransportPolicy {
+    Relay,
+    NoHost,
+    All,
+}
+/// Core ICE gathering policy.
+#[uniffi::remote(Enum)]
+pub enum NativeContinualGatheringPolicy {
+    GatherOnce,
+    GatherContinually,
 }
 
 /// Options for [`NativeRoomSession::connect`](super::NativeRoomSession::connect).
@@ -249,6 +276,28 @@ pub struct NativeConnectOptions {
     /// AES-GCM provider/configuration; None preserves plaintext behavior.
     #[uniffi(default = None)]
     pub encryption: Option<NativeEncryptionOptions>,
+    /// Empty preserves core's server-provided ICE list; nonempty overrides that list.
+    #[uniffi(default = [])]
+    pub ice_servers: Vec<NativeIceServer>,
+    #[uniffi(default = None)]
+    pub ice_transport_policy: Option<NativeIceTransportPolicy>,
+    #[uniffi(default = None)]
+    pub continual_gathering_policy: Option<NativeContinualGatheringPolicy>,
+    /// Only the core's advertised default can be requested: RoomOptions has no override.
+    #[uniffi(default = None)]
+    pub client_protocol: Option<i32>,
+}
+
+impl NativeConnectOptions {
+    pub(super) fn validate(&self) -> Result<(), NativeSessionError> {
+        if self
+            .client_protocol
+            .is_some_and(|p| p != livekit_signaling::SignalOptions::default().client_protocol)
+        {
+            return Err(NativeSessionError::Unsupported { reason: "RoomOptions does not expose a clientProtocol override; only the core default is supported".into() });
+        }
+        Ok(())
+    }
 }
 
 impl From<NativeConnectOptions> for RoomOptions {
@@ -263,6 +312,21 @@ impl From<NativeConnectOptions> for RoomOptions {
             } else {
                 core.encryption = Some(encryption.core());
             }
+        }
+        core.rtc_config.ice_servers = options
+            .ice_servers
+            .into_iter()
+            .map(|server| livekit::webrtc::peer_connection_factory::IceServer {
+                urls: server.urls,
+                username: server.username,
+                password: server.password,
+            })
+            .collect();
+        if let Some(policy) = options.ice_transport_policy {
+            core.rtc_config.ice_transport_type = policy;
+        }
+        if let Some(policy) = options.continual_gathering_policy {
+            core.rtc_config.continual_gathering_policy = policy;
         }
         core.auto_subscribe = options.auto_subscribe;
         core.adaptive_stream = options.adaptive_stream;

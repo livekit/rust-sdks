@@ -313,6 +313,21 @@ impl NativeRoomSession {
     }
 }
 
+async fn statistics(
+    shared: &Shared,
+    track: Track,
+) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    shared
+        .command(async move {
+            track
+                .get_stats()
+                .await
+                .map(|stats| stats.into_iter().map(Into::into).collect())
+                .map_err(Into::into)
+        })
+        .await?
+}
+
 async fn publish(
     weak: &Weak<Shared>,
     id: u64,
@@ -368,6 +383,13 @@ async fn release(weak: &Weak<Shared>, id: u64) -> Result<(), NativeSessionError>
 }
 #[uniffi::export]
 impl NativeLocalAudioTrack {
+    /// Samples core track statistics. Numeric values, microsecond timestamps and RTP groups are preserved.
+    /// The host owns periodic sampling and previous-sample calculations.
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+        let shared = session(&self.session)?;
+        let owned = local(&shared, self.id)?;
+        statistics(&shared, owned.track.clone().into()).await
+    }
     /// Returns the current core track values.
     pub fn info(&self) -> Result<NativeMediaTrackInfo, NativeSessionError> {
         Ok((&Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone())).into())
@@ -429,6 +451,13 @@ impl NativeLocalAudioTrack {
 }
 #[uniffi::export]
 impl NativeLocalVideoTrack {
+    /// Samples core track statistics. Numeric values, microsecond timestamps and RTP groups are preserved.
+    /// The host owns periodic sampling and previous-sample calculations.
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+        let shared = session(&self.session)?;
+        let owned = local(&shared, self.id)?;
+        statistics(&shared, owned.track.clone().into()).await
+    }
     /// Returns the current core track values.
     pub fn info(&self) -> Result<NativeMediaTrackInfo, NativeSessionError> {
         Ok((&Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone())).into())
@@ -491,6 +520,19 @@ impl NativePublicationHandle {
 }
 #[uniffi::export]
 impl NativePublicationHandle {
+    /// Samples this publication's current local or subscribed remote track.
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+        let (shared, publication) = self.current()?;
+        let track: Track = match publication {
+            TrackPublication::Local(p) => {
+                p.track().ok_or_else(|| invalid("publication has no track"))?.into()
+            }
+            TrackPublication::Remote(p) => {
+                p.track().ok_or_else(|| invalid("track is not subscribed"))?.into()
+            }
+        };
+        statistics(&shared, track).await
+    }
     /// Returns a value snapshot of the current core publication.
     pub fn info(&self) -> Result<NativeTrackPublication, NativeSessionError> {
         Ok(NativeTrackPublication::new(&self.identity, &self.current()?.1))
@@ -584,6 +626,12 @@ impl NativePublicationHandle {
 
 #[uniffi::export]
 impl NativeRemoteAudioTrack {
+    /// Samples the subscribed core track without a native timer or cached statistics.
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+        let (shared, publication) = self.publication.remote()?;
+        let track = publication.track().ok_or_else(|| invalid("track is not subscribed"))?;
+        statistics(&shared, track.into()).await
+    }
     /// Returns values for the currently subscribed core track.
     pub fn info(&self) -> Result<NativeMediaTrackInfo, NativeSessionError> {
         let (_, p) = self.publication.remote()?;
@@ -635,6 +683,12 @@ impl NativeRemoteAudioTrack {
 }
 #[uniffi::export]
 impl NativeRemoteVideoTrack {
+    /// Samples the subscribed core track without a native timer or cached statistics.
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+        let (shared, publication) = self.publication.remote()?;
+        let track = publication.track().ok_or_else(|| invalid("track is not subscribed"))?;
+        statistics(&shared, track.into()).await
+    }
     /// Returns values for the currently subscribed core track.
     pub fn info(&self) -> Result<NativeMediaTrackInfo, NativeSessionError> {
         let (_, p) = self.publication.remote()?;
