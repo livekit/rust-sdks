@@ -161,6 +161,7 @@ A crate with no such table is not feature-checked at all. Today eleven crates ar
   - A crate that depends on a bumped crate gets a `patch` bump automatically, so it needs no entry
 - Choose the level by the public API. Every crate here is `0.x`, where a breaking change is `minor` and an addition or a fix is `patch`
   - verwalter applies the level as written: `minor` on `0.2.0` gives `0.3.0`
+  - The changeset check runs `cargo semver-checks` for each changed crate with a changeset, and fails the PR if the level is below what the API change needs. It uses default features only, and `livekit-ffi` has no check (`[check].api` in `verwalter.toml`)
 - Write the changeset summary as a single unwrapped line of plain prose
   - No Markdown blocks — headings, bullet lists, tables, code fences, blockquotes, or bold-led paragraphs. Inline backticks are fine
   - Do not add the PR number or the author: verwalter adds both to the changelog entry

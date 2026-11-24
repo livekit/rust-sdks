@@ -37,8 +37,23 @@ tag = "{package}/v{version}"
 registry = "crates"
 command = "cargo publish --no-verify"
 
+# The API check of `verwalter check`. For each package that a PR changes and
+# a changeset covers, cargo-semver-checks compares the public API with the
+# last release tag. The PR fails if the changeset level is below what the
+# change needs. On a 0.x version, a breaking change needs `minor`.
+# - `DOCS_RS=1`: webrtc-sys/build.rs then skips the native build.
+# - `--default-features`: `livekit` and `livekit-api` have TLS features that
+#   do not build together. An API behind another feature is not checked.
+# - If the tool cannot build the documentation, it prints no level and the
+#   check passes. Its output is in the summary of the run.
+[check]
+api = "DOCS_RS=1 cargo semver-checks --package \"$VERWALTER_PACKAGE\" --default-features --baseline-rev \"$VERWALTER_BASELINE_TAG\" 2>&1 | tee -a /dev/stderr \"${GITHUB_STEP_SUMMARY:-/dev/null}\" | sed -n 's/.*requires new \\([a-z]*\\) version.*/\\1/p'"
+
 [packages.livekit-ffi]
 path = "livekit-ffi"
+# No API check: the contract of this package is the FFI protocol and the
+# UniFFI bindings, not its Rust API.
+check.api = "true"
 versioning.files = [
   "Cargo.toml",
   "../livekit-ffi-node-bindings/package.json",
