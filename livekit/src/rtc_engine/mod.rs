@@ -1153,7 +1153,13 @@ impl EngineInner {
                 break; // no attempt left to wait for
             }
             let backoff = reconnect_strategy::delay(i);
-            let wake = deadline.min(tokio::time::Instant::now() + backoff);
+            let now = tokio::time::Instant::now();
+            let wake = deadline.min(now + backoff);
+            log::warn!(
+                "reconnect attempt {} failed, next in {:.1} s",
+                i,
+                wake.saturating_duration_since(now).as_secs_f64()
+            );
             tokio::select! {
                 _ = tokio::time::sleep_until(wake) => {}
                 _ = self.retry_now_notify.notified() => {
