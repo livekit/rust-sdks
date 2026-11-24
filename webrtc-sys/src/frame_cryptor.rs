@@ -95,6 +95,8 @@ pub mod ffi {
             participant_id: String,
             key_index: i32,
         ) -> Result<Vec<u8>>;
+
+        pub fn key_ring_size(self: &KeyProvider) -> i32;
     }
 
     unsafe extern "C++" {
@@ -271,5 +273,67 @@ mod tests {
 
         let key_provider = ffi::new_key_provider(options);
         let _cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, key_provider);
+    }
+
+    #[test]
+    fn test_key_provider_out_of_bounds() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+
+        let kp = ffi::new_key_provider(options);
+        assert_eq!(kp.key_ring_size(), 16);
+
+        // Out-of-bounds indices should fail gracefully instead of aborting the process
+        assert!(!kp.set_shared_key(-1, vec![0u8; 32]));
+        assert!(!kp.set_shared_key(16, vec![0u8; 32]));
+        assert!(!kp.set_shared_key(100, vec![0u8; 32]));
+
+        assert!(kp.get_shared_key(-1).is_err());
+        assert!(kp.get_shared_key(16).is_err());
+        assert!(kp.ratchet_shared_key(-1).is_err());
+        assert!(kp.ratchet_shared_key(16).is_err());
+
+        assert!(!kp.set_key("user1".into(), -1, vec![0u8; 32]));
+        assert!(!kp.set_key("user1".into(), 16, vec![0u8; 32]));
+        assert!(kp.get_key("user1".into(), -1).is_err());
+        assert!(kp.get_key("user1".into(), 16).is_err());
+        assert!(kp.ratchet_key("user1".into(), -1).is_err());
+        assert!(kp.ratchet_key("user1".into(), 16).is_err());
+    }
+
+    #[test]
+    fn test_key_provider_ring_size_clamping() {
+        // key_ring_size > 255 should clamp to 255
+        let options_large = ffi::KeyProviderOptions {
+            shared_key: false,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 512,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::PBKDF2,
+        };
+        let kp_large = ffi::new_key_provider(options_large);
+        assert_eq!(kp_large.key_ring_size(), 255);
+        assert!(!kp_large.set_key("user1".into(), 255, vec![0u8; 32]));
+        assert!(!kp_large.set_key("user1".into(), 300, vec![0u8; 32]));
+
+        // key_ring_size <= 0 should clamp to 1
+        let options_zero = ffi::KeyProviderOptions {
+            shared_key: false,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 0,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::PBKDF2,
+        };
+        let kp_zero = ffi::new_key_provider(options_zero);
+        assert_eq!(kp_zero.key_ring_size(), 1);
+        assert!(!kp_zero.set_key("user1".into(), 1, vec![0u8; 32]));
     }
 }

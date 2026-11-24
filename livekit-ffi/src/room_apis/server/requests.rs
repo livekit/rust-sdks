@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "capture")]
 use super::capture;
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    audio_source, audio_stream, colorcvt, data_stream, data_track as data_track_ffi,
     participant::FfiParticipant,
     platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -579,10 +579,12 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
-        Ok((buffer, info)) => {
+    // One-off conversion, so there is no stream to reuse a buffer from.
+    let mut dst = colorcvt::FrameBuffer::default();
+    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false), &mut dst) {
+        Ok(info) => {
             let id = server.next_id();
-            server.store_handle(id, buffer);
+            server.store_handle(id, std::sync::Arc::new(dst));
             let owned_info = proto::OwnedVideoBuffer { handle: proto::FfiOwnedHandle { id }, info };
             Ok(proto::VideoConvertResponse {
                 message: Some(proto::video_convert_response::Message::Buffer(owned_info)),
@@ -772,7 +774,9 @@ fn on_e2ee_request(
             let key_index = request.key_index;
 
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_shared_key(shared_key, key_index);
+                if !key_provider.set_shared_key(shared_key, key_index) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
 
             proto::e2ee_response::Message::SetSharedKey(proto::SetSharedKeyResponse {})
@@ -795,7 +799,9 @@ fn on_e2ee_request(
         proto::e2ee_request::Message::SetKey(request) => {
             let identity = request.participant_identity.into();
             if let Some(key_provider) = e2ee_manager.key_provider() {
-                key_provider.set_key(&identity, request.key_index, request.key);
+                if !key_provider.set_key(&identity, request.key_index, request.key) {
+                    return Err(FfiError::InvalidRequest("key index out of bounds".into()));
+                }
             }
             proto::e2ee_response::Message::SetKey(proto::SetKeyResponse {})
         }
@@ -1324,61 +1330,82 @@ fn on_local_data_track_is_published(
     server: &'static FfiServer,
     request: proto::LocalDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.is_published(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
+    let is_published = track.is_published();
+    Ok(proto::LocalDataTrackIsPublishedResponse { is_published })
 }
 
 fn on_local_data_track_unpublish(
     server: &'static FfiServer,
     request: proto::LocalDataTrackUnpublishRequest,
 ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.unpublish(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
+    track.unpublish();
+    Ok(proto::LocalDataTrackUnpublishResponse::default())
 }
 
 fn on_local_data_track_try_push(
     server: &'static FfiServer,
     request: proto::LocalDataTrackTryPushRequest,
 ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.try_push(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::LocalDataTrack>>(request.track_handle)?
+        .clone();
+    let frame: DataTrackFrame = request.frame.into();
+    // Pushes through the inner track: unlike the uniffi `try_push`, which reports only the reason,
+    // the response carries the full error message.
+    let error = track.inner().try_push(frame).err().map(Into::into);
+    Ok(proto::LocalDataTrackTryPushResponse { error })
 }
 
 fn on_subscribe_local_data_track(
     server: &'static FfiServer,
     request: proto::SubscribeDataTrackRequest,
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
-    track.subscribe(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
+    let stream = data_track_ffi::FfiDataTrackStream::subscribe(
+        server,
+        track.inner().clone(),
+        request.options.into(),
+    );
+    Ok(proto::SubscribeDataTrackResponse { stream })
 }
 
 fn on_remote_data_track_is_published(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
-    track.is_published(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
+    let is_published = track.is_published();
+    Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
 }
 
 fn on_remote_data_track_set_pipeline_options(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackSetPipelineOptionsRequest,
 ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
-    let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
-    track.set_pipeline_options(server, request)
+    let track = server
+        .retrieve_handle::<Arc<data_track_ffi::RemoteDataTrack>>(request.track_handle)?
+        .clone();
+    // Through the inner track, so that unset proto fields keep livekit's defaults.
+    track.inner().set_pipeline_options(request.options.into());
+    Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
 }
 
 fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
 ) -> FfiResult<proto::DataTrackStreamReadResponse> {
-    let stream = server.retrieve_handle::<data_track::FfiDataTrackStream>(request.stream_handle)?;
+    let stream =
+        server.retrieve_handle::<data_track_ffi::FfiDataTrackStream>(request.stream_handle)?;
     Ok(stream.read(request))
 }
 

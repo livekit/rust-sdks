@@ -172,6 +172,16 @@ impl Default for SignalSdkOptions {
     }
 }
 
+/// Publisher state sent with the initial join request, so the server can answer the offer and
+/// publish the tracks without separate round trips.
+#[derive(Debug, Clone)]
+pub struct InitialPublish {
+    /// The publisher's initial SDP offer.
+    pub offer: proto::SessionDescription,
+    /// Tracks whose media sections are already part of [`Self::offer`].
+    pub add_track_requests: Vec<proto::AddTrackRequest>,
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SignalOptions {
@@ -378,7 +388,7 @@ impl SignalClient {
         url: &str,
         token: &str,
         options: SignalOptions,
-        publisher_offer: Option<proto::SessionDescription>,
+        initial_publish: Option<InitialPublish>,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
         let cancel = options.cancellation_token.clone();
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
@@ -397,7 +407,7 @@ impl SignalClient {
             ))
         };
 
-        match SignalInner::connect(url, token, options.clone(), publisher_offer.clone()).await {
+        match SignalInner::connect(url, token, options.clone(), initial_publish.clone()).await {
             Ok((inner, join_response, stream_events)) => {
                 handle_success(inner, join_response, stream_events)
             }
@@ -443,7 +453,7 @@ impl SignalClient {
                         region_url,
                         token,
                         options.clone(),
-                        publisher_offer.clone(),
+                        initial_publish.clone(),
                     )
                     .await
                     {
@@ -567,7 +577,7 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: SignalOptions,
-        publisher_offer: Option<proto::SessionDescription>,
+        initial_publish: Option<InitialPublish>,
     ) -> SignalResult<(
         Arc<Self>,
         proto::JoinResponse,
@@ -584,7 +594,7 @@ impl SignalInner {
                     url,
                     token,
                     &options,
-                    publisher_offer.as_ref(),
+                    initial_publish.as_ref(),
                 ))
                 .await
                 .ok_or(SignalError::Cancelled)??;
@@ -623,7 +633,7 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: &SignalOptions,
-        publisher_offer: Option<&proto::SessionDescription>,
+        initial_publish: Option<&InitialPublish>,
     ) -> SignalResult<(
         SignalStream,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
@@ -632,7 +642,7 @@ impl SignalInner {
         // Try v1 path first if single_peer_connection is enabled
         let use_v1_path = options.single_peer_connection;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
-        let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", publisher_offer)?;
+        let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", initial_publish)?;
         match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
             Ok((new_stream, stream_events)) => {
                 log::debug!(
@@ -1018,6 +1028,7 @@ fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
         "unityweb" => proto::client_info::Sdk::UnityWeb,
         "node" => proto::client_info::Sdk::Node,
         "esp32" => proto::client_info::Sdk::Esp32,
+        "dotnet" => proto::client_info::Sdk::Dotnet,
         _ => {
             log::warn!("unknown SDK name in signal options: {}", sdk);
             proto::client_info::Sdk::Unknown
@@ -1039,7 +1050,7 @@ fn create_join_request_param(
     os: String,
     os_version: String,
     device_model: String,
-    publisher_offer: Option<&proto::SessionDescription>,
+    initial_publish: Option<&InitialPublish>,
 ) -> String {
     let connection_settings = proto::ConnectionSettings {
         auto_subscribe: options.auto_subscribe,
@@ -1064,7 +1075,10 @@ fn create_join_request_param(
         client_info: Some(client_info),
         connection_settings: Some(connection_settings),
         reconnect,
-        publisher_offer: publisher_offer.cloned(),
+        publisher_offer: initial_publish.map(|p| p.offer.clone()),
+        add_track_requests: initial_publish
+            .map(|p| p.add_track_requests.clone())
+            .unwrap_or_default(),
         ..Default::default()
     };
 
@@ -1125,7 +1139,7 @@ fn get_livekit_url(
     reconnect: bool,
     reconnect_reason: Option<i32>,
     participant_sid: &str,
-    publisher_offer: Option<&proto::SessionDescription>,
+    initial_publish: Option<&InitialPublish>,
 ) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
@@ -1163,7 +1177,7 @@ fn get_livekit_url(
             os_info.os_type().to_string(),
             os_info.version().to_string(),
             device_model.to_string(),
-            publisher_offer,
+            initial_publish,
         );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
@@ -1258,6 +1272,8 @@ pub(crate) fn check_token_format(token: &str) -> SignalResult<()> {
 /// - `Http { status }` → `Client` for 4xx, `Server` for 5xx (empty body — caller
 ///   may have already read the body separately)
 /// - `Connection` / `Other` → `SignalError::Connection` (network/TLS/transport failure)
+/// - `ResponseTooLarge` → `SignalError::Connection`; signaling sets no response limit, so only a
+///   host client that enforces one of its own returns it
 /// - `Closed` → `SignalError::Closed` (peer/transport closed)
 ///
 /// Every variant except `LeaveRequest` drives the engine's full-reconnect path.
@@ -1274,6 +1290,7 @@ impl From<livekit_net::TransportError> for SignalError {
             TE::Closed => SignalError::Closed,
             TE::Connection(m) => SignalError::Connection(m),
             TE::Other(m) => SignalError::Connection(m),
+            e @ TE::ResponseTooLarge { .. } => SignalError::Connection(e.to_string()),
         }
     }
 }
@@ -1474,6 +1491,7 @@ mod tests {
         assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
         assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
         assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
+        assert_eq!(client_info_sdk_for_name("dotnet"), proto::client_info::Sdk::Dotnet);
         assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
     }
 
@@ -2130,6 +2148,50 @@ mod tests {
     }
 
     #[test]
+    fn livekit_url_v1_join_request_carries_initial_publish() {
+        use std::io::Read;
+
+        let io = SignalOptions::default();
+        let initial_publish = InitialPublish {
+            offer: proto::SessionDescription {
+                r#type: "offer".to_string(),
+                sdp: "v=0\r\n".repeat(64),
+                ..Default::default()
+            },
+            add_track_requests: vec![proto::AddTrackRequest {
+                cid: "track-cid".to_string(),
+                ..Default::default()
+            }],
+        };
+        let lk_url = get_livekit_url(
+            "wss://localhost:7880",
+            &io,
+            true,
+            false,
+            None,
+            "",
+            Some(&initial_publish),
+        )
+        .unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+
+        let wrapped_bytes = BASE64_URL_SAFE.decode(join_request_param).unwrap();
+        let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
+        assert_eq!(wrapped.compression, proto::wrapped_join_request::Compression::Gzip as i32);
+        let mut join_request_bytes = Vec::new();
+        flate2::read::GzDecoder::new(wrapped.join_request.as_slice())
+            .read_to_end(&mut join_request_bytes)
+            .unwrap();
+        let join_request = proto::JoinRequest::decode(join_request_bytes.as_slice()).unwrap();
+
+        assert_eq!(join_request.publisher_offer, Some(initial_publish.offer));
+        assert_eq!(join_request.add_track_requests, initial_publish.add_track_requests);
+    }
+
+    #[test]
     fn livekit_url_forwards_other_sdks_on_both_paths() {
         let mut io = signal_options_for_cpp("9.9.9-test");
         io.sdk_options.other_sdks = Some("ros_portal:1.2.3,another-sdk:2.0.0".to_string());
@@ -2277,6 +2339,17 @@ mod tests {
         let err = SignalError::from(TransportError::Other("something went wrong".into()));
         assert!(
             matches!(&err, SignalError::Connection(m) if m == "something went wrong"),
+            "expected Connection, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn from_transport_err_response_too_large_yields_connection() {
+        use livekit_net::TransportError;
+        let err = SignalError::from(TransportError::ResponseTooLarge { headers: Vec::new() });
+        assert!(
+            matches!(&err, SignalError::Connection(m) if m == "response body exceeds requested limit"),
             "expected Connection, got {:?}",
             err
         );

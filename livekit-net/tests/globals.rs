@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use livekit_net::{
-    http_client, set_http_client, set_ws_client, ws_client, Header, HttpClientExt, HttpMethod,
-    HttpResponse, TransportError, WsClient, WsConnectResult, WsConnection,
+    http_client, http_client_with_response_limit, set_http_client, set_ws_client, ws_client,
+    Header, HttpClientExt, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
+    WsConnection,
 };
 use std::sync::Arc;
 
@@ -69,6 +70,12 @@ async fn registered_clients_are_returned() {
     let res = http.get("http://x".into(), vec![]).await.unwrap();
     assert_eq!(res.body, b"ok");
     assert_eq!(res.status, 200);
+
+    let limited = http_client_with_response_limit(1).expect("limited host view");
+    let overflow = limited.get("http://x".into(), vec![]).await;
+    assert!(matches!(overflow, Err(TransportError::ResponseTooLarge { .. })));
+    // A limited view never changes the registered client or its ordinary callers.
+    assert_eq!(http.get("http://x".into(), vec![]).await.expect("uncapped").body, b"ok");
 
     let ws = ws_client().expect("ws client should be registered");
     let conn = ws.connect("ws://x".into(), vec![], 1000).await.unwrap().connection;

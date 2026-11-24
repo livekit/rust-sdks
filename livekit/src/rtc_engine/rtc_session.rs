@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     convert::TryInto,
     fmt::Debug,
+    future::Future,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
@@ -29,7 +30,7 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_rpc::api::{RpcError, RpcErrorCode};
 use livekit_signaling::{
-    SignalClient, SignalEvent, SignalEvents, NEGOTIATED_DATA_CHANNELS_PROTOCOL,
+    InitialPublish, SignalClient, SignalEvent, SignalEvents, NEGOTIATED_DATA_CHANNELS_PROTOCOL,
 };
 use parking_lot::Mutex;
 use prost::Message;
@@ -43,6 +44,24 @@ use tokio::{task::JoinHandle, time::sleep};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
+    e2ee::EncryptionType,
+    id::ParticipantSid,
+    options::TrackPublishOptions,
+    prelude::TrackKind,
+    room::{
+        e2ee::manager::E2eeManager,
+        participant::{configure_sender, prepare_publish},
+        DisconnectReason,
+    },
+    rtc_engine::{
+        lk_runtime::LkRuntime,
+        peer_transport::PeerTransport,
+        rtc_events::{RtcEvent, RtcEvents},
+    },
+    track::{LocalTrack, TrackSource},
+    DataPacketKind,
+};
+use crate::{
     id::ParticipantIdentity,
     rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
@@ -51,19 +70,6 @@ use crate::{
         tx_queue::{TxQueue, TxQueueItem},
     },
     ChatMessage, TranscriptionSegment,
-};
-use crate::{
-    id::ParticipantSid,
-    options::TrackPublishOptions,
-    prelude::TrackKind,
-    room::{e2ee::manager::E2eeManager, DisconnectReason},
-    rtc_engine::{
-        lk_runtime::LkRuntime,
-        peer_transport::PeerTransport,
-        rtc_events::{RtcEvent, RtcEvents},
-    },
-    track::{LocalTrack, TrackSource},
-    DataPacketKind,
 };
 
 /// Connection-state transition counts per transport, sampled before a resume begins.
@@ -81,6 +87,9 @@ pub struct PcGenerationSnapshot {
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+/// The server confirms join-time tracks before it answers the join offer, so the confirmation
+/// has normally arrived once the connection is up; this only bounds a missing one.
+const JOIN_TRACK_CONFIRM_TIMEOUT: Duration = Duration::from_secs(1);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 
@@ -115,6 +124,8 @@ enum NegotiationState {
 struct NegotiationQueue {
     state: Arc<Mutex<NegotiationState>>,
     waker: Arc<Notify>,
+    /// Taken and joined by [`RtcSession::close`] to release the task's session reference.
+    task: Mutex<Option<JoinHandle<()>>>,
     task_running: AtomicBool,
     waiting_for_answer: AtomicBool,
 }
@@ -124,6 +135,7 @@ impl NegotiationQueue {
         Self {
             state: Arc::new(Mutex::new(NegotiationState::Idle)),
             waker: Arc::new(Notify::new()),
+            task: Mutex::new(None),
             task_running: AtomicBool::new(false),
             waiting_for_answer: AtomicBool::new(false),
         }
@@ -412,7 +424,7 @@ struct SessionInner {
     /// `track` events for newly-added streams.
     dispatched_streams: Mutex<HashSet<(String, String)>>,
 
-    pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
+    pending_tracks: Mutex<HashMap<String, oneshot::Sender<EngineResult<proto::TrackInfo>>>>,
 
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
@@ -468,6 +480,7 @@ struct SessionInner {
     emitter: SessionEmitter,
 
     options: EngineOptions,
+    close_rx: watch::Receiver<bool>,
     negotiation_debouncer: Mutex<Option<Debouncer>>,
     negotiation_queue: NegotiationQueue,
 
@@ -524,14 +537,37 @@ struct SessionHandle {
     dt_sender_task: JoinHandle<()>,
 }
 
+/// Publisher transport created before joining, whose offer travels with the join request.
+struct EarlyPublisher {
+    pc: PeerTransport,
+    data_channels: (DataChannel, DataChannel, DataChannel),
+    initial_publish: InitialPublish,
+}
+
+impl EarlyPublisher {
+    /// Closes the transport and detaches the join-time tracks from its transceivers.
+    fn discard(self, publish_tracks: &[(LocalTrack, TrackPublishOptions)]) {
+        for (track, _) in publish_tracks {
+            track.set_transceiver(None);
+        }
+        self.pc.close();
+    }
+}
+
 impl RtcSession {
     /// Connect to a LiveKit room.
-    pub async fn connect(
+    pub(crate) async fn connect(
         url: &str,
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
+    ) -> EngineResult<(
+        Self,
+        proto::JoinResponse,
+        SessionEvents,
+        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
+    )> {
         let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
@@ -542,35 +578,14 @@ impl RtcSession {
 
         let use_single_pc = options.signal_options.single_peer_connection;
 
-        let mut publisher_offer = None;
-        let early_publisher_pc = if use_single_pc {
-            let publisher_pc = PeerTransport::new(
-                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
-                proto::SignalTarget::Publisher,
-                true,
-            );
-
-            // always try to open negotiated data channels and close them if we know the server doesn't support it after receiving the join response
-            let dcs = Self::create_data_channels(&publisher_pc, &emitter, true)?;
-
-            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
-
-            match publisher_pc.create_initial_offer().await {
-                Ok(Some(offer)) => {
-                    publisher_offer = Some(proto::SessionDescription {
-                        r#type: "offer".to_string(),
-                        sdp: offer.to_string(),
-                        id: 0,
-                        mid_to_track_id: Default::default(),
-                    });
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    log::warn!("failed to create initial publisher offer: {:?}", err);
-                }
-            }
-
-            Some((publisher_pc, dcs))
+        let early_publisher = if use_single_pc {
+            Self::create_early_publisher(
+                &options.rtc_config,
+                &emitter,
+                e2ee_manager.as_ref().map_or(EncryptionType::None, |e2ee| e2ee.encryption_type()),
+                publish_tracks,
+            )
+            .await?
         } else {
             None
         };
@@ -581,8 +596,22 @@ impl RtcSession {
         // ends with `close` instead.
         let mut signal_options = options.signal_options.clone();
         signal_options.cancellation_token = Default::default();
-        let (signal_client, mut join_response, signal_events) =
-            SignalClient::connect(url, token, signal_options, publisher_offer.clone()).await?;
+        let connected = SignalClient::connect(
+            url,
+            token,
+            signal_options,
+            early_publisher.as_ref().map(|early| early.initial_publish.clone()),
+        )
+        .await;
+        let (signal_client, mut join_response, signal_events) = match connected {
+            Ok(connected) => connected,
+            Err(err) => {
+                if let Some(early) = early_publisher {
+                    early.discard(publish_tracks);
+                }
+                return Err(err.into());
+            }
+        };
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -615,28 +644,28 @@ impl RtcSession {
             use_negotiated_dcs
         );
 
-        let sent_publisher_offer;
+        let early_publisher = match early_publisher {
+            Some(early) if !single_pc_mode => {
+                // The v1 path was unavailable, so the server never saw the initial publish.
+                early.discard(publish_tracks);
+                None
+            }
+            early => early,
+        };
+        let sent_publisher_offer = early_publisher.is_some();
         let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, mut dcs)) = early_publisher_pc {
+            if let Some(EarlyPublisher { pc, data_channels: mut dcs, .. }) = early_publisher {
                 if !use_negotiated_dcs {
                     // The SCTP section is already in the offer, so in-band channels can be
                     // opened on it without sdp renegotiation.
                     dcs.0.close();
                     dcs.1.close();
                     dcs.2.close();
-                    dcs = Self::create_data_channels(&pub_pc, &emitter, false)?;
+                    dcs = Self::create_data_channels(&pc, &emitter, false)?;
                 }
-                if single_pc_mode {
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = publisher_offer.is_some();
-                } else {
-                    pub_pc.clear_pending_initial_offer().await;
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = false;
-                }
-                (pub_pc, dcs.0, dcs.1, dcs.2)
+                pc.peer_connection().set_configuration(rtc_config.clone())?;
+                (pc, dcs.0, dcs.1, dcs.2)
             } else {
-                sent_publisher_offer = false;
                 let publisher_pc = PeerTransport::new(
                     lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
                     proto::SignalTarget::Publisher,
@@ -710,6 +739,7 @@ impl RtcSession {
             disconnecting: Default::default(),
             emitter,
             options,
+            close_rx: close_rx.clone(),
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
@@ -744,6 +774,22 @@ impl RtcSession {
             })));
         }
 
+        // Tracks without a receiver were not sent with the join and must be published normally.
+        let pre_publish_receivers: Vec<(
+            String,
+            oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        )> = if sent_publisher_offer {
+            publish_tracks
+                .iter()
+                .filter_map(|(track, _)| {
+                    let cid = track.rtc_track().id();
+                    inner.register_pending_track(&cid).ok().map(|rx| (cid, rx))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
@@ -767,7 +813,69 @@ impl RtcSession {
             inner.publisher_negotiation_needed();
         }
 
-        Ok((Self { inner, handle }, join_response, session_events))
+        Ok((Self { inner, handle }, join_response, session_events, pre_publish_receivers))
+    }
+
+    /// Creates the publisher transport and its offer before joining, so both can travel with the
+    /// join request. Returns `None` if the offer could not be prepared, in which case the session
+    /// negotiates normally after joining.
+    async fn create_early_publisher(
+        rtc_config: &RtcConfiguration,
+        emitter: &mpsc::UnboundedSender<SessionEvent>,
+        encryption_type: EncryptionType,
+        publish_tracks: &[(LocalTrack, TrackPublishOptions)],
+    ) -> EngineResult<Option<EarlyPublisher>> {
+        let pc = PeerTransport::new(
+            LkRuntime::instance().pc_factory().create_peer_connection(rtc_config.clone())?,
+            proto::SignalTarget::Publisher,
+            true,
+        );
+
+        let prepared = async {
+            // Negotiated channels are replaced after joining if the server turns out not to
+            // support them.
+            let data_channels = Self::create_data_channels(&pc, emitter, true)?;
+            Self::add_recv_media_sections(&pc.peer_connection(), 3, 3)?;
+
+            // The offer must carry a media section for every track sent with the join.
+            let mut add_track_requests = Vec::with_capacity(publish_tracks.len());
+            for (track, options) in publish_tracks {
+                let (request, encodings) = prepare_publish(track, options, encryption_type, None);
+                let transceiver =
+                    SessionInner::create_sender_for_pc(&pc, track, options, encodings).await?;
+                track.set_transceiver(Some(transceiver));
+                add_track_requests.push(request);
+            }
+
+            let Some(offer) = pc.create_initial_offer().await? else {
+                return Err(EngineError::Internal("publisher is not in single PC mode".into()));
+            };
+            EngineResult::Ok((data_channels, offer, add_track_requests))
+        }
+        .await;
+
+        let (data_channels, offer, add_track_requests) = match prepared {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                log::warn!("failed to prepare initial publisher offer: {:?}", err);
+                for (track, _) in publish_tracks {
+                    track.set_transceiver(None);
+                }
+                pc.close();
+                return Ok(None);
+            }
+        };
+
+        let initial_publish = InitialPublish {
+            offer: proto::SessionDescription {
+                r#type: "offer".to_string(),
+                sdp: offer.to_string(),
+                id: 0,
+                mid_to_track_id: Default::default(),
+            },
+            add_track_requests,
+        };
+        Ok(Some(EarlyPublisher { pc, data_channels, initial_publish }))
     }
 
     fn create_data_channels(
@@ -855,6 +963,14 @@ impl RtcSession {
         self.inner.add_track(req).await
     }
 
+    pub(crate) async fn wait_track_published_by_cid(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+    ) -> EngineResult<proto::TrackInfo> {
+        self.inner.wait_track_published_by_cid(cid, rx).await
+    }
+
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
         self.inner.mute_track(req).await
     }
@@ -870,10 +986,23 @@ impl RtcSession {
 
     /// Close the PeerConnections and the SignalClient
     pub async fn close(&self, reason: DisconnectReason) {
+        // Stop new negotiations before taking their handles, including requests racing close.
+        self.inner.closed.store(true, Ordering::Release);
+        let debouncer = self.inner.negotiation_debouncer.lock().take();
+        let negotiation_task = self.inner.negotiation_queue.task.lock().take();
+
         // Close the tasks
         let handle = self.handle.lock().take();
-        if let Some(handle) = handle {
+        if let Some(handle) = &handle {
             let _ = handle.close_tx.send(true);
+        }
+        if let Some(debouncer) = debouncer {
+            debouncer.cancel().await;
+        }
+        if let Some(task) = negotiation_task {
+            let _ = task.await;
+        }
+        if let Some(handle) = handle {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
@@ -1564,7 +1693,7 @@ impl SessionInner {
             proto::signal_response::Message::TrackPublished(publish_res) => {
                 let mut pending_tracks = self.pending_tracks.lock();
                 if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
-                    let _ = tx.send(publish_res.track.unwrap());
+                    let _ = tx.send(Ok(publish_res.track.unwrap()));
                 }
             }
             proto::signal_response::Message::RoomUpdate(room_update) => {
@@ -1584,6 +1713,12 @@ impl SessionInner {
                     dt::local::publish_result_from_request_response(&request_response)
                 {
                     _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+                    return Ok(());
+                }
+                if let Some(proto::request_response::Request::AddTrack(req)) =
+                    &request_response.request
+                {
+                    self.reject_pending_track(req, &request_response);
                     return Ok(());
                 }
                 let mut pending_requests = self.pending_requests.lock();
@@ -1995,30 +2130,73 @@ impl SessionInner {
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
-        let (tx, rx) = oneshot::channel();
         let cid = req.cid.clone();
-        {
-            let mut pendings_tracks = self.pending_tracks.lock();
-            if pendings_tracks.contains_key(&req.cid) {
-                Err(EngineError::Internal("track already published".into()))?;
-            }
-
-            pendings_tracks.insert(cid.clone(), tx);
-        }
-
+        let rx = self.register_pending_track(&cid)?;
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
+        self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await
+    }
 
-        // Wait the result from the server (TrackInfo)
+    async fn wait_track_published_by_cid(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+    ) -> EngineResult<proto::TrackInfo> {
+        self.wait_track_published(cid, rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
+    }
+
+    fn register_pending_track(
+        &self,
+        cid: &str,
+    ) -> EngineResult<oneshot::Receiver<EngineResult<proto::TrackInfo>>> {
+        let (tx, rx) = oneshot::channel();
+        let mut pending_tracks = self.pending_tracks.lock();
+        if pending_tracks.contains_key(cid) {
+            Err(EngineError::Internal("track already published".into()))?;
+        }
+        pending_tracks.insert(cid.to_string(), tx);
+        Ok(rx)
+    }
+
+    async fn wait_track_published(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        timeout: Duration,
+    ) -> EngineResult<proto::TrackInfo> {
         tokio::select! {
-            Ok(info) = rx => Ok(info),
-            _ = sleep(TRACK_PUBLISH_TIMEOUT) => {
+            res = rx => match res {
+                Ok(res) => res,
+                Err(_) => Err(EngineError::Internal("track publication cancelled".into())),
+            },
+            _ = sleep(timeout) => {
                 self.pending_tracks.lock().remove(&cid);
                 Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },
-            else => {
-                Err(EngineError::Internal("track publication cancelled".into()))
-            }
         }
+    }
+
+    /// Fails the pending publication of the track `req` added, if the server refused it.
+    fn reject_pending_track(
+        &self,
+        req: &proto::AddTrackRequest,
+        response: &proto::RequestResponse,
+    ) {
+        use proto::request_response::Reason;
+        if matches!(response.reason(), Reason::Ok | Reason::Queued) {
+            return;
+        }
+        let Some(tx) = self.pending_tracks.lock().remove(&req.cid) else {
+            return;
+        };
+        let _ = tx.send(Err(EngineError::Internal(
+            format!(
+                "track {} rejected by the server: {}: {}",
+                req.name,
+                response.reason().as_str_name(),
+                response.message
+            )
+            .into(),
+        )));
     }
 
     fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
@@ -2044,6 +2222,16 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        Self::create_sender_for_pc(&self.publisher_pc, &track, &options, encodings).await
+    }
+
+    /// Also used before the session exists, to add join-time tracks to the initial offer.
+    async fn create_sender_for_pc(
+        publisher_pc: &PeerTransport,
+        track: &LocalTrack,
+        options: &TrackPublishOptions,
+        encodings: Vec<RtpEncodingParameters>,
+    ) -> EngineResult<RtpTransceiver> {
         // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
         // Must be done before encodings is moved into RtpTransceiverInit.
         if track.kind() == TrackKind::Video {
@@ -2052,7 +2240,7 @@ impl SessionInner {
                 (sum > 0).then_some(sum)
             };
             let is_screen_share = options.source == TrackSource::Screenshare;
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
+            publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {
@@ -2062,7 +2250,7 @@ impl SessionInner {
         };
 
         let transceiver =
-            self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
+            publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
@@ -2112,6 +2300,9 @@ impl SessionInner {
 
             transceiver.set_codec_preferences(matched)?;
         }
+
+        // Before the transceiver can be negotiated, so no frame is sent without these settings.
+        configure_sender(track, options, &transceiver.sender());
 
         Ok(transceiver)
     }
@@ -2576,6 +2767,10 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+
         let fast_publish = self.fast_publish.load(Ordering::Acquire);
         self.has_published.store(true, Ordering::Release);
 
@@ -2595,6 +2790,10 @@ impl SessionInner {
     }
 
     fn queue_negotiation(self: &Arc<Self>) {
+        let mut task = self.negotiation_queue.task.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
         let mut state = self.negotiation_queue.state.lock();
 
         match *state {
@@ -2610,10 +2809,21 @@ impl SessionInner {
                 drop(state);
 
                 let session = self.clone();
-                tokio::spawn(async move {
-                    session.execute_negotiation_with_retry().await;
+                let mut close_rx = self.close_rx.clone();
+                *task = Some(tokio::spawn(async move {
+                    let completed =
+                        cancel_on_close(&mut close_rx, session.execute_negotiation_with_retry())
+                            .await
+                            .is_some();
+                    if !completed {
+                        session
+                            .negotiation_queue
+                            .waiting_for_answer
+                            .store(false, Ordering::Release);
+                        *session.negotiation_queue.state.lock() = NegotiationState::Idle;
+                    }
                     session.negotiation_queue.task_running.store(false, Ordering::Release);
-                });
+                }));
             }
             NegotiationState::InProgress => {
                 log::debug!("queue_negotiation: marking for retry");
@@ -2671,16 +2881,21 @@ impl SessionInner {
 
     fn debounce_negotiation(self: &Arc<Self>) {
         let mut debouncer = self.negotiation_debouncer.lock();
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
 
         // call() returns an error if the debouncer has finished
         if debouncer.is_none() || debouncer.as_ref().unwrap().call().is_err() {
             let session = self.clone();
+            let mut close_rx = self.close_rx.clone();
 
             *debouncer = Some(debouncer::debounce(PUBLISHER_NEGOTIATION_FREQUENCY, async move {
-                log::debug!("negotiating the publisher (debounced)");
-                if let Err(err) =
+                let negotiate = async {
+                    log::debug!("negotiating the publisher (debounced)");
                     session.publisher_pc.create_and_send_offer(OfferOptions::default()).await
-                {
+                };
+                if let Some(Err(err)) = cancel_on_close(&mut close_rx, negotiate).await {
                     log::error!("failed to negotiate the publisher: {:?}", err);
                 }
             }));
@@ -2828,6 +3043,24 @@ impl<T> Drop for PendingResponseGuard<'_, T> {
     }
 }
 
+/// Runs `future` until completion or session closure, returning `None` on cancellation.
+/// `close_rx` starts at `false` and signals closure with `true`.
+/// `future` is the operation to run and is dropped if closure wins.
+async fn cancel_on_close<T>(
+    close_rx: &mut watch::Receiver<bool>,
+    future: impl Future<Output = T>,
+) -> Option<T> {
+    // If close_rx is already true, nothing to cancel
+    if *close_rx.borrow() {
+        return None;
+    }
+
+    tokio::select! {
+        result = future => Some(result),
+        _ = close_rx.changed() => None,
+    }
+}
+
 /// Emit incoming data track packets as session events.
 pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<SessionEvent>) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
@@ -2921,9 +3154,16 @@ fn uses_negotiated_data_channels(
 
 #[cfg(test)]
 mod tests {
+    use std::{future, sync::Arc, time::Duration};
+
+    use tokio::{
+        sync::{oneshot, watch},
+        time::timeout,
+    };
+
     use super::{
-        parse_sdp_max_message_size, recovery_decision, uses_negotiated_data_channels,
-        DEFAULT_MAX_MESSAGE_SIZE,
+        cancel_on_close, parse_sdp_max_message_size, recovery_decision,
+        uses_negotiated_data_channels, DEFAULT_MAX_MESSAGE_SIZE,
     };
 
     /// The server picks negotiated data channels from the protocol the client advertised, so a
@@ -2938,6 +3178,124 @@ mod tests {
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
+
+    #[tokio::test]
+    async fn close_signal_releases_owner_held_by_pending_task() {
+        let (close_tx, mut close_rx) = watch::channel(false);
+        let owner = Arc::new(());
+        let owner_dropped = Arc::downgrade(&owner);
+        let (started_tx, started_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let pending = async move {
+                let _owner = owner;
+                started_tx.send(()).unwrap();
+                future::pending::<()>().await;
+            };
+            assert!(cancel_on_close(&mut close_rx, pending).await.is_none());
+        });
+
+        started_rx.await.unwrap();
+        close_tx.send(true).unwrap();
+        timeout(Duration::from_secs(1), task).await.unwrap().unwrap();
+        assert!(owner_dropped.upgrade().is_none());
+    }
+
+    #[cfg(feature = "__lk-e2e-test")]
+    mod negotiation_lifecycle {
+        use std::{env, sync::atomic::Ordering};
+
+        use livekit_token::{AccessToken, VideoGrants};
+        use tokio::sync::Notify;
+
+        use super::*;
+        use crate::{rtc_engine::rtc_session::RtcSession, DisconnectReason};
+
+        /// Connects a real session and waits for its initial publisher negotiation to finish.
+        async fn session() -> RtcSession {
+            let room = format!("negotiation-lifecycle-{}", libwebrtc::native::create_random_uuid());
+            let token = AccessToken::with_api_key(
+                &env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into()),
+                &env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into()),
+            )
+            .with_identity("publisher")
+            .with_grants(VideoGrants { room_join: true, room, ..Default::default() })
+            .to_jwt()
+            .unwrap();
+            let (session, _, _, _) = RtcSession::connect(
+                &env::var("LIVEKIT_URL").unwrap_or_else(|_| "http://localhost:7880".into()),
+                &token,
+                Default::default(),
+                None,
+                &[],
+            )
+            .await
+            .unwrap();
+
+            timeout(Duration::from_secs(5), async {
+                while session.inner.negotiation_queue.task_running.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("initial publisher negotiation did not finish");
+            session
+        }
+
+        /// Exercises the real task registration, close, and session destruction paths.
+        async fn check_release(fast_publish: bool, wait_for_offer: bool) {
+            let session = session().await;
+            let dropped = Arc::downgrade(&session.inner);
+            session.inner.fast_publish.store(fast_publish, Ordering::Release);
+
+            if !wait_for_offer {
+                // A lost signalling link must not mask the debounce delay with socket teardown.
+                session.inner.signal_client.close().await;
+            }
+
+            // Withhold the offer from signalling so fast negotiation cannot receive an answer.
+            let offered = Arc::new(Notify::new());
+            let offer_notification = offered.clone();
+            session.inner.publisher_pc.on_offer(Some(Box::new(move |_| {
+                offer_notification.notify_one();
+            })));
+            session.publisher_negotiation_needed();
+            if wait_for_offer {
+                timeout(Duration::from_secs(5), offered.notified())
+                    .await
+                    .expect("publisher did not create an offer");
+                assert!(session.inner.negotiation_queue.waiting_for_answer.load(Ordering::Acquire));
+                // Another request must leave the retry pending when close cancels the task.
+                session.publisher_negotiation_needed();
+            }
+
+            timeout(Duration::from_secs(15), session.close(DisconnectReason::ClientInitiated))
+                .await
+                .expect("session close did not finish");
+            drop(session);
+            assert!(
+                dropped.upgrade().is_none(),
+                "publisher negotiation retained SessionInner after close"
+            );
+        }
+
+        /// Closing during the debounce timer must release the session before returning.
+        #[tokio::test]
+        async fn close_releases_session_during_debounce_wait() {
+            check_release(false, false).await;
+        }
+
+        /// Closing before the spawned future is polled must release its session capture.
+        #[tokio::test]
+        async fn close_releases_session_before_fast_negotiation_starts() {
+            check_release(true, false).await;
+        }
+
+        /// Closing must cancel both the unanswered offer and its queued retry.
+        #[tokio::test]
+        async fn close_releases_session_waiting_for_publisher_answer() {
+            check_release(true, true).await;
+        }
+    }
 
     /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
     /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so

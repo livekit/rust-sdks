@@ -12,48 +12,79 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 /// Event data model: what SDKs push in.
 mod event;
 
 /// Bounded in-memory queue between `emit` and the exporter.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod store;
 
 /// Pipeline health counters and the `lk.telemetry.report` event.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod stats;
 
-/// Spans: one attempt at an operation, with explicit handles across the FFI.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
+/// Host-reported device state and the cadence policy derived from it.
+mod device;
+
+/// RTC stats samples and their on-device windowing.
+mod rtc;
+
+/// Session identity: the trace id, attributes and route of one Room.
 mod scope;
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
+/// Spans: one attempt at an operation, with explicit handles across the FFI.
 mod span;
 
+/// Batch exporter actor: timer, OTLP encoding, retry policy.
+mod exporter;
+
 /// OTLP/HTTP protobuf encoding of a batch.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod otlp;
+
+/// Bounded-input, lossless cached-batch splitting.
+mod split;
+
+/// Queue of encoded batches between the exporter and the transport (memory or disk).
+mod cache;
 
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
 
+/// Transport seam: how encoded batches leave the device.
+mod transport;
+
+/// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
+mod destination;
+
+/// The process pipeline: [`global::install`] once, then reach it anywhere.
+pub mod global;
+/// Entry point and configuration.
+mod telemetry;
+mod trace;
+
+pub use cache::{BatchCache, FileCache, MemoryCache};
+pub use destination::ENDPOINT_OVERRIDE_ENV;
+pub use device::*;
 pub use event::*;
+pub use exporter::Exporter;
+pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
+pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+pub use telemetry::{Instrument, Sdk, Telemetry, TelemetryConfig, TelemetryResource};
+pub use trace::{ReconnectReason, Span, SpanName, SpanStep, SpanTrack, TraceContext, TrackSource};
+#[cfg(feature = "net")]
+pub use transport::NetTransport;
+pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
+
+/// The backend contract, end to end through the pipeline.
+#[cfg(test)]
+mod backend_tests;
+/// The device contract, end to end through the pipeline and the process-wide opt-out.
+#[cfg(test)]
+mod device_tests;
+/// Every name and enum value on the wire, pinned to the registry.
+#[cfg(test)]
+mod wire_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
@@ -61,10 +92,16 @@ uniffi::setup_scaffolding!();
 /// Warnings logged by the tests, so a test can assert the ones it caused.
 #[cfg(test)]
 pub(crate) mod test_log {
+    use std::cell::RefCell;
     use std::sync::{Mutex, Once};
     use std::thread::{self, ThreadId};
 
     static LINES: Mutex<Vec<(ThreadId, String)>> = Mutex::new(Vec::new());
+
+    thread_local! {
+        /// Asked at every line this thread logs; a `true` marks the line `held: `.
+        static HELD: RefCell<Option<Box<dyn Fn() -> bool>>> = const { RefCell::new(None) };
+    }
 
     struct Capture;
 
@@ -75,7 +112,9 @@ pub(crate) mod test_log {
 
         fn log(&self, record: &log::Record) {
             if self.enabled(record.metadata()) {
-                let line = (thread::current().id(), record.args().to_string());
+                let held = HELD.with(|held| held.borrow().as_ref().is_some_and(|held| held()));
+                let line = format!("{}{}", if held { "held: " } else { "" }, record.args());
+                let line = (thread::current().id(), line);
                 LINES.lock().unwrap_or_else(|e| e.into_inner()).push(line);
             }
         }
@@ -90,6 +129,12 @@ pub(crate) mod test_log {
             log::set_logger(&Capture).expect("the only logger in tests");
             log::set_max_level(log::LevelFilter::Warn);
         });
+    }
+
+    /// Mark every line this thread logs while `held` returns `true` (a lock taken, say) with a
+    /// `held: ` prefix: the host logger would have run at that moment.
+    pub fn mark_while(held: impl Fn() -> bool + 'static) {
+        HELD.with(|slot| *slot.borrow_mut() = Some(Box::new(held)));
     }
 
     /// The warnings logged on this thread since the last call: this test's own, since every
