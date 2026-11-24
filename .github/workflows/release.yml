@@ -57,12 +57,17 @@ permissions:
   id-token: write
   contents: write
 
-# One release run at a time. A closed PR that is not the release PR starts a
-# run too, with every job skipped. It gets a group of its own: in the shared
-# group it would cancel a release run that waits.
+# One release run at a time, and each further run waits (`queue: max`). The
+# default keeps one waiting run only: a third run would cancel it, and the
+# versions of its commit would never get a tag.
+# A closed PR that is not the merged release PR starts a run too, with every
+# job skipped. It gets a group of its own. The test is the one of the `plan`
+# job without the marker, not the branch name alone: any person can open and
+# close a PR from a branch named `release/...`.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.pull_request.head.ref, 'release/')) && 'release' || format('release-skip-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/') && github.event.pull_request.user.login == 'verwalter-release[bot]')) && 'release' || format('release-skip-{0}', github.run_id) }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   # ---------------------------------------------------------------- stage 1
@@ -82,13 +87,27 @@ jobs:
       # Write, not read: a token with read access cannot see a draft release.
       contents: write
     outputs:
+      sha: ${{ steps.sha.outputs.sha }}
       ffi_tag: ${{ steps.ffi.outputs.tag }}
       ffi_build: ${{ steps.ffi.outputs.build }}
-      ffi_publish: ${{ steps.ffi.outputs.publish }}
+      ffi_publish: ${{ steps.publish.outputs.uniffi }}
+      node_publish: ${{ steps.publish.outputs.node }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          # The merge commit itself: a push to main right after the merge
+          # must not move the release. A run by hand has no merge commit: it
+          # takes `ref`, else the head of the branch.
           ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          fetch-depth: 0 # `status --check` below reads the tags
+
+      # Each later job checks out this commit. `ref` can name a branch, and a
+      # branch can move between the builds and the tag: the new tag would then
+      # get the files of an older commit.
+      - name: Resolve the commit of this run
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Check the livekit-ffi release
         id: ffi
         env:
@@ -106,7 +125,7 @@ jobs:
           if [ -n "$PACKAGE" ] && [ "$PACKAGE" != "livekit-ffi" ]; then
             echo "This run is for ${PACKAGE} only: no livekit-ffi build."
             echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "repair=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -119,19 +138,65 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             build=true
           fi
-          # The UniFFI jobs run with the build. They also run for a run by
-          # hand when the release is complete, where nothing is built. A
-          # complete release says nothing about pub.dev, Maven Central and
-          # the Swift package: each of their workflows asks its registry and
-          # skips a version that is there. Such a run therefore repairs a
-          # release where one registry failed.
-          publish=$build
-          if [ "$EVENT" = "workflow_dispatch" ]; then
-            publish=true
+          # A run by hand for a public release builds nothing. It repairs:
+          # see the two steps below.
+          repair=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$build" = "false" ]; then
+            repair=true
           fi
-          echo "Release ${tag}: build=${build} publish=${publish}"
+          echo "Release ${tag}: build=${build} repair=${repair}"
           echo "build=${build}" >> "$GITHUB_OUTPUT"
-          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+          echo "repair=${repair}" >> "$GITHUB_OUTPUT"
+
+      # A release from before this workflow can be public without all its
+      # files. The Android package needs the host libraries on the release:
+      # client-sdk-android downloads them for the version that it learns from
+      # Maven. So a repair publishes the UniFFI packages only for a release
+      # that has the tag, is public and has each file of
+      # `release.required_assets`.
+      - name: Check that the public livekit-ffi release is complete
+        id: complete
+        if: steps.ffi.outputs.repair == 'true'
+        continue-on-error: true
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: status
+          args: --check --package livekit-ffi
+
+      # The jobs of stage 3 that publish the livekit-ffi version run with the
+      # build. In a repair, the UniFFI jobs run for a complete release: each
+      # of their workflows asks its registry and skips a version that is
+      # there. The Node job runs if npm lacks one of the packages, and it
+      # then builds the bindings itself.
+      - name: Decide what a repair publishes
+        id: publish
+        env:
+          BUILD: ${{ steps.ffi.outputs.build }}
+          REPAIR: ${{ steps.ffi.outputs.repair }}
+          COMPLETE: ${{ steps.complete.outcome }}
+          TAG: ${{ steps.ffi.outputs.tag }}
+        working-directory: livekit-ffi-node-bindings
+        run: |
+          set -euo pipefail
+          uniffi=$BUILD
+          node=$BUILD
+          if [ "$REPAIR" = "true" ]; then
+            if [ "$COMPLETE" = "success" ]; then
+              uniffi=true
+            else
+              echo "::error::the release ${TAG} is public but not complete: no UniFFI package is published. See the step before this one."
+            fi
+            version=$(jq -r .version package.json)
+            for name in $(jq -r .name package.json npm/*/package.json); do
+              if [ "$(npm view "${name}@${version}" version 2>/dev/null)" != "$version" ]; then
+                echo "npm does not have ${name}@${version}."
+                node=true
+              fi
+            done
+          fi
+          echo "uniffi=${uniffi} node=${node}"
+          echo "uniffi=${uniffi}" >> "$GITHUB_OUTPUT"
+          echo "node=${node}" >> "$GITHUB_OUTPUT"
 
   ffi-build:
     name: FFI libraries
@@ -139,7 +204,7 @@ jobs:
     if: needs.plan.outputs.ffi_build == 'true'
     uses: ./.github/workflows/ffi-builds.yml
     with:
-      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      ref: ${{ needs.plan.outputs.sha }}
 
   cdylib-build:
     name: Host libraries
@@ -149,7 +214,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/uniffi-cdylib.yml
     with:
-      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      ref: ${{ needs.plan.outputs.sha }}
 
   node-build:
     name: Node bindings
@@ -157,7 +222,7 @@ jobs:
     if: needs.plan.outputs.ffi_build == 'true'
     uses: ./.github/workflows/node-builds.yml
     with:
-      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+      ref: ${{ needs.plan.outputs.sha }}
       publish: false
 
   # ---------------------------------------------------------------- stage 2
@@ -185,10 +250,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          # The merge commit itself: a push to main right after the merge
-          # must not move the tags. A run by hand has no merge commit: it
-          # takes `ref`, else the head of the branch.
-          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
 
       - name: Download the FFI libraries
@@ -258,7 +320,7 @@ jobs:
   # first. A version that crates.io has is skipped, so a second run is safe.
   # A failure blocks the dependents of that crate and nothing else.
   publish-crates:
-    needs: release
+    needs: [plan, release]
     if: ${{ !cancelled() && needs.release.result == 'success' && github.repository == 'livekit/rust-sdks' && (needs.release.outputs.released == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     # One crates.io publish at a time, across runs. A second release run
@@ -273,7 +335,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0 # the tags decide what is published
           submodules: recursive
 
@@ -303,16 +365,16 @@ jobs:
 
   # Publishes the bindings that `node-build` built in this run. The npm
   # packages carry the livekit-ffi version, and `pnpm publish -r` skips a
-  # version that npm has. To publish them outside a release run, run
-  # node-builds.yml by hand: it builds and publishes.
+  # version that npm has. A repair run has no built bindings: if npm lacks a
+  # package, this job builds them first.
   node-publish:
     name: Node bindings to npm
     needs: [plan, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.ffi_build == 'true' }}
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.node_publish == 'true' }}
     uses: ./.github/workflows/node-builds.yml
     with:
-      ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
-      build: false
+      ref: ${{ needs.plan.outputs.sha }}
+      build: ${{ needs.plan.outputs.ffi_build != 'true' }}
       dry_run: ${{ inputs.dry_run || github.repository != 'livekit/rust-sdks' }}
 
   # The Swift and Android packages. They build from the tag and publish.
@@ -421,7 +483,7 @@ jobs:
   # failed job too, and then lists what is not complete.
   verify:
     name: Check the end state
-    needs: [release, publish-crates, node-publish, uniffi-packages, uniffi-dart]
+    needs: [plan, release, publish-crates, node-publish, uniffi-packages, uniffi-dart]
     if: ${{ !cancelled() && needs.release.result == 'success' && inputs.dry_run != true && github.repository == 'livekit/rust-sdks' }}
     runs-on: ubuntu-latest
     permissions:
@@ -429,7 +491,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || inputs.ref || github.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
 
       - uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
