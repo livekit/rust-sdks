@@ -81,6 +81,7 @@ livekit-token = { workspace = true, optional = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
+subtle = "2.5"
 url = "2.3"
 log = { workspace = true }
 prost = { workspace = true }
