@@ -113,7 +113,20 @@ mod room_apis {
                 "#[derive(uniffi::Record)]",
             );
         }
-        config.enum_attribute(".livekit.proto.RtcStats.stats", "#[derive(uniffi::Enum)]");
+        // Protobuf nesting is flattened by UniFFI. Prefix its generic payload names so
+        // Track/Stream/Codec cannot shadow the host SDK's existing public types.
+        for message in &stats.message_type {
+            for nested in &message.nested_type {
+                config.message_attribute(
+                    format!(".{}.{}.{}", stats.package(), message.name(), nested.name()),
+                    format!("#[uniffi(name = \"RtcStats{}\")]", nested.name()),
+                );
+            }
+        }
+        config.enum_attribute(
+            ".livekit.proto.RtcStats.stats",
+            "#[derive(uniffi::Enum)]\n#[uniffi(name = \"RtcStatsKind\")]",
+        );
         config.compile_fds(descriptors).expect("Protobuf generation failed");
     }
 
