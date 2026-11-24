@@ -76,6 +76,16 @@ impl DesktopCapturerOptions {
     pub fn set_sck_system_picker(&mut self, allow_sck_system_picker: bool) {
         self.sys_handle = self.sys_handle.with_sck_system_picker(allow_sck_system_picker);
     }
+
+    /// Sets whether a Generic capturer on Wayland asks the ScreenCast portal for a restore token
+    /// that outlives the app, so a later share can skip the portal's dialog (see
+    /// [`DesktopCapturer::set_restore_token`]).
+    ///
+    /// This is disabled by default.
+    #[cfg(target_os = "linux")]
+    pub fn set_persist_restore_token(&mut self, persist: bool) {
+        self.sys_handle = self.sys_handle.with_persist_restore_token(persist);
+    }
 }
 
 /// A desktop capturer for capturing screens or windows.
@@ -134,6 +144,24 @@ impl DesktopCapturer {
     /// You must call [`start_capture`](Self::start_capture) before calling this method.
     pub fn capture_frame(&mut self) {
         self.handle.capture_frame();
+    }
+
+    /// Passes a restore token saved from an earlier share to the ScreenCast portal, which may then
+    /// skip its dialog. Call before [`start_capture`](Self::start_capture); later calls have no
+    /// effect. Only used by a Generic capturer on Wayland made with
+    /// [`DesktopCapturerOptions::set_persist_restore_token`]; ignored elsewhere.
+    pub fn set_restore_token(&mut self, token: &str) {
+        self.handle.set_restore_token(token);
+    }
+
+    /// The restore token the portal returned for this share, to save for the next one (a token
+    /// is single-use). Empty until the portal has answered, which is before the first frame
+    /// callback, if the request was cancelled or failed, and for capturers that don't persist a
+    /// token. When the user shares but declines restoring, the portal returns no token and this
+    /// is still the token passed to [`set_restore_token`](Self::set_restore_token); a portal
+    /// that no longer accepts it shows its dialog again next time.
+    pub fn restore_token(&self) -> String {
+        self.handle.restore_token()
     }
 
     /// Retrieves a list of available capture sources.

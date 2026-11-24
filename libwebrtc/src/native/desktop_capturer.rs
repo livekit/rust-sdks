@@ -29,6 +29,8 @@ pub(crate) struct DesktopCapturerOptions {
     include_cursor: bool,
     #[cfg(target_os = "macos")]
     allow_sck_system_picker: bool,
+    #[cfg(target_os = "linux")]
+    persist_restore_token: bool,
 }
 
 impl Default for DesktopCapturerOptions {
@@ -38,6 +40,8 @@ impl Default for DesktopCapturerOptions {
             include_cursor: false,
             #[cfg(target_os = "macos")]
             allow_sck_system_picker: true,
+            #[cfg(target_os = "linux")]
+            persist_restore_token: false,
         }
     }
 }
@@ -58,6 +62,12 @@ impl DesktopCapturerOptions {
         self
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_persist_restore_token(mut self, persist: bool) -> Self {
+        self.persist_restore_token = persist;
+        self
+    }
+
     pub(crate) fn to_sys_handle(&self) -> sys_dc::ffi::DesktopCapturerOptions {
         let source_type = match self.source_type {
             SourceType::Screen => sys_dc::ffi::SourceType::Screen,
@@ -74,6 +84,16 @@ impl DesktopCapturerOptions {
                     self.allow_sck_system_picker
                 }
                 #[cfg(not(target_os = "macos"))]
+                {
+                    false
+                }
+            },
+            persist_restore_token: {
+                #[cfg(target_os = "linux")]
+                {
+                    self.persist_restore_token
+                }
+                #[cfg(not(target_os = "linux"))]
                 {
                     false
                 }
@@ -127,6 +147,14 @@ impl DesktopCapturer {
         let callback = DesktopCallback::new(callback);
         let callback_wrapper = sys_dc::DesktopCapturerCallbackWrapper::new(Box::new(callback));
         pin_handle.start(Box::new(callback_wrapper));
+    }
+
+    pub(crate) fn set_restore_token(&mut self, token: &str) {
+        self.sys_handle.pin_mut().set_restore_token(token);
+    }
+
+    pub(crate) fn restore_token(&self) -> String {
+        self.sys_handle.restore_token()
     }
 
     pub(crate) fn select_source(&self, id: u64) -> bool {

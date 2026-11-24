@@ -17,8 +17,15 @@
 #pragma once
 #include <memory>
 
+#include <mutex>
+#include <string>
+
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "rust/cxx.h"
+
+#ifdef WEBRTC_USE_PIPEWIRE
+#include "modules/desktop_capture/linux/wayland/screencast_portal.h"
+#endif
 
 namespace livekit_ffi {
 class DesktopFrame;
@@ -31,10 +38,52 @@ class Source;
 
 namespace livekit_ffi {
 
+#ifdef WEBRTC_USE_PIPEWIRE
+// Passes the portal's answers on to the capturer, which is made after the portal, and keeps a
+// copy of the restore token. The portal writes its token on its own thread just before it
+// answers, so the copy is taken there and read under a lock.
+class PortalForwarder : public webrtc::ScreenCastPortal::PortalNotifier {
+ public:
+  webrtc::ScreenCastPortal::PortalNotifier* target = nullptr;
+  webrtc::ScreenCastPortal* portal = nullptr;
+  void OnScreenCastRequestResult(webrtc::xdg_portal::RequestResponse result,
+                                 uint32_t stream_node_id,
+                                 int fd) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      // A cancelled or failed request leaves the supplied token in the portal: no new one.
+      token_ = result == webrtc::xdg_portal::RequestResponse::kSuccess
+                   ? portal->RestoreToken()
+                   : std::string();
+    }
+    target->OnScreenCastRequestResult(result, stream_node_id, fd);
+  }
+  void OnScreenCastSessionClosed() override {
+    target->OnScreenCastSessionClosed();
+  }
+  std::string token() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return token_;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::string token_;
+};
+#endif
+
 class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  public:
   explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
       : capturer(std::move(capturer)), callback(std::nullopt) {}
+#ifdef WEBRTC_USE_PIPEWIRE
+  // A portal capturer that keeps its restore token (see new_desktop_capturer).
+  DesktopCapturer(std::unique_ptr<PortalForwarder> forwarder,
+                  std::unique_ptr<webrtc::DesktopCapturer> capturer)
+      : forwarder(std::move(forwarder)),
+        capturer(std::move(capturer)),
+        callback(std::nullopt) {}
+#endif
 
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
@@ -43,8 +92,17 @@ class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
   bool select_source(uint64_t id) const { return capturer->SelectSource(id); }
   void start(rust::Box<DesktopCapturerCallbackWrapper> callback);
   void capture_frame() const { capturer->CaptureFrame(); }
+  // The portal's restore token: set before start (ignored after), read once the portal has
+  // answered. Empty without a persisting portal.
+  void set_restore_token(rust::Str token);
+  rust::String restore_token() const;
 
  private:
+#ifdef WEBRTC_USE_PIPEWIRE
+  // Declared first so it outlives the capturer, whose portal calls it.
+  std::unique_ptr<PortalForwarder> forwarder;
+#endif
+  bool started = false;
   std::unique_ptr<webrtc::DesktopCapturer> capturer;
   std::optional<rust::Box<DesktopCapturerCallbackWrapper>> callback;
 };
