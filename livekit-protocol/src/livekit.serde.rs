@@ -1177,9 +1177,6 @@ impl serde::Serialize for AddTrackRequest {
         if !self.packet_trailer_features.is_empty() {
             len += 1;
         }
-        if self.priority.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.AddTrackRequest", len)?;
         if !self.cid.is_empty() {
             struct_ser.serialize_field("cid", &self.cid)?;
@@ -1251,9 +1248,6 @@ impl serde::Serialize for AddTrackRequest {
                 }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("packetTrailerFeatures", &v)?;
         }
-        if let Some(v) = self.priority.as_ref() {
-            struct_ser.serialize_field("priority", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -1288,7 +1282,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
             "audioFeatures",
             "packet_trailer_features",
             "packetTrailerFeatures",
-            "priority",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1311,7 +1304,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
             BackupCodecPolicy,
             AudioFeatures,
             PacketTrailerFeatures,
-            Priority,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1352,7 +1344,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
                             "backupCodecPolicy" | "backup_codec_policy" => Ok(GeneratedField::BackupCodecPolicy),
                             "audioFeatures" | "audio_features" => Ok(GeneratedField::AudioFeatures),
                             "packetTrailerFeatures" | "packet_trailer_features" => Ok(GeneratedField::PacketTrailerFeatures),
-                            "priority" => Ok(GeneratedField::Priority),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1390,7 +1381,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
                 let mut backup_codec_policy__ = None;
                 let mut audio_features__ = None;
                 let mut packet_trailer_features__ = None;
-                let mut priority__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Cid => {
@@ -1505,14 +1495,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
                             }
                             packet_trailer_features__ = Some(map_.next_value::<Vec<PacketTrailerFeature>>()?.into_iter().map(|x| x as i32).collect());
                         }
-                        GeneratedField::Priority => {
-                            if priority__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("priority"));
-                            }
-                            priority__ =
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1537,7 +1519,6 @@ impl<'de> serde::Deserialize<'de> for AddTrackRequest {
                     backup_codec_policy: backup_codec_policy__.unwrap_or_default(),
                     audio_features: audio_features__.unwrap_or_default(),
                     packet_trailer_features: packet_trailer_features__.unwrap_or_default(),
-                    priority: priority__,
                 })
             }
         }
@@ -21114,9 +21095,6 @@ impl serde::Serialize for DataTrackInfo {
         if self.schema.is_some() {
             len += 1;
         }
-        if self.priority.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackInfo", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -21138,9 +21116,6 @@ impl serde::Serialize for DataTrackInfo {
         if let Some(v) = self.schema.as_ref() {
             struct_ser.serialize_field("schema", v)?;
         }
-        if let Some(v) = self.priority.as_ref() {
-            struct_ser.serialize_field("priority", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -21159,7 +21134,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             "frame_encoding",
             "frameEncoding",
             "schema",
-            "priority",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -21170,7 +21144,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             Encryption,
             FrameEncoding,
             Schema,
-            Priority,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -21199,7 +21172,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             "encryption" => Ok(GeneratedField::Encryption),
                             "frameEncoding" | "frame_encoding" => Ok(GeneratedField::FrameEncoding),
                             "schema" => Ok(GeneratedField::Schema),
-                            "priority" => Ok(GeneratedField::Priority),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -21225,7 +21197,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                 let mut encryption__ = None;
                 let mut frame_encoding__ = None;
                 let mut schema__ = None;
-                let mut priority__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -21266,14 +21237,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             }
                             schema__ = map_.next_value()?;
                         }
-                        GeneratedField::Priority => {
-                            if priority__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("priority"));
-                            }
-                            priority__ =
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -21286,7 +21249,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                     encryption: encryption__.unwrap_or_default(),
                     frame_encoding: frame_encoding__,
                     schema: schema__,
-                    priority: priority__,
                 })
             }
         }
@@ -47406,9 +47368,6 @@ impl serde::Serialize for PublishDataTrackRequest {
         if self.schema.is_some() {
             len += 1;
         }
-        if self.priority.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.PublishDataTrackRequest", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -47427,9 +47386,6 @@ impl serde::Serialize for PublishDataTrackRequest {
         if let Some(v) = self.schema.as_ref() {
             struct_ser.serialize_field("schema", v)?;
         }
-        if let Some(v) = self.priority.as_ref() {
-            struct_ser.serialize_field("priority", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -47447,7 +47403,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             "frame_encoding",
             "frameEncoding",
             "schema",
-            "priority",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -47457,7 +47412,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             Encryption,
             FrameEncoding,
             Schema,
-            Priority,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -47485,7 +47439,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             "encryption" => Ok(GeneratedField::Encryption),
                             "frameEncoding" | "frame_encoding" => Ok(GeneratedField::FrameEncoding),
                             "schema" => Ok(GeneratedField::Schema),
-                            "priority" => Ok(GeneratedField::Priority),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -47510,7 +47463,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                 let mut encryption__ = None;
                 let mut frame_encoding__ = None;
                 let mut schema__ = None;
-                let mut priority__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -47545,14 +47497,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             }
                             schema__ = map_.next_value()?;
                         }
-                        GeneratedField::Priority => {
-                            if priority__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("priority"));
-                            }
-                            priority__ =
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -47564,7 +47508,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                     encryption: encryption__.unwrap_or_default(),
                     frame_encoding: frame_encoding__,
                     schema: schema__,
-                    priority: priority__,
                 })
             }
         }
@@ -77798,9 +77741,6 @@ impl serde::Serialize for TrackInfo {
         if !self.packet_trailer_features.is_empty() {
             len += 1;
         }
-        if self.priority.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.TrackInfo", len)?;
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
@@ -77881,9 +77821,6 @@ impl serde::Serialize for TrackInfo {
                 }).collect::<std::result::Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("packetTrailerFeatures", &v)?;
         }
-        if let Some(v) = self.priority.as_ref() {
-            struct_ser.serialize_field("priority", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -77921,7 +77858,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
             "backupCodecPolicy",
             "packet_trailer_features",
             "packetTrailerFeatures",
-            "priority",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -77947,7 +77883,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
             AudioFeatures,
             BackupCodecPolicy,
             PacketTrailerFeatures,
-            Priority,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -77991,7 +77926,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                             "audioFeatures" | "audio_features" => Ok(GeneratedField::AudioFeatures),
                             "backupCodecPolicy" | "backup_codec_policy" => Ok(GeneratedField::BackupCodecPolicy),
                             "packetTrailerFeatures" | "packet_trailer_features" => Ok(GeneratedField::PacketTrailerFeatures),
-                            "priority" => Ok(GeneratedField::Priority),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -78032,7 +77966,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                 let mut audio_features__ = None;
                 let mut backup_codec_policy__ = None;
                 let mut packet_trailer_features__ = None;
-                let mut priority__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Sid => {
@@ -78165,14 +78098,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                             }
                             packet_trailer_features__ = Some(map_.next_value::<Vec<PacketTrailerFeature>>()?.into_iter().map(|x| x as i32).collect());
                         }
-                        GeneratedField::Priority => {
-                            if priority__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("priority"));
-                            }
-                            priority__ =
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -78200,7 +78125,6 @@ impl<'de> serde::Deserialize<'de> for TrackInfo {
                     audio_features: audio_features__.unwrap_or_default(),
                     backup_codec_policy: backup_codec_policy__.unwrap_or_default(),
                     packet_trailer_features: packet_trailer_features__.unwrap_or_default(),
-                    priority: priority__,
                 })
             }
         }
