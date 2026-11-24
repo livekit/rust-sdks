@@ -90,6 +90,20 @@ See [support/swift/README.md](./support/swift/README.md) for debugging vs.
 release modes, consumer integration, and prerequisites (Xcode, Rust Apple
 targets).
 
+Combine an existing room-apis Swift package and matching, already-built iOS frameworks
+without rebuilding native code (all three must have verified matching metadata):
+
+```sh
+sh livekit-ffi/support/swift/package-room-apple.sh /path/to/mac-package \
+  /path/to/device/RustLiveKitFFI.framework /path/to/sim/RustLiveKitFFI.framework \
+  /path/to/new-output
+```
+
+This preserves macOS framework symlinks, guards the known manifest minimums before
+setting iOS14/macOS11, and strictly verifies all three signatures before and after zip
+extraction. The output directory must not exist; it receives the package and `LiveKitFFI.zip`.
+
+
 ### Android
 
 Build native libraries, Kotlin bindings, and a release AAR:
