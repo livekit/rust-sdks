@@ -668,6 +668,14 @@ impl Shared {
     }
 
     fn apply(&self, event: RoomEvent) {
+        // This runs on the session driver, outside the projection lock. Receiving audio
+        // needs its own platform lease even when this room never creates a microphone.
+        // Teardown drops only our lease; core retains ADM for other rooms/device tracks.
+        if matches!(&event, RoomEvent::TrackSubscribed { track, .. } if track.kind() == livekit::track::TrackKind::Audio)
+            && !self.shutdown.is_cancelled()
+        {
+            self.media.lock().enable_playout();
+        }
         self.update(|inner| {
             // A cancel released the backlog and froze the state.
             if inner.terminal != Some(NativeSessionError::Cancelled) {

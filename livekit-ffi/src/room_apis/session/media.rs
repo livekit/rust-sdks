@@ -60,13 +60,28 @@ struct VideoSink {
 #[derive(Default)]
 pub(super) struct Media {
     next_id: u64,
+    // Core shares the ADM lease with other rooms and microphone handles. Never stop/reset it here.
+    pub(super) playout: Option<PlatformAudio>,
     local: HashMap<u64, Arc<OwnedTrack>>,
     audio: HashMap<u64, Arc<AudioSink>>,
     video: HashMap<u64, Arc<VideoSink>>,
 }
 impl Media {
     pub(super) fn is_empty(&self) -> bool {
-        self.local.is_empty() && self.audio.is_empty() && self.video.is_empty()
+        self.playout.is_none()
+            && self.local.is_empty()
+            && self.audio.is_empty()
+            && self.video.is_empty()
+    }
+    pub(super) fn enable_playout(&mut self) {
+        if self.playout.is_none() {
+            match PlatformAudio::new() {
+                Ok(audio) => self.playout = Some(audio),
+                Err(error) => {
+                    log::error!("room session: platform audio output unavailable: {error}")
+                }
+            }
+        }
     }
     fn id(&mut self) -> Result<u64, NativeSessionError> {
         if self.local.len() + self.audio.len() + self.video.len() >= MAX_RESOURCES {
@@ -103,6 +118,7 @@ impl Media {
         self.audio.clear();
         self.video.clear();
         self.local.clear();
+        self.playout.take();
     }
 }
 

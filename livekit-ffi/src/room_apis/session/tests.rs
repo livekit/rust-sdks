@@ -1652,3 +1652,100 @@ fn real_structured_connection_and_stream_errors() {
     ));
     block_on(idle.disconnect());
 }
+
+// A stable debugger stop after traffic reaches the receiver; it does not observe or save audio.
+#[inline(never)]
+fn receive_only_playout_ready(phase: u32) {
+    eprintln!("receive-only platform output probe phase {phase}");
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local server and platform output; emits a quiet synthetic tone, never captures microphone audio"]
+fn real_receive_only_playout_shared_lifetime() {
+    let name = unique("receive-only");
+    let sender = Peer::join_options(&name, "tone", cursor_options(), encrypted_options(&name));
+    let audio = block_on(sender.session.create_audio_track("quiet tone".into(), 1)).unwrap();
+    let publication =
+        block_on(audio.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    let sid = publication.info().unwrap().sid;
+    assert!(sender.session.shared.media.lock().playout.is_none());
+    let mut first = Peer::join_options(&name, "first", cursor_options(), encrypted_options(&name));
+    first.expect(|event| match event {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    assert_eq!(first.session.shared.media.lock().playout.as_ref().unwrap().ref_count(), 1);
+    assert!(!first
+        .session
+        .shared
+        .media
+        .lock()
+        .playout
+        .as_ref()
+        .unwrap()
+        .is_recording_initialized());
+    let mut second =
+        Peer::join_options(&name, "second", cursor_options(), encrypted_options(&name));
+    second.expect(|event| match event {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    assert_eq!(second.session.shared.media.lock().playout.as_ref().unwrap().ref_count(), 2);
+    // Neither receiver creates a microphone, local track or decoded PCM sink.
+    assert!(first.session.state().publications.iter().all(|p| p.participant_identity != "first"));
+    let remote = second.session.publication("tone".into(), sid).unwrap();
+    let producer = thread::spawn(move || {
+        for n in 0..600 {
+            block_on(
+                audio.capture_frame(NativeAudioFrame {
+                    samples: (0..480)
+                        .map(|i| {
+                            (((n * 480 + i) as f64 * 440.0 * std::f64::consts::TAU / 48_000.0)
+                                .sin()
+                                * 160.0) as i16
+                        })
+                        .collect(),
+                    sample_rate: 48_000,
+                    num_channels: 1,
+                    samples_per_channel: 480,
+                }),
+            )
+            .unwrap();
+        }
+    });
+    let deadline = Instant::now() + LIMIT;
+    loop {
+        let stats = block_on(remote.get_statistics()).unwrap();
+        if stats.iter().any(|s| {
+            matches!(&s.stats,
+            Some(crate::proto::rtc_stats::Stats::InboundRtp(rtp))
+                if rtp.received.packets_received > 10)
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "tone did not reach receiver");
+        thread::sleep(Duration::from_millis(20));
+    }
+    receive_only_playout_ready(1);
+    let weak = Arc::downgrade(&first.session.shared);
+    first.session.cancel();
+    block_on(first.session.disconnect());
+    assert!(first.session.shared.media.lock().is_empty());
+    drop(first);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(second.session.shared.media.lock().playout.as_ref().unwrap().ref_count(), 1);
+    receive_only_playout_ready(2);
+    producer.join().unwrap();
+    // An independent public-core consumer must survive the remaining room's cleanup.
+    // Acquired only AFTER the receive-only proof, so it cannot enable that proof incidentally.
+    let other_consumer = livekit::PlatformAudio::new().unwrap();
+    assert_eq!(other_consumer.ref_count(), 2);
+    let weak = Arc::downgrade(&second.session.shared);
+    second.leave();
+    assert!(weak.upgrade().is_none());
+    assert_eq!(other_consumer.ref_count(), 1);
+    assert!(!other_consumer.is_recording_initialized());
+    drop(other_consumer);
+    sender.leave();
+}
