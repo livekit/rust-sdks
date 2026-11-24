@@ -22,8 +22,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use livekit_common as common;
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::api as ds_api;
+#[cfg(feature = "core-modules")]
+use livekit_data_stream::backend as ds;
+#[cfg(feature = "core-modules")]
 use livekit_protocol as proto;
+#[cfg(feature = "core-modules")]
 use prost::Message;
 
 use super::outgoing::StreamProgressDelegate;
@@ -460,6 +464,7 @@ impl From<ds_api::StreamError> for DataStreamError {
 /// traffic replaces it with the decrypted stream header/chunk/trailer — by the time these bytes
 /// arrive, the field is absent from the wire format. Hosts without E2EE pass
 /// [`common::EncryptionType::None`].
+#[cfg(feature = "core-modules")]
 pub(crate) fn decode_data_packet(
     bytes: &[u8],
     encryption_type: common::EncryptionType,

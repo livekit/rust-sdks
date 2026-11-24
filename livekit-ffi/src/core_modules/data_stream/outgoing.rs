@@ -12,22 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+#[cfg(feature = "core-modules")]
+use std::sync::Arc;
 
 use bytes::Bytes;
+#[cfg(feature = "core-modules")]
 use livekit_common as lk_common;
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::api as ds_api;
+#[cfg(feature = "core-modules")]
+use livekit_data_stream::backend as ds;
+#[cfg(feature = "core-modules")]
 use prost::Message as _;
+#[cfg(feature = "core-modules")]
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use super::common::{
-    ByteStreamInfo, ClientCapability, DataStreamError, PacketDeliveryError, StreamByteOptions,
-    StreamProgress, StreamTextOptions, TextStreamInfo,
-};
+use super::common::{ByteStreamInfo, DataStreamError, StreamProgress, TextStreamInfo};
+#[cfg(feature = "core-modules")]
+use super::common::{ClientCapability, PacketDeliveryError, StreamByteOptions, StreamTextOptions};
 use ds_api::StreamWriter as _;
 
 /// Sends data streams, choosing v2 single-packet/compression or legacy multi-packet framing based
 /// on recipient capabilities. Outbound packets are handed to a foreign delegate for transport.
+#[cfg(feature = "core-modules")]
 #[derive(uniffi::Object)]
 pub struct OutgoingDataStreamManager {
     manager: ds::outgoing::Manager,
@@ -36,6 +43,7 @@ pub struct OutgoingDataStreamManager {
 }
 
 /// Delegate for receiving outbound packets from [`OutgoingDataStreamManager`].
+#[cfg(feature = "core-modules")]
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
 pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
@@ -55,6 +63,7 @@ pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
 /// Read access to remote participants' advertised protocol and capabilities, implemented by the
 /// foreign side. Mirrors [`lk_common::RemoteParticipantRegistry`]; used to decide inline/compression
 /// eligibility per send.
+#[cfg(feature = "core-modules")]
 #[uniffi::export(with_foreign)]
 pub trait RemoteParticipantRegistryDelegate: Send + Sync {
     /// A remote participant's `client_protocol`, or `0` (`CLIENT_PROTOCOL_DEFAULT`) if unknown.
@@ -86,8 +95,10 @@ impl std::fmt::Debug for dyn StreamProgressDelegate {
 
 /// Adapts the foreign [`RemoteParticipantRegistryDelegate`] to the crate-internal
 /// [`lk_common::RemoteParticipantRegistry`] the outgoing manager consumes.
+#[cfg(feature = "core-modules")]
 struct ForeignRegistry(Arc<dyn RemoteParticipantRegistryDelegate>);
 
+#[cfg(feature = "core-modules")]
 impl lk_common::RemoteParticipantRegistry for ForeignRegistry {
     fn remote_client_protocol(&self, identity: &lk_common::ParticipantIdentity) -> i32 {
         self.0.remote_client_protocol(identity.to_string())
@@ -105,6 +116,7 @@ impl lk_common::RemoteParticipantRegistry for ForeignRegistry {
     }
 }
 
+#[cfg(feature = "core-modules")]
 impl OutgoingDataStreamManager {
     /// Builds a manager that cancels `token` when it is dropped, for a delegate that has to know
     /// when its manager is gone.
@@ -147,6 +159,7 @@ impl OutgoingDataStreamManager {
     }
 }
 
+#[cfg(feature = "core-modules")]
 #[uniffi::export(async_runtime = "tokio")]
 impl OutgoingDataStreamManager {
     #[uniffi::constructor]
@@ -218,7 +231,7 @@ impl OutgoingDataStreamManager {
 
 /// Writer for an open text data stream.
 #[derive(uniffi::Object)]
-pub struct TextStreamWriter(ds_api::TextStreamWriter);
+pub struct TextStreamWriter(pub(crate) ds_api::TextStreamWriter);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl TextStreamWriter {
@@ -229,12 +242,12 @@ impl TextStreamWriter {
 
     /// Whether the stream is still open — false once it has been closed locally or a send has failed.
     pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
+        !crate::common::with_runtime(self.0.is_closed()).await
     }
 
     /// Appends text to the stream.
     pub async fn write(&self, text: String) -> Result<(), DataStreamError> {
-        Ok(self.0.write(&text).await?)
+        Ok(crate::common::with_runtime(self.0.write(&text)).await?)
     }
 
     /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
@@ -245,18 +258,21 @@ impl TextStreamWriter {
         reason: Option<String>,
         attributes: HashMap<String, String>,
     ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
+        Ok(crate::common::with_runtime(
+            self.0.clone().close_with_options(reason.as_deref(), Some(attributes)),
+        )
+        .await?)
     }
 
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
+        Ok(crate::common::with_runtime(self.0.clone().close_with_reason(&reason)).await?)
     }
 }
 
 /// Writer for an open byte data stream.
 #[derive(uniffi::Object)]
-pub struct ByteStreamWriter(ds_api::ByteStreamWriter);
+pub struct ByteStreamWriter(pub(crate) ds_api::ByteStreamWriter);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl ByteStreamWriter {
@@ -267,12 +283,12 @@ impl ByteStreamWriter {
 
     /// Whether the stream is still open — false once it has been closed locally or a send has failed.
     pub async fn is_open(&self) -> bool {
-        !self.0.is_closed().await
+        !crate::common::with_runtime(self.0.is_closed()).await
     }
 
     /// Appends bytes to the stream.
     pub async fn write(&self, data: Bytes) -> Result<(), DataStreamError> {
-        Ok(self.0.write(data.as_ref()).await?)
+        Ok(crate::common::with_runtime(self.0.write(data.as_ref())).await?)
     }
 
     /// Closes the stream. A `reason` closes it abnormally, and `attributes` go in its trailer,
@@ -283,11 +299,14 @@ impl ByteStreamWriter {
         reason: Option<String>,
         attributes: HashMap<String, String>,
     ) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_options(reason.as_deref(), Some(attributes)).await?)
+        Ok(crate::common::with_runtime(
+            self.0.clone().close_with_options(reason.as_deref(), Some(attributes)),
+        )
+        .await?)
     }
 
     /// Closes the stream abnormally with a reason.
     pub async fn close_with_reason(&self, reason: String) -> Result<(), DataStreamError> {
-        Ok(self.0.clone().close_with_reason(&reason).await?)
+        Ok(crate::common::with_runtime(self.0.clone().close_with_reason(&reason)).await?)
     }
 }

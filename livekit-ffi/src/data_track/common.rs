@@ -48,7 +48,7 @@ impl From<livekit_datatrack::api::DataTrackFrame> for DataTrackFrame {
 }
 
 /// Information about a published data track.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct DataTrackInfo {
     pub sid: DataTrackSid,
     pub name: String,
@@ -73,7 +73,7 @@ impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
 ///
 /// A compound identifier with two components: name and encoding.
 ///
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct DataTrackSchemaId {
     pub name: String,
     pub encoding: DataTrackSchemaEncoding,

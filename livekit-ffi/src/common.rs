@@ -19,3 +19,14 @@ use bytes::Bytes;
 // into this component's Swift file, and both files compile into one module.
 // Upstream: https://github.com/mozilla/uniffi-rs/issues/2933
 uniffi::use_remote_type!(livekit_common::Bytes);
+
+/// Polls a core future with the FFI-owned runtime context, retaining cancellation ownership.
+/// No task is detached: dropping the foreign future drops the core future in place.
+pub(crate) async fn with_runtime<F: std::future::Future>(future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    futures_util::future::poll_fn(|cx| {
+        let _entered = crate::runtime::runtime().enter();
+        future.as_mut().poll(cx)
+    })
+    .await
+}

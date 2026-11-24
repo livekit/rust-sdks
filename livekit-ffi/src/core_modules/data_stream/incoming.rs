@@ -16,15 +16,19 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::stream::{BoxStream, StreamExt};
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::api as ds_api;
+#[cfg(feature = "core-modules")]
+use livekit_data_stream::backend as ds;
+#[cfg(feature = "core-modules")]
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio_util::sync::CancellationToken;
+#[cfg(feature = "core-modules")]
+use tokio_util::sync::DropGuard;
 
-use super::common::{
-    decode_data_packet, ByteStreamInfo, DataStreamError, EncryptionType, StreamProgress,
-    TextStreamInfo,
-};
+#[cfg(feature = "core-modules")]
+use super::common::{decode_data_packet, EncryptionType};
+use super::common::{ByteStreamInfo, DataStreamError, StreamProgress, TextStreamInfo};
 use ds_api::StreamReader as _;
 
 /// Receives inbound data-stream packets and processes them on the incoming manager's actor loop,
@@ -33,6 +37,7 @@ use ds_api::StreamReader as _;
 /// Mirrors [`crate::data_track_manager::remote::RemoteDataTrackManager`]: `handle_packet_received` is a
 /// cheap synchronous enqueue (safe to call from a native data-channel callback), while
 /// decompression and reassembly happen on the spawned `run` task in packet order.
+#[cfg(feature = "core-modules")]
 #[derive(uniffi::Object)]
 pub struct IncomingDataStreamManager {
     input: ds::incoming::ManagerInput,
@@ -43,6 +48,7 @@ pub struct IncomingDataStreamManager {
 ///
 /// Only stream lifecycle events (opened/closed) are surfaced. The manager's deprecated v1 raw
 /// chunk/trailer notifications are intentionally not forwarded over the FFI boundary.
+#[cfg(feature = "core-modules")]
 #[uniffi::export(with_foreign)]
 pub trait IncomingDataStreamManagerDelegate: Send + Sync {
     /// A byte stream was opened by `identity` and is ready to be read.
@@ -60,6 +66,7 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
     fn on_stream_closed(&self, stream_id: String, identity: String);
 }
 
+#[cfg(feature = "core-modules")]
 #[uniffi::export(async_runtime = "tokio")]
 impl IncomingDataStreamManager {
     /// Creates a manager that surfaces opened streams to `delegate`.
@@ -150,7 +157,7 @@ pub struct ByteStreamReader {
 }
 
 impl ByteStreamReader {
-    fn new(reader: ds_api::ByteStreamReader) -> Self {
+    pub(crate) fn new(reader: ds_api::ByteStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
@@ -224,7 +231,7 @@ pub struct TextStreamReader {
 }
 
 impl TextStreamReader {
-    fn new(reader: ds_api::TextStreamReader) -> Self {
+    pub(crate) fn new(reader: ds_api::TextStreamReader) -> Self {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
@@ -347,12 +354,14 @@ fn close_reader<R: Send + 'static>(
 }
 
 /// Forwards manager output events to the foreign [`IncomingDataStreamManagerDelegate`].
+#[cfg(feature = "core-modules")]
 struct DelegateForwardTask {
     output: UnboundedReceiver<ds::incoming::OutputEvent>,
     delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
     token: CancellationToken,
 }
 
+#[cfg(feature = "core-modules")]
 impl DelegateForwardTask {
     async fn run(mut self) {
         loop {
@@ -400,12 +409,13 @@ impl DelegateForwardTask {
     }
 }
 
+#[cfg(feature = "core-modules")]
 async fn shutdown_forward_task(input: ds::incoming::ManagerInput, token: CancellationToken) {
     token.cancelled().await;
     let _ = input.send(ds::incoming::InputEvent::Shutdown);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "core-modules"))]
 mod tests {
     use futures_util::FutureExt as _;
 
@@ -432,5 +442,31 @@ mod tests {
             });
             dropped.await.expect("close should drop the core reader");
         });
+    }
+}
+
+#[cfg(feature = "room-apis")]
+impl PartialEq for ByteStreamReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+#[cfg(feature = "room-apis")]
+impl std::fmt::Debug for ByteStreamReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ByteStreamReader").finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "room-apis")]
+impl PartialEq for TextStreamReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+#[cfg(feature = "room-apis")]
+impl std::fmt::Debug for TextStreamReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextStreamReader").finish_non_exhaustive()
     }
 }

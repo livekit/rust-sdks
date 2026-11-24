@@ -41,6 +41,9 @@ use tokio::{
 };
 
 mod events;
+mod helpers;
+mod rpc;
+pub use rpc::*;
 pub(crate) mod log_forward;
 mod records;
 #[cfg(test)]
@@ -67,6 +70,7 @@ struct Inner {
     local: Option<NativeParticipant>,
     remotes: HashMap<String, NativeParticipant>,
     publications: HashMap<String, NativeTrackPublication>,
+    data_tracks: HashMap<String, Arc<crate::data_track::remote::RemoteDataTrack>>,
     /// Identities in the last active-speaker update.
     speakers: Vec<String>,
     /// Why the session accepts no more work. Set one time.
@@ -89,6 +93,14 @@ impl Inner {
             local_participant: self.local.clone(),
             remote_participants: self.remotes.values().cloned().collect(),
             publications: self.publications.values().cloned().collect(),
+            data_tracks: self
+                .data_tracks
+                .values()
+                .map(|track| NativeDataTrackPublication {
+                    info: track.info(),
+                    publisher_identity: track.publisher_identity(),
+                })
+                .collect(),
         }
     }
 
@@ -159,6 +171,7 @@ impl Inner {
         self.disconnect_reason = Some(reason);
         self.remotes.clear();
         self.publications.clear();
+        self.data_tracks.clear();
         self.speakers.clear();
         self.revision += 1;
         self.emit(NativeRoomEvent::Disconnected { reason });
@@ -210,6 +223,42 @@ impl Inner {
             RoomEvent::Moved { room } => {
                 let room = self.set_room_info((&room).into());
                 self.emit(Out::RoomMoved { room });
+            }
+            RoomEvent::ByteStreamOpened { reader, participant_identity, .. } => {
+                if let Some(reader) = reader.take() {
+                    self.emit(Out::ByteStreamOpened {
+                        reader: Arc::new(crate::data_stream::incoming::ByteStreamReader::new(
+                            reader,
+                        )),
+                        identity: participant_identity.into(),
+                    });
+                }
+            }
+            RoomEvent::TextStreamOpened { reader, participant_identity, .. } => {
+                if let Some(reader) = reader.take() {
+                    self.emit(Out::TextStreamOpened {
+                        reader: Arc::new(crate::data_stream::incoming::TextStreamReader::new(
+                            reader,
+                        )),
+                        identity: participant_identity.into(),
+                    });
+                }
+            }
+            RoomEvent::DataTrackPublished(track) => {
+                let track = Arc::new(crate::data_track::remote::RemoteDataTrack::new(track));
+                self.data_tracks.insert(track.info().sid.to_string(), track.clone());
+                self.revision += 1;
+                self.emit(Out::DataTrackPublished { identity: track.publisher_identity(), track });
+            }
+            RoomEvent::DataTrackUnpublished(sid) => {
+                if let Some(track) = self.data_tracks.remove(&sid.to_string()) {
+                    self.revision += 1;
+                    self.emit(Out::DataTrackUnpublished {
+                        sid: sid.to_string(),
+                        identity: track.publisher_identity(),
+                        track,
+                    });
+                }
             }
             RoomEvent::TokenRefreshed { token } => self.emit(Out::TokenRefreshed { token }),
             RoomEvent::ParticipantConnected(participant) => {
@@ -385,6 +434,9 @@ fn room_info(room: &Room) -> NativeRoomInfo {
 
 struct Shared {
     generation: u64,
+    rpc_slots: Arc<tokio::sync::Semaphore>,
+    shutdown: tokio_util::sync::CancellationToken,
+    commands: Mutex<tokio::task::JoinSet<()>>,
     inner: Mutex<Inner>,
     /// Fires after each change to `inner`.
     changed: Notify,
@@ -394,7 +446,13 @@ struct Shared {
 
 impl Shared {
     fn update<R>(&self, change: impl FnOnce(&mut Inner) -> R) -> R {
-        let result = change(&mut self.inner.lock());
+        let (result, terminal) = {
+            let mut inner = self.inner.lock();
+            (change(&mut inner), inner.terminal.is_some())
+        };
+        if terminal {
+            self.shutdown.cancel();
+        }
         self.changed.notify_waiters();
         result
     }
@@ -406,7 +464,11 @@ impl Shared {
             let cancelled = error == NativeSessionError::Cancelled;
             // Read this first: a cancel moves the state away from `Idle`.
             let idle = inner.connection == NativeConnectionState::Idle;
-            inner.terminal.get_or_insert(error);
+            if cancelled {
+                inner.terminal = Some(error);
+            } else {
+                inner.terminal.get_or_insert(error);
+            }
             if cancelled {
                 if let Some(queue) = inner.events.take() {
                     queue.fail(NativeSessionError::Cancelled);
@@ -418,6 +480,52 @@ impl Shared {
                 inner.finish();
             }
         });
+    }
+
+    /// Admits a command atomically with termination and keeps ownership until joined.
+    async fn command<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = T> + Send + 'static,
+    ) -> Result<T, NativeSessionError> {
+        let cancelled = tokio_util::sync::CancellationToken::new();
+        let _caller = cancelled.clone().drop_guard();
+        let (send, receive) = tokio::sync::oneshot::channel();
+        {
+            let inner = self.inner.lock();
+            if let Some(error) = &inner.terminal {
+                return Err(error.clone());
+            }
+            let mut commands = self.commands.lock();
+            while commands.try_join_next().is_some() {}
+            // Bound accepted work even if a foreign producer never waits for results.
+            if commands.len() >= 128 {
+                return Err(NativeSessionError::InvalidState {
+                    reason: "too many pending room commands".into(),
+                });
+            }
+            let shutdown = self.shutdown.clone();
+            commands.spawn_on(
+                async move {
+                    let result = tokio::select! {
+                        biased;
+                        _ = shutdown.cancelled() => Err(NativeSessionError::Cancelled),
+                        _ = cancelled.cancelled() => Err(NativeSessionError::Cancelled),
+                        result = work => Ok(result),
+                    };
+                    let _ = send.send(result);
+                },
+                crate::FFI_SERVER.async_runtime.handle(),
+            );
+        }
+        receive.await.unwrap_or_else(|_| {
+            Err(NativeSessionError::Internal { reason: "room command task failed".into() })
+        })
+    }
+
+    /// No command can be admitted after termination. Join every accepted task.
+    async fn drain_commands(&self) {
+        let mut commands = std::mem::take(&mut *self.commands.lock());
+        while commands.join_next().await.is_some() {}
     }
 
     fn room(&self) -> Result<Arc<Room>, NativeSessionError> {
@@ -507,7 +615,7 @@ impl Shared {
                 _ = self.terminated() => break,
                 event = events.recv() => match event {
                     Some(event) => self.apply(event),
-                    None => return,
+                    None => { self.terminate(NativeSessionError::Closed); break; },
                 },
                 // The core has no event for a room identifier that arrives late.
                 sid = room.sid(), if !sid_known => {
@@ -521,6 +629,8 @@ impl Shared {
                 }
             }
         }
+
+        self.drain_commands().await;
 
         // `AlreadyClosed` means that the core closes the room by itself.
         let _ = room.close().await;
@@ -544,20 +654,6 @@ impl Shared {
             }
         });
     }
-}
-
-/// Runs `work` on the runtime of the FFI server and waits for it in place.
-///
-/// The core spawns tasks and sets timers, so its futures need that runtime.
-/// The UniFFI `tokio` attribute does not supply it.
-async fn on_runtime<T: Send + 'static>(
-    work: impl Future<Output = Result<T, NativeSessionError>> + Send + 'static,
-) -> Result<T, NativeSessionError> {
-    crate::FFI_SERVER
-        .async_runtime
-        .spawn(work)
-        .await
-        .unwrap_or_else(|error| Err(NativeSessionError::Internal { reason: error.to_string() }))
 }
 
 /// One connection to a room.
@@ -585,6 +681,7 @@ impl NativeRoomSession {
             local: None,
             remotes: HashMap::new(),
             publications: HashMap::new(),
+            data_tracks: HashMap::new(),
             speakers: Vec::new(),
             terminal: None,
             finished: false,
@@ -594,6 +691,9 @@ impl NativeRoomSession {
         };
         Arc::new(Self {
             shared: Arc::new(Shared {
+                rpc_slots: Arc::new(tokio::sync::Semaphore::new(64)),
+                shutdown: tokio_util::sync::CancellationToken::new(),
+                commands: Mutex::new(tokio::task::JoinSet::new()),
                 generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
                 inner: Mutex::new(inner),
                 changed: Notify::new(),
@@ -650,6 +750,7 @@ impl NativeRoomSession {
             let _ = task.await;
         }
         wait_for(&self.shared.changed, || self.shared.inner.lock().finished.then_some(())).await;
+        self.shared.drain_commands().await;
     }
 
     /// Ends the session at once and does not wait.
@@ -722,32 +823,37 @@ impl NativeRoomSession {
         options: NativeDataPublishOptions,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        on_runtime(async move {
-            let packet = DataPacket {
-                payload,
-                topic: options.topic,
-                reliable: options.reliable,
-                destination_identities: options
-                    .destination_identities
-                    .into_iter()
-                    .map(Into::into)
-                    .collect(),
-            };
-            Ok(room.local_participant().publish_data(packet).await?)
-        })
-        .await
+        self.shared
+            .command(async move {
+                let packet = DataPacket {
+                    payload,
+                    topic: options.topic,
+                    reliable: options.reliable,
+                    destination_identities: options
+                        .destination_identities
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                };
+                Ok(room.local_participant().publish_data(packet).await?)
+            })
+            .await?
     }
 
     /// Sets the metadata of the local participant.
     pub async fn set_metadata(&self, metadata: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        on_runtime(async move { Ok(room.local_participant().set_metadata(metadata).await?) }).await
+        self.shared
+            .command(async move { Ok(room.local_participant().set_metadata(metadata).await?) })
+            .await?
     }
 
     /// Sets the name of the local participant.
     pub async fn set_name(&self, name: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        on_runtime(async move { Ok(room.local_participant().set_name(name).await?) }).await
+        self.shared
+            .command(async move { Ok(room.local_participant().set_name(name).await?) })
+            .await?
     }
 
     /// Sets attributes of the local participant. An empty value removes a key.
@@ -756,8 +862,9 @@ impl NativeRoomSession {
         attributes: HashMap<String, String>,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        on_runtime(async move { Ok(room.local_participant().set_attributes(attributes).await?) })
-            .await
+        self.shared
+            .command(async move { Ok(room.local_participant().set_attributes(attributes).await?) })
+            .await?
     }
 }
 

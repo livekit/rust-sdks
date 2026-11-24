@@ -87,6 +87,7 @@ fn connect_options() -> NativeConnectOptions {
         join_retries: 0,
         connect_timeout_ms: Some(2_000),
         sdk: None,
+        max_stream_payload_bytes: None,
         sdk_version: None,
     }
 }
@@ -754,4 +755,228 @@ fn cancel_races_a_real_connect() {
         }
     }
     observer.leave();
+}
+
+#[test]
+fn cancel_supersedes_closed_during_stalled_teardown() {
+    let session = NativeRoomSession::new();
+    // Deterministic driver state: a close is pending and has not marked finished.
+    session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
+    session.shared.terminate(NativeSessionError::Closed);
+    let mut wait = Box::pin(session.state_changed(session.state().revision));
+    assert!(poll_for(Duration::from_millis(10), &mut wait).is_none());
+    session.cancel();
+    let frozen = session.state();
+    let _ = block_on(wait);
+    assert_eq!(
+        block_on(session.state_changed(frozen.revision)),
+        Err(NativeSessionError::Cancelled)
+    );
+    session.shared.apply(RoomEvent::TokenRefreshed { token: "late".into() });
+    session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
+    assert_eq!(session.state(), frozen);
+    session.shared.update(Inner::finish);
+    block_on(session.disconnect());
+}
+
+#[test]
+fn session_joins_commands_when_callers_drop_and_on_cancel() {
+    for drop_caller in [false, true] {
+        let session = NativeRoomSession::new();
+        let resource = Arc::new(());
+        let weak = Arc::downgrade(&resource);
+        let (started, ready) = std::sync::mpsc::channel();
+        let mut call = Box::pin(session.shared.command(async move {
+            let _resource = resource;
+            started.send(()).expect("started");
+            std::future::pending::<()>().await;
+        }));
+        assert!(poll_for(Duration::from_millis(20), &mut call).is_none());
+        ready.recv_timeout(LIMIT).expect("command started");
+        if drop_caller {
+            drop(call);
+        } else {
+            session.cancel();
+            assert_eq!(block_on(call), Err(NativeSessionError::Cancelled));
+        }
+        session.cancel();
+        block_on(session.disconnect());
+        assert!(weak.upgrade().is_none());
+        assert!(session.shared.commands.lock().is_empty());
+        assert_eq!(block_on(session.shared.command(async {})), Err(NativeSessionError::Cancelled));
+    }
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local LiveKit server with data tracks and participant data blobs enabled"]
+fn real_room_helpers_streams_tracks_schema_and_rpc() {
+    use crate::data_stream::common::{StreamByteOptions, StreamTextOptions};
+    use crate::data_track::{
+        common::{DataTrackFrame, DataTrackSchemaId},
+        local::DataTrackOptions,
+    };
+    use livekit_datatrack::api::{DataTrackFrameEncoding, DataTrackSchemaEncoding};
+    for _ in 0..2 {
+        let room = unique("helpers");
+        let sender = Peer::join(&room, "sender");
+        let mut receiver = Peer::join(&room, "receiver");
+        let info =
+            block_on(sender.session.send_text("hello λ".into(), StreamTextOptions::default()))
+                .expect("text");
+        let reader = receiver.expect(|event| match event {
+            NativeRoomEvent::TextStreamOpened { reader, identity } if identity == "sender" => {
+                Some(reader.clone())
+            }
+            _ => None,
+        });
+        assert_eq!(reader.info().id, info.id);
+        assert_eq!(block_on(reader.read_all()).expect("read text"), "hello λ");
+        let bytes = bytes::Bytes::from_static(b"\x00\xffbytes");
+        block_on(sender.session.send_bytes(bytes.clone(), StreamByteOptions::default()))
+            .expect("bytes");
+        let reader = receiver.expect(|event| match event {
+            NativeRoomEvent::ByteStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        assert_eq!(block_on(reader.read_all()).expect("read bytes"), bytes);
+        let path = std::env::temp_dir().join(unique("stream-file"));
+        std::fs::write(&path, b"file payload").expect("temporary file");
+        block_on(
+            sender.session.send_file(path.to_string_lossy().into(), StreamByteOptions::default()),
+        )
+        .expect("send file");
+        std::fs::remove_file(path).expect("remove file");
+        let reader = receiver.expect(|event| match event {
+            NativeRoomEvent::ByteStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        assert_eq!(block_on(reader.read_all()).expect("read file").as_ref(), b"file payload");
+        let writer = block_on(sender.session.stream_text(StreamTextOptions::default()))
+            .expect("text writer");
+        block_on(writer.write("incremental".into())).expect("text write");
+        block_on(writer.close(None, HashMap::from([("done".into(), "yes".into())])))
+            .expect("text close");
+        let reader = receiver.expect(|event| match event {
+            NativeRoomEvent::TextStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        assert_eq!(block_on(reader.read_all()).expect("incremental text"), "incremental");
+        assert_eq!(reader.info().attributes.get("done").map(String::as_str), Some("yes"));
+        let writer = block_on(sender.session.stream_bytes(StreamByteOptions::default()))
+            .expect("byte writer");
+        block_on(writer.write(bytes.clone())).expect("byte write");
+        let reader = receiver.expect(|event| match event {
+            NativeRoomEvent::ByteStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        assert_eq!(block_on(reader.next()).expect("byte chunk"), Some(bytes));
+        reader.close();
+        assert!(block_on(reader.next()).is_err());
+        block_on(writer.close(None, HashMap::new())).expect("byte close");
+
+        let schema = || DataTrackSchemaId {
+            name: "helper-schema".into(),
+            encoding: DataTrackSchemaEncoding::JsonSchema,
+        };
+        block_on(sender.session.define_schema(schema(), "{}".into())).expect("define schema");
+        assert_eq!(
+            block_on(receiver.session.get_schema(schema(), "sender".into())).expect("get schema"),
+            "{}"
+        );
+        let local = block_on(sender.session.publish_data_track(DataTrackOptions {
+            name: "helper-track".into(),
+            schema: Some(schema()),
+            frame_encoding: Some(DataTrackFrameEncoding::Json),
+        }))
+        .expect("publish data track");
+        let remote = receiver.expect(|event| match event {
+            NativeRoomEvent::DataTrackPublished { track, identity } if identity == "sender" => {
+                Some(track.clone())
+            }
+            _ => None,
+        });
+        assert_eq!(receiver.session.state().data_tracks.len(), 1);
+        let recovered = receiver
+            .session
+            .remote_data_track(remote.info().sid.to_string())
+            .expect("snapshot handle");
+        assert!(Arc::ptr_eq(&remote, &recovered));
+        let stream = block_on(remote.subscribe()).expect("subscribe");
+        local
+            .try_push(DataTrackFrame {
+                payload: bytes::Bytes::from_static(b"{}"),
+                user_timestamp: Some(42),
+            })
+            .expect("push frame");
+        let frame = block_on(stream.next()).expect("frame");
+        assert_eq!(frame.payload.as_ref(), b"{}");
+        assert_eq!(frame.user_timestamp, Some(42));
+        local.unpublish();
+        block_on(local.wait_for_unpublish());
+        block_on(remote.wait_for_unpublish());
+        assert!(block_on(stream.next()).is_none());
+
+        block_on(receiver.session.register_rpc_method("echo".into())).expect("register RPC");
+        for reply in [true, false] {
+            let session = sender.session.clone();
+            let call = thread::spawn(move || {
+                block_on(session.perform_rpc(NativeRpcOptions {
+                    destination_identity: "receiver".into(),
+                    method: "echo".into(),
+                    payload: "rpc payload".into(),
+                    response_timeout_ms: if reply { 10_000 } else { 1_000 },
+                    max_round_trip_latency_ms: 100,
+                }))
+            });
+            let invocation = receiver.expect(|event| match event {
+                NativeRoomEvent::RpcRequested { invocation } => Some(invocation.clone()),
+                _ => None,
+            });
+            assert_eq!(invocation.info().payload, "rpc payload");
+            if reply {
+                assert!(invocation.respond("answer".into()));
+            }
+            let result = call.join().expect("RPC caller");
+            if reply {
+                assert_eq!(result.expect("RPC response"), "answer");
+            } else {
+                assert!(result.is_err());
+                thread::sleep(Duration::from_millis(250));
+            }
+            assert!(!invocation.respond("late".into()));
+        }
+        block_on(receiver.session.unregister_rpc_method("echo".into())).expect("unregister");
+        block_on(receiver.session.register_rpc_method("pending".into())).expect("register pending");
+        let session = sender.session.clone();
+        let pending = thread::spawn(move || {
+            block_on(session.perform_rpc(NativeRpcOptions {
+                destination_identity: "receiver".into(),
+                method: "pending".into(),
+                payload: String::new(),
+                response_timeout_ms: 10_000,
+                max_round_trip_latency_ms: 100,
+            }))
+        });
+        let invocation = receiver.expect(|event| match event {
+            NativeRoomEvent::RpcRequested { invocation } => Some(invocation.clone()),
+            _ => None,
+        });
+        block_on(receiver.session.disconnect());
+        assert!(pending.join().expect("pending caller").is_err());
+        assert!(!invocation.respond("after disconnect".into()));
+        assert!(receiver.session.shared.commands.lock().is_empty());
+
+        let held_room = sender.session.shared.room().expect("connected room");
+        let weak_room = Arc::downgrade(&held_room);
+        let mut command = Box::pin(sender.session.shared.command(async move {
+            let _held = held_room;
+            std::future::pending::<()>().await;
+        }));
+        assert!(poll_for(Duration::from_millis(20), &mut command).is_none());
+        drop(command);
+        sender.leave();
+        assert!(weak_room.upgrade().is_none(), "command retained actual room");
+        receiver.leave();
+    }
 }

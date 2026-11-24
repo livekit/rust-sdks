@@ -70,6 +70,7 @@ impl NativeRoomEvent {
     fn cost(&self) -> usize {
         match self {
             Self::DataReceived { packet } => packet.payload.len(),
+            Self::RpcRequested { invocation } => invocation.payload_bytes(),
             _ => 0,
         }
     }
@@ -239,8 +240,9 @@ impl NativeRoomEventCursor {
 
     /// Returns the snapshot from the moment the cursor was created.
     ///
-    /// Every event of this cursor comes after this snapshot, so the two
-    /// together lose nothing and repeat nothing.
+    /// For a connected session, subsequent events follow this snapshot. A cursor
+    /// created before connect starts at Idle: consume the snapshot returned by
+    /// `connect` before reading events; initial entities are not replayed here.
     pub fn start_state(&self) -> NativeRoomState {
         self.start.clone()
     }

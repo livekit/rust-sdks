@@ -77,7 +77,7 @@ impl RemoteDataTrack {
 
     /// Subscribes to the data track.
     pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.inner.subscribe().await.map(DataTrackStream::new)
+        crate::common::with_runtime(self.inner.subscribe()).await.map(DataTrackStream::new)
     }
 
     /// Subscribes to the data track with custom options.
@@ -85,7 +85,9 @@ impl RemoteDataTrack {
         &self,
         options: DataTrackSubscribeOptions,
     ) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.inner.subscribe_with_options(options.into()).await.map(DataTrackStream::new)
+        crate::common::with_runtime(self.inner.subscribe_with_options(options.into()))
+            .await
+            .map(DataTrackStream::new)
     }
 
     /// Configures options for the pipeline handling incoming packets for this track.
@@ -184,5 +186,18 @@ impl DataTrackStream {
         crate::runtime::runtime().spawn(async move {
             inner.lock().await.take();
         });
+    }
+}
+
+#[cfg(feature = "room-apis")]
+impl PartialEq for RemoteDataTrack {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+#[cfg(feature = "room-apis")]
+impl std::fmt::Debug for RemoteDataTrack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteDataTrack").finish_non_exhaustive()
     }
 }

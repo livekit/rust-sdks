@@ -229,6 +229,9 @@ pub struct NativeConnectOptions {
     pub sdk: Option<String>,
     #[uniffi(default = None)]
     pub sdk_version: Option<String>,
+    /// Maximum incoming stream payload bytes; None keeps the core default.
+    #[uniffi(default = None)]
+    pub max_stream_payload_bytes: Option<u32>,
 }
 
 impl From<NativeConnectOptions> for RoomOptions {
@@ -241,6 +244,9 @@ impl From<NativeConnectOptions> for RoomOptions {
         core.join_retries = options.join_retries;
         if let Some(ms) = options.connect_timeout_ms {
             core.connect_timeout = Duration::from_millis(ms);
+        }
+        if let Some(limit) = options.max_stream_payload_bytes {
+            core.data_stream = core.data_stream.with_max_payload_byte_length(limit as usize);
         }
         if let Some(sdk) = options.sdk {
             core.sdk_options.sdk = sdk;
@@ -371,6 +377,8 @@ pub struct NativeParticipant {
     pub is_encrypted: bool,
     pub disconnect_reason: NativeDisconnectReason,
     pub client_protocol: i32,
+    /// Advertised remote capabilities. None for local participants: core has no accessor.
+    pub capabilities: Option<Vec<crate::data_stream::common::ClientCapability>>,
 }
 
 impl From<&Participant> for NativeParticipant {
@@ -393,6 +401,12 @@ impl From<&Participant> for NativeParticipant {
             is_encrypted: p.is_encrypted(),
             disconnect_reason: p.disconnect_reason(),
             client_protocol: p.client_protocol(),
+            capabilities: match p {
+                Participant::Remote(remote) => {
+                    Some(remote.capabilities().into_iter().map(Into::into).collect())
+                }
+                Participant::Local(_) => None,
+            },
         }
     }
 }
@@ -459,6 +473,8 @@ impl NativeTrackPublication {
 /// A snapshot of the session. The newest snapshot replaces every older one.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct NativeRoomState {
+    /// Remote data track publications known at this revision.
+    pub data_tracks: Vec<NativeDataTrackPublication>,
     /// Unique for each session in this process. Entity keys are only
     /// comparable within one generation.
     pub generation: u64,
@@ -499,6 +515,32 @@ pub struct NativeDataPacket {
 /// variant that it does not know.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum NativeRoomEvent {
+    /// An incoming RPC awaiting a reply before its deadline.
+    RpcRequested {
+        invocation: std::sync::Arc<super::NativeRpcInvocation>,
+    },
+    /// A byte reader owned by the connected core room.
+    ByteStreamOpened {
+        reader: std::sync::Arc<crate::data_stream::incoming::ByteStreamReader>,
+        identity: String,
+    },
+    /// A text reader owned by the connected core room.
+    TextStreamOpened {
+        reader: std::sync::Arc<crate::data_stream::incoming::TextStreamReader>,
+        identity: String,
+    },
+    /// A remote data track became available.
+    DataTrackPublished {
+        track: std::sync::Arc<crate::data_track::remote::RemoteDataTrack>,
+        identity: String,
+    },
+    /// A remote data track was unpublished.
+    DataTrackUnpublished {
+        track: std::sync::Arc<crate::data_track::remote::RemoteDataTrack>,
+        identity: String,
+        sid: String,
+    },
+
     ConnectionStateChanged {
         state: NativeConnectionState,
     },
@@ -597,4 +639,11 @@ pub struct NativeRoomUpdate {
     /// The revision of [`NativeRoomState`] after this event.
     pub revision: u64,
     pub event: NativeRoomEvent,
+}
+
+/// A value snapshot of a remote data track publication.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct NativeDataTrackPublication {
+    pub info: crate::data_track::common::DataTrackInfo,
+    pub publisher_identity: String,
 }

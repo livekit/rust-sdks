@@ -56,6 +56,11 @@ mod core_modules;
 #[cfg(feature = "core-modules")]
 pub use core_modules::*;
 
+// Shared stream value/handle wrappers; the managers remain exclusive to core-modules.
+#[cfg(feature = "room-apis")]
+#[path = "core_modules/data_stream/mod.rs"]
+pub mod data_stream;
+
 /// Information about the build such as version.
 ///
 /// Compiled under both the `room-apis` and `core-modules` features, and
