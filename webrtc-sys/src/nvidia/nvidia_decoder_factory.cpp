@@ -3,7 +3,11 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include <cstdlib>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <memory>
 #include <mutex>
 
@@ -34,19 +38,32 @@ void LogNvdecDisabledByEnv() {
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "NvCodec";
+#if defined(_WIN32)
+constexpr char kNvdecRuntimeLibrary[] = "nvcuvid.dll";
+#else
 constexpr char kNvdecRuntimeLibrary[] = "libnvcuvid.so.1";
+#endif
 
 namespace {
 
 bool IsNvdecRuntimeAvailable() {
+#if defined(_WIN32)
+  HMODULE hModule =
+      LoadLibraryExA(kNvdecRuntimeLibrary, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+#else
   void* hModule = dlopen(kNvdecRuntimeLibrary, RTLD_LAZY | RTLD_LOCAL);
+#endif
   if (!hModule) {
     RTC_LOG(LS_WARNING) << "NVDEC runtime library (" << kNvdecRuntimeLibrary
                         << ") not found, hardware decoding unavailable.";
     return false;
   }
 
+#if defined(_WIN32)
+  FreeLibrary(hModule);
+#else
   dlclose(hModule);
+#endif
   return true;
 }
 
@@ -63,6 +80,21 @@ static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
                        device);
 
   return major;
+}
+
+// Whether the device decodes 8-bit 4:2:0 H.265; GPUs before second-generation Maxwell don't.
+bool SupportsHevcDecoding(CUcontext context) {
+  CUVIDDECODECAPS caps = {};
+  caps.eCodecType = cudaVideoCodec_HEVC;
+  caps.eChromaFormat = cudaVideoChromaFormat_420;
+  caps.nBitDepthMinus8 = 0;
+  if (cuCtxPushCurrent(context) != CUDA_SUCCESS) {
+    return false;
+  }
+  CUresult result = cuvidGetDecoderCaps(&caps);
+  CUcontext popped;
+  cuCtxPopCurrent(&popped);
+  return result == CUDA_SUCCESS && caps.bIsSupported;
 }
 
 std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
@@ -92,9 +124,11 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
                          webrtc::H264Level::kLevel5_1, "1"),
         CreateH264Format(webrtc::H264Profile::kProfileMain,
                          webrtc::H264Level::kLevel5_1, "1"),
-        SdpVideoFormat("H265"),
-        SdpVideoFormat("HEVC"),
     };
+    if (SupportsHevcDecoding(context)) {
+      supportedFormats.push_back(SdpVideoFormat("H265"));
+      supportedFormats.push_back(SdpVideoFormat("HEVC"));
+    }
   }
 
   for (auto& format : supportedFormats) {

@@ -16,14 +16,44 @@
 #include "nvEncodeAPI.h"
 #include "rtc_base/logging.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 
 namespace webrtc {
 
 namespace {
 
+#if defined(_WIN32)
+constexpr char kNvencLibrary[] = "nvEncodeAPI64.dll";
+void* LoadNvenc() {
+  return LoadLibraryExA(kNvencLibrary, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+}
+void* NvencSymbol(void* module, const char* name) {
+  return reinterpret_cast<void*>(
+      GetProcAddress(static_cast<HMODULE>(module), name));
+}
+void UnloadNvenc(void* module) {
+  FreeLibrary(static_cast<HMODULE>(module));
+}
+#else
+constexpr char kNvencLibrary[] = "libnvidia-encode.so.1";
+void* LoadNvenc() {
+  return dlopen(kNvencLibrary, RTLD_LAZY);
+}
+void* NvencSymbol(void* module, const char* name) {
+  return dlsym(module, name);
+}
+void UnloadNvenc(void* module) {
+  dlclose(module);
+}
+#endif
+
 struct NvencProbeResult {
   bool encoder_supported = false;
+  bool hevc_supported = false;
   bool av1_supported = false;
 };
 
@@ -125,18 +155,18 @@ NvencProbeResult ProbeNvencSupport() {
   // CUDA being available does NOT imply NVENC is present. Compute-only GPUs
   // (H100, A100, etc.) have full CUDA support but no encode hardware.
   // Probe the NVENC library and try to open a session to be sure.
-  void* hModule = dlopen("libnvidia-encode.so.1", RTLD_LAZY);
+  void* hModule = LoadNvenc();
   if (!hModule) {
-    RTC_LOG(LS_WARNING) << "NVENC library (libnvidia-encode.so.1) not found, "
-                           "hardware encoding unavailable.";
+    RTC_LOG(LS_WARNING) << "NVENC library (" << kNvencLibrary
+                        << ") not found, hardware encoding unavailable.";
     return result;
   }
 
   auto NvEncodeAPIGetMaxSupportedVersion =
-      (NVENCSTATUS(NVENCAPI*)(uint32_t*))dlsym(
+      (NVENCSTATUS(NVENCAPI*)(uint32_t*))NvencSymbol(
           hModule, "NvEncodeAPIGetMaxSupportedVersion");
   auto NvEncodeAPICreateInstance =
-      (NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*))dlsym(
+      (NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*))NvencSymbol(
           hModule, "NvEncodeAPICreateInstance");
 
   NV_ENCODE_API_FUNCTION_LIST fnList = {NV_ENCODE_API_FUNCTION_LIST_VER};
@@ -209,6 +239,8 @@ NvencProbeResult ProbeNvencSupport() {
     }
 
     result.encoder_supported = true;
+    result.hevc_supported =
+        SupportsEncodeGuid(fnList, hEncoder, NV_ENC_CODEC_HEVC_GUID);
     result.av1_supported = SupportsAv1Encoding(fnList, hEncoder);
   } while (false);
 
@@ -218,7 +250,7 @@ NvencProbeResult ProbeNvencSupport() {
   if (cuCtx) {
     cuCtxDestroy(cuCtx);
   }
-  dlclose(hModule);
+  UnloadNvenc(hModule);
 
   return result;
 }
@@ -233,10 +265,15 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
   };
   supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
 
-  // Advertise HEVC/H265 with default parameters.
-  supported_formats_.push_back(SdpVideoFormat("H265"));
-  // Some stacks use 'HEVC' name.
-  supported_formats_.push_back(SdpVideoFormat("HEVC"));
+  if (IsHevcSupported()) {
+    // Advertise HEVC/H265 with default parameters.
+    supported_formats_.push_back(SdpVideoFormat("H265"));
+    // Some stacks use 'HEVC' name.
+    supported_formats_.push_back(SdpVideoFormat("HEVC"));
+  } else {
+    RTC_LOG(LS_INFO)
+        << "NVIDIA H.265 NVENC encoder is not supported on this GPU.";
+  }
 
   if (IsAv1Supported()) {
     absl::InlinedVector<ScalabilityMode, kScalabilityModeCount>
@@ -279,6 +316,10 @@ const NvencProbeResult& CachedNvencProbe() {
 
 bool NvidiaVideoEncoderFactory::IsSupported() {
   return CachedNvencProbe().encoder_supported;
+}
+
+bool NvidiaVideoEncoderFactory::IsHevcSupported() {
+  return CachedNvencProbe().hevc_supported;
 }
 
 bool NvidiaVideoEncoderFactory::IsAv1Supported() {
