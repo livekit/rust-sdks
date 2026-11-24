@@ -1661,8 +1661,11 @@ fn real_structured_connection_and_stream_errors() {
 fn invalid_cursor_limits_fail_without_an_event() {
     for options in [limits(0, 100), limits(100, 0)] {
         let session = NativeRoomSession::new();
+        let valid = session.events(cursor_options());
         let cursor = session.events(options);
         assert!(matches!(next(&cursor), Err(NativeSessionError::InvalidState { .. })));
+        session.shared.apply(RoomEvent::TokenRefreshed { token: "still-delivered".into() });
+        assert_eq!(next(&valid), Ok(Some(token_event("still-delivered"))));
     }
 }
 

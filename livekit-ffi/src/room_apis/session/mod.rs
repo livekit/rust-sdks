@@ -846,7 +846,7 @@ impl NativeRoomSession {
     ///
     /// Events are kept only while a cursor exists, so get the cursor before
     /// [`connect`](Self::connect). A session has one cursor: a new cursor
-    /// cancels the previous one.
+    /// cancels the previous one only when its limits are valid.
     ///
     /// The cursor holds the snapshot from the moment of this call, and every
     /// event of the cursor comes after that snapshot. Zero limits produce a cursor
@@ -855,7 +855,11 @@ impl NativeRoomSession {
     /// See
     /// [`NativeRoomEventCursor::start_state`].
     pub fn events(&self, options: NativeEventCursorOptions) -> Arc<NativeRoomEventCursor> {
+        let invalid_limits = options.max_items == 0 || options.max_bytes == 0;
         let queue = Arc::new(EventQueue::new(options));
+        if invalid_limits {
+            return NativeRoomEventCursor::new(queue, self.state());
+        }
         let start = self.shared.update(|inner| {
             if inner.terminal == Some(NativeSessionError::Cancelled) {
                 queue.fail(NativeSessionError::Cancelled);

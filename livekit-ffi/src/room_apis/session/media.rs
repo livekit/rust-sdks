@@ -220,7 +220,9 @@ impl NativeRoomSession {
 #[uniffi::export]
 impl NativeRoomSession {
     /// Creates a manual 48 kHz PCM16 source with a bounded 100 ms input queue, mono or stereo.
-    /// This is a PCM injection source, not physical microphone capture.
+    /// This injects PCM without requesting microphone capture itself.
+    /// Core recording is process-global: an explicitly created microphone track anywhere
+    /// in the process can cause physical microphone input to mix into later PCM tracks.
     pub async fn create_audio_track(
         &self,
         name: String,

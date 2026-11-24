@@ -110,3 +110,16 @@ cargo make dart-package
 ```
 
 See [support/dart/README.md](./support/dart/README.md).
+
+## Native room audio ownership
+
+Manual PCM creation does not itself request microphone capture. However, core recording
+is process-global: an explicitly created microphone track anywhere in the process can
+enable recording and mix physical microphone input into later manual PCM tracks in any
+session. The FFI does not fix or isolate that core behavior. Independent receive-only
+hardware output remains blocked until public core separates output from capture.
+
+A plain Cargo privacy-test pass establishes event/command progress only. The recorded
+receive-first no-ADM evidence requires the LLDB guard with all three acquisition/recording
+breakpoints resolved and both same-room/other-room PCM checkpoints reached. It does not
+cover processes that explicitly activate a microphone.
