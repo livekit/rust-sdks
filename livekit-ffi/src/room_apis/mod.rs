@@ -33,6 +33,13 @@ pub(crate) mod conversion;
 pub mod cabi;
 pub mod proto;
 pub mod server;
+/// The typed UniFFI room surface. Additive: it shares no state with [`server`].
+mod session;
+
+/// Access tokens. The file is shared with the `core-modules` surface, so both
+/// surfaces export the same names and shapes.
+#[path = "../core_modules/access_token.rs"]
+pub mod access_token;
 
 #[derive(Error, Debug)]
 pub enum FfiError {

@@ -21,7 +21,7 @@ use env_logger;
 use log::{self, Log};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{proto, FFI_SERVER};
+use crate::{proto, room_apis::session::log_forward, FFI_SERVER};
 
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 pub const BATCH_SIZE: usize = 32;
@@ -68,6 +68,9 @@ impl FfiLogger {
 
 impl Log for FfiLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if log_forward::enabled(metadata.level()) {
+            return true;
+        }
         if !self.capture_logs() {
             return self.env_logger.enabled(metadata);
         }
@@ -76,6 +79,8 @@ impl Log for FfiLogger {
     }
 
     fn log(&self, record: &log::Record) {
+        // The typed surface observes a record. It does not consume it.
+        log_forward::observe(record);
         if !self.capture_logs() {
             return self.env_logger.log(record);
         }

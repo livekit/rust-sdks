@@ -21,6 +21,8 @@ room-apis = [
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",
+  # The typed surface exports the same access token helpers as `core-modules`.
+  "dep:livekit-token",
   "dep:prost",
   "dep:dashmap",
   "dep:downcast-rs",
@@ -98,8 +100,10 @@ tokio-util = { workspace = true }
 livekit = { workspace = true, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
-# core-modules only.
+# Both surfaces: access tokens.
 livekit-token = { workspace = true, optional = true }
+
+# core-modules only.
 livekit-net = { workspace = true, optional = true }
 livekit-telemetry = { workspace = true, optional = true }
 livekit-data-stream = { workspace = true, optional = true }
