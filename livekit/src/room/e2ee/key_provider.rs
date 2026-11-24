@@ -54,6 +54,9 @@ impl Default for KeyProviderOptions {
 pub struct KeyProvider {
     pub(crate) handle: fc::KeyProvider,
     latest_key_index: Arc<AtomicI32>,
+    /// One key for every participant, so a receiver decrypts before it is known whose
+    /// track it carries.
+    pub(crate) shared: bool,
 }
 
 impl KeyProvider {
@@ -69,6 +72,7 @@ impl KeyProvider {
                 key_derivation_algorithm: options.key_derivation_algorithm,
             }),
             latest_key_index: Arc::new(AtomicI32::new(0)),
+            shared: false,
         }
     }
 
@@ -82,7 +86,7 @@ impl KeyProvider {
             key_derivation_algorithm: options.key_derivation_algorithm,
         });
         handle.set_shared_key(0, shared_key);
-        Self { handle, latest_key_index: Arc::new(AtomicI32::new(0)) }
+        Self { handle, latest_key_index: Arc::new(AtomicI32::new(0)), shared: true }
     }
 
     pub fn key_ring_size(&self) -> i32 {

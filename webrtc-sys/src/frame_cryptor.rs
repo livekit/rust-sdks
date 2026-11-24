@@ -77,6 +77,12 @@ pub mod ffi {
 
         pub fn set_sif_trailer(&self, trailer: Vec<u8>);
 
+        pub fn add_receiver(self: &KeyProvider, id: String);
+
+        pub fn bind_receiver(self: &KeyProvider, id: String, participant_id: String);
+
+        pub fn remove_receiver(self: &KeyProvider, id: String);
+
         pub fn set_key(
             self: &KeyProvider,
             participant_id: String,
@@ -273,6 +279,120 @@ mod tests {
 
         let key_provider = ffi::new_key_provider(options);
         let _cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, key_provider);
+    }
+
+    #[test]
+    fn test_key_provider_receivers() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = ffi::new_key_provider(options);
+        assert!(kp.set_shared_key(0, b"shared".to_vec()));
+        assert!(kp.set_key("alice".into(), 0, b"alice".to_vec()));
+        assert!(kp.set_key("bob".into(), 0, b"bob".to_vec()));
+        let key = |id: &str| kp.get_key(id.into(), 0).ok();
+
+        let receiver = "\u{1f}receiver:1";
+        kp.add_receiver(receiver.into());
+        assert_eq!(key(receiver), Some(b"shared".to_vec()));
+        kp.bind_receiver(receiver.into(), "alice".into());
+        assert_eq!(key(receiver), Some(b"alice".to_vec()));
+        kp.bind_receiver(receiver.into(), "bob".into());
+        assert_eq!(key(receiver), Some(b"bob".to_vec()));
+        assert_eq!(key("alice"), Some(b"alice".to_vec()));
+
+        // Back on its own handler, which shared-key ratchets still reach.
+        kp.bind_receiver(receiver.into(), String::new());
+        let ratcheted = kp.ratchet_shared_key(0).unwrap();
+        assert_eq!(key(receiver), Some(ratcheted));
+
+        // Data packets look keys up as frames do.
+        let cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, kp.clone());
+        assert!(cryptor.encrypt(receiver, 0, b"probe").is_ok());
+        kp.remove_receiver(receiver.into());
+        assert_eq!(key(receiver), None);
+        // A late lookup gets no key, and leaves none behind.
+        assert!(cryptor.encrypt(receiver, 0, b"probe").is_err());
+        assert_eq!(key(receiver), None);
+        // A participant whose identity looks like a receiver id is unaffected.
+        assert!(cryptor.encrypt("receiver:1", 0, b"probe").is_ok());
+    }
+
+    #[test]
+    fn test_key_provider_participant_named_shared() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = ffi::new_key_provider(options);
+        assert!(kp.set_shared_key(0, b"room".to_vec()));
+        let key = |id: &str| kp.get_key(id.into(), 0).ok();
+        let cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, kp.clone());
+        let receiver = "\u{1f}receiver:1";
+        kp.add_receiver(receiver.into());
+        kp.bind_receiver(receiver.into(), "shared".into());
+        assert!(cryptor.encrypt("shared", 0, b"probe").is_ok());
+        assert_eq!(key("shared"), Some(b"room".to_vec()));
+
+        // Its ratchets stay its own: the room's key and later participants keep the seed.
+        let ratcheted = kp.ratchet_key("shared".into(), 0).unwrap();
+        assert_eq!(key(receiver), Some(ratcheted));
+        assert_eq!(kp.get_shared_key(0).unwrap(), b"room".to_vec());
+        assert!(cryptor.encrypt("bob", 0, b"probe").is_ok());
+        assert_eq!(key("bob"), Some(b"room".to_vec()));
+
+        // Shared-key updates still reach it.
+        assert!(kp.set_shared_key(0, b"room 2".to_vec()));
+        assert_eq!(key("shared"), Some(b"room 2".to_vec()));
+        assert_eq!(key(receiver), Some(b"room 2".to_vec()));
+    }
+
+    #[test]
+    fn test_key_provider_receivers_during_ratchets() {
+        struct Provider(cxx::SharedPtr<ffi::KeyProvider>);
+        // The native provider is thread-safe; the test only shares it between threads.
+        unsafe impl Send for Provider {}
+        unsafe impl Sync for Provider {}
+
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
+        };
+        let kp = Provider(ffi::new_key_provider(options));
+        assert!(kp.0.set_shared_key(0, b"shared".to_vec()));
+        let id = |i| format!("\u{1f}receiver:{i}");
+        let (before, rounds) = (20, 10_000);
+        for i in 0..before {
+            kp.0.add_receiver(id(i));
+        }
+        // Each round, two shared-key updates race to reach the receivers while a receiver is
+        // added; then every receiver must be on the shared key. Only the last update of a run
+        // shows in its end state, hence the many short rounds.
+        for round in 0..rounds {
+            std::thread::scope(|scope| {
+                scope.spawn(|| kp.0.ratchet_shared_key(0).unwrap());
+                scope.spawn(|| kp.0.set_shared_key(0, format!("key {round}").into_bytes()));
+                scope.spawn(|| kp.0.add_receiver(id(before)));
+            });
+            let shared = kp.0.get_shared_key(0).unwrap();
+            for i in 0..=before {
+                assert_eq!(kp.0.get_key(id(i), 0).unwrap(), shared, "round {round}, receiver {i}");
+            }
+            kp.0.remove_receiver(id(before));
+        }
     }
 
     #[test]
