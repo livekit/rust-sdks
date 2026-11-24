@@ -32,6 +32,14 @@ message InitialTrack {
   required TrackPublishOptions options = 2;
 }
 
+// An audio publication described without constructing a native track on the caller thread.
+// The caller retains ownership of the source handle. Options include all codec/encoding settings.
+message InitialAudioTrack {
+  required uint64 source_handle = 1;
+  required string name = 2;
+  required TrackPublishOptions options = 3;
+}
+
 // Connect to a new LiveKit room
 message ConnectRequest {
   required string url = 1;
@@ -39,6 +47,7 @@ message ConnectRequest {
   required RoomOptions options = 3;
   optional uint64 request_async_id = 4;
   repeated InitialTrack publish_tracks = 5;
+  repeated InitialAudioTrack publish_audio_tracks = 6;
 }
 message ConnectResponse {
   required uint64 async_id = 1;
@@ -55,6 +64,9 @@ message ConnectCallback {
   message InitialPublication {
     required uint64 track_handle = 1;
     required OwnedTrackPublication publication = 2;
+    // Present only for a track constructed from publish_audio_tracks by this connect.
+    optional OwnedTrack track = 3;
+    optional uint32 audio_track_index = 4;
   }
 
   message Result {

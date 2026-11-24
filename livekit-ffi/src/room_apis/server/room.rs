@@ -143,6 +143,65 @@ struct FfiSipDtmfPacket {
     async_id: u64,
 }
 
+/// Collect handles owned by a connect result, excluding caller-owned sources/existing tracks.
+fn connect_result_handles(result: &proto::connect_callback::Result) -> Vec<FfiHandleId> {
+    let mut handles = vec![result.room.handle.id, result.local_participant.handle.id];
+    for participant in &result.participants {
+        handles.push(participant.participant.handle.id);
+        handles.extend(participant.publications.iter().map(|publication| publication.handle.id));
+    }
+    for publication in &result.local_publications {
+        handles.push(publication.publication.handle.id);
+        if let Some(track) = &publication.track {
+            handles.push(track.handle.id);
+        }
+    }
+    handles
+}
+
+/// A connect-time track, borrowing an existing handle or awaiting a newly owned handle.
+struct ConnectTrack {
+    track: LocalTrack,
+    handle: Option<FfiHandleId>,
+    audio_index: Option<u32>,
+}
+
+/// Create source-backed audio tracks on the native blocking pool, owned by the connect task.
+async fn prepare_connect_audio_tracks(
+    server: &'static FfiServer,
+    requests: &[proto::InitialAudioTrack],
+) -> FfiResult<Vec<(LocalTrack, TrackPublishOptions)>> {
+    if requests.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Borrow all sources before starting work. No new FFI handles are allocated until connect
+    // succeeds, so rejection or partial initialization only drops these native references.
+    let sources = requests
+        .iter()
+        .map(|request| {
+            let source = server
+                .retrieve_handle::<super::audio_source::FfiAudioSource>(request.source_handle)?
+                .source
+                .clone();
+            Ok((source, request.name.clone(), request.options.clone().into()))
+        })
+        .collect::<FfiResult<Vec<_>>>()?;
+    // The connect task awaits this handle. Python cancellation waits for the callback before
+    // releasing sources, so native preparation is joined before that attempt is torn down.
+    server
+        .async_runtime
+        .spawn_blocking(move || {
+            sources
+                .into_iter()
+                .map(|(source, name, options)| {
+                    (LocalTrack::Audio(LocalAudioTrack::create_audio_track(&name, source)), options)
+                })
+                .collect()
+        })
+        .await
+        .map_err(|_| FfiError::InvalidRequest("native audio preparation failed".into()))
+}
+
 impl FfiRoom {
     pub fn connect(
         server: &'static FfiServer,
@@ -172,7 +231,24 @@ impl FfiRoom {
                         FfiError::InvalidRequest("track is not a LocalTrack".into())
                     })?;
                     options.publish_tracks.push((track.clone(), initial.options.clone().into()));
-                    initial_tracks.push((initial.track_handle, track));
+                    initial_tracks.push(ConnectTrack {
+                        track,
+                        handle: Some(initial.track_handle),
+                        audio_index: None,
+                    });
+                }
+                for (index, (track, publish_options)) in
+                    prepare_connect_audio_tracks(server, &connect.publish_audio_tracks)
+                        .await?
+                        .into_iter()
+                        .enumerate()
+                {
+                    options.publish_tracks.push((track.clone(), publish_options));
+                    initial_tracks.push(ConnectTrack {
+                        track,
+                        handle: None,
+                        audio_index: Some(index as u32),
+                    });
                 }
                 let (room, events) = Room::connect(&connect.url, &connect.token, options).await?;
                 Ok::<_, FfiError>((room, events, initial_tracks))
@@ -243,13 +319,34 @@ impl FfiRoom {
                     // start. This also releases the normal LocalTrackPublished event barrier.
                     let publications = inner.room.local_participant().track_publications();
                     let mut local_publications = Vec::with_capacity(initial_tracks.len());
-                    for (track_handle, track) in initial_tracks {
+                    for initial in initial_tracks {
+                        let track = initial.track;
                         let Some(publication) = publications.values().find(|publication| {
                             publication.track().is_some_and(|published| {
                                 published.rtc_track().id() == track.rtc_track().id()
                             })
                         }) else {
                             continue;
+                        };
+                        let (track_handle, owned_track) = match initial.handle {
+                            Some(handle) => (handle, None),
+                            None => {
+                                let handle = server.next_id();
+                                let ffi_track = FfiTrack {
+                                    handle,
+                                    track: track.clone().into(),
+                                    room_handle: None,
+                                };
+                                let info = proto::TrackInfo::from(&ffi_track);
+                                server.store_handle(handle, ffi_track);
+                                (
+                                    handle,
+                                    Some(proto::OwnedTrack {
+                                        handle: proto::FfiOwnedHandle { id: handle },
+                                        info,
+                                    }),
+                                )
+                            }
                         };
                         let handle_id = server.next_id();
                         let ffi_publication = FfiPublication {
@@ -262,6 +359,8 @@ impl FfiRoom {
                         inner.pending_published_tracks.lock().insert(publication.sid());
                         local_publications.push(proto::connect_callback::InitialPublication {
                             track_handle,
+                            track: owned_track,
+                            audio_track_index: initial.audio_index,
                             publication: proto::OwnedTrackPublication {
                                 handle: proto::FfiOwnedHandle { id: handle_id },
                                 info,
@@ -287,23 +386,35 @@ impl FfiRoom {
 
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
-                    let _ = server.send_event(
-                        proto::ConnectCallback {
-                            async_id,
-                            message: Some(proto::connect_callback::Message::Result(
-                                proto::connect_callback::Result {
-                                    room: proto::OwnedRoom {
-                                        handle: proto::FfiOwnedHandle { id: handle_id },
-                                        info: room_info,
-                                    },
-                                    local_participant: local_info,
-                                    participants: remote_infos,
-                                    local_publications,
-                                },
-                            )),
+                    let result = proto::connect_callback::Result {
+                        room: proto::OwnedRoom {
+                            handle: proto::FfiOwnedHandle { id: handle_id },
+                            info: room_info,
+                        },
+                        local_participant: local_info,
+                        participants: remote_infos,
+                        local_publications,
+                    };
+                    // Ownership transfers only once the client acknowledges the callback.
+                    // Reclaim every callback-owned handle if it cannot be delivered/claimed.
+                    let unclaimed_handles = connect_result_handles(&result);
+                    let sent = server
+                        .send_event(
+                            proto::ConnectCallback {
+                                async_id,
+                                message: Some(proto::connect_callback::Message::Result(result)),
+                            }
+                            .into(),
+                        )
+                        .is_ok();
+                    if !sent {
+                        drop(handle);
+                        ffi_room.close(server, DisconnectReason::JoinFailure).await;
+                        for id in unclaimed_handles {
+                            server.drop_handle(id);
                         }
-                        .into(),
-                    );
+                        return;
+                    }
 
                     // Wait for the FFI client to install its event listener and
                     // send a ReadyForRoomEventRequest before forwarding any room
@@ -324,7 +435,9 @@ impl FfiRoom {
                         log::error!("{}", msg);
                         drop(handle);
                         ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
-                        server.drop_handle(handle_id);
+                        for id in unclaimed_handles {
+                            server.drop_handle(id);
+                        }
                         server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
                         return;
                     }
