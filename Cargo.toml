@@ -56,10 +56,10 @@ license = "Apache-2.0"
 device-info = { version = "0.1.1", path = "device-info" }
 imgproc = { version = "0.3.20", path = "imgproc" }
 libwebrtc = { version = "0.4.2", path = "libwebrtc" }
-livekit = { version = "0.12.0", path = "livekit" }
+livekit = { version = "0.12.1", path = "livekit" }
 livekit-api = { version = "0.11.0", path = "livekit-api" }
-livekit-capture = { version = "0.3.0", path = "livekit-capture" }
-livekit-ffi = { version = "0.15.0", path = "livekit-ffi" }
+livekit-capture = { version = "0.3.1", path = "livekit-capture" }
+livekit-ffi = { version = "0.16.0", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.3.0", path = "livekit-datatrack" }
 livekit-telemetry = { version = "0.3.0", path = "livekit-telemetry" }
 livekit-signaling = { version = "0.3.0", path = "livekit-signaling" }

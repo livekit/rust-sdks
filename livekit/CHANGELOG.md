@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.1
+
+### Patch Changes
+
+- Negotiate NACK for Opus. If RED is off, for example with E2EE, lost audio packets are now retransmitted. - [#1683](https://github.com/livekit/rust-sdks/pull/1683) ([@lukasIO](https://github.com/lukasIO))
+
 ## [Unreleased]
 
 ## [0.7.32](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.31...rust-sdks/livekit@0.7.32) - 2026-02-16
