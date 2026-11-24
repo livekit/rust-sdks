@@ -277,4 +277,6 @@ jobs:
         working-directory: livekit-ffi-node-bindings
         env:
           DIST_TAG: ${{ steps.dist-tag.outputs.tag }}
-        run: pnpm publish -r --tag "$DIST_TAG" ${{ inputs.dry_run == true && '--dry-run --no-git-checks' || '' }}
+        # --no-git-checks: release.yml passes the merge commit as `ref`, so
+        # the checkout has no branch, and pnpm refuses to publish without one.
+        run: pnpm publish -r --tag "$DIST_TAG" --no-git-checks ${{ inputs.dry_run == true && '--dry-run' || '' }}
