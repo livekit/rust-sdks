@@ -381,11 +381,14 @@ pub enum DataStreamError {
     #[error("I/O error: {reason}")]
     Io { reason: String },
 
+    #[cfg(feature = "room-apis")]
     /// Typed filesystem cause; the previous Io(reason) case remains constructible.
     #[error("I/O error: {kind:?}: {reason}")]
     IoFailure { kind: StreamIoErrorKind, raw_os_error: Option<i32>, reason: String },
+    #[cfg(feature = "room-apis")]
     #[error("stream command cancelled")]
     Cancelled,
+    #[cfg(feature = "room-apis")]
     #[error("stream command invalid state: {reason}")]
     InvalidState { reason: String },
 
@@ -410,6 +413,7 @@ pub enum DataStreamError {
 
 /// Stable std::io error categories, kept separate from human-readable context.
 /// Unknown represents future or nightly-only ErrorKind variants; raw_os_error is still preserved.
+#[cfg(feature = "room-apis")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum StreamIoErrorKind {
     NotFound,
@@ -453,6 +457,7 @@ pub enum StreamIoErrorKind {
     Other,
     Unknown,
 }
+#[cfg(feature = "room-apis")]
 impl From<std::io::ErrorKind> for StreamIoErrorKind {
     fn from(kind: std::io::ErrorKind) -> Self {
         use std::io::ErrorKind as K;
@@ -538,6 +543,9 @@ impl From<ds_api::StreamError> for DataStreamError {
             ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
             ds_api::StreamError::Incomplete => Self::Incomplete,
             ds_api::StreamError::SendFailed => Self::SendFailed,
+            #[cfg(feature = "core-modules")]
+            ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
+            #[cfg(feature = "room-apis")]
             ds_api::StreamError::Io(error) => Self::IoFailure {
                 kind: error.kind().into(),
                 raw_os_error: error.raw_os_error(),
@@ -598,4 +606,22 @@ fn progress_callback(
     progress.map(|progress| {
         ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
     })
+}
+
+#[cfg(test)]
+mod io_mapping_tests {
+    use super::*;
+    #[test]
+    fn io_error_preserves_feature_contract() {
+        let error = DataStreamError::from(ds_api::StreamError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing-file-marker",
+        )));
+        #[cfg(feature = "core-modules")]
+        assert!(matches!(error, DataStreamError::Io { reason } if reason == "missing-file-marker"));
+        #[cfg(feature = "room-apis")]
+        assert!(
+            matches!(error, DataStreamError::IoFailure { kind: StreamIoErrorKind::NotFound, reason, .. } if reason == "missing-file-marker")
+        );
+    }
 }
