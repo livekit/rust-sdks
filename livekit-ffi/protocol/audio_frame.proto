@@ -131,6 +131,7 @@ message NewApmRequest {
   required bool gain_controller_enabled = 2;
   required bool high_pass_filter_enabled = 3;
   required bool noise_suppression_enabled = 4;
+  optional float gain_controller_initial_gain_db = 5;
 }
 message NewApmResponse {
   required OwnedApm apm = 1;
