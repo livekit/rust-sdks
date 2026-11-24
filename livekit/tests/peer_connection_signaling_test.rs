@@ -54,6 +54,7 @@ use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::rtc_engine::{EngineOptions, RtcEngine};
 use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
+use livekit_api::services::room::RoomClient;
 use livekit_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
 use std::env;
@@ -427,7 +428,120 @@ async fn test_v1_publisher_offer_subscribes_late_publish() -> Result<()> {
     test_publisher_offer_late_publish_impl(SignalingMode::SinglePC).await
 }
 
+/// Subscribing to the same track again and again keeps working: each `set_subscribed(true)`
+/// gets one `TrackSubscribed`, one for a track already subscribed gets none, and one cancelled
+/// before its track arrives leaves it detached.
+#[test_log::test(tokio::test)]
+async fn test_v1_resubscribe_same_track_repeatedly() -> Result<()> {
+    test_resubscribe_same_track_impl(SignalingMode::SinglePC).await
+}
+
 // ==================== Test Implementations ====================
+
+async fn test_resubscribe_same_track_impl(mode: SignalingMode) -> Result<()> {
+    let manual = || {
+        let mut options = room_options(mode);
+        options.room.auto_subscribe = false;
+        options
+    };
+    let mut rooms = test_rooms_with_options([manual(), manual()]).await?;
+    let (sub_room, mut sub_events) = rooms.pop().unwrap();
+    let (pub_room, _pub_events) = rooms.pop().unwrap();
+
+    let source = NativeVideoSource::new(VideoResolution { width: 320, height: 240 }, false);
+    let track = LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(source));
+    let sid = pub_room
+        .local_participant()
+        .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
+        .await?
+        .sid();
+
+    let publication = wait_until(Duration::from_secs(10), || {
+        sub_room
+            .remote_participants()
+            .values()
+            .find_map(|p| p.track_publications().get(&sid).cloned())
+    })
+    .await
+    .ok_or_else(|| anyhow!("[{}] publication never arrived", mode.name()))?;
+
+    async fn next_subscription_event(
+        events: &mut UnboundedReceiver<RoomEvent>,
+        subscribed: bool,
+    ) -> Result<()> {
+        timeout(Duration::from_secs(10), async {
+            loop {
+                match events.recv().await {
+                    Some(RoomEvent::TrackSubscribed { .. }) if subscribed => break Ok(()),
+                    Some(RoomEvent::TrackUnsubscribed { .. }) if !subscribed => break Ok(()),
+                    Some(
+                        RoomEvent::TrackSubscribed { .. } | RoomEvent::TrackUnsubscribed { .. },
+                    ) => break Err(anyhow!("subscription event out of order")),
+                    Some(_) => continue,
+                    None => break Err(anyhow!("event channel closed")),
+                }
+            }
+        })
+        .await
+        .map_err(|_| {
+            anyhow!("no {} event", if subscribed { "TrackSubscribed" } else { "TrackUnsubscribed" })
+        })?
+    }
+
+    for cycle in 0..8 {
+        publication.set_subscribed(true);
+        next_subscription_event(&mut sub_events, true)
+            .await
+            .with_context(|| format!("[{}] cycle {cycle}", mode.name()))?;
+        if cycle == 0 {
+            // Asking again for a subscribed track changes nothing.
+            publication.set_subscribed(true);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            while let Ok(event) = sub_events.try_recv() {
+                assert!(
+                    !matches!(
+                        event,
+                        RoomEvent::TrackSubscribed { .. } | RoomEvent::TrackUnsubscribed { .. }
+                    ),
+                    "[{}] repeated subscribe caused {event:?}",
+                    mode.name()
+                );
+            }
+        }
+        publication.set_subscribed(false);
+        next_subscription_event(&mut sub_events, false)
+            .await
+            .with_context(|| format!("[{}] cycle {cycle}", mode.name()))?;
+    }
+
+    // A resubscribe cancelled before its track arrives leaves the track detached.
+    publication.set_subscribed(true);
+    publication.set_subscribed(false);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    while let Ok(event) = sub_events.try_recv() {
+        assert!(
+            !matches!(event, RoomEvent::TrackSubscribed { .. }),
+            "[{}] cancelled resubscribe caused {event:?}",
+            mode.name()
+        );
+    }
+    assert!(publication.track().is_none(), "[{}] cancelled resubscribe attached", mode.name());
+
+    // A subscription made through the server API attaches, whatever the client last asked for.
+    let (url, api_key, api_secret) = get_env_for_mode(mode);
+    RoomClient::with_api_key(&url.replacen("ws", "http", 1), &api_key, &api_secret)
+        .update_subscriptions(
+            &sub_room.name(),
+            sub_room.local_participant().identity().as_str(),
+            vec![sid.to_string()],
+            true,
+        )
+        .await?;
+    next_subscription_event(&mut sub_events, true)
+        .await
+        .with_context(|| format!("[{}] server-side subscribe", mode.name()))?;
+    Ok(())
+}
 
 /// Test basic connection
 async fn test_connect_impl(mode: SignalingMode) -> Result<()> {

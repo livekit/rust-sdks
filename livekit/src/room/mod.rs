@@ -1218,8 +1218,8 @@ impl RoomSession {
             EngineEvent::ParticipantReconcile { seen_identities } => {
                 self.reconcile_absent_participants(seen_identities.into_iter())
             }
-            EngineEvent::MediaTrack { track, stream, transceiver } => {
-                self.handle_media_track(track, stream, transceiver)
+            EngineEvent::MediaTrack { track, stream, transceiver, replay } => {
+                self.handle_media_track(track, stream, transceiver, replay)
             }
             EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
             EngineEvent::RoomMoved { moved } => self.handle_room_moved(moved),
@@ -1541,6 +1541,7 @@ impl RoomSession {
         track: MediaStreamTrack,
         stream: MediaStream,
         transceiver: RtpTransceiver,
+        replay: bool,
     ) {
         let stream_id = stream.id();
         let lk_stream_id = unpack_stream_id(&stream_id);
@@ -1609,7 +1610,9 @@ impl RoomSession {
 
         if let Some(remote_participant) = remote_participant {
             tokio::spawn(async move {
-                remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
+                remote_participant
+                    .add_subscribed_media_track(track_id, track, transceiver, replay)
+                    .await;
             });
         } else {
             // The server should send participant updates before sending a new offer, this should

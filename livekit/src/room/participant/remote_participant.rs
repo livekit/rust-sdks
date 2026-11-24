@@ -159,6 +159,7 @@ impl RemoteParticipant {
         sid: TrackSid,
         media_track: MediaStreamTrack,
         transceiver: RtpTransceiver,
+        replay: bool,
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -225,8 +226,12 @@ impl RemoteParticipant {
             self.add_publication_inner(TrackPublication::Remote(remote_publication.clone()));
             track.enable();
 
-            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
-                                                       // publication
+            // Fires TrackSubscribed on the publication, unless this is a replay the application
+            // no longer wants.
+            if !remote_publication.attach_track(track.clone(), replay) {
+                track.disable();
+                log::debug!("track {:?} announced again after an unsubscribe; not attached", sid);
+            }
         } else {
             let closed = self.remote.closed.lock();
             if *closed {
@@ -428,6 +433,9 @@ impl RemoteParticipant {
             move |publication, subscribed| {
                 let rtc_engine = rtc_engine.clone();
                 let psid = psid.clone();
+                // Decided now, while a publication that is already subscribed still has its
+                // track: asking for that one again must not announce it twice.
+                let wanted_again = subscribed && publication.track().is_none();
                 tokio::spawn(async move {
                     let tsid: String = publication.sid().into();
                     let update_subscription = proto::UpdateSubscription {
@@ -444,6 +452,9 @@ impl RemoteParticipant {
                             update_subscription,
                         ))
                         .await;
+                    if wanted_again {
+                        rtc_engine.session().track_wanted_again(publication.sid().as_str());
+                    }
                 });
             }
         });

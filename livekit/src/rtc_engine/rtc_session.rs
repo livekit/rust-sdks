@@ -200,6 +200,8 @@ pub enum SessionEvent {
         track: MediaStreamTrack,
         stream: MediaStream,
         transceiver: RtpTransceiver,
+        /// Announced again by `track_wanted_again`, not newly delivered by the server.
+        replay: bool,
     },
     SpeakersChanged {
         speakers: Vec<proto::SpeakerInfo>,
@@ -423,6 +425,9 @@ struct SessionInner {
     /// diffing receiver streams across each setRemoteDescription and dispatching
     /// `track` events for newly-added streams.
     dispatched_streams: Mutex<HashSet<(String, String)>>,
+    /// The `(mid, stream_id)` pairs `track_wanted_again` removed from `dispatched_streams`,
+    /// whose next dispatch is a replay. Locked after `dispatched_streams`.
+    replayed_streams: Mutex<HashSet<(String, String)>>,
 
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<EngineResult<proto::TrackInfo>>>>,
 
@@ -713,6 +718,7 @@ impl RtcSession {
             single_pc_mode,
             mid_to_track_id: Mutex::new(HashMap::new()),
             dispatched_streams: Mutex::new(HashSet::new()),
+            replayed_streams: Default::default(),
             pending_tracks: Default::default(),
             lossy_dc,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
@@ -957,6 +963,37 @@ impl RtcSession {
 
     pub fn publisher_negotiation_needed(&self) {
         self.inner.publisher_negotiation_needed()
+    }
+
+    /// Asked to receive `track_sid` again, announce it again too. A transceiver the server
+    /// reuses for it keeps its `(mid, stream_id)`, which `process_remote_track_addition` would
+    /// skip as already announced, and an unsubscribe and a subscribe that reach the server
+    /// together cancel out, so it doesn't renegotiate at all. Forget those pairs and
+    /// renegotiate: the answer says where the track is.
+    pub(crate) fn track_wanted_again(&self, track_sid: &str) {
+        let mids: HashSet<String> = self
+            .inner
+            .mid_to_track_id
+            .lock()
+            .iter()
+            .filter(|(_, sid)| sid.as_str() == track_sid)
+            .map(|(mid, _)| mid.clone())
+            .collect();
+        if mids.is_empty() {
+            return;
+        }
+        // Under the dispatch lock, so a dispatch sees either both changes or neither.
+        let mut dispatched = self.inner.dispatched_streams.lock();
+        let evicted: Vec<_> =
+            dispatched.iter().filter(|(mid, _)| mids.contains(mid)).cloned().collect();
+        for key in &evicted {
+            dispatched.remove(key);
+        }
+        self.inner.replayed_streams.lock().extend(evicted);
+        drop(dispatched);
+        if self.inner.single_pc_mode {
+            self.inner.publisher_negotiation_needed();
+        }
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -1262,6 +1299,8 @@ impl SessionInner {
 
         let mut dispatched = self.dispatched_streams.lock();
         dispatched.retain(|key| current.contains_key(key));
+        // A forgotten pair is dispatched again on the first pass that still finds it.
+        let replayed = std::mem::take(&mut *self.replayed_streams.lock());
 
         for (key, (stream, track, transceiver)) in current {
             if dispatched.insert(key.clone()) {
@@ -1270,7 +1309,14 @@ impl SessionInner {
                     key.0,
                     key.1
                 );
-                let _ = self.emitter.send(SessionEvent::MediaTrack { stream, track, transceiver });
+                // The same pair, so the same track: the stream id names it.
+                let replay = replayed.contains(&key);
+                let _ = self.emitter.send(SessionEvent::MediaTrack {
+                    stream,
+                    track,
+                    transceiver,
+                    replay,
+                });
             }
         }
     }
@@ -1895,6 +1941,7 @@ impl SessionInner {
                             stream,
                             track,
                             transceiver,
+                            replay: false,
                         });
                     }
                 }

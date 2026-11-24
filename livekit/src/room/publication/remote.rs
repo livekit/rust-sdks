@@ -52,6 +52,9 @@ struct RemoteInfo {
 struct RemoteInner {
     info: RwLock<RemoteInfo>,
     events: RemoteEvents,
+    /// Serializes an unsubscribe with attaching a replayed track, so a replay already on its way
+    /// can't attach the track after the application unsubscribed.
+    attach: Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -88,8 +91,22 @@ impl RemoteTrackPublication {
             remote: Arc::new(RemoteInner {
                 info: RwLock::new(RemoteInfo { subscribed: auto_subscribe, allowed: true }),
                 events: Default::default(),
+                attach: Mutex::new(()),
             }),
         }
+    }
+
+    /// Attaches a track the server delivered. A `replay` (the track announced again after a
+    /// local resubscribe) is dropped if the application unsubscribed meanwhile; a fresh
+    /// delivery, such as a subscription made through the server API, always attaches.
+    /// Returns whether it was attached.
+    pub(crate) fn attach_track(&self, track: RemoteTrack, replay: bool) -> bool {
+        let _attach = self.remote.attach.lock();
+        if replay && !self.remote.info.read().subscribed {
+            return false;
+        }
+        self.set_track(Some(track));
+        true
     }
 
     /// This is called by the RemoteParticipant when it successfully subscribe to the track or when
@@ -246,17 +263,20 @@ impl RemoteTrackPublication {
         let old_permission_state = self.permission_status();
 
         {
-            let mut info = self.remote.info.write();
-            info.subscribed = subscribed;
+            let _attach = self.remote.attach.lock();
+            {
+                let mut info = self.remote.info.write();
+                info.subscribed = subscribed;
 
-            if subscribed {
-                info.allowed = true;
+                if subscribed {
+                    info.allowed = true;
+                }
             }
-        }
 
-        if !subscribed {
-            // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
-            self.set_track(None);
+            if !subscribed {
+                // TODO(theomonnom): Wait for the PC onRemoveTrack event instead?
+                self.set_track(None);
+            }
         }
 
         // Request to send an update to the SFU
