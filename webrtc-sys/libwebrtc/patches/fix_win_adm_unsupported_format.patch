@@ -1,0 +1,74 @@
+diff --git a/modules/audio_device/win/audio_device_core_win.cc b/modules/audio_device/win/audio_device_core_win.cc
+index c201e84..e1cf71e 100644
+--- a/modules/audio_device/win/audio_device_core_win.cc
++++ b/modules/audio_device/win/audio_device_core_win.cc
+@@ -1912,6 +1912,22 @@ int32_t AudioDeviceWindowsCore::InitPlayout() {
+   // TODO(andrew): what happens in the event of failure in the above loop?
+   //   Is _ptrClientOut->Initialize expected to fail?
+   //   Same in InitRecording().
++  DWORD playStreamFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
++  if (hr != S_OK) {
++    // Some endpoints (e.g. the generic Microsoft HD Audio driver) accept none
++    // of the 16-bit formats above in shared mode. Let the audio engine convert
++    // from 48 kHz instead of failing Initialize() with
++    // AUDCLNT_E_UNSUPPORTED_FORMAT.
++    Wfx.nChannels = _playChannelsPrioList[0];
++    Wfx.nSamplesPerSec = 48000;
++    Wfx.nBlockAlign = Wfx.nChannels * Wfx.wBitsPerSample / 8;
++    Wfx.nAvgBytesPerSec = Wfx.nSamplesPerSec * Wfx.nBlockAlign;
++    playStreamFlags |= AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
++                       AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
++    RTC_LOG(LS_WARNING) << "No playout format is supported as is, using "
++                           "48 kHz with automatic conversion";
++    hr = S_OK;
++  }
+   if (hr == S_OK) {
+     _playAudioFrameSize = Wfx.nBlockAlign;
+     // Block size is the number of samples each channel in 10ms.
+@@ -1965,8 +1981,7 @@ int32_t AudioDeviceWindowsCore::InitPlayout() {
+   }
+   hr = _ptrClientOut->Initialize(
+       AUDCLNT_SHAREMODE_SHARED,  // share Audio Engine with other applications
+-      AUDCLNT_STREAMFLAGS_EVENTCALLBACK,  // processing of the audio buffer by
+-                                          // the client will be event driven
++      playStreamFlags,     // event driven, plus format conversion when needed
+       hnsBufferDuration,  // requested buffer capacity as a time value (in
+                           // 100-nanosecond units)
+       0,                  // periodicity
+@@ -2227,6 +2242,23 @@ int32_t AudioDeviceWindowsCore::InitRecording() {
+       break;
+   }
+ 
++  DWORD recStreamFlags =
++      AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST;
++  if (hr != S_OK) {
++    // Same fallback as in InitPlayout().
++    Wfx.Format.nChannels = _recChannelsPrioList[0];
++    Wfx.Format.nSamplesPerSec = 48000;
++    Wfx.Format.nBlockAlign =
++        Wfx.Format.nChannels * Wfx.Format.wBitsPerSample / 8;
++    Wfx.Format.nAvgBytesPerSec =
++        Wfx.Format.nSamplesPerSec * Wfx.Format.nBlockAlign;
++    recStreamFlags |= AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
++                      AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
++    RTC_LOG(LS_WARNING) << "No recording format is supported as is, using "
++                           "48 kHz with automatic conversion";
++    hr = S_OK;
++  }
++
+   if (hr == S_OK) {
+     _recAudioFrameSize = Wfx.Format.nBlockAlign;
+     _recSampleRate = Wfx.Format.nSamplesPerSec;
+@@ -2252,11 +2284,7 @@ int32_t AudioDeviceWindowsCore::InitRecording() {
+   // Create a capturing stream.
+   hr = _ptrClientIn->Initialize(
+       AUDCLNT_SHAREMODE_SHARED,  // share Audio Engine with other applications
+-      AUDCLNT_STREAMFLAGS_EVENTCALLBACK |  // processing of the audio buffer by
+-                                           // the client will be event driven
+-          AUDCLNT_STREAMFLAGS_NOPERSIST,   // volume and mute settings for an
+-                                           // audio session will not persist
+-                                           // across system restarts
++      recStreamFlags,  // event driven, no persisted volume, conversion if needed
+       0,                    // required for event-driven shared mode
+       0,                    // periodicity
+       (WAVEFORMATEX*)&Wfx,  // selected wave format
