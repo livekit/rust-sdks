@@ -272,6 +272,10 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // If recording is active, stops the old ADM and starts the new one.
   void SwitchRecordingAdm() RTC_RUN_ON(worker_thread_);
 
+  // Logs the cached recording or playout device selection before the platform ADM initializes
+  // it: the app only knows the one it asked for, which may be "the default".
+  void LogDevice(bool playout) const RTC_RUN_ON(worker_thread_);
+
   // Lazily creates and initializes the Platform ADM on first acquire, then
   // replays cached state (audio transport, device selection, channel config)
   // onto it. Runs on the worker thread so the fresh ADM binds its sequence
