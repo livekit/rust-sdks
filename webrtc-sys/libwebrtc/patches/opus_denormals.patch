@@ -1,0 +1,66 @@
+--- a/src/opus_encoder.c
++++ b/src/opus_encoder.c
+@@ -1118,7 +1118,31 @@
+                 int redundancy, int celt_to_silk, int prefill,
+                 opus_int32 equiv_rate, int to_celt);
+ 
++#if defined(__x86_64__) && !defined(FIXED_POINT)
++#include <xmmintrin.h>
++#endif
++static opus_int32 opus_encode_native_ftz_impl(OpusEncoder *st, const opus_res *pcm, int frame_size,
++                unsigned char *data, opus_int32 out_data_bytes, int lsb_depth,
++                const void *analysis_pcm, opus_int32 analysis_size, int c1, int c2,
++                int analysis_channels, downmix_func downmix, int float_api);
+ opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int frame_size,
++                unsigned char *data, opus_int32 out_data_bytes, int lsb_depth,
++                const void *analysis_pcm, opus_int32 analysis_size, int c1, int c2,
++                int analysis_channels, downmix_func downmix, int float_api)
++{
++#if defined(__x86_64__) && !defined(FIXED_POINT)
++    unsigned saved_mxcsr = _mm_getcsr();
++    opus_int32 result;
++    _mm_setcsr(saved_mxcsr | 0x8040);
++    result = opus_encode_native_ftz_impl(st, pcm, frame_size, data, out_data_bytes, lsb_depth, analysis_pcm, analysis_size, c1, c2, analysis_channels, downmix, float_api);
++    _mm_setcsr(saved_mxcsr);
++    return result;
++#else
++    return opus_encode_native_ftz_impl(st, pcm, frame_size, data, out_data_bytes, lsb_depth, analysis_pcm, analysis_size, c1, c2, analysis_channels, downmix, float_api);
++#endif
++}
++
++static opus_int32 opus_encode_native_ftz_impl(OpusEncoder *st, const opus_res *pcm, int frame_size,
+                 unsigned char *data, opus_int32 out_data_bytes, int lsb_depth,
+                 const void *analysis_pcm, opus_int32 analysis_size, int c1, int c2,
+                 int analysis_channels, downmix_func downmix, int float_api)
+--- a/src/opus_decoder.c
++++ b/src/opus_decoder.c
+@@ -673,7 +673,29 @@
+ 
+ }
+ 
++#if defined(__x86_64__) && !defined(FIXED_POINT)
++#include <xmmintrin.h>
++#endif
++static int opus_decode_native_ftz_impl(OpusDecoder *st, const unsigned char *data,
++      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec,
++      int self_delimited, opus_int32 *packet_offset, int soft_clip, const OpusDRED *dred, opus_int32 dred_offset);
+ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
++      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec,
++      int self_delimited, opus_int32 *packet_offset, int soft_clip, const OpusDRED *dred, opus_int32 dred_offset)
++{
++#if defined(__x86_64__) && !defined(FIXED_POINT)
++    unsigned saved_mxcsr = _mm_getcsr();
++    int result;
++    _mm_setcsr(saved_mxcsr | 0x8040);
++    result = opus_decode_native_ftz_impl(st, data, len, pcm, frame_size, decode_fec, self_delimited, packet_offset, soft_clip, dred, dred_offset);
++    _mm_setcsr(saved_mxcsr);
++    return result;
++#else
++    return opus_decode_native_ftz_impl(st, data, len, pcm, frame_size, decode_fec, self_delimited, packet_offset, soft_clip, dred, dred_offset);
++#endif
++}
++
++static int opus_decode_native_ftz_impl(OpusDecoder *st, const unsigned char *data,
+       opus_int32 len, opus_res *pcm, int frame_size, int decode_fec,
+       int self_delimited, opus_int32 *packet_offset, int soft_clip, const OpusDRED *dred, opus_int32 dred_offset)
+ {
