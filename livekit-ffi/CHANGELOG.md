@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.16.0
+
+### Minor Changes
+
+- Expose `LocalDataTrack`, `RemoteDataTrack` and `DataTrackStream` over UniFFI in room-apis builds too, as the same objects core-modules exports. - [#1620](https://github.com/livekit/rust-sdks/pull/1620) ([@1egoman](https://github.com/1egoman))
+
+### Patch Changes
+
+- Negotiate NACK for Opus. If RED is off, for example with E2EE, lost audio packets are now retransmitted. - [#1683](https://github.com/livekit/rust-sdks/pull/1683) ([@lukasIO](https://github.com/lukasIO))
+- Updated dependencies: livekit@0.12.1, livekit-capture@0.3.1
+
 ## [Unreleased]
 
 ## [0.12.47](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.46...rust-sdks/livekit-ffi@0.12.47) - 2026-02-10
