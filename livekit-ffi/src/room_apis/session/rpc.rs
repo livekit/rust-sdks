@@ -20,6 +20,10 @@ use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
+fn rpc_session_error(error: NativeSessionError) -> RpcError {
+    RpcError::built_in(RpcErrorCode::SendFailed, Some(error.to_string()))
+}
+
 /// An RPC error that can travel in both directions across UniFFI.
 #[derive(uniffi::Error, thiserror::Error, Clone, Debug, PartialEq)]
 pub enum NativeRpcError {
@@ -100,8 +104,7 @@ impl NativeRpcInvocation {
 impl NativeRoomSession {
     /// Performs an RPC on the core transport, preserving its error code and data.
     pub async fn perform_rpc(&self, options: NativeRpcOptions) -> Result<String, NativeRpcError> {
-        let room =
-            self.shared.room().map_err(|_| RpcError::built_in(RpcErrorCode::SendFailed, None))?;
+        let room = self.shared.room().map_err(rpc_session_error)?;
         self.shared
             .command(async move {
                 let data = PerformRpcData {
@@ -116,9 +119,7 @@ impl NativeRoomSession {
                 room.local_participant().perform_rpc(data).await
             })
             .await
-            .map_err(|_| {
-                NativeRpcError::from(RpcError::built_in(RpcErrorCode::ApplicationError, None))
-            })?
+            .map_err(rpc_session_error)?
             .map_err(Into::into)
     }
 
@@ -156,14 +157,18 @@ impl NativeRoomSession {
                             },
                             reply: Mutex::new(Some(reply)),
                         });
-                        shared.update(|inner| {
-                            if inner.terminal.is_none() {
-                                inner.emit(NativeRoomEvent::RpcRequested { invocation });
-                            }
-                        });
+                        let event_owner = Arc::downgrade(&shared);
                         shared
                             .command(async move {
                                 let _permit = permit;
+                                if let Some(shared) = event_owner.upgrade() {
+                                    shared.update(|inner| {
+                                        if inner.terminal.is_none() {
+                                            inner
+                                                .emit(NativeRoomEvent::RpcRequested { invocation });
+                                        }
+                                    });
+                                }
                                 match tokio::time::timeout(timeout, receive).await {
                                     Ok(Ok(result)) => result,
                                     Ok(Err(_)) => Err(RpcError::built_in(
@@ -176,9 +181,7 @@ impl NativeRoomSession {
                                 }
                             })
                             .await
-                            .map_err(|_| {
-                                RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)
-                            })?
+                            .map_err(rpc_session_error)?
                     })
                 });
                 Ok(())

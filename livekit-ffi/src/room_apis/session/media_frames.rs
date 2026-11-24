@@ -147,7 +147,16 @@ impl NativeVideoFrame {
     }
 
     pub(super) fn from_core(frame: BoxVideoFrame) -> Result<Self, NativeSessionError> {
-        dimensions(frame.buffer.width(), frame.buffer.height())?;
+        // Decoded frames may be odd-sized or portrait. Bound the BGRA allocation,
+        // not the local capture format; conversion below handles chroma rounding.
+        let bytes =
+            frame.buffer.width().checked_mul(frame.buffer.height()).and_then(|n| n.checked_mul(4));
+        if frame.buffer.width() == 0
+            || frame.buffer.height() == 0
+            || bytes.is_none_or(|n| n > 64 * 1024 * 1024)
+        {
+            return Err(invalid("decoded video must be nonempty and at most 64 MiB BGRA"));
+        }
         if !matches!(
             frame.buffer.buffer_type(),
             VideoBufferType::Native

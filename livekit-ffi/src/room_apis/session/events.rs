@@ -103,7 +103,13 @@ pub(super) struct EventQueue {
 
 impl EventQueue {
     pub(super) fn new(limits: NativeEventCursorOptions) -> Self {
-        Self { backlog: Mutex::default(), changed: Notify::new(), limits }
+        let queue = Self { backlog: Mutex::default(), changed: Notify::new(), limits };
+        if limits.max_items == 0 || limits.max_bytes == 0 {
+            queue.fail(NativeSessionError::InvalidState {
+                reason: "event cursor limits must both be greater than zero".into(),
+            });
+        }
+        queue
     }
 
     /// Adds an event. Never waits for the consumer.

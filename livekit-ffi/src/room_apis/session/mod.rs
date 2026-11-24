@@ -187,7 +187,7 @@ impl Inner {
 
     /// Releases everything that the session owns. No task runs after this.
     fn finish(&mut self) {
-        self.disconnected(NativeDisconnectReason::ClientInitiated);
+        self.disconnected(NativeDisconnectReason::UnknownReason);
         self.terminal.get_or_insert(NativeSessionError::Closed);
         self.room = None;
         if let Some(queue) = self.events.take() {
@@ -477,6 +477,7 @@ impl Shared {
             let cancelled = error == NativeSessionError::Cancelled;
             // Read this first: a cancel moves the state away from `Idle`.
             let idle = inner.connection == NativeConnectionState::Idle && inner.terminal.is_none();
+            let disconnect_idle = idle && error == NativeSessionError::Closed;
             if cancelled {
                 inner.terminal = Some(error);
             } else {
@@ -486,6 +487,8 @@ impl Shared {
                 if let Some(queue) = inner.events.take() {
                     queue.fail(NativeSessionError::Cancelled);
                 }
+                inner.disconnected(NativeDisconnectReason::ClientInitiated);
+            } else if disconnect_idle {
                 inner.disconnected(NativeDisconnectReason::ClientInitiated);
             }
             if idle && self.media.lock().is_empty() && self.commands.lock().is_empty() {
@@ -537,9 +540,13 @@ impl Shared {
                 crate::FFI_SERVER.async_runtime.handle(),
             );
         }
-        receive.await.unwrap_or_else(|_| {
+        let result = receive.await.unwrap_or_else(|_| {
             Err(NativeSessionError::Internal { reason: "room command task failed".into() })
-        })
+        });
+        if matches!(&result, Err(NativeSessionError::Cancelled)) && self.shutdown.is_cancelled() {
+            return Err(self.inner.lock().terminal.clone().unwrap_or(NativeSessionError::Closed));
+        }
+        result
     }
 
     /// No command can be admitted after termination. Join every accepted task.
@@ -619,12 +626,17 @@ impl Shared {
         };
         let room = Arc::new(room);
 
-        // The core queues `Connected` before it starts the room tasks, so it is the first event.
-        let initial = match events.recv().await {
-            Some(RoomEvent::Connected { participants_with_tracks }) => participants_with_tracks,
-            _ => Vec::new(),
+        // Normally Connected is first. Preserve any unexpected first event after installing the snapshot.
+        let (initial, pending) = match events.recv().await {
+            Some(RoomEvent::Connected { participants_with_tracks }) => {
+                (participants_with_tracks, None)
+            }
+            other => (Vec::new(), other),
         };
         self.install(&room, initial);
+        if let Some(event) = pending {
+            self.apply(event);
+        }
         self.drive(&room, &mut events).await;
     }
 
@@ -641,12 +653,7 @@ impl Shared {
                 // The core has no event for a room identifier that arrives late.
                 sid = room.sid(), if !sid_known => {
                     sid_known = true;
-                    self.update(|inner| {
-                        let Some(mut room) = inner.room_info.clone() else { return };
-                        room.sid = Some(sid.into());
-                        let room = inner.set_room_info(room);
-                        inner.emit(NativeRoomEvent::RoomUpdated { room });
-                    });
+                    self.update_sid(sid.into());
                 }
             }
         }
@@ -665,6 +672,18 @@ impl Shared {
         if tokio::time::timeout(CLOSE_TIMEOUT, drain).await.is_err() {
             log::warn!("room session: the core did not release its events after a close");
         }
+    }
+
+    fn update_sid(&self, sid: String) {
+        self.update(|inner| {
+            if inner.terminal == Some(NativeSessionError::Cancelled) {
+                return;
+            }
+            let Some(mut room) = inner.room_info.clone() else { return };
+            room.sid = Some(sid);
+            let room = inner.set_room_info(room);
+            inner.emit(NativeRoomEvent::RoomUpdated { room });
+        });
     }
 
     fn apply(&self, event: RoomEvent) {
@@ -830,7 +849,10 @@ impl NativeRoomSession {
     /// cancels the previous one.
     ///
     /// The cursor holds the snapshot from the moment of this call, and every
-    /// event of the cursor comes after that snapshot. See
+    /// event of the cursor comes after that snapshot. Zero limits produce a cursor
+    /// whose first `next` fails with InvalidState. Reliable payloads larger than
+    /// max_bytes fail with Overflow even when the queue is empty; the bound is strict.
+    /// See
     /// [`NativeRoomEventCursor::start_state`].
     pub fn events(&self, options: NativeEventCursorOptions) -> Arc<NativeRoomEventCursor> {
         let queue = Arc::new(EventQueue::new(options));

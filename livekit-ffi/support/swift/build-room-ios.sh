@@ -2,7 +2,7 @@
 # Build the room surface against released WebRTC prebuilts, serially, without workspace edits.
 # Run from the Rust workspace. Install the two rustup targets first; outputs use CARGO_TARGET_DIR.
 set -eu
-: "${IPHONEOS_DEPLOYMENT_TARGET:=13.0}"
+: "${IPHONEOS_DEPLOYMENT_TARGET:=14.0}"
 export IPHONEOS_DEPLOYMENT_TARGET
 if [ -n "${LK_CUSTOM_WEBRTC:-}" ]; then
     echo 'Unset LK_CUSTOM_WEBRTC: this build verifies released WebRTC prebuilts.' >&2

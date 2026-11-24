@@ -4,7 +4,7 @@
 # The layout is the layout of livekit/livekit-ffi-xcframework:
 #   Package.swift, Sources/LiveKitFFI/*.swift, RustLiveKitFFI.xcframework
 #
-# Usage: package-macos.sh <rust worktree> <liblivekit_ffi.dylib> <output directory>
+# Usage: package-room-macos.sh <rust worktree> <liblivekit_ffi.dylib> <output directory>
 #
 # ponytail: one slice, assembled by hand from the host cdylib. Use
 # `cargo make swift-package` (cargo-swift) when more than one Apple slice is necessary.

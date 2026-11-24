@@ -784,6 +784,9 @@ fn cancel_races_a_real_connect() {
 #[test]
 fn cancel_supersedes_closed_during_stalled_teardown() {
     let session = NativeRoomSession::new();
+    if let NativeRoomEvent::RoomUpdated { room } = room_event("before cancel") {
+        session.shared.update(|inner| inner.room_info = Some(room));
+    }
     // Deterministic driver state: a close is pending and has not marked finished.
     session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
     session.shared.terminate(NativeSessionError::Closed);
@@ -798,6 +801,7 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
     );
     session.shared.apply(RoomEvent::TokenRefreshed { token: "late".into() });
     session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
+    session.shared.update_sid("late SID".into());
     assert_eq!(session.state(), frozen);
     session.shared.update(Inner::finish);
     block_on(session.disconnect());
@@ -1651,4 +1655,138 @@ fn real_structured_connection_and_stream_errors() {
         Err(DataStreamError::InvalidState { .. })
     ));
     block_on(idle.disconnect());
+}
+
+#[test]
+fn invalid_cursor_limits_fail_without_an_event() {
+    for options in [limits(0, 100), limits(100, 0)] {
+        let session = NativeRoomSession::new();
+        let cursor = session.events(options);
+        assert!(matches!(next(&cursor), Err(NativeSessionError::InvalidState { .. })));
+    }
+}
+
+#[test]
+fn pending_commands_preserve_closed_cause() {
+    let session = NativeRoomSession::new();
+    let mut call = Box::pin(session.shared.command(std::future::pending::<()>()));
+    assert!(poll_for(Duration::from_millis(20), &mut call).is_none());
+    block_on(session.disconnect());
+    assert_eq!(block_on(call), Err(NativeSessionError::Closed));
+}
+
+#[test]
+fn unexplained_end_does_not_claim_client_initiated() {
+    let session = NativeRoomSession::new();
+    session.shared.update(Inner::finish);
+    assert_eq!(session.state().disconnect_reason, Some(NativeDisconnectReason::UnknownReason));
+}
+
+#[test]
+fn secrets_are_not_debug_formatted() {
+    let mut options = connect_options();
+    options.ice_servers.push(NativeIceServer {
+        urls: vec!["turn:secret-url@example.test".into()],
+        username: "secret-user".into(),
+        password: "secret-password".into(),
+    });
+    let debug = format!("{options:?} {:?}", token_event("secret-token"));
+    for secret in ["secret-url", "secret-user", "secret-password", "secret-token"] {
+        assert!(!debug.contains(secret));
+    }
+}
+
+#[test]
+fn decoded_video_accepts_odd_and_portrait_sizes() {
+    use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+    for (width, height) in [(5, 3), (3, 2161)] {
+        let core = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: 42,
+            frame_metadata: None,
+            buffer: Box::new(I420Buffer::new(width, height)) as _,
+        };
+        let decoded = NativeVideoFrame::from_core(core).unwrap();
+        assert_eq!((decoded.width, decoded.height), (width, height));
+        assert_eq!(decoded.data.len(), (width * height * 4) as usize);
+    }
+}
+
+#[inline(never)]
+fn receive_then_pcm_privacy_checkpoint(phase: u32) {
+    eprintln!("receive-then-PCM privacy checkpoint {phase}");
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local server; native recording/acquisition breakpoints must remain unhit; never requests a microphone"]
+fn real_receive_then_pcm_does_not_request_platform_audio() {
+    let room = unique("receive-then-pcm");
+    let sender = Peer::join(&room, "early");
+    let early = block_on(sender.session.create_audio_track("early PCM".into(), 1)).unwrap();
+    let publication =
+        block_on(early.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    let sid = publication.info().unwrap().sid;
+    let mut receiver = Peer::join(&room, "receiver");
+    receiver.expect(|event| match event {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    receive_then_pcm_privacy_checkpoint(1);
+    // The previously unsafe ordering: receive first, then publish manual PCM in
+    // the receiving session and a different session. Do not create PlatformAudio
+    // even to query it: its constructor itself enables capture globally.
+    let local =
+        block_on(receiver.session.create_audio_track("late PCM same room session".into(), 1))
+            .unwrap();
+    block_on(local.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    let other = Peer::join(&room, "other");
+    let late =
+        block_on(other.session.create_audio_track("late PCM other session".into(), 1)).unwrap();
+    block_on(late.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    for _ in 0..30 {
+        for track in [&early, &local, &late] {
+            block_on(track.capture_frame(NativeAudioFrame {
+                samples: vec![0; 480],
+                sample_rate: 48000,
+                num_channels: 1,
+                samples_per_channel: 480,
+            }))
+            .unwrap();
+        }
+    }
+    receive_then_pcm_privacy_checkpoint(2);
+    other.leave();
+    receiver.leave();
+    sender.leave();
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local server"]
+fn real_rpc_backpressure_does_not_emit_unadmitted_invocation() {
+    let room = unique("rpc-admission");
+    let sender = Peer::join(&room, "caller");
+    let receiver = Peer::join(&room, "handler");
+    block_on(receiver.session.register_rpc_method("full".into())).unwrap();
+    let mut held = Vec::new();
+    for _ in 0..128 {
+        let mut command = Box::pin(receiver.session.shared.command(std::future::pending::<()>()));
+        assert!(poll_for(Duration::from_millis(1), &mut command).is_none());
+        held.push(command);
+    }
+    let result = block_on(sender.session.perform_rpc(NativeRpcOptions {
+        destination_identity: "handler".into(),
+        method: "full".into(),
+        payload: "test".into(),
+        response_timeout_ms: 5000,
+        max_round_trip_latency_ms: 3000,
+    }));
+    assert!(matches!(result, Err(NativeRpcError::Failed { code: 1505, data: Some(_), .. })));
+    while let Some(Ok(Some(update))) = poll_for(Duration::from_millis(50), receiver.cursor.next()) {
+        assert!(!matches!(update.event, NativeRoomEvent::RpcRequested { .. }));
+    }
+    drop(held);
+    receiver.leave();
+    sender.leave();
 }

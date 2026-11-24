@@ -220,13 +220,23 @@ pub fn native_session_error_is_shutdown(error: NativeSessionError) -> bool {
 }
 
 /// ICE server credentials forwarded directly to core RTC configuration.
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone)]
 pub struct NativeIceServer {
     pub urls: Vec<String>,
     #[uniffi(default = "")]
     pub username: String,
     #[uniffi(default = "")]
     pub password: String,
+}
+
+impl std::fmt::Debug for NativeIceServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // URLs can contain user-info credentials too.
+        f.debug_struct("NativeIceServer")
+            .field("url_count", &self.urls.len())
+            .field("credentials", &"[REDACTED]")
+            .finish()
+    }
 }
 
 pub use livekit::webrtc::peer_connection_factory::{
@@ -604,7 +614,7 @@ pub struct NativeDataPacket {
 ///
 /// New variants can appear in a later version, so a consumer must ignore a
 /// variant that it does not know.
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, PartialEq)]
 pub enum NativeRoomEvent {
     /// An incoming RPC awaiting a reply before its deadline.
     RpcRequested {
@@ -726,6 +736,46 @@ pub enum NativeRoomEvent {
     DataReceived {
         packet: NativeDataPacket,
     },
+}
+
+// Omit payloads from diagnostic formatting, including refresh tokens and RPC data.
+impl std::fmt::Debug for NativeRoomEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::RpcRequested { .. } => "RpcRequested",
+            Self::ByteStreamOpened { .. } => "ByteStreamOpened",
+            Self::TextStreamOpened { .. } => "TextStreamOpened",
+            Self::DataTrackPublished { .. } => "DataTrackPublished",
+            Self::DataTrackUnpublished { .. } => "DataTrackUnpublished",
+            Self::ConnectionStateChanged { .. } => "ConnectionStateChanged",
+            Self::Disconnected { .. } => "Disconnected",
+            Self::RoomUpdated { .. } => "RoomUpdated",
+            Self::RoomMetadataChanged { .. } => "RoomMetadataChanged",
+            Self::RoomMoved { .. } => "RoomMoved",
+            Self::TokenRefreshed { .. } => "TokenRefreshed",
+            Self::ParticipantConnected { .. } => "ParticipantConnected",
+            Self::ParticipantDisconnected { .. } => "ParticipantDisconnected",
+            Self::ParticipantUpdated { .. } => "ParticipantUpdated",
+            Self::ParticipantMetadataChanged { .. } => "ParticipantMetadataChanged",
+            Self::ParticipantNameChanged { .. } => "ParticipantNameChanged",
+            Self::ParticipantAttributesChanged { .. } => "ParticipantAttributesChanged",
+            Self::ParticipantPermissionChanged { .. } => "ParticipantPermissionChanged",
+            Self::ParticipantEncryptionStatusChanged { .. } => "ParticipantEncryptionStatusChanged",
+            Self::EncryptionStateChanged { .. } => "EncryptionStateChanged",
+            Self::ConnectionQualityChanged { .. } => "ConnectionQualityChanged",
+            Self::ActiveSpeakersChanged { .. } => "ActiveSpeakersChanged",
+            Self::TrackPublished { .. } => "TrackPublished",
+            Self::TrackUnpublished { .. } => "TrackUnpublished",
+            Self::LocalTrackRepublished { .. } => "LocalTrackRepublished",
+            Self::TrackMuted { .. } => "TrackMuted",
+            Self::TrackUnmuted { .. } => "TrackUnmuted",
+            Self::TrackSubscribed { .. } => "TrackSubscribed",
+            Self::TrackUnsubscribed { .. } => "TrackUnsubscribed",
+            Self::TrackSubscriptionFailed { .. } => "TrackSubscriptionFailed",
+            Self::DataReceived { .. } => "DataReceived",
+        };
+        f.debug_struct(name).finish_non_exhaustive()
+    }
 }
 
 /// A room event with the state revision that includes it.

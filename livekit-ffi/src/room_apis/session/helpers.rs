@@ -124,13 +124,21 @@ impl NativeRoomSession {
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, livekit_datatrack::api::PublishError> {
         use livekit_datatrack::api::PublishError;
-        let room = self.shared.room().map_err(|_| PublishError::Disconnected)?;
+        let session_error = |error: NativeSessionError| match error {
+            NativeSessionError::Closed | NativeSessionError::Cancelled => {
+                PublishError::Disconnected
+            }
+            other => {
+                PublishError::Internal(uniffi::deps::anyhow::Error::msg(other.to_string()).into())
+            }
+        };
+        let room = self.shared.room().map_err(session_error)?;
         self.shared
             .command(async move {
                 room.local_participant().publish_data_track(options).await.map(LocalDataTrack::new)
             })
             .await
-            .map_err(|_| PublishError::Disconnected)?
+            .map_err(session_error)?
     }
 
     /// Defines a schema on the server before publishing a track that references it.
