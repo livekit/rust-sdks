@@ -17,7 +17,21 @@
 //! Every exported name carries the `Native` prefix so that the generated
 //! bindings never collide with the public types of a host SDK.
 
+use super::encryption::NativeEncryptionOptions;
+pub use livekit::webrtc::native::frame_cryptor::EncryptionState as NativeEncryptionState;
 use std::{collections::HashMap, time::Duration};
+
+/// Native media cryptor state, forwarded from the authoritative room.
+#[uniffi::remote(Enum)]
+pub enum NativeEncryptionState {
+    New,
+    Ok,
+    EncryptionFailed,
+    DecryptionFailed,
+    MissingKey,
+    KeyRatcheted,
+    InternalError,
+}
 
 // The core enums are exported as they are. `uniffi::remote` emits only the
 // converters, and its exhaustive match fails the build when core adds a variant.
@@ -232,11 +246,24 @@ pub struct NativeConnectOptions {
     /// Maximum incoming stream payload bytes; None keeps the core default.
     #[uniffi(default = None)]
     pub max_stream_payload_bytes: Option<u32>,
+    /// AES-GCM provider/configuration; None preserves plaintext behavior.
+    #[uniffi(default = None)]
+    pub encryption: Option<NativeEncryptionOptions>,
 }
 
 impl From<NativeConnectOptions> for RoomOptions {
     fn from(options: NativeConnectOptions) -> Self {
         let mut core = RoomOptions::default();
+        if let Some(encryption) = options.encryption {
+            if encryption.legacy_media_only {
+                #[allow(deprecated)]
+                {
+                    core.e2ee = Some(encryption.core());
+                }
+            } else {
+                core.encryption = Some(encryption.core());
+            }
+        }
         core.auto_subscribe = options.auto_subscribe;
         core.adaptive_stream = options.adaptive_stream;
         core.dynacast = options.dynacast;
@@ -589,6 +616,10 @@ pub enum NativeRoomEvent {
     },
     ParticipantEncryptionStatusChanged {
         participant: NativeParticipant,
+    },
+    EncryptionStateChanged {
+        participant: NativeParticipant,
+        state: NativeEncryptionState,
     },
     /// Only the newest value for each participant is kept.
     ConnectionQualityChanged {

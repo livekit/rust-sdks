@@ -66,6 +66,7 @@ fn poll_for<T>(limit: Duration, future: impl Future<Output = T>) -> Option<T> {
     }
 }
 
+#[track_caller]
 fn block_on<T>(future: impl Future<Output = T>) -> T {
     poll_for(LIMIT, future).expect("the wait did not end in time")
 }
@@ -89,6 +90,7 @@ fn connect_options() -> NativeConnectOptions {
         sdk: None,
         max_stream_payload_bytes: None,
         sdk_version: None,
+        encryption: None,
     }
 }
 
@@ -420,6 +422,20 @@ impl Peer {
     }
 
     fn join_with(room: &str, identity: &str, cursor: NativeEventCursorOptions) -> Self {
+        Self::join_options(
+            room,
+            identity,
+            cursor,
+            NativeConnectOptions { connect_timeout_ms: Some(10_000), ..connect_options() },
+        )
+    }
+
+    fn join_options(
+        room: &str,
+        identity: &str,
+        cursor: NativeEventCursorOptions,
+        options: NativeConnectOptions,
+    ) -> Self {
         let token = AccessToken::with_api_key(
             &env_or("LK_TEST_API_KEY", "devkey"),
             &env_or("LK_TEST_API_SECRET", "secret"),
@@ -437,8 +453,6 @@ impl Peer {
         let session = NativeRoomSession::new();
         let cursor = session.events(cursor);
         let url = env_or("LK_TEST_URL", "ws://127.0.0.1:7880");
-        let options =
-            NativeConnectOptions { connect_timeout_ms: Some(10_000), ..connect_options() };
         let first = block_on(session.connect(url, token, options)).expect("connect");
 
         assert_eq!(first.connection, NativeConnectionState::Connected);
@@ -807,6 +821,21 @@ fn session_joins_commands_when_callers_drop_and_on_cancel() {
     }
 }
 
+fn encrypted_options(key: &str) -> NativeConnectOptions {
+    use super::encryption::{NativeEncryptionOptions, NativeKeyProvider, NativeKeyProviderOptions};
+    NativeConnectOptions {
+        encryption: Some(NativeEncryptionOptions {
+            key_provider: NativeKeyProvider::new(
+                NativeKeyProviderOptions::default(),
+                Some(bytes::Bytes::copy_from_slice(key.as_bytes())),
+            )
+            .unwrap(),
+            legacy_media_only: false,
+        }),
+        ..connect_options()
+    }
+}
+
 #[serial_test::serial]
 #[test]
 #[ignore = "requires a local LiveKit server with data tracks and participant data blobs enabled"]
@@ -817,10 +846,32 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
         local::DataTrackOptions,
     };
     use livekit_datatrack::api::{DataTrackFrameEncoding, DataTrackSchemaEncoding};
-    for _ in 0..2 {
+    for encrypted in [false, true] {
         let room = unique("helpers");
-        let sender = Peer::join(&room, "sender");
-        let mut receiver = Peer::join(&room, "receiver");
+        let options = || if encrypted { encrypted_options(&room) } else { connect_options() };
+        let sender = Peer::join_options(&room, "sender", cursor_options(), options());
+        let mut receiver = Peer::join_options(&room, "receiver", cursor_options(), options());
+        assert_eq!(sender.session.encryption_status().unwrap().data_enabled, encrypted);
+        assert_eq!(receiver.session.encryption_status().unwrap().data_enabled, encrypted);
+        block_on(sender.session.publish_data(
+            vec![0, 1, 255],
+            NativeDataPublishOptions {
+                reliable: true,
+                topic: Some("encrypted-proof".into()),
+                destination_identities: vec![],
+            },
+        ))
+        .unwrap();
+        receiver.expect(|event| match event {
+            NativeRoomEvent::DataReceived { packet }
+                if packet.topic.as_deref() == Some("encrypted-proof") =>
+            {
+                assert_eq!(packet.payload, vec![0, 1, 255]);
+                Some(())
+            }
+            _ => None,
+        });
+
         let info =
             block_on(sender.session.send_text("hello λ".into(), StreamTextOptions::default()))
                 .expect("text");
@@ -831,6 +882,14 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
             _ => None,
         });
         assert_eq!(reader.info().id, info.id);
+        assert_eq!(
+            reader.info().encryption_type,
+            if encrypted {
+                crate::data_stream::common::EncryptionType::Gcm
+            } else {
+                crate::data_stream::common::EncryptionType::None
+            }
+        );
         assert_eq!(block_on(reader.read_all()).expect("read text"), "hello λ");
         let bytes = bytes::Bytes::from_static(b"\x00\xffbytes");
         block_on(sender.session.send_bytes(bytes.clone(), StreamByteOptions::default()))
@@ -875,6 +934,27 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
         assert!(block_on(reader.next()).is_err());
         block_on(writer.close(None, HashMap::new())).expect("byte close");
 
+        // Completion is independent of chunk consumption, including overlapping streams.
+        let first = block_on(sender.session.stream_text(StreamTextOptions::default())).unwrap();
+        let first_reader = receiver.expect(|event| match event {
+            NativeRoomEvent::TextStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        let second = block_on(sender.session.stream_text(StreamTextOptions::default())).unwrap();
+        let second_reader = receiver.expect(|event| match event {
+            NativeRoomEvent::TextStreamOpened { reader, .. } => Some(reader.clone()),
+            _ => None,
+        });
+        block_on(first.write("first".into())).unwrap();
+        block_on(second.write("second".into())).unwrap();
+        block_on(second.close(None, HashMap::new())).unwrap();
+        block_on(second_reader.wait_closed());
+        assert!(poll_for(Duration::from_millis(100), first_reader.wait_closed()).is_none());
+        block_on(first.close(None, HashMap::new())).unwrap();
+        block_on(first_reader.wait_closed());
+        assert_eq!(block_on(first_reader.read_all()).unwrap(), "first");
+        assert_eq!(block_on(second_reader.read_all()).unwrap(), "second");
+
         let schema = || DataTrackSchemaId {
             name: "helper-schema".into(),
             encoding: DataTrackSchemaEncoding::JsonSchema,
@@ -896,6 +976,7 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
             }
             _ => None,
         });
+        assert_eq!(remote.info().uses_e2ee, encrypted);
         assert_eq!(receiver.session.state().data_tracks.len(), 1);
         let recovered = receiver
             .session
@@ -978,5 +1059,367 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
         sender.leave();
         assert!(weak_room.upgrade().is_none(), "command retained actual room");
         receiver.leave();
+    }
+}
+
+fn media_publish_options(source: NativeTrackSource) -> NativeMediaPublishOptions {
+    NativeMediaPublishOptions {
+        source,
+        dtx: false,
+        red: true,
+        simulcast: false,
+        stream: String::new(),
+    }
+}
+
+#[test]
+fn media_validation_and_child_handles_do_not_retain_session() {
+    let session = NativeRoomSession::new();
+    assert!(block_on(session.create_audio_track("bad".into(), 0)).is_err());
+    assert!(block_on(session.create_video_track("bad".into(), u32::MAX, 180, false)).is_err());
+    let audio = block_on(session.create_audio_track("local".into(), 1)).expect("source");
+    block_on(audio.set_muted(true)).expect("mute before publishing");
+    assert!(audio.info().unwrap().is_muted);
+    block_on(audio.set_muted(false)).expect("unmute before publishing");
+    assert!(!audio.info().unwrap().is_muted);
+    assert!(block_on(audio.capture_frame(NativeAudioFrame {
+        samples: vec![],
+        sample_rate: 48_000,
+        num_channels: 1,
+        samples_per_channel: 480,
+    }))
+    .is_err());
+    session.cancel();
+    let weak = Arc::downgrade(&session.shared);
+    block_on(session.disconnect());
+    assert!(audio.info().is_err());
+    drop(session);
+    assert!(weak.upgrade().is_none(), "child audio handle retained session");
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local LiveKit server; synthetic sources prove codec transport, not physical devices"]
+fn real_room_media_initial_publications_audio_video_and_teardown() {
+    for encrypted in [false, true] {
+        let name = unique("media");
+        let options = || if encrypted { encrypted_options(&name) } else { connect_options() };
+        let sender = Peer::join_options(&name, "publisher", cursor_options(), options());
+        let audio =
+            block_on(sender.session.create_audio_track("pcm".into(), 1)).expect("PCM source");
+        let publication =
+            block_on(audio.publish(media_publish_options(NativeTrackSource::Microphone)))
+                .expect("publish audio");
+        let info = publication.info().expect("audio publication");
+        assert_eq!(
+            info.encryption_type,
+            if encrypted { NativeEncryptionType::Gcm } else { NativeEncryptionType::None }
+        );
+        let sid = info.sid;
+        let mut receiver = Peer::join_options(
+            &name,
+            "subscriber",
+            cursor_options(),
+            NativeConnectOptions {
+                auto_subscribe: false,
+                connect_timeout_ms: Some(10_000),
+                ..options()
+            },
+        );
+        assert!(
+            receiver
+                .first
+                .publications
+                .iter()
+                .any(|p| p.sid == sid && p.participant_identity == "publisher"),
+            "initial publication missing"
+        );
+        let remote_publication = receiver
+            .session
+            .publication("publisher".into(), sid.clone())
+            .expect("publication lookup");
+        block_on(remote_publication.set_subscribed(true)).expect("subscribe audio");
+        receiver.expect(|event| match event {
+            NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+            _ => None,
+        });
+        let remote =
+            remote_publication.remote_audio_track().expect("remote lookup").expect("audio track");
+        let frames = block_on(remote.frames(1, 4)).expect("PCM sink");
+        let capture = audio.clone();
+        let producer = thread::spawn(move || {
+            for n in 0..80 {
+                let samples = (0..480)
+                    .map(|i| {
+                        (((n * 480 + i) as f64 * 440.0 * std::f64::consts::TAU / 48_000.0).sin()
+                            * 8000.0) as i16
+                    })
+                    .collect();
+                block_on(capture.capture_frame(NativeAudioFrame {
+                    samples,
+                    sample_rate: 48_000,
+                    num_channels: 1,
+                    samples_per_channel: 480,
+                }))
+                .expect("capture PCM");
+            }
+        });
+        let mut audible = false;
+        for _ in 0..80 {
+            let frame = block_on(frames.next()).expect("decoded PCM").expect("audio frame");
+            assert_eq!((frame.sample_rate, frame.num_channels), (48_000, 1));
+            if frame.samples.iter().any(|s| s.unsigned_abs() > 1000) {
+                audible = true;
+                break;
+            }
+        }
+        producer.join().expect("audio producer");
+        assert!(audible, "synthetic audio did not survive Opus transport");
+        if encrypted {
+            receiver.expect(|event| match event {
+                NativeRoomEvent::EncryptionStateChanged {
+                    state: NativeEncryptionState::Ok,
+                    ..
+                } => Some(()),
+                _ => None,
+            });
+            assert!(sender
+                .session
+                .shared
+                .room()
+                .unwrap()
+                .e2ee_manager()
+                .frame_cryptors()
+                .values()
+                .all(|c| c.enabled()));
+        }
+
+        block_on(publication.set_muted(true)).expect("mute");
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackMuted { publication } if publication.sid == sid => Some(()),
+            _ => None,
+        });
+        block_on(publication.set_muted(false)).expect("unmute");
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackUnmuted { publication } if publication.sid == sid => Some(()),
+            _ => None,
+        });
+        frames.cancel();
+        assert!(block_on(frames.next()).expect("cancelled sink").is_none());
+        block_on(remote_publication.set_subscribed(false)).expect("unsubscribe");
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid == sid => {
+                Some(())
+            }
+            _ => None,
+        });
+        // Core's unsubscribe event is optimistic, not an SFU acknowledgment. An immediate
+        // false->true flip can coalesce away unsubscribe and never produce a new track event.
+        block_on(publication.unpublish()).expect("unpublish audio");
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackUnpublished { publication } if publication.sid == sid => Some(()),
+            _ => None,
+        });
+        let unsub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid == sid)).expect("unsubscribed event");
+        let unpub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnpublished { publication } if publication.sid == sid)).expect("unpublished event");
+        assert!(unsub < unpub);
+        block_on(audio.release()).expect("release source");
+
+        let video = block_on(sender.session.create_video_track("pixels".into(), 320, 180, false))
+            .expect("video source");
+        let video_publication =
+            block_on(video.publish(media_publish_options(NativeTrackSource::Camera)))
+                .expect("publish video");
+        let video_info = video_publication.info().expect("video publication");
+        assert_eq!(
+            video_info.encryption_type,
+            if encrypted { NativeEncryptionType::Gcm } else { NativeEncryptionType::None }
+        );
+        let video_sid = video_info.sid;
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackPublished { publication } if publication.sid == video_sid => {
+                Some(())
+            }
+            _ => None,
+        });
+        let remote_video_publication = receiver
+            .session
+            .publication("publisher".into(), video_sid.clone())
+            .expect("video lookup");
+        block_on(remote_video_publication.set_subscribed(true)).expect("subscribe video");
+        receiver.expect(|e| match e {
+            NativeRoomEvent::TrackSubscribed { publication } if publication.sid == video_sid => {
+                Some(())
+            }
+            _ => None,
+        });
+        let remote_video = receiver
+            .session
+            .publication("publisher".into(), video_sid)
+            .expect("video lookup")
+            .remote_video_track()
+            .expect("remote video")
+            .expect("subscribed");
+        let video_frames = block_on(remote_video.frames(2)).expect("video sink");
+        let capture = video.clone();
+        let producer = thread::spawn(move || {
+            for n in 0..40 {
+                let data = [16u8, 32, 220, 255].repeat(320 * 180);
+                block_on(capture.capture_frame(NativeVideoFrame {
+                    format: NativeVideoPixelFormat::Bgra,
+                    chroma_stride: None,
+                    data,
+                    width: 320,
+                    height: 180,
+                    stride: 1280,
+                    timestamp_us: 1_000_000 + n * 50_000,
+                    rotation: 0,
+                }))
+                .expect("capture video");
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+        let mut colored = false;
+        for _ in 0..40 {
+            let frame = block_on(video_frames.next()).expect("decode video").expect("video frame");
+            if frame.data.chunks_exact(4).take(100).all(|p| p[2] > p[0].saturating_add(80)) {
+                colored = true;
+                break;
+            }
+        }
+        producer.join().expect("video producer");
+        assert!(colored, "synthetic color did not survive VP8 transport");
+        let weak = Arc::downgrade(&receiver.session.shared);
+        receiver.leave();
+        assert!(weak.upgrade().is_none(), "media child retained disconnected session");
+        assert!(block_on(video_frames.next()).is_err());
+        assert!(remote_video.info().is_err());
+        sender.leave();
+        assert!(video.info().is_err());
+    }
+}
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires physical microphone access; runs only when LK_TEST_MICROPHONE=1"]
+fn real_device_microphone_to_remote_pcm() {
+    assert_eq!(
+        std::env::var("LK_TEST_MICROPHONE").as_deref(),
+        Ok("1"),
+        "physical capture must be explicitly enabled"
+    );
+    let name = unique("microphone");
+    let sender =
+        Peer::join_options(&name, "microphone", cursor_options(), encrypted_options(&name));
+    let mut receiver =
+        Peer::join_options(&name, "listener", cursor_options(), encrypted_options(&name));
+    let audio = block_on(sender.session.create_microphone_track("device".into(), None))
+        .expect("physical microphone");
+    let publication = block_on(audio.publish(media_publish_options(NativeTrackSource::Microphone)))
+        .expect("publish physical microphone");
+    let info = publication.info().expect("publication");
+    assert_eq!(info.encryption_type, NativeEncryptionType::Gcm);
+    let sid = info.sid;
+    receiver.expect(|e| match e {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    let remote = receiver
+        .session
+        .publication("microphone".into(), sid)
+        .expect("publication")
+        .remote_audio_track()
+        .expect("remote")
+        .expect("audio");
+    let frames = block_on(remote.frames(1, 4)).expect("sink");
+    let mut samples = 0;
+    let mut peak = 0u16;
+    for _ in 0..100 {
+        let frame = block_on(frames.next()).expect("physical PCM").expect("frame");
+        samples += frame.samples.len();
+        peak = peak.max(frame.samples.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0));
+    }
+    assert!(samples >= 48_000, "less than one second captured");
+    eprintln!("Encrypted physical microphone: {samples} decoded samples, peak {peak}; no PCM saved; speaker output not tested");
+    block_on(publication.unpublish()).expect("unpublish microphone");
+    block_on(audio.release()).expect("release microphone");
+    sender.leave();
+    receiver.leave();
+}
+
+#[test]
+fn video_frame_layout_validation_and_nv12_conversion() {
+    let frame = NativeVideoFrame {
+        format: NativeVideoPixelFormat::Nv12,
+        chroma_stride: Some(8),
+        data: [vec![81; 8 * 4], [90, 240].repeat(8)].concat(),
+        width: 4,
+        height: 4,
+        stride: 8,
+        timestamp_us: 123,
+        rotation: 90,
+    };
+    let output = NativeVideoFrame::from_core(frame.clone().into_core().unwrap()).unwrap();
+    assert_eq!(
+        (output.width, output.height, output.timestamp_us, output.rotation),
+        (4, 4, 123, 90)
+    );
+    assert!(output.data.chunks_exact(4).all(|p| p[2] > 200 && p[0] < 30));
+    let mut invalid = frame.clone();
+    invalid.data.pop();
+    assert!(invalid.into_core().is_err());
+    let mut invalid = frame.clone();
+    invalid.stride = u32::MAX;
+    assert!(invalid.into_core().is_err());
+    let mut invalid = frame;
+    invalid.rotation = 45;
+    assert!(invalid.into_core().is_err());
+}
+
+#[test]
+fn encryption_provider_defaults_and_unsupported_options() {
+    use super::encryption::{NativeKeyProvider, NativeKeyProviderOptions};
+    let key = bytes::Bytes::from_static(b"test-only-shared-key");
+    let provider =
+        NativeKeyProvider::new(NativeKeyProviderOptions::default(), Some(key.clone())).unwrap();
+    assert_eq!(provider.export_key(None, 0).unwrap(), Some(key));
+    assert_eq!(provider.latest_key_index(), 0);
+    let ratcheted = provider.ratchet_key(None, 0).unwrap().unwrap();
+    assert_eq!(provider.export_key(None, 0).unwrap(), Some(ratcheted));
+    assert!(provider.export_key(None, -1).is_err());
+    assert!(NativeKeyProvider::new(NativeKeyProviderOptions::default(), None).is_err());
+    assert!(NativeKeyProvider::new(
+        NativeKeyProviderOptions { key_size: 256, ..Default::default() },
+        None
+    )
+    .is_err());
+    assert!(NativeKeyProvider::new(
+        NativeKeyProviderOptions {
+            discard_frame_when_cryptor_not_ready: true,
+            ..Default::default()
+        },
+        None
+    )
+    .is_err());
+    let individual = NativeKeyProvider::new(
+        NativeKeyProviderOptions { shared_key: false, ..Default::default() },
+        None,
+    )
+    .unwrap();
+    individual
+        .set_key(bytes::Bytes::from_static(b"participant-key"), Some("remote".into()), 0)
+        .unwrap();
+    assert_eq!(
+        individual.export_key(Some("remote".into()), 0).unwrap().unwrap().as_ref(),
+        b"participant-key"
+    );
+    assert!(individual.export_key(None, 0).is_err());
+    let mut options = encrypted_options("test-only-key");
+    options.encryption.as_mut().unwrap().legacy_media_only = true;
+    let core: RoomOptions = options.into();
+    assert!(core.encryption.is_none());
+    #[allow(deprecated)]
+    {
+        assert!(core.e2ee.is_some());
     }
 }

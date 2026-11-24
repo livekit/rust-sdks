@@ -151,6 +151,7 @@ pub struct ByteStreamReader {
     /// The core reader, or `None` once the reader was closed.
     inner: Arc<Mutex<Option<ds_api::ByteStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    completion: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
     closer: ds_api::StreamCloser,
@@ -161,6 +162,7 @@ impl ByteStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
+            completion: Mutex::new(reader.progress_stream().boxed()),
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
@@ -196,6 +198,14 @@ impl ByteStreamReader {
         next_progress(&self.progress, &self.closed).await
     }
 
+    /// Waits until core closes the incoming stream, without consuming data or progress updates.
+    /// Closure includes errors/cancellation: read the chunks to determine whether delivery succeeded.
+    /// This observes the core progress sender ending and supports overlapping-stream ordering.
+    pub async fn wait_closed(&self) {
+        let mut completion = self.completion.lock().await;
+        while unless_closed(&self.closed, completion.next()).await.flatten().is_some() {}
+    }
+
     /// Returns the next chunk, or `None` once the stream has closed.
     pub async fn next(&self) -> Result<Option<Bytes>, DataStreamError> {
         next_chunk(&mut *self.inner.lock().await, &self.closed).await
@@ -225,6 +235,7 @@ pub struct TextStreamReader {
     /// The core reader, or `None` once the reader was closed.
     inner: Arc<Mutex<Option<ds_api::TextStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
+    completion: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
     closer: ds_api::StreamCloser,
@@ -235,6 +246,7 @@ impl TextStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
+            completion: Mutex::new(reader.progress_stream().boxed()),
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
             closed: CancellationToken::new(),
@@ -270,6 +282,14 @@ impl TextStreamReader {
     /// merged into the latest one.
     pub async fn next_progress(&self) -> Option<StreamProgress> {
         next_progress(&self.progress, &self.closed).await
+    }
+
+    /// Waits until core closes the incoming stream, without consuming data or progress updates.
+    /// Closure includes errors/cancellation: read the chunks to determine whether delivery succeeded.
+    /// This observes the core progress sender ending and supports overlapping-stream ordering.
+    pub async fn wait_closed(&self) {
+        let mut completion = self.completion.lock().await;
+        while unless_closed(&self.closed, completion.next()).await.flatten().is_some() {}
     }
 
     /// Returns the next chunk, or `None` once the stream has closed.

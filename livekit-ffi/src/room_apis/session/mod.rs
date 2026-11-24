@@ -40,8 +40,15 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod encryption;
 mod events;
 mod helpers;
+mod media;
+mod media_frames;
+#[cfg(test)]
+use media::*;
+#[cfg(test)]
+use media_frames::*;
 mod rpc;
 pub use rpc::*;
 pub(crate) mod log_forward;
@@ -300,6 +307,10 @@ impl Inner {
                 let Some(participant) = self.refresh(&participant) else { return };
                 self.emit(Out::ParticipantPermissionChanged { participant });
             }
+            RoomEvent::E2eeStateChanged { participant, state } => {
+                let Some(participant) = self.refresh(&participant) else { return };
+                self.emit(Out::EncryptionStateChanged { participant, state });
+            }
             RoomEvent::ParticipantEncryptionStatusChanged { participant, .. } => {
                 let Some(participant) = self.refresh(&participant) else { return };
                 self.emit(Out::ParticipantEncryptionStatusChanged { participant });
@@ -435,6 +446,7 @@ fn room_info(room: &Room) -> NativeRoomInfo {
 struct Shared {
     generation: u64,
     rpc_slots: Arc<tokio::sync::Semaphore>,
+    media: Mutex<media::Media>,
     shutdown: tokio_util::sync::CancellationToken,
     commands: Mutex<tokio::task::JoinSet<()>>,
     inner: Mutex<Inner>,
@@ -459,11 +471,11 @@ impl Shared {
 
     /// Ends the session. Never blocks. The task of the session does the
     /// teardown when one exists.
-    fn terminate(&self, error: NativeSessionError) {
+    fn terminate(self: &Arc<Self>, error: NativeSessionError) {
         self.update(|inner| {
             let cancelled = error == NativeSessionError::Cancelled;
             // Read this first: a cancel moves the state away from `Idle`.
-            let idle = inner.connection == NativeConnectionState::Idle;
+            let idle = inner.connection == NativeConnectionState::Idle && inner.terminal.is_none();
             if cancelled {
                 inner.terminal = Some(error);
             } else {
@@ -475,9 +487,16 @@ impl Shared {
                 }
                 inner.disconnected(NativeDisconnectReason::ClientInitiated);
             }
-            if idle {
-                // `connect` did not start a task, so nothing else can finish.
+            if idle && self.media.lock().is_empty() && self.commands.lock().is_empty() {
                 inner.finish();
+            } else if idle {
+                // Pre-connect sources also need owned runtime cleanup. Keep cancel nonblocking.
+                let shared = self.clone();
+                *self.task.lock() = Some(crate::FFI_SERVER.async_runtime.spawn(async move {
+                    shared.drain_commands().await;
+                    shared.media.lock().clear();
+                    shared.update(Inner::finish);
+                }));
             }
         });
     }
@@ -576,6 +595,7 @@ impl Shared {
         struct Finish(Arc<Shared>);
         impl Drop for Finish {
             fn drop(&mut self) {
+                self.0.media.lock().clear();
                 self.0.update(Inner::finish);
             }
         }
@@ -607,7 +627,7 @@ impl Shared {
         self.drive(&room, &mut events).await;
     }
 
-    async fn drive(&self, room: &Room, events: &mut UnboundedReceiver<RoomEvent>) {
+    async fn drive(self: &Arc<Self>, room: &Room, events: &mut UnboundedReceiver<RoomEvent>) {
         let mut sid_known = room.maybe_sid().is_some();
         loop {
             tokio::select! {
@@ -650,6 +670,13 @@ impl Shared {
         self.update(|inner| {
             // A cancel released the backlog and froze the state.
             if inner.terminal != Some(NativeSessionError::Cancelled) {
+                match &event {
+                    RoomEvent::TrackUnsubscribed { publication, .. }
+                    | RoomEvent::TrackUnpublished { publication, .. } => {
+                        self.media.lock().remove_sinks(publication.sid().as_str())
+                    }
+                    _ => {}
+                }
                 inner.apply(event);
             }
         });
@@ -692,6 +719,7 @@ impl NativeRoomSession {
         Arc::new(Self {
             shared: Arc::new(Shared {
                 rpc_slots: Arc::new(tokio::sync::Semaphore::new(64)),
+                media: Mutex::default(),
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 commands: Mutex::new(tokio::task::JoinSet::new()),
                 generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -751,6 +779,7 @@ impl NativeRoomSession {
         }
         wait_for(&self.shared.changed, || self.shared.inner.lock().finished.then_some(())).await;
         self.shared.drain_commands().await;
+        self.shared.media.lock().clear();
     }
 
     /// Ends the session at once and does not wait.
