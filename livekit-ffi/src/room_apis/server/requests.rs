@@ -349,19 +349,9 @@ fn on_create_video_track(
         .source
         .clone();
 
-    let handle_id = server.next_id();
-    let video_track = LocalVideoTrack::create_video_track(&create.name, source);
-    let ffi_track =
-        FfiTrack { handle: handle_id, track: Track::LocalVideo(video_track), room_handle: None };
-
-    let track_info = proto::TrackInfo::from(&ffi_track);
-    server.store_handle(handle_id, ffi_track);
-
+    let track = LocalVideoTrack::create_video_track(&create.name, source);
     Ok(proto::CreateVideoTrackResponse {
-        track: proto::OwnedTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: track_info,
-        },
+        track: FfiTrack::store_local(server, LocalTrack::Video(track)),
     })
 }
 
@@ -375,18 +365,9 @@ fn on_create_audio_track(
         .source
         .clone();
 
-    let handle_id = server.next_id();
-    let audio_track = LocalAudioTrack::create_audio_track(&create.name, source);
-    let ffi_track =
-        FfiTrack { handle: handle_id, track: Track::LocalAudio(audio_track), room_handle: None };
-    let track_info = proto::TrackInfo::from(&ffi_track);
-    server.store_handle(handle_id, ffi_track);
-
+    let track = LocalAudioTrack::create_audio_track(&create.name, source);
     Ok(proto::CreateAudioTrackResponse {
-        track: proto::OwnedTrack {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-            info: track_info,
-        },
+        track: FfiTrack::store_local(server, LocalTrack::Audio(track)),
     })
 }
 
