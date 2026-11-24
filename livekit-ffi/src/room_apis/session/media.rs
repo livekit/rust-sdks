@@ -591,6 +591,21 @@ impl NativePublicationHandle {
             })
             .await
     }
+    /// Requests the highest acceptable simulcast layer. Core ignores this for non-simulcast tracks.
+    pub async fn set_video_quality(
+        &self,
+        quality: super::NativeVideoQuality,
+    ) -> Result<(), NativeSessionError> {
+        let (shared, p) = self.remote()?;
+        if p.kind() != TrackKind::Video {
+            return Err(invalid("not a video publication"));
+        }
+        shared
+            .command(async move {
+                p.set_video_quality(quality);
+            })
+            .await
+    }
     /// Requests remote video dimensions. Core has no preferred-FPS control.
     pub async fn set_video_dimensions(
         &self,

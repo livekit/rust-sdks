@@ -71,6 +71,7 @@ impl NativeRoomEvent {
         match self {
             Self::DataReceived { packet } => packet.payload.len(),
             Self::RpcRequested { invocation } => invocation.payload_bytes(),
+            Self::DtmfReceived { digit, .. } => digit.as_ref().map_or(0, String::len),
             _ => 0,
         }
     }

@@ -1793,3 +1793,80 @@ fn real_rpc_backpressure_does_not_emit_unadmitted_invocation() {
     receiver.leave();
     sender.leave();
 }
+
+#[serial_test::serial]
+#[test]
+#[ignore = "requires a local server; synthetic video publication only, no devices"]
+fn real_public_core_controls() {
+    let name = unique("core-controls");
+    let sender = Peer::join(&name, "controls-sender");
+    let video =
+        block_on(sender.session.create_video_track("control-video".into(), 640, 360, false))
+            .unwrap();
+    let mut options = media_publish_options(NativeTrackSource::Camera);
+    options.simulcast = true;
+    let publication = block_on(video.publish(options)).unwrap();
+    let sid = publication.info().unwrap().sid;
+    let mut receiver = Peer::join(&name, "controls-receiver");
+    receiver.expect(|event| match event {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    let remote = receiver.session.publication("controls-sender".into(), sid.clone()).unwrap();
+    assert!(remote.info().unwrap().simulcasted);
+    block_on(remote.set_video_quality(NativeVideoQuality::Low)).unwrap();
+    block_on(remote.set_video_quality(NativeVideoQuality::High)).unwrap();
+    block_on(sender.session.publish_dtmf(1, "1".into(), vec!["controls-receiver".into()])).unwrap();
+    receiver.expect(|event| match event {
+        NativeRoomEvent::DtmfReceived {
+            code: 1,
+            digit: Some(digit),
+            participant_identity: Some(identity),
+        } if digit == "1" && identity == "controls-sender" => Some(()),
+        _ => None,
+    });
+    receiver.leave();
+    block_on(sender.session.set_track_subscription_permissions(false, vec![])).unwrap();
+    let mut receiver = Peer::join(&name, "controls-receiver");
+    let denied = receiver.session.publication("controls-sender".into(), sid.clone()).unwrap();
+    // Observe a denied fresh subscription; core does not reliably clear the old
+    // publication's attached-track/status projection when the server revokes it.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        assert_ne!(
+            denied.info().unwrap().remote.unwrap().subscription_status,
+            NativeSubscriptionStatus::Subscribed
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    block_on(sender.session.set_track_subscription_permissions(
+        false,
+        vec![NativeTrackPermission {
+            participant_identity: "controls-receiver".into(),
+            allow_all: false,
+            allowed_track_sids: vec![sid.clone()],
+        }],
+    ))
+    .unwrap();
+    receiver.expect(|event| match event {
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        _ => None,
+    });
+    assert!(matches!(
+        block_on(sender.session.set_track_subscription_permissions(
+            false,
+            vec![NativeTrackPermission {
+                participant_identity: "controls-receiver".into(),
+                allow_all: false,
+                allowed_track_sids: vec!["invalid".into()],
+            }]
+        )),
+        Err(NativeSessionError::InvalidState { .. })
+    ));
+    receiver.leave();
+    sender.leave();
+    assert!(matches!(
+        block_on(remote.set_video_quality(NativeVideoQuality::Low)),
+        Err(NativeSessionError::Closed)
+    ));
+}

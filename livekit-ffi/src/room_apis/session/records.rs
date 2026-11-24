@@ -736,12 +736,19 @@ pub enum NativeRoomEvent {
     DataReceived {
         packet: NativeDataPacket,
     },
+    /// A DTMF packet received through the core.
+    DtmfReceived {
+        code: u32,
+        digit: Option<String>,
+        participant_identity: Option<String>,
+    },
 }
 
 // Omit payloads from diagnostic formatting, including refresh tokens and RPC data.
 impl std::fmt::Debug for NativeRoomEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
+            Self::DtmfReceived { .. } => "DtmfReceived",
             Self::RpcRequested { .. } => "RpcRequested",
             Self::ByteStreamOpened { .. } => "ByteStreamOpened",
             Self::TextStreamOpened { .. } => "TextStreamOpened",

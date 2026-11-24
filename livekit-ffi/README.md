@@ -123,3 +123,29 @@ A plain Cargo privacy-test pass establishes event/command progress only. The rec
 receive-first no-ADM evidence requires the LLDB guard with all three acquisition/recording
 breakpoints resolved and both same-room/other-room PCM checkpoints reached. It does not
 cover processes that explicitly activate a microphone.
+
+## Native room controls
+
+`NativeRoomSession.publish_dtmf(code, digit, destination_identities)` sends through
+public core's reliable DTMF path; empty destinations use core broadcast semantics.
+Core sends this packet without data E2EE even in encrypted rooms. Incoming packets
+appear as `NativeRoomEvent::DtmfReceived { code, digit, participant_identity }`;
+optional fields retain core absence. Event payloads count against cursor bounds.
+
+`NativeRoomSession.set_track_subscription_permissions(all_participants_allowed,
+permissions)` accepts `NativeTrackPermission { participant_identity, allow_all,
+allowed_track_sids }`. Invalid SIDs fail with `InvalidState`; successful completion
+updates core's desired permissions and is not an SFU acknowledgement. Current core
+may retain stale permission/attached-track status after revoking an existing subscription;
+the wrapper does not synthesize status or callbacks to conceal that limit.
+
+`NativePublicationHandle.set_video_quality(NativeVideoQuality::{Low, Medium, High})`
+requires a remote video publication and requests the highest acceptable simulcast
+layer. Core ignores requests for non-simulcast tracks and may select lower quality
+under bandwidth pressure. This does not add FPS, volume or server-layer diagnostics.
+All three commands use the session's existing task admission and teardown ownership.
+No transcription export or private-core adapter is included.
+
+Reader `wait_closed` remains a room-apis-only export; core-modules retains the shipped
+reader protocols without new requirements. It observes closure independently and does
+not establish ordering against room event-cursor opens.

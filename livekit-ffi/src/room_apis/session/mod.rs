@@ -40,6 +40,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+mod controls;
+pub use controls::*;
 mod encryption;
 mod errors;
 mod events;
@@ -269,6 +271,13 @@ impl Inner {
                 }
             }
             RoomEvent::TokenRefreshed { token } => self.emit(Out::TokenRefreshed { token }),
+            RoomEvent::SipDTMFReceived { code, digit, participant } => {
+                self.emit(Out::DtmfReceived {
+                    code,
+                    digit,
+                    participant_identity: participant.map(|p| p.identity().into()),
+                })
+            }
             RoomEvent::ParticipantConnected(participant) => {
                 let participant = NativeParticipant::from(&Participant::Remote(participant));
                 self.remotes.insert(participant.identity.clone(), participant.clone());
