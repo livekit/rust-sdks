@@ -74,7 +74,6 @@ pub enum NativeVideoPixelFormat {
 /// No pointer or CVPixelBuffer ownership crosses UniFFI. HDR, 10-bit and zero-copy are unsupported.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeVideoFrame {
-    #[uniffi(default = "Bgra")]
     pub format: NativeVideoPixelFormat,
     /// UV row stride for NV12; None uses the luma stride. Unused for BGRA.
     #[uniffi(default = None)]

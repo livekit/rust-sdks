@@ -43,7 +43,6 @@ pub struct NativeKeyProviderOptions {
     pub failure_tolerance: i32,
     #[uniffi(default = 16)]
     pub key_ring_size: i32,
-    #[uniffi(default = "Pbkdf2")]
     pub key_derivation_algorithm: NativeKeyDerivationAlgorithm,
     #[uniffi(default = None)]
     pub uncrypted_magic_bytes: Option<Bytes>,
