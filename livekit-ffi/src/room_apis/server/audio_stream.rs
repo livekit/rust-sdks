@@ -142,11 +142,12 @@ impl FfiAudioStream {
                 // mislabeled as the output rate, dilating it downstream.
                 let sink_rate =
                     if filter_session.is_some() { input_sample_rate } else { output_sample_rate };
-                let native_stream = NativeAudioStream::with_options(
+                let native_stream = NativeAudioStream::with_frame_size(
                     rtc_track,
                     sink_rate as i32,
                     num_channels as i32,
                     options,
+                    if filter_session.is_none() { new_stream.frame_size_ms } else { None },
                 );
 
                 let stream = match filter_session {
@@ -345,8 +346,13 @@ impl FfiAudioStream {
                 } else {
                     output_sample_rate
                 };
-                let native_stream =
-                    NativeAudioStream::with_options(rtc_track, sink_rate, num_channels, options);
+                let native_stream = NativeAudioStream::with_frame_size(
+                    rtc_track,
+                    sink_rate,
+                    num_channels,
+                    options,
+                    if audio_filter_session.is_none() { request.frame_size_ms } else { None },
+                );
 
                 let stream = if let Some(session) = audio_filter_session.take() {
                     let stream = AudioFilterAudioStream::new(
@@ -447,7 +453,7 @@ impl FfiAudioStream {
                         }
                     }
 
-                    if let Some(target) = target_samples {
+                    if let Some(target) = target_samples.filter(|target| !buf.is_empty() || frame.data.len() != *target) {
                         buf.extend_from_slice(&frame.data);
                         while buf.len() >= target {
                             let frame_data = buf.drain(..target).collect::<Vec<_>>();
