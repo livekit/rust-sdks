@@ -146,6 +146,7 @@ pub(crate) fn configure_sender(
 
     let resolution = video_track.rtc_source().video_resolution();
     let degradation_pref = options::get_default_degradation_preference(options, resolution.height);
+    let parameters = video_track.parameters_lock();
     let mut params = sender.parameters();
     params.set_degradation_preference(degradation_pref);
     if let Err(e) = sender.set_parameters(params) {
@@ -157,6 +158,7 @@ pub(crate) fn configure_sender(
             resolution.height
         );
     }
+    drop(parameters);
 
     let has_timing_subscribers = video_track.has_publish_timing_subscribers();
     if !needs_video_sender_transformer(options, has_timing_subscribers) {

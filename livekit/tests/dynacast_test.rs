@@ -332,6 +332,54 @@ async fn test_dynacast() -> Result<()> {
     Ok(())
 }
 
+/// Verifies that reading a track's publishing layers doesn't make a concurrent layer change fail.
+///
+/// libwebrtc refuses a `SetParameters` whose transaction id doesn't match the last
+/// `GetParameters`, so a read between another caller's get and set used to fail the set.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+async fn test_layer_changes_survive_concurrent_reads() -> Result<()> {
+    // Without dynacast nothing else changes the layers during the test.
+    let mut rooms = test_rooms_with_options([TestRoomOptions::default()]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish(VideoCodec::VP8, true).await?;
+    let track = publisher_video_track(&pub_room)?;
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader = std::thread::spawn({
+        let (track, stop) = (track.clone(), stop.clone());
+        move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                track.publishing_layers();
+            }
+        }
+    });
+    let results: Vec<_> = (0..200)
+        .map(|i| {
+            track.set_publishing_layers_for_test(&[(PublishingLayerQuality::High, i % 2 == 1)])
+        })
+        .collect();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    reader.join().expect("reader thread panicked");
+
+    // Only the read in between counts: a renegotiation can also change the parameters between
+    // a get and a set ("modified SSRC" or "RTCP parameters"), which no lock on our side avoids.
+    let failed: Vec<_> = results
+        .into_iter()
+        .filter_map(Result::err)
+        .filter(|err| err.to_string().contains("transaction_id"))
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "{} of 200 layer changes failed, first: {:?}",
+        failed.len(),
+        failed.first()
+    );
+    Ok(())
+}
+
 /// Verifies that layers paused by dynacast stay paused after a publisher renegotiation.
 ///
 /// The SFU answer drops the SDP pause markers, so applying it re-enables the paused layers.
