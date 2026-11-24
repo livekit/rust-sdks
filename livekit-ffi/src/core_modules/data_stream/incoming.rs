@@ -30,7 +30,7 @@ use ds_api::StreamReader as _;
 /// Receives inbound data-stream packets and processes them on the incoming manager's actor loop,
 /// surfacing opened readers through a foreign delegate.
 ///
-/// Mirrors [`crate::data_track::remote::RemoteDataTrackManager`]: `handle_packet_received` is a
+/// Mirrors [`crate::data_track_manager::remote::RemoteDataTrackManager`]: `handle_packet_received` is a
 /// cheap synchronous enqueue (safe to call from a native data-channel callback), while
 /// decompression and reassembly happen on the spawned `run` task in packet order.
 #[derive(uniffi::Object)]
