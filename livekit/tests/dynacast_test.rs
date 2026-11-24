@@ -332,6 +332,131 @@ async fn test_dynacast() -> Result<()> {
     Ok(())
 }
 
+/// Verifies that a subscriber's track settings reach the SFU in the order they were made.
+///
+/// The subscriber flips between qualities and enabled states many times in a row and ends on
+/// LOW. If any update overtook a later one, the SFU would keep a stale setting and the
+/// publisher's higher layers would stay active.
+#[cfg(feature = "__lk-e2e-test")]
+// Several workers, so updates sent from separate tasks could actually overtake each other.
+#[test_log::test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+async fn test_track_settings_keep_their_order() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+
+    let mut rooms = test_rooms_with_options([pub_options, TestRoomOptions::default()]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish(VideoCodec::VP8, true).await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+
+    let pub_video_track = publisher_video_track(&pub_room)?;
+    wait_for_layers(&pub_video_track, "baseline", Duration::from_secs(15), |layers| {
+        layers.len() > 1 && layers.iter().all(|layer| layer.active)
+    })
+    .await?;
+
+    for _ in 0..50 {
+        sub_publication.set_video_quality(VideoQuality::High);
+        sub_publication.set_enabled(false);
+        sub_publication.set_enabled(true);
+        sub_publication.set_video_quality(VideoQuality::Low);
+    }
+
+    wait_for_layers(
+        &pub_video_track,
+        "after the last LOW request",
+        Duration::from_secs(30),
+        |layers| {
+            layers.iter().any(|layer| layer.quality == PublishingLayerQuality::Low && layer.active)
+                && layers
+                    .iter()
+                    .filter(|layer| layer.quality != PublishingLayerQuality::Low)
+                    .all(|layer| !layer.active)
+        },
+    )
+    .await?;
+    // A stale update arriving late would turn the higher layers back on.
+    time::sleep(Duration::from_secs(3)).await;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers
+            .iter()
+            .filter(|layer| layer.quality != PublishingLayerQuality::Low)
+            .all(|layer| !layer.active),
+        "expected only the Low layer to stay active, got {:?}",
+        layers
+    );
+
+    Ok(())
+}
+
+/// Verifies that a departed participant's settings worker stops even while the application
+/// still holds one of its publications (which keeps the settings queue open).
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_track_settings_worker_stops_when_participant_leaves() -> Result<()> {
+    let mut rooms =
+        test_rooms_with_options([TestRoomOptions::default(), TestRoomOptions::default()]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 320, height: 180, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish(VideoCodec::VP8, false).await?;
+
+    let (participant, _publication) = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { participant, publication, .. } = event {
+                return Ok((participant, publication));
+            }
+        }
+    })
+    .await??;
+    assert!(!participant.settings_worker_finished());
+
+    pub_room.close().await?;
+    timeout(Duration::from_secs(15), async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::ParticipantDisconnected(_)) => return Ok(()),
+                Some(_) => {}
+                None => return Err(anyhow!("Event channel closed before ParticipantDisconnected")),
+            }
+        }
+    })
+    .await??;
+    timeout(Duration::from_secs(5), async {
+        while !participant.settings_worker_finished() {
+            time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("settings worker still running after the participant left"))?;
+
+    Ok(())
+}
+
 /// Verifies that layers paused by dynacast stay paused after a publisher renegotiation.
 ///
 /// The SFU answer drops the SDP pause markers, so applying it re-enables the paused layers.

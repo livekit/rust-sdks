@@ -2526,6 +2526,7 @@ impl RoomSession {
         for (sid, _) in remote_participant.track_publications() {
             remote_participant.unpublish_track(&sid);
         }
+        remote_participant.stop_settings();
 
         let mut participants = self.remote_participants.write();
         participants.remove(&remote_participant.identity());
