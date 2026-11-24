@@ -14,6 +14,7 @@
 
 use crate::{
     packet::Handle,
+    priority::TrackPriority,
     schema::{DataTrackFrameEncoding, DataTrackSchemaId},
 };
 use from_variants::FromVariants;
@@ -76,6 +77,7 @@ pub struct DataTrackInfo {
     pub(crate) uses_e2ee: bool,
     pub(crate) schema: Option<DataTrackSchemaId>,
     pub(crate) frame_encoding: Option<DataTrackFrameEncoding>,
+    pub(crate) priority: Option<TrackPriority>,
 }
 
 impl DataTrackInfo {

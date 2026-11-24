@@ -620,6 +620,9 @@ pub struct TrackInfo {
     pub backup_codec_policy: i32,
     #[prost(enumeration = "PacketTrailerFeature", repeated, tag = "21")]
     pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
+    /// Priority of the track over the network, from `AddTrackRequest.priority`: 0 is the most important. Unset when the publisher did not set one.
+    #[prost(uint32, optional, tag = "22")]
+    pub priority: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DataTrackInfo {
@@ -641,6 +644,9 @@ pub struct DataTrackInfo {
     /// ID of the schema used by frames on this track if the track is typed.
     #[prost(message, optional, tag = "6")]
     pub schema: ::core::option::Option<DataTrackSchemaId>,
+    /// Priority of the track over the network, from `PublishDataTrackRequest.priority`: 0 is the most important. Unset when the publisher did not set one.
+    #[prost(uint32, optional, tag = "7")]
+    pub priority: ::core::option::Option<u32>,
 }
 /// Encoding for frame payloads.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -4017,6 +4023,9 @@ pub struct AddTrackRequest {
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
     #[prost(enumeration = "PacketTrailerFeature", repeated, tag = "18")]
     pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
+    /// Priority of the track over the network, ordered the way firewall rules are: 0 is the most important and a larger value is less important. Unset leaves the choice to the server. The server may raise a value that is too important (it keeps the lowest values for its own traffic).
+    #[prost(uint32, optional, tag = "19")]
+    pub priority: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PublishDataTrackRequest {
@@ -4038,6 +4047,9 @@ pub struct PublishDataTrackRequest {
     /// If set, the associated schema must be stored with `StoreDataBlobRequest`.
     #[prost(message, optional, tag = "5")]
     pub schema: ::core::option::Option<DataTrackSchemaId>,
+    /// Priority of the track over the network, as in `AddTrackRequest.priority`.
+    #[prost(uint32, optional, tag = "6")]
+    pub priority: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PublishDataTrackResponse {

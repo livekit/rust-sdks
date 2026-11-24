@@ -254,8 +254,15 @@ impl Manager {
 
         // Invariant: other than SID, info should not have changed.
         // TODO: consider refactoring to move SID out of info to allow for direct comparison.
-        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee, schema, frame_encoding } =
-            &*descriptor.info;
+        let DataTrackInfo {
+            sid: _,
+            pub_handle: _,
+            name,
+            uses_e2ee,
+            schema,
+            frame_encoding,
+            priority: _,
+        } = &*descriptor.info;
         if *name != info.name
             || *uses_e2ee != info.uses_e2ee
             || *schema != info.schema
@@ -682,6 +689,7 @@ mod tests {
                     uses_e2ee: false,
                     schema: None,
                     frame_encoding: None,
+                    priority: None,
                 }],
             )]),
         };
@@ -746,6 +754,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published
@@ -784,6 +793,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate three identical publication updates
@@ -821,6 +831,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -836,6 +847,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -871,6 +883,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -901,6 +914,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -947,6 +961,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published
@@ -1008,6 +1023,7 @@ mod tests {
             uses_e2ee: true,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published (with e2ee)
@@ -1071,6 +1087,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published
@@ -1171,6 +1188,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published
@@ -1216,6 +1234,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published
@@ -1269,6 +1288,7 @@ mod tests {
             uses_e2ee: false,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         // Simulate track published

@@ -152,6 +152,7 @@ mod tests {
             encryption: proto::encryption::Type::Gcm.into(),
             schema: None,
             frame_encoding: None,
+            priority: None,
         }];
         let mut participant_info = proto::ParticipantInfo { data_tracks, ..Default::default() };
 

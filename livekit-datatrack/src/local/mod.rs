@@ -14,6 +14,7 @@
 
 use crate::{
     api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackSchemaError, InternalError},
+    priority::TrackPriority,
     schema::{DataTrackFrameEncoding, DataTrackSchemaId},
     track::DataTrackInner,
 };
@@ -156,6 +157,7 @@ pub struct DataTrackOptions {
     pub(crate) name: String,
     pub(crate) schema: Option<DataTrackSchemaId>,
     pub(crate) frame_encoding: Option<DataTrackFrameEncoding>,
+    pub(crate) priority: Option<TrackPriority>,
 }
 
 impl DataTrackOptions {
@@ -168,7 +170,7 @@ impl DataTrackOptions {
     /// - Must be unique per publisher
     ///
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), schema: None, frame_encoding: None }
+        Self { name: name.into(), schema: None, frame_encoding: None, priority: None }
     }
 
     /// Sets the schema associated with frames sent on the track.
@@ -179,6 +181,11 @@ impl DataTrackOptions {
     /// Sets the encoding of frames sent on the track.
     pub fn with_frame_encoding(self, encoding: DataTrackFrameEncoding) -> Self {
         Self { frame_encoding: Some(encoding), ..self }
+    }
+
+    /// Sets the priority of the track over the network. Unset leaves the choice to the server.
+    pub fn with_priority(self, priority: TrackPriority) -> Self {
+        Self { priority: Some(priority), ..self }
     }
 }
 
