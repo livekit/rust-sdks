@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 0 # the API check compares with the last release tag
+          fetch-depth: 0 # the API check compares with the base of the PR
           submodules: true # yuv-sys builds from its submodule
 
       # For the API check (`[check].api` in verwalter.toml).
