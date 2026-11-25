@@ -20,8 +20,9 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { OwnedVideoSource, VideoCodec, VideoSourceResolution } from "./video_frame_pb.js";
-import type { TrackPublishOptions } from "./room_pb.js";
+import type { OwnedAudioSource } from "./audio_frame_pb.js";
 import type { FfiOwnedHandle } from "./handle_pb.js";
+import type { TrackPublishOptions } from "./room_pb.js";
 
 /**
  * Bitrate unit expected by a GStreamer encoder property.
@@ -227,6 +228,206 @@ export declare class GstreamerVideoSourceConfig extends Message<GstreamerVideoSo
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GstreamerVideoSourceConfig;
 
   static equals(a: GstreamerVideoSourceConfig | PlainMessage<GstreamerVideoSourceConfig> | undefined, b: GstreamerVideoSourceConfig | PlainMessage<GstreamerVideoSourceConfig> | undefined): boolean;
+}
+
+/**
+ * PCM S16LE interleaved ingest from `appsink name=lk_audio_appsink`.
+ *
+ * @generated from message livekit.proto.GstreamerAudioSourceConfig
+ */
+export declare class GstreamerAudioSourceConfig extends Message<GstreamerAudioSourceConfig> {
+  /**
+   * @generated from field: required string pipeline = 1;
+   */
+  pipeline?: string;
+
+  /**
+   * @generated from field: optional uint32 sample_rate = 2 [default = 48000];
+   */
+  sampleRate?: number;
+
+  /**
+   * @generated from field: optional uint32 num_channels = 3 [default = 1];
+   */
+  numChannels?: number;
+
+  constructor(data?: PartialMessage<GstreamerAudioSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GstreamerAudioSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GstreamerAudioSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GstreamerAudioSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GstreamerAudioSourceConfig;
+
+  static equals(a: GstreamerAudioSourceConfig | PlainMessage<GstreamerAudioSourceConfig> | undefined, b: GstreamerAudioSourceConfig | PlainMessage<GstreamerAudioSourceConfig> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.AudioCaptureSourceInfo
+ */
+export declare class AudioCaptureSourceInfo extends Message<AudioCaptureSourceInfo> {
+  /**
+   * @generated from field: required uint32 sample_rate = 1;
+   */
+  sampleRate?: number;
+
+  /**
+   * @generated from field: required uint32 num_channels = 2;
+   */
+  numChannels?: number;
+
+  /**
+   * @generated from field: required uint32 samples_per_channel = 3;
+   */
+  samplesPerChannel?: number;
+
+  /**
+   * Pass this handle to CreateAudioTrackRequest.
+   *
+   * @generated from field: required livekit.proto.OwnedAudioSource audio_source = 4;
+   */
+  audioSource?: OwnedAudioSource;
+
+  constructor(data?: PartialMessage<AudioCaptureSourceInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.AudioCaptureSourceInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AudioCaptureSourceInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AudioCaptureSourceInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AudioCaptureSourceInfo;
+
+  static equals(a: AudioCaptureSourceInfo | PlainMessage<AudioCaptureSourceInfo> | undefined, b: AudioCaptureSourceInfo | PlainMessage<AudioCaptureSourceInfo> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.OwnedAudioCaptureSource
+ */
+export declare class OwnedAudioCaptureSource extends Message<OwnedAudioCaptureSource> {
+  /**
+   * @generated from field: required livekit.proto.FfiOwnedHandle handle = 1;
+   */
+  handle?: FfiOwnedHandle;
+
+  /**
+   * @generated from field: required livekit.proto.AudioCaptureSourceInfo info = 2;
+   */
+  info?: AudioCaptureSourceInfo;
+
+  constructor(data?: PartialMessage<OwnedAudioCaptureSource>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.OwnedAudioCaptureSource";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): OwnedAudioCaptureSource;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): OwnedAudioCaptureSource;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): OwnedAudioCaptureSource;
+
+  static equals(a: OwnedAudioCaptureSource | PlainMessage<OwnedAudioCaptureSource> | undefined, b: OwnedAudioCaptureSource | PlainMessage<OwnedAudioCaptureSource> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceRequest
+ */
+export declare class NewAudioCaptureSourceRequest extends Message<NewAudioCaptureSourceRequest> {
+  /**
+   * @generated from field: required livekit.proto.GstreamerAudioSourceConfig gstreamer = 1;
+   */
+  gstreamer?: GstreamerAudioSourceConfig;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<NewAudioCaptureSourceRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewAudioCaptureSourceRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewAudioCaptureSourceRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceRequest;
+
+  static equals(a: NewAudioCaptureSourceRequest | PlainMessage<NewAudioCaptureSourceRequest> | undefined, b: NewAudioCaptureSourceRequest | PlainMessage<NewAudioCaptureSourceRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceResponse
+ */
+export declare class NewAudioCaptureSourceResponse extends Message<NewAudioCaptureSourceResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<NewAudioCaptureSourceResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewAudioCaptureSourceResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewAudioCaptureSourceResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceResponse;
+
+  static equals(a: NewAudioCaptureSourceResponse | PlainMessage<NewAudioCaptureSourceResponse> | undefined, b: NewAudioCaptureSourceResponse | PlainMessage<NewAudioCaptureSourceResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewAudioCaptureSourceCallback
+ */
+export declare class NewAudioCaptureSourceCallback extends Message<NewAudioCaptureSourceCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * @generated from oneof livekit.proto.NewAudioCaptureSourceCallback.message
+   */
+  message: {
+    /**
+     * @generated from field: string error = 2;
+     */
+    value: string;
+    case: "error";
+  } | {
+    /**
+     * @generated from field: livekit.proto.OwnedAudioCaptureSource source = 3;
+     */
+    value: OwnedAudioCaptureSource;
+    case: "source";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<NewAudioCaptureSourceCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewAudioCaptureSourceCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewAudioCaptureSourceCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewAudioCaptureSourceCallback;
+
+  static equals(a: NewAudioCaptureSourceCallback | PlainMessage<NewAudioCaptureSourceCallback> | undefined, b: NewAudioCaptureSourceCallback | PlainMessage<NewAudioCaptureSourceCallback> | undefined): boolean;
 }
 
 /**
@@ -671,6 +872,8 @@ export declare class JoinCaptureResponse extends Message<JoinCaptureResponse> {
  */
 export declare class CaptureFinished extends Message<CaptureFinished> {
   /**
+   * Accepted 10 ms PCM frames for audio; pixel frames or access units for video.
+   *
    * @generated from field: required uint64 frames_captured = 1;
    */
   framesCaptured?: bigint;

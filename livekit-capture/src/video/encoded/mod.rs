@@ -20,7 +20,7 @@
 //! [`EncodedVideoSource`] is object-safe and implemented for `Box<dyn ...>`,
 //! so sources constructed dynamically run through the same generic pump.
 
-use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
+use crate::{error::SourceError, pump::PumpStop, video::primitive::VideoResolution};
 use bytes::Bytes;
 use livekit::{
     options::VideoCodec,

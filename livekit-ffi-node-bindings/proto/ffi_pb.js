@@ -30,7 +30,7 @@ const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMe
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
 const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
-const { JoinCaptureCallback, JoinCaptureRequest, JoinCaptureResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } = require("./capture_pb.js");
+const { JoinCaptureCallback, JoinCaptureRequest, JoinCaptureResponse, NewAudioCaptureSourceCallback, NewAudioCaptureSourceRequest, NewAudioCaptureSourceResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } = require("./capture_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -146,6 +146,7 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
     { no: 92, name: "join_capture", kind: "message", T: JoinCaptureRequest, oneof: "message" },
+    { no: 93, name: "new_audio_capture_source", kind: "message", T: NewAudioCaptureSourceRequest, oneof: "message" },
   ],
 );
 
@@ -247,6 +248,7 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
     { no: 92, name: "join_capture", kind: "message", T: JoinCaptureResponse, oneof: "message" },
+    { no: 93, name: "new_audio_capture_source", kind: "message", T: NewAudioCaptureSourceResponse, oneof: "message" },
   ],
 );
 
@@ -307,6 +309,7 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 46, name: "get_schema", kind: "message", T: GetSchemaCallback, oneof: "message" },
     { no: 47, name: "new_capture_source", kind: "message", T: NewCaptureSourceCallback, oneof: "message" },
     { no: 49, name: "join_capture", kind: "message", T: JoinCaptureCallback, oneof: "message" },
+    { no: 50, name: "new_audio_capture_source", kind: "message", T: NewAudioCaptureSourceCallback, oneof: "message" },
   ],
 );
 

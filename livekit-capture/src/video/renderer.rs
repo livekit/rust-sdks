@@ -19,7 +19,7 @@
 //! supplies the module and the per-frame uniform bytes. [`FramePacer`]
 //! paces the frames against an ideal timeline.
 
-use crate::{primitive::VideoResolution, pump::PumpStop};
+use crate::{pump::PumpStop, video::primitive::VideoResolution};
 use livekit::webrtc::video_frame::I420Buffer;
 use std::{
     sync::{mpsc, Arc, Mutex},

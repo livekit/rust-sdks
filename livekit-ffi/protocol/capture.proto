@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "audio_frame.proto";
 import "room.proto";
 import "video_frame.proto";
 
@@ -71,6 +72,40 @@ message GstreamerVideoSourceConfig {
   // Forwards WebRTC rate-control targets to an encoder element's bitrate
   // property. Without this, the pipeline encodes at a fixed bitrate.
   optional GstreamerRateControl rate_control = 4;
+}
+
+// PCM S16LE interleaved ingest from `appsink name=lk_audio_appsink`.
+message GstreamerAudioSourceConfig {
+  required string pipeline = 1;
+  optional uint32 sample_rate = 2 [default = 48000];
+  optional uint32 num_channels = 3 [default = 1];
+  reserved 4; // Audio frames are always 10 ms.
+}
+
+message AudioCaptureSourceInfo {
+  required uint32 sample_rate = 1;
+  required uint32 num_channels = 2;
+  required uint32 samples_per_channel = 3;
+  // Pass this handle to CreateAudioTrackRequest.
+  required OwnedAudioSource audio_source = 4;
+}
+
+message OwnedAudioCaptureSource {
+  required FfiOwnedHandle handle = 1;
+  required AudioCaptureSourceInfo info = 2;
+}
+
+message NewAudioCaptureSourceRequest {
+  required GstreamerAudioSourceConfig gstreamer = 1;
+  optional uint64 request_async_id = 2;
+}
+message NewAudioCaptureSourceResponse { required uint64 async_id = 1; }
+message NewAudioCaptureSourceCallback {
+  required uint64 async_id = 1;
+  oneof message {
+    string error = 2;
+    OwnedAudioCaptureSource source = 3;
+  }
 }
 
 // Test patterns built into livekit-capture.
@@ -176,8 +211,10 @@ enum CaptureExit {
 }
 
 message CaptureFinished {
+  // Accepted 10 ms PCM frames for audio; pixel frames or access units for video.
   required uint64 frames_captured = 1;
   required CaptureExit exit = 2;
+  reserved 3 to 6;
 }
 
 // Why a capture ended with an error.

@@ -29,7 +29,7 @@ use livekit::webrtc::video_frame::BoxVideoFrame;
 
 pub use pump::PixelVideoPump;
 
-use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
+use crate::{error::SourceError, pump::PumpStop, video::primitive::VideoResolution};
 
 /// Source of pixel (unencoded) video frames, such as a camera device.
 pub trait PixelVideoSource: Send {

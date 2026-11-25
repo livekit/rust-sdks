@@ -27,10 +27,10 @@
 
 use crate::{
     error::SourceError,
-    pixel::PixelVideoSource,
-    primitive::VideoResolution,
     pump::PumpStop,
-    renderer::{FramePacer, RendererError, ShaderRenderer},
+    video::pixel::PixelVideoSource,
+    video::primitive::VideoResolution,
+    video::renderer::{FramePacer, RendererError, ShaderRenderer},
 };
 use chrono::Timelike;
 use livekit::webrtc::video_frame::{BoxVideoFrame, VideoFrame, VideoRotation};
@@ -38,7 +38,7 @@ use std::fmt;
 use thiserror::Error;
 
 /// Complete WGSL module for the clock.
-const CLOCK_SHADER: &str = include_str!("../../shaders/clock.wgsl");
+const CLOCK_SHADER: &str = include_str!("../../../shaders/clock.wgsl");
 
 /// Number of characters on the clock face: HH:MM:SS.mmm.
 const CHAR_COUNT: usize = 12;
@@ -214,7 +214,7 @@ fn uniform_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::renderer::gpu_available;
+    use crate::video::renderer::gpu_available;
 
     fn test_config() -> ClockVideoSourceConfig {
         ClockVideoSourceConfig {

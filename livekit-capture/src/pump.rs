@@ -15,8 +15,8 @@
 //! Types shared by the capture pumps.
 //!
 //! The pumps live with their frame kinds:
-//! [`PixelVideoPump`](crate::pixel::PixelVideoPump) pumps pixel frames, and
-//! [`EncodedVideoPump`](crate::encoded::EncodedVideoPump) pumps encoded
+//! [`PixelVideoPump`](crate::video::pixel::PixelVideoPump) pumps pixel frames, and
+//! [`EncodedVideoPump`](crate::video::encoded::EncodedVideoPump) pumps encoded
 //! access units. Both spawn into the same [`RunningPump`].
 
 use crate::error::SourceError;
@@ -64,7 +64,10 @@ pub enum PumpExit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PumpStats {
-    /// Number of frames or access units captured from the source.
+    /// Number of frames accepted by the RTC source.
+    ///
+    /// An audio frame contains 10 ms of PCM; a video frame is a pixel frame
+    /// or one encoded access unit.
     pub frames_captured: u64,
     /// Why the run ended.
     pub exit: PumpExit,
@@ -102,7 +105,7 @@ pub(crate) fn spawn_pump(
 ) -> io::Result<RunningPump> {
     let (finished_tx, finished_rx) = tokio::sync::watch::channel(false);
 
-    let thread = thread::Builder::new().name("lk-video-pump".to_owned()).spawn(move || {
+    let thread = thread::Builder::new().name("lk-capture-pump".to_owned()).spawn(move || {
         let result = catch_unwind(AssertUnwindSafe(run))
             .unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))));
         let _ = finished_tx.send(true);
@@ -170,7 +173,7 @@ impl RunningPump {
 
     /// Returns whether the pump thread exited.
     pub fn is_finished(&self) -> bool {
-        self.thread.as_ref().map_or(true, |thread| thread.is_finished())
+        self.thread.as_ref().is_none_or(|thread| thread.is_finished())
     }
 
     /// Waits for the pump to exit.

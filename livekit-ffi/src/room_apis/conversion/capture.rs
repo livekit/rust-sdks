@@ -13,18 +13,18 @@
 // limitations under the License.
 
 use crate::proto;
-use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
+use livekit_capture::{video::encoded::EncodedVideoCodec, video::primitive::VideoResolution};
 
 #[cfg(any(feature = "capture-gstreamer", feature = "capture-pattern"))]
 use crate::{FfiError, FfiResult};
 #[cfg(feature = "capture-clock")]
-use livekit_capture::sources::clock::ClockVideoSourceConfig;
+use livekit_capture::video::sources::clock::ClockVideoSourceConfig;
 #[cfg(feature = "capture-gstreamer")]
-use livekit_capture::sources::gstreamer::{
+use livekit_capture::video::sources::gstreamer::{
     GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig,
 };
 #[cfg(feature = "capture-pattern")]
-use livekit_capture::sources::pattern::{Pattern, PatternVideoSourceConfig};
+use livekit_capture::video::sources::pattern::{Pattern, PatternVideoSourceConfig};
 
 impl From<proto::VideoSourceResolution> for VideoResolution {
     fn from(resolution: proto::VideoSourceResolution) -> Self {
