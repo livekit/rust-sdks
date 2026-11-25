@@ -16,10 +16,11 @@ default = ["room-apis", "rustls-tls-native-roots"]
 
 # Internal. The code and the dependencies of the room surface, with no network
 # stack selected. It exists because Cargo features only add: a build cannot
-# subtract the bundled stack from `room-apis`, so a room build with another
-# network choice needs this base. Every `cfg(feature = "__room-surface")` in
-# the sources gates code of the room surface. Do not select it directly:
-# without a network choice, the artifact has no network stack.
+# subtract the bundled stack from `room-apis`, so the two room builds below
+# share this base and each adds its own network choice. Every
+# `cfg(feature = "__room-surface")` in the sources gates code that both room
+# builds compile. Do not select it directly: without one of the two features
+# below, the artifact has no network stack and exports no way to register one.
 __room-surface = [
   "dep:livekit",
   "dep:webrtc-sys",
@@ -51,6 +52,21 @@ __room-surface = [
 # this entry, `room-apis` resolves to the same packages and the same features
 # as before the dependency changed.
 room-apis = ["__room-surface", "livekit/default"]
+
+# The same room surface as `room-apis`, but the host application supplies the
+# network: the artifact contains no bundled WebSocket, HTTP or TLS client. It
+# also exports the existing UniFFI interface of livekit-net (`WsClient`,
+# `HttpClient`, `set_ws_client`, `set_http_client`), so the host registers its
+# clients through generated bindings. WebRTC media stays in Rust.
+#
+# The host must register both clients before the first connect. Without them,
+# connect fails with `NativeSignalFailure::TransportNotConfigured`. There is no
+# fallback.
+#
+# Build it alone: `--no-default-features --features room-apis-host-transport`.
+# It excludes `room-apis`, the TLS features and every other feature that
+# implies `room-apis`, because each of them links the bundled stack again.
+room-apis-host-transport = ["__room-surface", "dep:livekit-net", "livekit-net/uniffi"]
 
 # `core-modules` implements a set of smaller utility modules in rust to abstract away business
 # logic. This does NOT include `libwebrtc` or `livekit`.
@@ -115,15 +131,17 @@ tokio-util = { workspace = true }
 # tree, so gating them costs no source changes.
 # A path dependency, not `workspace = true`: a member cannot turn off default
 # features that the workspace entry leaves on, and the default of `livekit` is
-# `native`. `room-apis` adds `livekit/default` back. No version is necessary,
-# because this crate is not published.
+# `native`. `room-apis` adds `livekit/default` back, and
+# `room-apis-host-transport` leaves it off. No version is necessary, because
+# this crate is not published.
 livekit = { path = "../livekit", default-features = false, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
 # Both surfaces: access tokens.
 livekit-token = { workspace = true, optional = true }
 
-# core-modules only.
+# core-modules only, except livekit-net: `room-apis-host-transport` also
+# selects it, for its UniFFI exports.
 livekit-net = { workspace = true, optional = true }
 livekit-telemetry = { workspace = true, optional = true }
 livekit-data-stream = { workspace = true, optional = true }

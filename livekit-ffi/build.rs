@@ -23,8 +23,9 @@ fn main() {
     // feature, so under core-modules the paths that this code names do not
     // resolve at all.
     //
-    // The gate is `__room-surface`, the base of every room build: each one
-    // links the same libwebrtc and generates the same protobuf code.
+    // The gate is `__room-surface`, the base of both room builds: the
+    // host-transport build links the same libwebrtc and generates the same
+    // protobuf code as `room-apis`.
     #[cfg(feature = "__room-surface")]
     if std::env::var("DOCS_RS").is_err() {
         room_apis::run_build_steps();

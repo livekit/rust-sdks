@@ -16,10 +16,10 @@
 // separate artifacts to different SDKs, and each sets up its own UniFFI
 // scaffolding below. Selecting both is always a build-configuration mistake.
 //
-// `__room-surface` is the room surface itself, with no network stack
-// selected. `room-apis` selects it and adds the bundled stack. The gates in
-// this crate name `__room-surface`, so a room build with another network
-// choice compiles the same code.
+// `__room-surface` is the room surface itself. Both room builds select it:
+// `room-apis` with the bundled network stack, and `room-apis-host-transport`
+// with the network that the host registers. The gates in this crate name
+// `__room-surface`, so the two room builds compile the same code.
 #[cfg(all(feature = "__room-surface", feature = "core-modules"))]
 compile_error!(
     "the `room-apis` and `core-modules` features are mutually exclusive. \
@@ -33,7 +33,21 @@ compile_error!(
 #[cfg(not(any(feature = "__room-surface", feature = "core-modules")))]
 compile_error!(
     "exactly one FFI surface must be selected: enable either `room-apis` \
-     (the default) or `core-modules`."
+     (the default), `room-apis-host-transport` or `core-modules`."
+);
+
+// `room-apis-host-transport` promises an artifact with no bundled WebSocket,
+// HTTP or TLS client. Cargo features only add, so `room-apis` beside it links
+// that stack again and the host clients become an override, not the only
+// path. The TLS features, `tracing` and `capture` all imply `room-apis`, so
+// one extra feature on the command line is enough to break the promise
+// without a message. Stop the build instead.
+#[cfg(all(feature = "room-apis", feature = "room-apis-host-transport"))]
+compile_error!(
+    "`room-apis-host-transport` excludes the bundled network stack, and \
+     `room-apis` (or a feature that implies it, such as a TLS feature) links \
+     it again. Build the host-transport artifact with \
+     `--no-default-features --features room-apis-host-transport`."
 );
 
 // Each surface owns everything specific to it, including its own types and
@@ -85,6 +99,14 @@ pub(crate) mod runtime;
 /// Compiled under both the `room-apis` and `core-modules` features, so client SDKs get the same
 /// track and stream objects whichever FFI surface they build against.
 pub mod data_track;
+
+// Puts the UniFFI scaffolding of livekit-net into the host-transport artifact.
+// The room code reaches livekit-net only through `livekit`, and no path in
+// this crate names it, the same case as `core_modules`. Without this line the
+// generated bindings can miss `set_ws_client`, `set_http_client` and the
+// client traits, and the host then has no way to register its network.
+#[cfg(feature = "room-apis-host-transport")]
+extern crate livekit_net;
 
 // Must sit at the crate root: this defines `crate::UniFfiTag`, which every
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
