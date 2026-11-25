@@ -393,7 +393,8 @@ impl Session {
             &credentials.participant_token,
             options.room_options.clone(),
         )
-        .await?;
+        .await
+        .map_err(SessionStartError::Connect)?;
         Ok(Connection {
             room: Arc::new(room),
             events,

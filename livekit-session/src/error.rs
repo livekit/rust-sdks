@@ -32,7 +32,7 @@ pub enum SessionStartError {
     Token(#[from] TokenSourceError),
     /// The room failed to connect.
     #[error("failed to connect: {0}")]
-    Connect(#[from] RoomError),
+    Connect(RoomError),
     /// Platform audio could not be started, e.g. on a machine without audio
     /// devices. See
     /// [`SessionOptions::with_platform_audio`](crate::SessionOptions::with_platform_audio).
