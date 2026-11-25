@@ -593,3 +593,90 @@ async fn test_dynacast_multiple_subscribers_only_publish_requested_tracks() -> R
 
     Ok(())
 }
+
+/// Verifies that the size an application asked for outlives updates about the publisher.
+///
+/// A participant update carries the size the publisher announces. It must not replace the size
+/// the subscriber asked for, which is sent again when the subscriber resumes a paused track.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let mut pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+    pub_options.grants.can_update_own_metadata = Some(true);
+
+    let mut rooms = test_rooms_with_options([pub_options, TestRoomOptions::default()]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish(VideoCodec::VP8, true).await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+
+    let pub_video_track = publisher_video_track(&pub_room)?;
+    wait_for_layers(&pub_video_track, "baseline", Duration::from_secs(15), |layers| {
+        layers.len() > 1 && layers.iter().all(|layer| layer.active)
+    })
+    .await?;
+
+    let only_low_active = |layers: &[PublishingLayer]| {
+        layers.iter().all(|layer| layer.active == (layer.quality == PublishingLayerQuality::Low))
+    };
+    sub_publication.update_video_dimensions(TrackDimension(320, 180));
+    wait_for_layers(
+        &pub_video_track,
+        "after the small size was requested",
+        Duration::from_secs(30),
+        only_low_active,
+    )
+    .await?;
+
+    // The metadata event fires before the same update reaches the track publications. Updates are
+    // handled in order, so once the second event is here, the first update is fully applied.
+    pub_room.local_participant().set_metadata("first".to_owned()).await?;
+    pub_room.local_participant().set_metadata("second".to_owned()).await?;
+    timeout(Duration::from_secs(15), async {
+        while let Some(event) = sub_events.recv().await {
+            if let RoomEvent::ParticipantMetadataChanged { metadata, .. } = event {
+                if metadata == "second" {
+                    return Ok(());
+                }
+            }
+        }
+        Err(anyhow!("Event channel closed before ParticipantMetadataChanged"))
+    })
+    .await??;
+
+    sub_publication.set_enabled(false);
+    wait_for_layers(&pub_video_track, "paused", Duration::from_secs(30), |layers| {
+        layers.iter().all(|layer| !layer.active)
+    })
+    .await?;
+
+    sub_publication.set_enabled(true);
+    let layers = wait_for_layers(&pub_video_track, "resumed", Duration::from_secs(30), |layers| {
+        layers.iter().any(|layer| layer.active)
+    })
+    .await?;
+    assert!(
+        only_low_active(&layers),
+        "expected the resumed track to keep the requested size (only Low active), got {:?}",
+        layers
+    );
+
+    Ok(())
+}

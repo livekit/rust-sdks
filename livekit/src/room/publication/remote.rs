@@ -27,9 +27,7 @@ type SubscriptionStatusChangedHandler =
 type PermissionStatusChangedHandler =
     Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
 type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
-type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
-type VideoDimensionsChangedHandler = Box<dyn Fn(RemoteTrackPublication, TrackDimension) + Send>;
-type VideoQualityChangedHandler = Box<dyn Fn(RemoteTrackPublication, VideoQuality) + Send>;
+type TrackSettingsChangedHandler = Box<dyn Fn(proto::UpdateTrackSettings) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -38,15 +36,22 @@ struct RemoteEvents {
     subscription_status_changed: Mutex<Option<SubscriptionStatusChangedHandler>>,
     permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
     subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
-    enabled_status_changed: Mutex<Option<EnabledStatusChangedHandler>>,
-    video_dimensions_changed: Mutex<Option<VideoDimensionsChangedHandler>>,
-    video_quality_changed: Mutex<Option<VideoQualityChangedHandler>>,
+    track_settings_changed: Mutex<Option<TrackSettingsChangedHandler>>,
+}
+
+/// What the application last asked to receive. Not the size in `TrackPublicationInfo`: that is
+/// the one the publisher announces, and every participant update replaces it.
+#[derive(Debug, Clone, Copy)]
+enum RequestedVideo {
+    Dimension(TrackDimension),
+    Quality(VideoQuality),
 }
 
 #[derive(Debug)]
 struct RemoteInfo {
     subscribed: bool,
     allowed: bool,
+    requested_video: Option<RequestedVideo>,
 }
 
 struct RemoteInner {
@@ -86,7 +91,11 @@ impl RemoteTrackPublication {
         Self {
             inner: super::new_inner(info, track.map(Into::into)),
             remote: Arc::new(RemoteInner {
-                info: RwLock::new(RemoteInfo { subscribed: auto_subscribe, allowed: true }),
+                info: RwLock::new(RemoteInfo {
+                    subscribed: auto_subscribe,
+                    allowed: true,
+                    requested_video: None,
+                }),
                 events: Default::default(),
             }),
         }
@@ -220,25 +229,38 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_enabled_status_changed(
+    pub(crate) fn on_track_settings_changed(
         &self,
-        f: impl Fn(RemoteTrackPublication, bool) + Send + 'static,
+        f: impl Fn(proto::UpdateTrackSettings) + Send + 'static,
     ) {
-        *self.remote.events.enabled_status_changed.lock() = Some(Box::new(f));
+        *self.remote.events.track_settings_changed.lock() = Some(Box::new(f));
     }
 
-    pub(crate) fn on_video_dimensions_changed(
-        &self,
-        f: impl Fn(RemoteTrackPublication, TrackDimension) + Send + 'static,
-    ) {
-        *self.remote.events.video_dimensions_changed.lock() = Some(Box::new(f));
-    }
+    /// Asks the SFU for the current settings. The server replaces all of a track's settings with
+    /// each message, so every message carries all of them.
+    fn send_track_settings(&self) {
+        let handler = self.remote.events.track_settings_changed.lock();
+        let Some(handler) = handler.as_ref() else { return };
 
-    pub(crate) fn on_video_quality_changed(
-        &self,
-        f: impl Fn(RemoteTrackPublication, VideoQuality) + Send + 'static,
-    ) {
-        *self.remote.events.video_quality_changed.lock() = Some(Box::new(f));
+        let mut settings = proto::UpdateTrackSettings {
+            track_sids: vec![self.sid().into()],
+            disabled: self.track().is_some_and(|track| !track.is_enabled()),
+            ..Default::default()
+        };
+        if self.kind() == TrackKind::Video {
+            match self.remote.info.read().requested_video {
+                Some(RequestedVideo::Dimension(TrackDimension(width, height))) => {
+                    settings.width = width;
+                    settings.height = height;
+                }
+                Some(RequestedVideo::Quality(quality)) => {
+                    settings.set_quality(quality.into());
+                }
+                // The message default is LOW, the server's own default is HIGH.
+                None => settings.set_quality(proto::VideoQuality::High),
+            }
+        }
+        handler(settings);
     }
 
     pub fn set_subscribed(&self, subscribed: bool) {
@@ -281,11 +303,8 @@ impl RemoteTrackPublication {
             log::warn!("Cannot set video quality for a track that is not simulcasted");
             return;
         }
-        if let Some(video_quality_changed) =
-            self.remote.events.video_quality_changed.lock().as_ref()
-        {
-            video_quality_changed(self.clone(), quality)
-        }
+        self.remote.info.write().requested_video = Some(RequestedVideo::Quality(quality));
+        self.send_track_settings();
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -297,30 +316,14 @@ impl RemoteTrackPublication {
                 track.enable();
             }
 
-            // Request to send an update to the SFU
-            if let Some(enabled_status_changed) =
-                self.remote.events.enabled_status_changed.lock().as_ref()
-            {
-                enabled_status_changed(self.clone(), enabled)
-            }
+            self.send_track_settings();
         }
     }
 
     pub fn update_video_dimensions(&self, dimension: TrackDimension) {
         if self.is_subscribed() {
-            if dimension != self.dimension() {
-                let TrackDimension(width, height) = dimension;
-                let mut new_info = self.proto_info();
-                new_info.width = width;
-                new_info.height = height;
-                self.update_info(new_info);
-            }
-            // Request to send an update to the SFU
-            if let Some(video_dimensions_changed) =
-                self.remote.events.video_dimensions_changed.lock().as_ref()
-            {
-                video_dimensions_changed(self.clone(), dimension)
-            }
+            self.remote.info.write().requested_video = Some(RequestedVideo::Dimension(dimension));
+            self.send_track_settings();
         }
     }
 

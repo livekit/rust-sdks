@@ -468,80 +468,14 @@ impl RemoteParticipant {
             }
         });
 
-        publication.on_enabled_status_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
-            move |publication, enabled| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let TrackDimension(width, height) = publication.dimension();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        disabled: !enabled,
-                        width,
-                        height,
-                        ..Default::default()
-                    };
-
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
-                });
-            }
-        });
-
-        publication.on_video_dimensions_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
-            move |publication, dimension| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let TrackDimension(width, height) = dimension;
-                    let enabled = publication.is_enabled();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        disabled: !enabled,
-                        width,
-                        height,
-                        ..Default::default()
-                    };
-
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
-                });
-            }
-        });
-
-        publication.on_video_quality_changed({
-            let rtc_engine = self.inner.rtc_engine.clone();
-            move |publication, quality| {
-                let rtc_engine = rtc_engine.clone();
-                tokio::spawn(async move {
-                    let tsid: String = publication.sid().into();
-                    let quality: i32 = proto::VideoQuality::from(quality).into();
-                    let update_track_settings = proto::UpdateTrackSettings {
-                        track_sids: vec![tsid.clone()],
-                        quality,
-                        ..Default::default()
-                    };
-
-                    log::info!(
-                        "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
-                        tsid,
-                        proto::VideoQuality::try_from(quality),
-                    );
-                    rtc_engine
-                        .send_request(proto::signal_request::Message::TrackSetting(
-                            update_track_settings,
-                        ))
-                        .await
-                });
-            }
+        let rtc_engine = self.inner.rtc_engine.clone();
+        publication.on_track_settings_changed(move |settings| {
+            let rtc_engine = rtc_engine.clone();
+            tokio::spawn(async move {
+                rtc_engine
+                    .send_request(proto::signal_request::Message::TrackSetting(settings))
+                    .await
+            });
         });
     }
 
