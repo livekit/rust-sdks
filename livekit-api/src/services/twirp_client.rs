@@ -101,6 +101,55 @@ impl ServerErrorCode {
     pub const DATA_LOSS: &'static str = "dataloss";
 }
 
+impl ServerErrorCode {
+    /// Parses a Twirp JSON error body. Middleware in front of the Twirp handler (for example the
+    /// server's auth check, which answers 401 with a plain-text body) does not send one; the code
+    /// then comes from the HTTP status, as the Twirp spec maps it, and the body becomes the message.
+    pub(crate) fn from_response(status: StatusCode, body: &[u8]) -> Self {
+        if let Ok(err) = serde_json::from_slice::<ServerErrorCode>(body) {
+            return err;
+        }
+        let code = match status.as_u16() {
+            401 => Self::UNAUTHENTICATED,
+            403 => Self::PERMISSION_DENIED,
+            404 => Self::BAD_ROUTE,
+            429 | 502 | 503 | 504 => Self::UNAVAILABLE,
+            300..=400 => Self::INTERNAL,
+            _ => Self::UNKNOWN,
+        };
+        let msg = String::from_utf8_lossy(body).trim().to_owned();
+        Self { code: code.to_owned(), msg, meta: Default::default() }
+    }
+}
+
+#[cfg(test)]
+mod server_error_code_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_twirp_json_body() {
+        let err = ServerErrorCode::from_response(
+            StatusCode::NOT_FOUND,
+            br#"{"code":"not_found","msg":"room not found"}"#,
+        );
+        assert_eq!(err.code, ServerErrorCode::NOT_FOUND);
+        assert_eq!(err.msg, "room not found");
+    }
+
+    #[test]
+    fn maps_plain_text_body_from_status() {
+        let err = ServerErrorCode::from_response(
+            StatusCode::UNAUTHORIZED,
+            b"invalid authorization token\n",
+        );
+        assert_eq!(err.code, ServerErrorCode::UNAUTHENTICATED);
+        assert_eq!(err.msg, "invalid authorization token");
+
+        let err = ServerErrorCode::from_response(StatusCode::BAD_GATEWAY, b"");
+        assert_eq!(err.code, ServerErrorCode::UNAVAILABLE);
+    }
+}
+
 impl Display for ServerErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.code, self.msg)
@@ -255,8 +304,10 @@ impl TwirpClient {
                     };
                     // No fallback: surface the server's error (needs the body).
                     let Some(next) = next else {
-                        let err: ServerErrorCode = resp.json().await?;
-                        return Err(ServerError::Twirp(err));
+                        let body = resp.bytes().await?;
+                        return Err(ServerError::Twirp(ServerErrorCode::from_response(
+                            status, &body,
+                        )));
                     };
                     drop(resp); // release the connection before backing off
                     (next, format!("status {status}"))

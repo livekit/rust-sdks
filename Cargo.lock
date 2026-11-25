@@ -3915,6 +3915,7 @@ dependencies = [
  "lazy_static",
  "link-cplusplus",
  "livekit",
+ "livekit-api",
  "livekit-capture",
  "livekit-common",
  "livekit-data-stream",

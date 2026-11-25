@@ -18,6 +18,7 @@ default = ["room-apis", "rustls-tls-native-roots"]
 # client sdks like python, node, unity, and c++.
 room-apis = [
   "dep:livekit",
+  "dep:livekit-api",
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",
@@ -55,15 +56,16 @@ core-modules = [
   "uniffi/tokio",
 ]
 
-# TLS selection. These imply `room-apis` because they only configure `livekit`:
+# TLS selection. These imply `room-apis` because they only configure `livekit` and
+# the `livekit-api` HTTP client used by the server API clients:
 # .github/workflows/ffi-builds.yml builds several targets with
 # `--no-default-features --features "<tls>"`, which would otherwise select
 # neither surface and produce an empty crate.
-native-tls = ["room-apis", "livekit/native-tls"]
-native-tls-vendored = ["room-apis", "livekit/native-tls-vendored"]
-rustls-tls-native-roots = ["room-apis", "livekit/rustls-tls-native-roots"]
-rustls-tls-webpki-roots = ["room-apis", "livekit/rustls-tls-webpki-roots"]
-__rustls-tls = ["room-apis", "livekit/__rustls-tls"]
+native-tls = ["room-apis", "livekit/native-tls", "livekit-api/native-tls"]
+native-tls-vendored = ["room-apis", "livekit/native-tls-vendored", "livekit-api/native-tls-vendored"]
+rustls-tls-native-roots = ["room-apis", "livekit/rustls-tls-native-roots", "livekit-api/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["room-apis", "livekit/rustls-tls-webpki-roots", "livekit-api/rustls-tls-webpki-roots"]
+__rustls-tls = ["room-apis", "livekit/__rustls-tls", "livekit-api/__rustls-tls"]
 
 # Enable tokio-console to debug tasks
 tracing = ["room-apis", "tokio/tracing", "dep:console-subscriber"]
@@ -96,6 +98,7 @@ tokio-util = { workspace = true }
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.
 livekit = { workspace = true, optional = true }
+livekit-api = { workspace = true, optional = true, default-features = false, features = ["services"] }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
 # core-modules only.
