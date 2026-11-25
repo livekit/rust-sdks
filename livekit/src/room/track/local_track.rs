@@ -36,6 +36,13 @@ impl LocalTrack {
         pub fn unmute(self: &Self) -> ();
     );
 
+    /// Test-only: reports whether the track has a sender attached, i.e. its publication has
+    /// started.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn has_sender(&self) -> bool {
+        self.transceiver().is_some()
+    }
+
     pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::Audio(track) => track.rtc_track().into(),

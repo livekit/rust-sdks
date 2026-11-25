@@ -16,10 +16,28 @@ name: FFI
 on:
   push:
     branches: ["main"]
+  # release.yml calls this workflow as a job for a livekit-ffi release.
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Empty: build only."
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Commit to build. Default: the commit of the run."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: build artifacts but skip release upload/publish."
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-ffi/v0.12.49). Takes precedence over draft release lookup and creates a draft release."
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). The release must exist. verwalter creates it."
         required: false
         type: string
       dry_run:
@@ -35,6 +53,13 @@ on:
           - debug
         default: release
 
+# One release run for each tag. A second run for the same tag waits. It then
+# finds the release complete (`verwalter status --check`), and does nothing. A run without a
+# tag is a build only and has a group of its own.
+concurrency:
+  group: ffi-${{ inputs.tag_name || github.run_id }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -42,28 +67,71 @@ jobs:
   get-tag:
     runs-on: ubuntu-latest
     permissions:
+      # Write, not read: a token with read access cannot see a draft release.
       contents: write
     steps:
-      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+      # No checkout: the step reads the release through the API only, so a
+      # tag that does not exist fails with the message below.
       - name: "Resolve tag"
+        # A push to main is a build only. A release run comes from release.yml,
+        # which calls this workflow with the tag of the draft release that
+        # verwalter created. This workflow fills and publishes that release.
+        # It never creates a release or a tag.
         run: |
-          MANUAL_TAG="${{ inputs.tag_name }}"
-          if [ -n "$MANUAL_TAG" ]; then
-            echo "Using manually provided tag: '${MANUAL_TAG}'"
-            gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
-            echo "tag_name=${MANUAL_TAG}" >> $GITHUB_OUTPUT
-          else
-            TAG=$(gh release list --repo ${{ github.repository }} --json 'isDraft,tagName' --jq '[.[] | select(.isDraft and (.tagName | startswith("livekit-ffi/")))] | first | .tagName // empty')
-            echo "Resolved FFI draft release tag: '${TAG:-}'"
-            echo "tag_name=${TAG:-}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [ -z "$MANUAL_TAG" ]; then
+            # A run on a tag without `tag_name` looks like a release run, but
+            # it uploads nothing. Only a dry run may do that.
+            if [ "$REF_TYPE" = "tag" ] && [ "$DRY_RUN" != "true" ]; then
+              echo "::error::this run is on the tag ${REF_NAME}, but tag_name is empty. Set tag_name to release, or dry_run to build only."
+              exit 1
+            fi
+            echo "No tag: build only."
+            exit 0
+          fi
+          echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "true" ]; then
+            exit 0
+          fi
+          if ! gh release view "$MANUAL_TAG" >/dev/null 2>&1; then
+            echo "::error::no release for ${MANUAL_TAG}. verwalter creates the tag and the draft: run release.yml."
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MANUAL_TAG: ${{ inputs.tag_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         id: get-tag
+
+      # A release that is complete is left alone: this run builds and
+      # uploads nothing, and publishes no package again. Complete means that
+      # the tag is on the remote and the release is public with every file
+      # of `release.required_assets` in verwalter.toml. The check exits
+      # non-zero for a release that is not complete, which is the usual case
+      # here, so the step may fail.
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        if: steps.get-tag.outputs.tag_name != '' && inputs.dry_run != true
+        with:
+          ref: ${{ inputs.ref || inputs.tag_name }}
+          fetch-depth: 0
+      - name: Check whether the release is complete
+        id: state
+        if: steps.get-tag.outputs.tag_name != '' && inputs.dry_run != true
+        continue-on-error: true
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: status
+          args: --check --package livekit-ffi
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
+      complete: ${{ steps.state.outcome == 'success' }}
 
   build:
+    needs: get-tag
+    if: needs.get-tag.outputs.complete != 'true'
     env:
       CARGO_PROFILE_DIR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'debug' || 'release' }}
       CARGO_RUST_PROFILE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'dev' || 'release' }}
@@ -73,80 +141,87 @@ jobs:
         include:
           - os: windows-latest
             platform: windows
+            ffi_platform: ffi-desktop
             dylib: livekit_ffi.dll
             target: x86_64-pc-windows-msvc
             name: ffi-windows-x86_64
           - os: windows-latest
             platform: windows
+            ffi_platform: ffi-windows-arm64
             dylib: livekit_ffi.dll
-            buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
             target: aarch64-pc-windows-msvc
             name: ffi-windows-arm64
           - os: macos-latest
             platform: macos
+            ffi_platform: ffi-desktop
             dylib: liblivekit_ffi.dylib
             target: x86_64-apple-darwin
             macosx_deployment_target: "10.15"
             name: ffi-macos-x86_64
           - os: macos-latest
             platform: macos
+            ffi_platform: ffi-desktop
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-darwin
             macosx_deployment_target: "11.0" # aarch64 requires 11
             name: ffi-macos-arm64
           - os: macos-latest
             platform: ios
+            ffi_platform: ffi-ios
             dylib: liblivekit_ffi.a
             target: aarch64-apple-ios
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: macos-latest
             platform: ios
+            ffi_platform: ffi-ios
             dylib: liblivekit_ffi.a
             target: aarch64-apple-ios-sim
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-sim-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-latest
             platform: linux
+            ffi_platform: ffi-desktop
             build_image: sameli/manylinux_2_28_x86_64_cuda_12.3
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
           - os: ubuntu-24.04-arm
             platform: linux
+            ffi_platform: ffi-desktop
             build_image: quay.io/pypa/manylinux_2_28_aarch64
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
           - os: ubuntu-latest
             platform: android
+            ffi_platform: ffi-android
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: aarch64-linux-android
             name: ffi-android-arm64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-latest
             platform: android
+            ffi_platform: ffi-android
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: armv7-linux-androideabi
             name: ffi-android-armv7
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
           - os: ubuntu-latest
             platform: android
+            ffi_platform: ffi-android
             dylib: liblivekit_ffi.so
             jar: libwebrtc.jar
             target: x86_64-linux-android
             name: ffi-android-x86_64
-            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
     name: Build (${{ matrix.target }}${{ github.event_name == 'workflow_dispatch' && format(' [{0}]', github.event.inputs.build_profile) || '' }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
+          # The tag for a run by hand, whatever ref the operator selected.
+          ref: ${{ inputs.ref || inputs.tag_name }}
           submodules: true
 
       - name: Setup Rust toolchain
@@ -185,16 +260,19 @@ jobs:
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
-      # Every build below selects its output with `cargo rustc --crate-type`
-      # rather than `cargo build`: livekit-ffi also lists "lib" (for the Node
-      # bindings), and Cargo drops LTO for a build that emits an rlib.
+      - name: Resolve build flags
+        shell: bash
+        run: |
+          FFI_FLAGS=$(python3 .github/scripts/ffi_features.py ${{ matrix.ffi_platform }})
+          echo "FFI_FLAGS=$FFI_FLAGS" >> "$GITHUB_ENV"
+
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macosx_deployment_target }}
         run: |
           cd livekit-ffi
-          cargo rustc --lib --crate-type cdylib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc $FFI_FLAGS --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }}
 
       - name: Build (iOS)
         if: ${{ matrix.platform == 'ios' }}
@@ -204,7 +282,7 @@ jobs:
         # run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
         run: |
           cd livekit-ffi
-          cargo rustc --lib --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc $FFI_FLAGS --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }}
 
       - name: Strip iOS release archive
         if: ${{ matrix.platform == 'ios' }}
@@ -215,17 +293,19 @@ jobs:
             xcrun ranlib "$archive"
           fi
 
+      # bash, not PowerShell: PowerShell would pass $FFI_FLAGS as one argument.
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
+        shell: bash
         run: |
           cd livekit-ffi
-          cargo rustc --lib --crate-type cdylib --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
+          cargo rustc $FFI_FLAGS --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }}
 
       # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
         run: |
-          docker run --rm -e CARGO_RUST_PROFILE="$CARGO_RUST_PROFILE" -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
+          docker run --rm -e CARGO_RUST_PROFILE="$CARGO_RUST_PROFILE" -e FFI_FLAGS="$FFI_FLAGS" -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
             yum install clang clang-devel lld -y; \
@@ -238,7 +318,7 @@ jobs:
             export CC=clang; \
             export CXX=clang++; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
-            cd livekit-ffi && cargo rustc --lib --crate-type cdylib --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
+            cd livekit-ffi && cargo rustc \$FFI_FLAGS --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }}"
 
           sudo chown -R $USER:$USER "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
 
@@ -248,7 +328,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} rustc --lib --crate-type cdylib --profile "$CARGO_RUST_PROFILE" ${{ matrix.buildargs }}
+          cargo ndk --target ${{ matrix.target }} rustc $FFI_FLAGS --profile "$CARGO_RUST_PROFILE"
 
       - name: Copy/Build licenses
         run: |
@@ -284,6 +364,7 @@ jobs:
           # no metadata, so assert on the output instead of the exit code.
           test -s python-bindings/livekit_ffi.py
           grep -q 'def build_version' python-bindings/livekit_ffi.py
+          grep -q 'class LocalDataTrack' python-bindings/livekit_ffi.py
 
       - name: Zip Python bindings
         if: ${{ matrix.name == 'ffi-macos-arm64' }}
@@ -358,15 +439,28 @@ jobs:
     needs: [get-tag, build]
     permissions:
       contents: write
-      # Only for the `gh workflow run` dispatches in the last step. Scoped to
-      # this job rather than the workflow: it also grants cancelling and
-      # re-running workflows and deleting runs, artifacts and caches.
-      actions: write
     if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+        with:
+          ref: ${{ inputs.ref || inputs.tag_name }}
+          fetch-depth: 0 # verwalter reads the tags
+
+      # Before the upload, so a mismatch fails before `--clobber` replaces
+      # anything. A run by hand can name any tag, and files built from a
+      # commit with another version must not go on that release.
+      - name: Check the version
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
+            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at $(git rev-parse HEAD)"
+            exit 1
+          fi
 
       - name: Download artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -375,66 +469,117 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Upload artifacts
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/*
+      # Attaches the files and makes the release public, in this order. The
+      # release must not become public without its binaries: the SDKs that
+      # download them fail on a release that has none. verwalter enforces it:
+      # while a name of `release.required_assets` is missing, the step fails
+      # and the release stays a draft. It also refuses the upload if the
+      # checkout does not hold the package as tagged. A second run replaces
+      # the files of a failed upload.
+      - name: Attach the files and make the release public
+        uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: release
+          args: --package livekit-ffi --asset ffi-builds --publish
 
-      - name: Create release tag
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-          SHA: ${{ github.sha }}
+  # The Swift and Android packages. A job of this run, so a failure makes the
+  # run red. It starts only after the release is public with its assets.
+  #
+  # It also waits for `uniffi-dart`, whose run attaches the `build-*.zip`
+  # host libraries to the release. client-sdk-android learns a new version
+  # from Maven and then downloads those files, so Maven must not have the
+  # version first. The cost: a failed Dart run blocks these packages. After
+  # such a failure, dispatch uniffi-packages.yml with `tag_name` by hand
+  # once the `build-*.zip` files are on the release.
+  uniffi-packages:
+    name: UniFFI packages
+    needs: [get-tag, release, uniffi-dart]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/uniffi-packages.yml
+    with:
+      tag_name: ${{ needs.get-tag.outputs.tag_name }}
+    secrets: inherit
+
+  # The Dart package cannot be a called job: pub.dev accepts only a run whose
+  # ref is the tag (its OIDC token then has refType "tag"; see the eventName
+  # and refType checks in dart-lang/pub-dev, app/lib/package/backend.dart).
+  # So this job dispatches uniffi-dart-publish.yml at the tag.
+  # `workflow_dispatch` always creates a run, GITHUB_TOKEN included. The job
+  # then waits for that run, so its failure makes this run red.
+  uniffi-dart:
+    name: UniFFI Dart package
+    needs: [get-tag, release]
+    runs-on: ubuntu-latest
+    # A Dart run takes 10 to 30 minutes.
+    timeout-minutes: 120
+    permissions:
+      # Scoped to this job: it also grants cancelling and re-running
+      # workflows and deleting runs, artifacts and caches.
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.get-tag.outputs.tag_name }}
+    steps:
+      # Safe to run again: the step uses the newest publishing Dart run at the
+      # tag. It waits for a run in progress, accepts a run that passed, and
+      # starts a new run only if there is none or the newest one failed. A dry
+      # run of the Dart workflow has another run name and never counts: it
+      # ends as a success, but uploads and publishes nothing.
+      - name: Start uniffi-dart-publish.yml at the tag and wait for it
         run: |
           set -euo pipefail
 
-          # This workflow runs on every push to main and adopts whatever draft
-          # release it finds, which may be several commits old. Tagging a commit
-          # whose Cargo.toml says a different version would publish mismatched
-          # packages, and uniffi-dart-publish.yml would reject it later anyway.
-          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
-          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
-            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at ${SHA}"
+          # The run name that uniffi-dart-publish.yml gives a publishing run.
+          title="Publish Dart package ${TAG}"
+          newest_run() {
+            gh run list --workflow uniffi-dart-publish.yml --branch "$TAG" --limit 20 "$@" \
+              --json databaseId,status,conclusion,displayTitle \
+              --jq "[.[] | select(.displayTitle == \"${title}\")][0] | select(. != null) | \"\(.databaseId) \(.status) \(.conclusion)\""
+          }
+
+          run_id=""
+          read -r id status conclusion <<<"$(newest_run || true)"
+          if [ -n "${id:-}" ] && [ "$status" != "completed" ]; then
+            echo "A publishing Dart run is in progress at ${TAG}."
+            run_id=$id
+          elif [ -n "${id:-}" ] && [ "$conclusion" = "success" ]; then
+            echo "The Dart run ${id} passed for ${TAG} already."
+            exit 0
+          else
+            # One minute back, for a difference between the clocks.
+            since=$(date -u -d '1 minute ago' +%Y-%m-%dT%H:%M:%SZ)
+            gh workflow run uniffi-dart-publish.yml --ref "$TAG" -f tag_name="$TAG"
+            for _ in $(seq 1 30); do
+              read -r run_id _ <<<"$(newest_run --event workflow_dispatch --created ">=${since}" || true)"
+              [ -z "${run_id:-}" ] || break
+              sleep 10
+            done
+          fi
+          if [ -z "${run_id:-}" ]; then
+            echo "::error::uniffi-dart-publish.yml did not start for ${TAG}. Run this job again."
             exit 1
           fi
+          echo "Waiting for ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
 
-          existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
-          if [ -n "$existing" ]; then
-            # A re-run. Carry on rather than failing: the tag is only needed as
-            # the ref to publish and dispatch against, and it already exists.
-            echo "::warning::tag ${TAG} already exists at ${existing}; not re-creating it."
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref="refs/tags/${TAG}" \
-              -f sha="${SHA}"
-          fi
-
-      - name: Publish release
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: gh release edit "$TAG" --draft=false
-
-      # A ref created with GITHUB_TOKEN emits no push event -- GitHub's guard
-      # against recursive workflow runs -- so the UniFFI package publishes
-      # cannot be tag-push triggered from here. `workflow_dispatch` is the
-      # documented exception to that guard: it "always creates workflow runs",
-      # GITHUB_TOKEN included.
-      #
-      # Dispatching *against the tag* is what keeps pub.dev happy. The run then
-      # carries `ref: refs/tags/<tag>`, so its OIDC token has refType "tag",
-      # which pub.dev's trusted publishing requires alongside the tag matching
-      # the pattern configured on the package (see the eventName / refType
-      # checks in dart-lang/pub-dev, app/lib/package/backend.dart).
-      #
-      # Last step on purpose: the release is already published by now, so if a
-      # dispatch fails the FFI artifacts are unaffected and only the UniFFI
-      # packages need the manual re-dispatch the failure tells you to do.
-      - name: Dispatch the UniFFI package publishes
-        env:
-          TAG: ${{ needs.get-tag.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          for workflow in uniffi-packages.yml uniffi-dart-publish.yml; do
-            echo "dispatching ${workflow} at ${TAG}"
-            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" \
-              --ref "$TAG" -f tag_name="$TAG"
+          # One failed request must not fail the release run: only five in a
+          # row do.
+          failures=0
+          while true; do
+            if ! state=$(gh run view "$run_id" --json status,conclusion --jq '"\(.status) \(.conclusion)"'); then
+              failures=$((failures + 1))
+              if [ "$failures" -ge 5 ]; then
+                echo "::error::could not read the state of the Dart run ${run_id}. Run this job again: it waits for the same run."
+                exit 1
+              fi
+              sleep 60
+              continue
+            fi
+            failures=0
+            case "$state" in
+              "completed success") echo "The Dart package run passed."; exit 0 ;;
+              completed*) echo "::error::the Dart package run ended as: ${state#completed }"; exit 1 ;;
+            esac
+            sleep 60
           done

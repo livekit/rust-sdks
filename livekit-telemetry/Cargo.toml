@@ -1,7 +1,7 @@
 [package]
 name = "livekit-telemetry"
 description = "Client telemetry core for LiveKit: buffers events on-device and exports them as OTLP"
-version = "0.2.0"
+version = "0.3.0"
 readme = "README.md"
 license.workspace = true
 edition.workspace = true
@@ -21,9 +21,13 @@ base64 = "0.22"
 serde_json = { workspace = true }
 # Server URLs are parsed, never string-matched, before a token may follow them.
 url = "2.3"
+# gzip for request bodies; the deflate backend (miniz_oxide) is already linked by data streams.
+flate2 = "1"
 # OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
 # livekit-protocol so a single prost is linked.
 opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }
+# The registered telemetry names (`semconv`), generated from the protocol's Weaver registry.
+livekit-protocol = { workspace = true }
 livekit-net = { workspace = true, optional = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
@@ -35,6 +39,8 @@ uniffi = ["dep:uniffi"]
 
 [dev-dependencies]
 tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util", "net", "io-util"] }
+# The mock collector test drives the real HTTP stack.
+livekit-net = { workspace = true, features = ["native"] }
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.

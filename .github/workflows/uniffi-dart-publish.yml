@@ -1,4 +1,8 @@
 name: UniFFI Dart package
+# ffi-builds.yml finds a run by this exact name. Only a run named
+# "Publish Dart package <tag>" counts as the publish for that tag: a dry run
+# uploads and publishes nothing, but ends as a success too.
+run-name: ${{ inputs.dry_run && 'Dry run' || 'Publish' }} Dart package ${{ inputs.tag_name }}
 
 # Publishes the generated livekit_ffi Dart package to pub.dev on a
 # livekit-ffi release, together with the native libraries it loads.
@@ -8,12 +12,14 @@ name: UniFFI Dart package
 # a *tag* matching the pattern configured on the package
 # (livekit-ffi/v{{version}}); a release-event-triggered workflow is rejected.
 #
-# livekit-ffi uses knope's draft-release flow, and the tag ffi-builds.yml
+# The livekit-ffi release starts as a draft, and the tag that release.yml
 # creates with GITHUB_TOKEN emits no push event (#1256). So the normal trigger
 # is ffi-builds.yml dispatching this workflow with `--ref <tag>` once the
 # release is published: workflow_dispatch is exempt from GitHub's recursion
 # guard, and dispatching at the tag still gives the run refType "tag". The
-# push trigger below stays for a tag pushed by hand.
+# tag exists before the FFI build, so there is no tag-push trigger: it would
+# publish before that build is green. For a run by hand, dispatch this workflow
+# at the tag (select the tag as the ref) with `tag_name`.
 #
 # The package's hook/build.dart downloads build-<triple>.zip assets from the
 # GitHub release at consumer build time, so a pub.dev version whose assets are
@@ -48,8 +54,6 @@ name: UniFFI Dart package
 # only exercising the workflow.
 
 on:
-  push:
-    tags: ["livekit-ffi/v*"]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -71,6 +75,12 @@ env:
 permissions:
   contents: read
 
+# One run for each tag. ffi-builds.yml waits for this run, and a second run of
+# that job must not publish at the same time as the first one.
+concurrency:
+  group: uniffi-dart-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
@@ -85,10 +95,9 @@ jobs:
         # injection), and the outputs feed jobs that write release assets and
         # can mint the pub.dev publish token.
         env:
-          PUSHED_TAG: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag_name }}
         run: |
-          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          TAG="$INPUT_TAG"
           case "$TAG" in
             livekit-ffi/v*) ;;
             *) echo "Unexpected tag: $TAG"; exit 1 ;;

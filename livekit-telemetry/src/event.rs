@@ -14,6 +14,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use livekit_protocol::semconv::{self, lk_log_source as source, upstream};
+
 /// A discrete telemetry event.
 ///
 /// Exported as one OTLP log record whose `event_name` is [`name`](Self::name), following the
@@ -90,8 +92,9 @@ impl TelemetryEvent {
     /// when it doubles as the body.
     ///
     /// Counts the attributes the record carries: once queued, that includes its session's
-    /// (`lk.room.*`, `lk.participant.*`, `session.id`) and the app's correlation attributes, all
-    /// taken at capture. Pipeline-wide attributes are added at export and are not counted.
+    /// (`lk.room_id`, `lk.participant_id`, …, `session.id`) and the app's correlation
+    /// attributes, all taken at capture. Pipeline-wide attributes are added at export: the
+    /// exporter's drains count them for every record (`Store::drain`, `Spans::drain`).
     pub fn size_hint(&self) -> usize {
         RECORD_OVERHEAD_BYTES
             + 2 * self.name.len()
@@ -130,6 +133,19 @@ impl Severity {
     }
 }
 
+impl From<log::Level> for Severity {
+    /// The severity of a `log` record at `level`.
+    fn from(level: log::Level) -> Self {
+        match level {
+            log::Level::Error => Self::Error,
+            log::Level::Warn => Self::Warn,
+            log::Level::Info => Self::Info,
+            log::Level::Debug => Self::Debug,
+            log::Level::Trace => Self::Trace,
+        }
+    }
+}
+
 /// Where a log line came from. WebRTC is chatty at warn, so only its errors become records;
 /// the SDK and the core use the configured floor.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -146,9 +162,9 @@ pub enum LogSource {
 impl LogSource {
     fn as_str(self) -> &'static str {
         match self {
-            Self::Sdk => "sdk",
-            Self::Ffi => "ffi",
-            Self::WebRtc => "webrtc",
+            Self::Sdk => source::SDK,
+            Self::Ffi => source::FFI,
+            Self::WebRtc => source::WEBRTC,
         }
     }
 }
@@ -167,7 +183,8 @@ pub struct LogRecord {
     /// exported record.
     pub body: String,
     /// The logger: a type, module or file name (`Room`, `livekit::rtc_engine`, `sctp.cc`),
-    /// exported as `lk.log.logger` to group lines in the backend.
+    /// exported as `lk.log.logger` to group lines in the backend. An `Ffi` line from the core's
+    /// own `livekit_telemetry*` loggers is skipped.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub logger: Option<String>,
     /// The function that logged, exported as `code.function.name`.
@@ -193,18 +210,18 @@ impl From<LogRecord> for TelemetryEvent {
         let mut event = TelemetryEvent::default()
             .with_severity(record.severity)
             .with_body(record.body)
-            .with_attribute("lk.log.source", record.source.as_str());
+            .with_attribute(semconv::LK_LOG_SOURCE, record.source.as_str());
         if let Some(logger) = record.logger.filter(|s| !s.is_empty()) {
-            event = event.with_attribute("lk.log.logger", logger);
+            event = event.with_attribute(semconv::LK_LOG_LOGGER, logger);
         }
         if let Some(function) = record.function.filter(|s| !s.is_empty()) {
-            event = event.with_attribute("code.function.name", function);
+            event = event.with_attribute(upstream::CODE_FUNCTION_NAME, function);
         }
         if let Some(file) = record.file.filter(|s| !s.is_empty()) {
-            event = event.with_attribute("code.file.path", file);
+            event = event.with_attribute(upstream::CODE_FILE_PATH, file);
         }
         if let Some(line) = record.line.filter(|l| *l > 0) {
-            event = event.with_attribute("code.line.number", i64::from(line));
+            event = event.with_attribute(upstream::CODE_LINE_NUMBER, i64::from(line));
         }
         event.timestamp_ns = record.timestamp_ns;
         event.span_id = record.span_id;
@@ -216,7 +233,7 @@ impl From<LogRecord> for TelemetryEvent {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
-    /// The attribute's name (`lk.room.sid`, `acme.checkout.step`).
+    /// The attribute's name (`lk.room_id`, `acme.checkout.step`).
     pub key: String,
     /// Its value.
     pub value: AttributeValue,
@@ -295,7 +312,6 @@ thread_local! {
 /// Limits on what an app hands over: long enough for any real identifier, short enough that one
 /// app cannot bloat every record. Over-long input is rejected and counted, never truncated — a
 /// truncated id silently collides with another.
-#[expect(dead_code, reason = "enforced by the pipeline, not in place yet")]
 pub(crate) const MAX_NAME_BYTES: usize = 128;
 /// The longest attribute key an app may hand over, in bytes.
 pub(crate) const MAX_KEY_BYTES: usize = 128;
@@ -312,18 +328,24 @@ pub(crate) fn is_reserved(key: &str) -> bool {
     key.starts_with("lk.")
         || key.starts_with("otel.")
         || key.starts_with("code.")
-        || key == "session.id"
-        || key == "error.type"
-        || key == "network.connection.type"
+        || key == upstream::SESSION_ID
+        || key == upstream::ERROR_TYPE
+        || key == upstream::NETWORK_CONNECTION_TYPE
 }
 
 /// Whether an app-provided attribute is within the limits and outside the SDK's namespace.
 pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
+    within_limits(key, value) && !is_reserved(key)
+}
+
+/// Whether an attribute is within the length limits: a non-empty key of at most
+/// [`MAX_KEY_BYTES`], a string value of at most [`MAX_VALUE_BYTES`].
+pub(crate) fn within_limits(key: &str, value: Option<&AttributeValue>) -> bool {
     let value_ok = match value {
         Some(AttributeValue::Str(s)) => s.len() <= MAX_VALUE_BYTES,
         _ => true,
     };
-    !key.is_empty() && key.len() <= MAX_KEY_BYTES && !is_reserved(key) && value_ok
+    !key.is_empty() && key.len() <= MAX_KEY_BYTES && value_ok
 }
 
 /// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id and the

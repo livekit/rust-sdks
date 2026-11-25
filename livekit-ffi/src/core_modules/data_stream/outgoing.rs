@@ -105,14 +105,14 @@ impl lk_common::RemoteParticipantRegistry for ForeignRegistry {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
 impl OutgoingDataStreamManager {
-    #[uniffi::constructor]
-    pub fn new(
+    /// Builds a manager that cancels `token` when it is dropped, for a delegate that has to know
+    /// when its manager is gone.
+    pub(super) fn with_shutdown(
         delegate: Arc<dyn OutgoingDataStreamManagerDelegate>,
         registry: Arc<dyn RemoteParticipantRegistryDelegate>,
+        token: CancellationToken,
     ) -> Arc<Self> {
-        let token = CancellationToken::new();
         let (manager, mut packet_rx) = ds::outgoing::Manager::new();
 
         // Forward each outbound packet batch to the transport delegate, acknowledging the send
@@ -144,6 +144,17 @@ impl OutgoingDataStreamManager {
         let registry: Arc<dyn lk_common::RemoteParticipantRegistry> =
             Arc::new(ForeignRegistry(registry));
         Self { manager, registry, _guard: token.drop_guard() }.into()
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl OutgoingDataStreamManager {
+    #[uniffi::constructor]
+    pub fn new(
+        delegate: Arc<dyn OutgoingDataStreamManagerDelegate>,
+        registry: Arc<dyn RemoteParticipantRegistryDelegate>,
+    ) -> Arc<Self> {
+        Self::with_shutdown(delegate, registry, CancellationToken::new())
     }
 
     /// Sends a complete text payload, returning info about the created stream.

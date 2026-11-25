@@ -402,10 +402,11 @@ pub async fn connect_signal_session(
     options: SignalOptions,
     publisher_offer: Option<Vec<u8>>,
 ) -> Result<SignalSessionConnected, SignalError> {
-    let publisher_offer = publisher_offer
+    let initial_publish = publisher_offer
         .map(|offer| proto::SessionDescription::decode(offer.as_slice()))
         .transpose()
-        .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?;
+        .map_err(|err| SignalError::InvalidInput { reason: format!("publisher offer: {err}") })?
+        .map(|offer| signaling::InitialPublish { offer, add_track_requests: Vec::new() });
     let options: signaling::SignalOptions = options.into();
     let shutdown = options.cancellation_token.clone();
 
@@ -418,7 +419,7 @@ pub async fn connect_signal_session(
     // future, which is why `url` and `token` are owned rather than `&str`.
     let (client, join_response, events) = crate::runtime::runtime()
         .spawn(async move {
-            signaling::SignalClient::connect(&url, &token, options, publisher_offer).await
+            signaling::SignalClient::connect(&url, &token, options, initial_publish).await
         })
         .await
         .map_err(|err| SignalError::Other { reason: format!("connect task failed: {err}") })??;

@@ -2,26 +2,31 @@ name: UniFFI packages
 
 # Publishes the per-language livekit-ffi core-modules wrapper packages (Swift
 # xcframework → livekit/livekit-ffi-xcframework; Android AAR → Maven
-# Central) when a livekit-ffi release tag is pushed.
+# Central) for a livekit-ffi release.
 #
-# Trigger note: this used to react to `release: published`, which worked only
-# because knope-bot (a GitHub App) published the livekit-uniffi release and its
-# tag directly. livekit-ffi uses knope's `assets = "marker"` draft flow, and a
-# draft carries no tag until it is published — with GITHUB_TOKEN, whose refs
-# and releases never start a workflow run (see #1256). So ffi-builds.yml
-# dispatches this workflow explicitly once its build matrix is green and the
-# release is published; workflow_dispatch is exempt from that recursion guard.
-# A run therefore still implies a green 11-target build, the same guarantee the
-# release event gave. The push trigger below stays for a tag pushed by hand.
+# Trigger note: ffi-builds.yml calls this workflow as a job once its build
+# matrix is green and the release is public. A run therefore implies a green
+# 11-target build, and a failure here makes the release run red. There is no
+# tag-push trigger, on purpose: the tag exists before the FFI build, so a push
+# trigger would publish before that build is green. For a run by hand,
+# dispatch this workflow with `tag_name`.
 #
 # The Dart package, and the cdylib release assets its build hook downloads, are
-# handled by uniffi-dart-publish.yml, which reacts to the same tag push
-# (pub.dev requires a tag-push-triggered workflow) and builds those assets
+# handled by uniffi-dart-publish.yml, which ffi-builds.yml dispatches at the tag
+# (pub.dev requires a run whose ref is the tag) and builds those assets
 # itself so publishing can depend on them directly.
 
 on:
-  push:
-    tags: ["livekit-ffi/v*"]
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. livekit-ffi/v0.13.0)"
+        required: true
+        type: string
+      dry_run:
+        description: "Build artifacts but skip publishing."
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag_name:
@@ -48,11 +53,10 @@ jobs:
         # script: tag names may contain shell metacharacters (Actions script
         # injection).
         env:
-          PUSHED_TAG: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          TAG="$INPUT_TAG"
           case "$TAG" in
             livekit-ffi/v*) ;;
             *) echo "::error::unexpected tag: $TAG"; exit 1 ;;
