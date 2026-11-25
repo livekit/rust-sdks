@@ -22,7 +22,8 @@
 // `__room-surface`, so the two room builds compile the same code.
 #[cfg(all(feature = "__room-surface", feature = "core-modules"))]
 compile_error!(
-    "the `room-apis` and `core-modules` features are mutually exclusive. \
+    "a room feature (`room-apis` or `room-apis-host-transport`) and \
+     `core-modules` are mutually exclusive. \
      Build livekit-ffi/core-modules with \
      `--no-default-features --features core-modules`."
 );
@@ -100,13 +101,10 @@ pub(crate) mod runtime;
 /// track and stream objects whichever FFI surface they build against.
 pub mod data_track;
 
-// Puts the UniFFI scaffolding of livekit-net into the host-transport artifact.
-// The room code reaches livekit-net only through `livekit`, and no path in
-// this crate names it, the same case as `core_modules`. Without this line the
-// generated bindings can miss `set_ws_client`, `set_http_client` and the
-// client traits, and the host then has no way to register its network.
-#[cfg(feature = "room-apis-host-transport")]
-extern crate livekit_net;
+// The host-transport build needs no `extern crate livekit_net` here, unlike
+// `core_modules`. livekit-net is linked through `livekit`, and its UniFFI
+// symbols and metadata reach the artifact without a path that names it.
+// Checked on the macos-arm64 cdylib: 31 `uniffi_livekit_net_*` exports.
 
 // Must sit at the crate root: this defines `crate::UniFfiTag`, which every
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
