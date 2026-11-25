@@ -15,7 +15,12 @@
 // `room-apis` and `core-modules` are two distinct FFI surfaces that ship as
 // separate artifacts to different SDKs, and each sets up its own UniFFI
 // scaffolding below. Selecting both is always a build-configuration mistake.
-#[cfg(all(feature = "room-apis", feature = "core-modules"))]
+//
+// `__room-surface` is the room surface itself, with no network stack
+// selected. `room-apis` selects it and adds the bundled stack. The gates in
+// this crate name `__room-surface`, so a room build with another network
+// choice compiles the same code.
+#[cfg(all(feature = "__room-surface", feature = "core-modules"))]
 compile_error!(
     "the `room-apis` and `core-modules` features are mutually exclusive. \
      Build livekit-ffi/core-modules with \
@@ -25,7 +30,7 @@ compile_error!(
 // Both surfaces export `build_version` through the scaffolding below, which
 // only exists when a surface is selected. Failing here beats failing inside
 // the uniffi macro expansion.
-#[cfg(not(any(feature = "room-apis", feature = "core-modules")))]
+#[cfg(not(any(feature = "__room-surface", feature = "core-modules")))]
 compile_error!(
     "exactly one FFI surface must be selected: enable either `room-apis` \
      (the default) or `core-modules`."
@@ -35,20 +40,20 @@ compile_error!(
 // statics; the globs republish it at the crate root. That keeps the public API
 // (`livekit_ffi::{cabi, proto, server, FfiError, FFI_SERVER, ...}`) and the
 // crate-internal `crate::` paths identical to before the modules existed.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 mod migration;
-#[cfg(all(test, feature = "room-apis"))]
+#[cfg(all(test, feature = "__room-surface"))]
 mod migration_tests;
 
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 mod room_apis;
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 pub use room_apis::*;
 
 // `conversion` is not part of the public API, so the glob above does not reach
 // it. Re-export it for this crate, which keeps the `crate::conversion` paths
 // that the surface used before it moved into `room_apis`.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 pub(crate) use room_apis::conversion;
 
 #[cfg(feature = "core-modules")]
@@ -57,7 +62,7 @@ mod core_modules;
 pub use core_modules::*;
 
 // Shared stream value/handle wrappers; the managers remain exclusive to core-modules.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 #[path = "core_modules/data_stream/mod.rs"]
 pub mod data_stream;
 
@@ -85,7 +90,7 @@ pub mod data_track;
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
 // may exist per crate, which is why the two surfaces are mutually exclusive;
 // they are kept separate so either can pin its own namespace later.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 uniffi::setup_scaffolding!("livekit_ffi");
 #[cfg(feature = "core-modules")]
 uniffi::setup_scaffolding!("livekit_ffi");

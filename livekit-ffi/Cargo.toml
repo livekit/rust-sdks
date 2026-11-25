@@ -14,9 +14,13 @@ default = ["room-apis", "rustls-tls-native-roots"]
 # There are two mutually exclusive modes that this crate can be configured
 # in, `room-apis` and `core-modules`.
 
-# `room-apis` implements a full, rust owned and managed webrtc stack. This is used by more modern
-# client sdks like python, node, unity, and c++.
-room-apis = [
+# Internal. The code and the dependencies of the room surface, with no network
+# stack selected. It exists because Cargo features only add: a build cannot
+# subtract the bundled stack from `room-apis`, so a room build with another
+# network choice needs this base. Every `cfg(feature = "__room-surface")` in
+# the sources gates code of the room surface. Do not select it directly:
+# without a network choice, the artifact has no network stack.
+__room-surface = [
   "dep:livekit",
   "dep:webrtc-sys",
   "dep:soxr-sys",
@@ -37,6 +41,16 @@ room-apis = [
   "tokio/full",
   "tokio/parking_lot",
 ]
+
+# `room-apis` implements a full, rust owned and managed webrtc stack. This is used by more modern
+# client sdks like python, node, unity, and c++.
+#
+# `livekit/default` is listed because the `livekit` dependency below turns the
+# default features of `livekit` off. That default is `native`: the bundled
+# WebSocket and HTTP stack of livekit-net (tokio-tungstenite and reqwest). With
+# this entry, `room-apis` resolves to the same packages and the same features
+# as before the dependency changed.
+room-apis = ["__room-surface", "livekit/default"]
 
 # `core-modules` implements a set of smaller utility modules in rust to abstract away business
 # logic. This does NOT include `libwebrtc` or `livekit`.
@@ -99,7 +113,11 @@ tokio-util = { workspace = true }
 
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.
-livekit = { workspace = true, optional = true }
+# A path dependency, not `workspace = true`: a member cannot turn off default
+# features that the workspace entry leaves on, and the default of `livekit` is
+# `native`. `room-apis` adds `livekit/default` back. No version is necessary,
+# because this crate is not published.
+livekit = { path = "../livekit", default-features = false, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
 # Both surfaces: access tokens.

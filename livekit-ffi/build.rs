@@ -22,14 +22,17 @@ fn main() {
     // `webrtc-sys-build` are optional build-dependencies gated on the same
     // feature, so under core-modules the paths that this code names do not
     // resolve at all.
-    #[cfg(feature = "room-apis")]
+    //
+    // The gate is `__room-surface`, the base of every room build: each one
+    // links the same libwebrtc and generates the same protobuf code.
+    #[cfg(feature = "__room-surface")]
     if std::env::var("DOCS_RS").is_err() {
         room_apis::run_build_steps();
     }
 }
 
 /// The build steps that only the room-apis surface needs.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 mod room_apis {
     use std::{env, path::Path};
 

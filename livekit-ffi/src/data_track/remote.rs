@@ -25,25 +25,25 @@ use tokio_util::sync::CancellationToken;
 pub struct RemoteDataTrack {
     inner: DataTrack<Remote>,
     // After the migration is complete, this field can be removed.
-    #[cfg(feature = "room-apis")]
+    #[cfg(feature = "__room-surface")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
 // After the migration is complete, this call can be removed.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 crate::migrate_from_ffi!(RemoteDataTrack);
 
 impl RemoteDataTrack {
     pub(crate) fn new(inner: DataTrack<Remote>) -> Self {
         Self {
             inner,
-            #[cfg(feature = "room-apis")]
+            #[cfg(feature = "__room-surface")]
             handle_id: std::sync::OnceLock::new(),
         }
     }
 
     /// The wrapped track, for the room-apis request handlers. After the migration is complete,
     /// this can be removed.
-    #[cfg(feature = "room-apis")]
+    #[cfg(feature = "__room-surface")]
     pub(crate) fn inner(&self) -> &DataTrack<Remote> {
         &self.inner
     }
@@ -189,13 +189,13 @@ impl DataTrackStream {
     }
 }
 
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 impl PartialEq for RemoteDataTrack {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "__room-surface")]
 impl std::fmt::Debug for RemoteDataTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RemoteDataTrack").finish_non_exhaustive()
