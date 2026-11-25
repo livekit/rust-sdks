@@ -26,11 +26,15 @@ mkdir -p "$OUT/Sources/LiveKitFFI"
 cp "$GEN"/swift/*.swift "$OUT/Sources/LiveKitFFI/"
 # Dependency components name their own C modules. This package merges all headers into
 # RustLiveKitFFI, matching cargo-swift's multi-component packaging.
+# livekit_netFFI is the module of livekit_net.swift, which only a
+# `room-apis-host-transport` cdylib produces. A `room-apis` cdylib has no such file.
 for binding in "$OUT"/Sources/LiveKitFFI/*.swift; do
     sed -i '' -e 's/canImport(RustLiveKitCommon)/canImport(RustLiveKitFFI)/' \
         -e 's/import RustLiveKitCommon/import RustLiveKitFFI/' \
         -e 's/canImport(RustLiveKitDataTrack)/canImport(RustLiveKitFFI)/' \
-        -e 's/import RustLiveKitDataTrack/import RustLiveKitFFI/' "$binding"
+        -e 's/import RustLiveKitDataTrack/import RustLiveKitFFI/' \
+        -e 's/canImport(livekit_netFFI)/canImport(RustLiveKitFFI)/' \
+        -e 's/import livekit_netFFI/import RustLiveKitFFI/' "$binding"
 done
 
 FRAMEWORK="$GEN/RustLiveKitFFI.framework"
