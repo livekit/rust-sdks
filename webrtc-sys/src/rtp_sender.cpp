@@ -209,7 +209,7 @@ RtpParameters RtpSender::get_parameters() const {
 void RtpSender::set_parameters(RtpParameters params) const {
   auto error = sender_->SetParameters(to_native_rtp_parameters(params));
   if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+    throw BridgeException(serialize_error(to_error(error)));
 }
 
 void RtpSender::set_video_encoder_backend(VideoEncoderBackend backend) const {

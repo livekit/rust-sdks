@@ -14,6 +14,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use livekit_protocol::semconv::{self, event};
+
 use crate::TelemetryEvent;
 
 /// Declares the pipeline's health counters once: the shared atomics ([`Counters`]), their
@@ -50,7 +52,10 @@ macro_rules! counters {
 }
 
 counters! {
-    /// Records evicted from the in-memory queue (`max_queue_size`).
+    /// Records evicted from the in-memory queue (`max_queue_size`), spans dropped from a full
+    /// span buffer (open spans abandoned, finished ones past its capacity), and tracks a session
+    /// did not wait on past `MAX_PENDING_TRACKS` (a subscribe's span, a published track's fast
+    /// polling).
     queue_full,
     /// Records lost because no cache, not even memory, could take their batch.
     cache_error,
@@ -101,18 +106,13 @@ impl Counters {
 impl Snapshot {
     /// Everything that was lost, by any reason.
     pub fn dropped(&self) -> u64 {
-        self.queue_full
-            + self.cache_error
-            + self.cache_full
-            + self.expired
-            + self.corrupt
-            + self.invalid
-            + self.rejected
-            + self.oversized
-            + self.throttled
-            + self.disabled
-            + self.rate_limited
-            + self.purged
+        self.problem_drops() + self.disabled + self.purged
+    }
+
+    /// Upload attempts that did not get through: failures and timeouts together, the "failed"
+    /// of the report's body (the `lk.telemetry.uploads.failed` attribute counts failures only).
+    pub fn failed_attempts(&self) -> u64 {
+        self.upload_failures + self.upload_timeouts
     }
 
     /// Records lost other than by policy (a project that receives nothing, an opt-out).
@@ -145,41 +145,46 @@ impl Snapshot {
     /// persisted on its own, never an extra request — plus one at shutdown, so every session
     /// leaves a summary the fleet's success rates can be computed from.
     pub fn report(&self, cached_batches: u64) -> TelemetryEvent {
-        let mut event = TelemetryEvent::new("lk.telemetry.report")
+        let mut event = TelemetryEvent::new(event::LK_TELEMETRY_REPORT)
             .with_body(format!(
                 "telemetry: {} batches sent ({} B), {} failed, {} dropped, {} cached",
                 self.uploads_sent,
                 self.upload_bytes,
-                self.upload_failures + self.upload_timeouts,
+                self.failed_attempts(),
                 self.problem_drops(),
                 cached_batches
             ))
-            .with_attribute("lk.telemetry.uploads.sent", self.uploads_sent as i64)
-            .with_attribute("lk.telemetry.uploads.bytes", self.upload_bytes as i64)
-            .with_attribute("lk.telemetry.uploads.failed", self.upload_failures as i64)
-            .with_attribute("lk.telemetry.cache.batches", cached_batches as i64);
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_SENT, int(self.uploads_sent))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_BYTES, int(self.upload_bytes))
+            .with_attribute(semconv::LK_TELEMETRY_UPLOADS_FAILED, int(self.upload_failures))
+            .with_attribute(semconv::LK_TELEMETRY_CACHE_BATCHES, int(cached_batches));
         for (key, value) in [
-            ("lk.telemetry.uploads.timeouts", self.upload_timeouts),
-            ("lk.telemetry.uploads.unauthorized", self.auth_denied),
-            ("lk.telemetry.holds.capped", self.hold_cap_hits),
-            ("lk.telemetry.cache.write_errors", self.cache_write_errors),
-            ("lk.telemetry.dropped.queue_full", self.queue_full),
-            ("lk.telemetry.dropped.cache_error", self.cache_error),
-            ("lk.telemetry.dropped.cache_full", self.cache_full),
-            ("lk.telemetry.dropped.expired", self.expired),
-            ("lk.telemetry.dropped.corrupt", self.corrupt),
-            ("lk.telemetry.dropped.invalid", self.invalid),
-            ("lk.telemetry.dropped.rejected", self.rejected),
-            ("lk.telemetry.dropped.oversized", self.oversized),
-            ("lk.telemetry.dropped.throttled", self.throttled),
-            ("lk.telemetry.dropped.rate_limited", self.rate_limited),
+            (semconv::LK_TELEMETRY_UPLOADS_TIMEOUTS, self.upload_timeouts),
+            (semconv::LK_TELEMETRY_UPLOADS_UNAUTHORIZED, self.auth_denied),
+            (semconv::LK_TELEMETRY_HOLDS_CAPPED, self.hold_cap_hits),
+            (semconv::LK_TELEMETRY_CACHE_WRITE_ERRORS, self.cache_write_errors),
+            (semconv::LK_TELEMETRY_DROPPED_QUEUE_FULL, self.queue_full),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_ERROR, self.cache_error),
+            (semconv::LK_TELEMETRY_DROPPED_CACHE_FULL, self.cache_full),
+            (semconv::LK_TELEMETRY_DROPPED_EXPIRED, self.expired),
+            (semconv::LK_TELEMETRY_DROPPED_CORRUPT, self.corrupt),
+            (semconv::LK_TELEMETRY_DROPPED_INVALID, self.invalid),
+            (semconv::LK_TELEMETRY_DROPPED_REJECTED, self.rejected),
+            (semconv::LK_TELEMETRY_DROPPED_OVERSIZED, self.oversized),
+            (semconv::LK_TELEMETRY_DROPPED_THROTTLED, self.throttled),
+            (semconv::LK_TELEMETRY_DROPPED_RATE_LIMITED, self.rate_limited),
         ] {
             if value > 0 {
-                event = event.with_attribute(key, value as i64);
+                event = event.with_attribute(key, int(value));
             }
         }
         event
     }
+}
+
+/// A count as an OTLP integer: past `i64::MAX` it saturates rather than wraps negative.
+fn int(count: u64) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
 }
 
 /// What the upload policy is doing right now.
@@ -191,7 +196,9 @@ pub enum TelemetryStatus {
     /// Uploads wait for a connect/reconnect to finish or for the device (Low Data Mode, low
     /// battery); capped at 60 s.
     Held,
-    /// The last upload failed; retrying after a jittered exponential backoff.
+    /// A failed upload waits to retry while its batch stays cached: a destination backs off
+    /// (jittered exponential backoff), or a batch that is too large and cannot be split waits
+    /// for its next attempt. Other destinations and batches can still upload meanwhile.
     Paused,
     /// The collector asked for a pause (`Retry-After`).
     Throttled,
@@ -224,17 +231,31 @@ pub struct TelemetryStats {
     pub status: TelemetryStatus,
     /// Records lost for any reason (sum of the `dropped_*` fields).
     pub dropped: u64,
+    /// Records evicted from the in-memory queue, spans dropped from a full span buffer, and
+    /// tracks a session did not wait on past 256 at once (a subscribe loses its span, a published
+    /// track its fast polling).
     pub dropped_queue_full: u64,
+    /// Records lost because no cache, not even memory, could take their batch.
     pub dropped_cache_error: u64,
+    /// Records evicted from the cache by its size or file-count bound.
     pub dropped_cache_full: u64,
+    /// Records in cached batches past the 24 h age limit.
     pub dropped_expired: u64,
+    /// Records in cached batches that failed their integrity check.
     pub dropped_corrupt: u64,
+    /// Custom events and attributes refused at the door, over the limits.
     pub dropped_invalid: u64,
+    /// Records the collector rejected (a final 4xx/5xx, or a partial success).
     pub dropped_rejected: u64,
+    /// Single records larger than the collector accepts.
     pub dropped_oversized: u64,
+    /// Records evicted from the cache while the collector held uploads off.
     pub dropped_throttled: u64,
+    /// Records for a project that receives nothing (self-hosted, no grant, disabled, 404).
     pub dropped_disabled: u64,
+    /// Discrete events dropped by the flood guard.
     pub dropped_rate_limited: u64,
+    /// Records deleted by the opt-out.
     pub dropped_purged: u64,
     /// Batches the collector accepted.
     pub uploads_sent: u64,
@@ -254,8 +275,9 @@ pub struct TelemetryStats {
     pub cached_batches: u64,
 }
 
-/// One line for a debug console: status, throughput, one backlog number, one loss number, then
-/// the loss breakdown.
+/// One line for a debug console: status, throughput, one backlog number, "failed" (failures and
+/// timeouts together, [`TelemetryStats::failed_attempts`]), one loss number, then the loss
+/// breakdown.
 impl std::fmt::Display for TelemetryStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -267,7 +289,7 @@ impl std::fmt::Display for TelemetryStats {
             self.uploads_sent,
             self.upload_bytes,
             self.cached_batches,
-            self.upload_failures + self.upload_timeouts,
+            self.failed_attempts(),
             self.dropped,
             self.dropped_queue_full,
             self.dropped_cache_full + self.dropped_cache_error,
@@ -288,6 +310,12 @@ impl std::fmt::Display for TelemetryStats {
 }
 
 impl TelemetryStats {
+    /// Upload attempts that did not get through: `upload_failures` and `upload_timeouts`
+    /// together, the "failed" of the `Display` line and of the report's body.
+    pub fn failed_attempts(&self) -> u64 {
+        self.upload_failures + self.upload_timeouts
+    }
+
     pub(crate) fn new(snapshot: Snapshot, cached_batches: u64, status: TelemetryStatus) -> Self {
         Self {
             status,
@@ -313,5 +341,22 @@ impl TelemetryStats {
             cache_write_errors: snapshot.cache_write_errors,
             cached_batches,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AttributeValue;
+
+    /// A count past `i64::MAX` reaches the report as `i64::MAX`, never as a negative number.
+    #[test]
+    fn report_counts_saturate_instead_of_wrapping() {
+        let snapshot = Snapshot { upload_failures: u64::MAX, ..Snapshot::default() };
+        let report = snapshot.report(u64::MAX);
+        let value =
+            |key: &str| report.attributes.iter().find(|a| a.key == key).map(|a| a.value.clone());
+        assert_eq!(value("lk.telemetry.uploads.failed"), Some(AttributeValue::Int(i64::MAX)));
+        assert_eq!(value("lk.telemetry.cache.batches"), Some(AttributeValue::Int(i64::MAX)));
     }
 }

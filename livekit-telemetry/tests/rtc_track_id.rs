@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::OnceLock;
-use tokio::runtime::Runtime;
+use livekit_telemetry::{RtcStatsSample, StreamDirection, TrackKind};
 
-/// Returns the process-global Tokio runtime, initializing it on first use.
-pub(crate) fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("livekit-ffi-core")
-            .build()
-            .expect("Failed to build livekit-ffi core-modules tokio runtime")
-    })
+/// Host code can construct and access the voted public track identifier field.
+#[test]
+fn public_rtc_sample_uses_track_id() {
+    let sample = RtcStatsSample::new("TR_camera", TrackKind::Video, StreamDirection::Outbound);
+    assert_eq!(sample.track_id, "TR_camera");
+    let next = RtcStatsSample { track_id: "TR_microphone".into(), ..sample };
+    assert_eq!(next.track_id, "TR_microphone");
 }

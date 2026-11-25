@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.1
+
+### Patch Changes
+
+- Negotiate NACK for Opus. If RED is off, for example with E2EE, lost audio packets are now retransmitted. - [#1683](https://github.com/livekit/rust-sdks/pull/1683) ([@lukasIO](https://github.com/lukasIO))
+
 ## [Unreleased]
 
 ## [0.7.32](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.31...rust-sdks/livekit@0.7.32) - 2026-02-16
@@ -257,6 +263,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.0 (2026-11-18)
+
+### Breaking Changes
+
+- Add `semconv`, the telemetry names and enum values generated from the protocol's Weaver registry, and move the protocol submodule to `538dd3f0`, the merged registry. This is a breaking upgrade of the generated Rust source, taken as a minor bump before 1.0 with no compatibility alias: `DataTrackExtensionId::DteiParticipantSidLow` is gone and value 1 is now `DteiE2ee` (JSON name `DTEI_E2EE`, so the old name no longer parses), `media_source::Video` gains the `Videos` variant, `media_source::Video`, `StreamOutput`, `UpdateStreamRequest` and `MigrateJobRequest` lose `Eq` and `Hash`, `simulation_run::job_metrics::Turn` loses `Copy`, and request messages such as `UpdateStreamRequest` and `TransferSipParticipantRequest` gain fields, so exhaustive matches and struct literals in downstream code need `..Default::default()` or new arms. `livekit-common`, `livekit-data-stream`, `livekit-datatrack`, `livekit-rpc`, `livekit-token`, `livekit-signaling` and `livekit` expose protocol types in their public API, and `livekit-capture` exposes `livekit` types, so each takes the same break.
+
+### Features
+
+- Add `RoomOptions::publish_tracks`, a list of tracks and their publish options published while connecting and sent with the join request in single peer connection mode to save the round trips of a separate `AddTrackRequest` and SDP negotiation; `livekit-signaling`'s `SignalClient::connect` now takes an `InitialPublish` instead of a bare publisher offer, and `RtcEngine::connect` takes the tracks to publish with the join. Local tracks now keep the WebRTC runtime that created them alive, so tracks created before connecting stay usable in the room; call `enable_zero_playout_delay` before creating local tracks, since it fails once the runtime is active. Publishing a track now fails as soon as the server refuses it instead of after the publish timeout, and a track muted before or while it is published stays muted instead of being re-enabled.
+
+### Fixes
+
+- AgentDB wire errors carry a numeric code with its name and description, and Hello carries the client version.
+- Update dependent SDK packages for the Agents 2.0 protocol and service client changes.
+- Cancel and join pending publisher negotiations when a room closes, including the debounce wait, so negotiation tasks no longer retain peer connection factories, media threads, and encoder resources after teardown.
+- Fix compilation of publisher negotiation lifecycle tests after the track-publishing join API update.
+- Fix Objective-C linking - #1394 (@ladvoc)
+- Mark data track unpublished after republish fail - #1537 (@ladvoc)
+- Fix a debug-build abort when a data channel receives an empty message.
+- Fix an intermittent abort on Windows when a webrtc-sys call reports an error to Rust. The prebuilt libwebrtc is compiled with `_HAS_EXCEPTIONS=0`, and the build script copies that define onto this crate, so MSVC's `std::runtime_error(const std::string&)` kept only a pointer to the temporary message instead of copying it. `what()` then dangled while the exception unwound and cxx read freed memory to build the Rust `Err`. Error messages are now owned by the thrown exception.
+
+## 0.11.0 (2026-11-13)
+
+### Breaking Changes
+
+- Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
+- When the local room closes, in-flight `perform_rpc` calls now fail with `RpcErrorCode::ConnectionClosed` (1506) instead of `RecipientDisconnected` (1503), which remains reserved for remote participant departures.
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+- Fix remote participant and track leaks when closing a room, including encrypted tracks, cancelled closure, and participant updates racing with teardown.
+- Handle out-of-range key indices gracefully in `KeyProvider` and clamp `key_ring_size` to valid bounds.
+- Log libwebrtc messages at their own severity instead of reporting every one as debug, so its warnings and errors are no longer filtered out by default in every SDK.
+- On a full reconnect, `Room` now reports `Reconnecting` (and the `ConnectionStateChanged` that precedes it) before removing remote participants, so the `ParticipantDisconnected` events of a full reconnect arrive after `Reconnecting` rather than before it and can be told apart from participants actually leaving. #1591 (@MaxHeimbrock)
+- Report the .NET SDK as `ClientInfo.SDK.DOTNET` in the join request. The `dotnet` SDK name fell through to `UNKNOWN` on the single peer connection path. - #1669 (@MaxHeimbrock)
+
 ## 0.10.1 (2026-11-04)
 
 ### Fixes

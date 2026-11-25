@@ -4,7 +4,7 @@
 /// during dev-mode hot reload.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentDevMessage {
-    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3")]
+    #[prost(oneof = "agent_dev_message::Message", tags = "1, 2, 3, 4")]
     pub message: ::core::option::Option<agent_dev_message::Message>,
 }
 /// Nested message and enum types in `AgentDevMessage`.
@@ -17,6 +17,8 @@ pub mod agent_dev_message {
         GetRunningJobsResponse(super::GetRunningAgentJobsResponse),
         #[prost(message, tag = "3")]
         ServerInfo(super::ServerInfo),
+        #[prost(message, tag = "4")]
+        Credentials(super::Credentials),
     }
 }
 /// ServerInfo is sent by the agent to the CLI when the dev-reload channel opens,
@@ -26,6 +28,22 @@ pub struct ServerInfo {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub url: ::prost::alloc::string::String,
+    /// set by an agent SDK that runs on LIVEKIT_TOKEN without an API key and secret
+    /// (token mode) and accepts Credentials
+    #[prost(bool, tag = "3")]
+    pub supports_token_mode: bool,
+}
+/// Credentials is sent by the CLI to an agent in token mode: a new worker token that
+/// replaces the one the agent runs with.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Credentials {
+    #[prost(string, tag = "1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
+    /// Unix seconds
+    #[prost(int64, tag = "3")]
+    pub expires_at: i64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetRunningAgentJobsRequest {
@@ -139,10 +157,10 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag = "5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    /// Framework metadata recorded on the call, kept with the history. A delegating call records
-    /// where the request went: lk.delegation.task_id, lk.delegation.endpoint,
-    /// lk.delegation.transport and lk.delegation.profile.
-    #[prost(map = "string, string", tag = "6")]
+    /// Framework and provider metadata, including approval identities and resumable
+    /// tool/delegation state. Each value is JSON text, including quoted strings.
+    /// Readers may treat a value that is not valid JSON as a legacy plain string.
+    #[prost(map = "string, string", tag = "7")]
     pub extra: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -327,7 +345,7 @@ pub struct DebugMessage {
 pub struct AgentSessionEvent {
     #[prost(message, optional, tag = "1")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(oneof = "agent_session_event::Event", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof = "agent_session_event::Event", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub event: ::core::option::Option<agent_session_event::Event>,
 }
 /// Nested message and enum types in `AgentSessionEvent`.
@@ -400,6 +418,27 @@ pub mod agent_session_event {
         pub transcript: ::prost::alloc::string::String,
         #[prost(message, optional, tag = "5")]
         pub delay: ::core::option::Option<::pbjson_types::Duration>,
+        #[prost(uint32, tag = "6")]
+        pub turn_id: u32,
+        /// The stage after this prediction. Never AMD_WAIT.
+        #[prost(enumeration = "super::AmdCategory", tag = "7")]
+        pub stage: i32,
+        /// Unset when the turn ran no inference.
+        #[prost(message, optional, tag = "8")]
+        pub inference_duration: ::core::option::Option<::pbjson_types::Duration>,
+    }
+    /// Once per AMD run.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AmdCompleted {
+        #[prost(enumeration = "super::AmdCategory", tag = "1")]
+        pub category: i32,
+        #[prost(string, tag = "2")]
+        pub reason: ::prost::alloc::string::String,
+        #[prost(bool, tag = "3")]
+        pub voicemail_message_played: bool,
+        /// Unset when the run ended before any prediction.
+        #[prost(message, optional, tag = "4")]
+        pub prediction: ::core::option::Option<AmdPrediction>,
     }
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct EotPrediction {
@@ -481,6 +520,16 @@ pub mod agent_session_event {
             Ended(Ended),
         }
     }
+    /// The agent session closed: the call is over even if the agent is still in the room.
+    /// No further session events follow, and session requests are no longer answered;
+    /// finalize_simulation may still be.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct SessionClosed {
+        #[prost(enumeration = "super::CloseReason", tag = "1")]
+        pub reason: i32,
+        #[prost(string, optional, tag = "2")]
+        pub error: ::core::option::Option<::prost::alloc::string::String>,
+    }
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct AgentFalseInterruption {
         /// Agent paused its own speech for what turned out not to be a real interruption (a backchannel, brief noise, etc.).
@@ -517,6 +566,10 @@ pub mod agent_session_event {
         ToolExecutionUpdated(ToolExecutionUpdated),
         #[prost(message, tag = "23")]
         AgentFalseInterruption(AgentFalseInterruption),
+        #[prost(message, tag = "24")]
+        AmdCompleted(AmdCompleted),
+        #[prost(message, tag = "25")]
+        SessionClosed(SessionClosed),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -935,6 +988,47 @@ impl ToolReplyStatus {
         }
     }
 }
+/// Why an agent session closed. Agent evals read it from the recording upload's session
+/// summary (MetricsRecordingHeader.session_summary), as the value name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CloseReason {
+    /// not reported, or an SDK-specific reason
+    CrUnknown = 0,
+    CrError = 1,
+    CrJobShutdown = 2,
+    CrParticipantDisconnected = 3,
+    CrUserInitiated = 4,
+    CrCompleted = 5,
+}
+impl CloseReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::CrUnknown => "CR_UNKNOWN",
+            Self::CrError => "CR_ERROR",
+            Self::CrJobShutdown => "CR_JOB_SHUTDOWN",
+            Self::CrParticipantDisconnected => "CR_PARTICIPANT_DISCONNECTED",
+            Self::CrUserInitiated => "CR_USER_INITIATED",
+            Self::CrCompleted => "CR_COMPLETED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CR_UNKNOWN" => Some(Self::CrUnknown),
+            "CR_ERROR" => Some(Self::CrError),
+            "CR_JOB_SHUTDOWN" => Some(Self::CrJobShutdown),
+            "CR_PARTICIPANT_DISCONNECTED" => Some(Self::CrParticipantDisconnected),
+            "CR_USER_INITIATED" => Some(Self::CrUserInitiated),
+            "CR_COMPLETED" => Some(Self::CrCompleted),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum AmdCategory {
@@ -944,6 +1038,9 @@ pub enum AmdCategory {
     AmdMachineVm = 3,
     AmdMachineUnavailable = 4,
     AmdUncertain = 5,
+    AmdMachineScreening = 6,
+    /// A prediction only: the turn's reply is held, and the stage does not change.
+    AmdWait = 7,
 }
 impl AmdCategory {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -958,6 +1055,8 @@ impl AmdCategory {
             Self::AmdMachineVm => "AMD_MACHINE_VM",
             Self::AmdMachineUnavailable => "AMD_MACHINE_UNAVAILABLE",
             Self::AmdUncertain => "AMD_UNCERTAIN",
+            Self::AmdMachineScreening => "AMD_MACHINE_SCREENING",
+            Self::AmdWait => "AMD_WAIT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -969,6 +1068,8 @@ impl AmdCategory {
             "AMD_MACHINE_VM" => Some(Self::AmdMachineVm),
             "AMD_MACHINE_UNAVAILABLE" => Some(Self::AmdMachineUnavailable),
             "AMD_UNCERTAIN" => Some(Self::AmdUncertain),
+            "AMD_MACHINE_SCREENING" => Some(Self::AmdMachineScreening),
+            "AMD_WAIT" => Some(Self::AmdWait),
             _ => None,
         }
     }
@@ -1210,9 +1311,6 @@ pub mod agent_thread {
         pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
         #[prost(message, optional, tag = "7")]
         pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
-        /// The thread's database ("DB_..."), created with the thread.
-        #[prost(string, tag = "8")]
-        pub database_id: ::prost::alloc::string::String,
     }
     /// Direction of a listing. Each request documents what unset means.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -1245,8 +1343,8 @@ pub mod agent_thread {
         }
     }
 }
-/// AgentTask: background work an agent runs within a thread, such as a booking
-/// that takes minutes.
+/// AgentTask: a framework task in a thread, including an incoming message's task.
+/// The application may label it with an optional name.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AgentTask {
 }
@@ -1281,22 +1379,28 @@ pub mod agent_task {
         #[prost(string, tag = "2")]
         pub thread_id: ::prost::alloc::string::String,
         /// The task's name, as the agent defines it.
-        #[prost(string, tag = "3")]
-        pub name: ::prost::alloc::string::String,
+        #[prost(string, optional, tag = "3")]
+        pub name: ::core::option::Option<::prost::alloc::string::String>,
+        /// The framework's A2A state: submitted, working, input-required, completed, failed,
+        /// canceled or rejected.
         #[prost(enumeration = "Status", tag = "4")]
         pub status: i32,
         #[prost(message, optional, tag = "5")]
         pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
-    /// A task is never UNSPECIFIED.
+    /// The framework's A2A task state. A task is never UNSPECIFIED.
+    /// Keep the existing completed, failed and canceled wire numbers.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Status {
         Unspecified = 0,
-        Running = 1,
+        Working = 1,
         Completed = 2,
         Failed = 3,
         Canceled = 4,
+        Submitted = 5,
+        InputRequired = 6,
+        Rejected = 7,
     }
     impl Status {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1306,20 +1410,26 @@ pub mod agent_task {
         pub fn as_str_name(&self) -> &'static str {
             match self {
                 Self::Unspecified => "UNSPECIFIED",
-                Self::Running => "RUNNING",
+                Self::Working => "WORKING",
                 Self::Completed => "COMPLETED",
                 Self::Failed => "FAILED",
                 Self::Canceled => "CANCELED",
+                Self::Submitted => "SUBMITTED",
+                Self::InputRequired => "INPUT_REQUIRED",
+                Self::Rejected => "REJECTED",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
                 "UNSPECIFIED" => Some(Self::Unspecified),
-                "RUNNING" => Some(Self::Running),
+                "WORKING" => Some(Self::Working),
                 "COMPLETED" => Some(Self::Completed),
                 "FAILED" => Some(Self::Failed),
                 "CANCELED" => Some(Self::Canceled),
+                "SUBMITTED" => Some(Self::Submitted),
+                "INPUT_REQUIRED" => Some(Self::InputRequired),
+                "REJECTED" => Some(Self::Rejected),
                 _ => None,
             }
         }
@@ -1409,6 +1519,13 @@ pub struct SessionClose {
 pub struct InferenceStart {
     #[prost(string, tag = "1")]
     pub request_id: ::prost::alloc::string::String,
+    /// Length of the current user turn, in samples at the session sample rate.
+    /// Count from the start of the user turn, or from the last session_flush when
+    /// the start is unknown, through the last input_audio sent before this
+    /// message. The end-of-turn model reads it as the turn duration, which can be
+    /// longer than the audio window it scores. 0 means unknown.
+    #[prost(uint32, tag = "2")]
+    pub turn_samples: u32,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct InferenceStop {

@@ -15,20 +15,7 @@
 name: Tests
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    # Skip the test matrix for changes that can't possibly affect Rust
-    # compilation/tests (docs, changesets, license/notice, dependabot config).
-    # Source-only changes still trigger normally.
-    paths-ignore:
-      - "**/*.md"
-      - ".changeset/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "renovate.json"
-      - ".vscode/**"
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -181,6 +168,8 @@ jobs:
         shell: bash
         run: |
           cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
+          # The https redirect test needs a TLS backend; native alone has none.
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native,rustls-tls-webpki-roots
           cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
 
       # These live behind livekit-ffi's non-default `core-modules` feature, so a
@@ -196,6 +185,25 @@ jobs:
           # livekit-ffi/Cargo.toml.
           cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi \
             --no-default-features --features core-modules
+
+      # Telemetry opt-out is one-way for a process, so each boundary case of this
+      # ignored test runs in a process of its own. The test removes its directory
+      # even when an assertion fails.
+      - name: Test telemetry opt-out admission boundaries (one process per case)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for boundary in zero reserved full; do
+            LK_ADMISSION_BOUNDARY="$boundary" cargo test --verbose --target ${{ matrix.target }} \
+              -p livekit-ffi --no-default-features --features core-modules --lib \
+              core_modules::telemetry::tests::admission_child_consent_boundaries \
+              -- --ignored --exact
+          done
+          # Needs the same fresh process, and an HTTP registry no other test has filled.
+          cargo test --verbose --target ${{ matrix.target }} \
+            -p livekit-ffi --no-default-features --features core-modules --lib \
+            core_modules::telemetry::tests::admission_child_disabled_configure_without_transport \
+            -- --ignored --exact
 
       - name: Test RPC seam (livekit-rpc)
         shell: bash

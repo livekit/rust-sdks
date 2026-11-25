@@ -14,6 +14,7 @@
 
 use livekit_api::access_token::Claims;
 use livekit_api::services::threads::ThreadClient;
+use livekit_protocol::agent::agent_task::{GetTasksRequest, Status};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -47,5 +48,57 @@ async fn get_thread_request() {
         .expect("bearer token");
     let claims = Claims::from_unverified(token).unwrap();
     assert_eq!(claims.iss, "key");
-    assert!(claims.agent.database_admin && claims.agent_thread.all);
+    assert!(claims.agent_thread.all);
+}
+
+#[tokio::test]
+async fn task_listings_preserve_every_state_and_optional_name() {
+    for status in [
+        Status::Submitted,
+        Status::Working,
+        Status::InputRequired,
+        Status::Completed,
+        Status::Failed,
+        Status::Canceled,
+        Status::Rejected,
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut conn, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let n = conn.read(&mut buf).await.unwrap();
+            let body = serde_json::json!({
+                "items": [
+                    {"taskId": "unnamed", "status": status.as_str_name()},
+                    {"taskId": "empty", "status": status.as_str_name(), "name": ""}
+                ]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            conn.write_all(response.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+        let result = ThreadClient::with_api_key(&base_url, "key", "secret")
+            .tasks(GetTasksRequest {
+                thread_id: "AT_1".into(),
+                status: Some(status as i32),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.tasks.len(), 2);
+        assert_eq!(result.tasks[0].status, status as i32);
+        assert_eq!(result.tasks[1].status, status as i32);
+        assert_eq!(result.tasks[0].name, None);
+        assert_eq!(result.tasks[1].name.as_deref(), Some(""));
+        let request = server.await.unwrap();
+        assert!(
+            request.lines().next().unwrap().contains(&format!("status={}", status.as_str_name())),
+            "{request}"
+        );
+    }
 }

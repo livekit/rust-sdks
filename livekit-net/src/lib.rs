@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod bounded;
 mod transport;
 mod types;
 
@@ -138,6 +139,63 @@ pub fn http_client() -> Option<Arc<dyn HttpClient>> {
     }
 }
 
+/// Resolve an opt-in client view with an inclusive decoded response-body byte limit.
+///
+/// Without a registered client, the native fallback stops reading on overflow (including gzip), returning
+/// [`TransportError::ResponseTooLarge`] with the received headers. Ordinary [`http_client`]
+/// requests keep their existing behavior. A registered host client is checked only after its
+/// callback returns a buffered response. Gzip is decoded under the same limit, but this cannot
+/// bound host read-time allocation. Headers must describe the returned body: a host that already
+/// decoded gzip must remove Content-Encoding and Content-Length. The host owns read-time
+/// enforcement. No callback API changes.
+pub fn http_client_with_response_limit(max_response_bytes: u64) -> Option<Arc<dyn HttpClient>> {
+    if let Some(client) = HTTP.get() {
+        return Some(Arc::new(LimitedHostClient {
+            client: Arc::clone(client),
+            limit: max_response_bytes,
+        }));
+    }
+    #[cfg(feature = "native")]
+    {
+        Some(native::native_http_client_with_response_limit(max_response_bytes))
+    }
+    #[cfg(not(feature = "native"))]
+    {
+        None
+    }
+}
+
+/// Owns the registered client without a reverse edge; host buffering remains host-owned.
+struct LimitedHostClient {
+    client: Arc<dyn HttpClient>,
+    limit: u64,
+}
+
+#[async_trait::async_trait]
+impl HttpClient for LimitedHostClient {
+    async fn request(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpResponse, TransportError> {
+        let response = self.client.request(method, url, headers, body).await?;
+        if response.headers.iter().any(|h| {
+            h.name.eq_ignore_ascii_case("content-encoding")
+                && !h.value.trim().eq_ignore_ascii_case("identity")
+        }) {
+            let mut body = bounded::BodyReader::new(response.status, response.headers, self.limit)?;
+            body.push(&response.body)?;
+            return body.finish();
+        }
+        if response.body.len() as u64 > self.limit {
+            return Err(TransportError::ResponseTooLarge { headers: response.headers });
+        }
+        Ok(response)
+    }
+}
+
 #[cfg(feature = "native")]
 pub mod testing {
     use crate::{HttpClient, WsClient};
@@ -154,7 +212,71 @@ pub mod testing {
 
 #[cfg(test)]
 mod tests {
-    use super::redact_url;
+    use super::*;
+
+    struct EncodedHost(HttpResponse);
+
+    #[async_trait::async_trait]
+    impl HttpClient for EncodedHost {
+        async fn request(
+            &self,
+            _: HttpMethod,
+            _: String,
+            _: Vec<Header>,
+            _: Option<Vec<u8>>,
+        ) -> Result<HttpResponse, TransportError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn buffered_host_limits_decoded_gzip_without_changing_ordinary_client() {
+        use std::io::Write;
+        for size in [65_535, 65_536, 65_537] {
+            for compressible in [false, true] {
+                let mut state = 13u64;
+                let decoded: Vec<_> = (0..size)
+                    .map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        if compressible {
+                            b'x'
+                        } else {
+                            state as u8
+                        }
+                    })
+                    .collect();
+                let mut zip =
+                    flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+                zip.write_all(&decoded).expect("gzip");
+                let encoded = zip.finish().expect("complete gzip");
+                let host = Arc::new(EncodedHost(HttpResponse {
+                    status: 403,
+                    body: encoded.clone(),
+                    headers: vec![
+                        Header { name: "Content-Encoding".into(), value: "gzip".into() },
+                        Header { name: "Retry-After".into(), value: "17".into() },
+                    ],
+                }));
+                let weak = Arc::downgrade(&host);
+                let limited = LimitedHostClient { client: host.clone(), limit: 65_536 };
+                let result =
+                    limited.request(HttpMethod::Get, "http://test".into(), vec![], None).await;
+                let ordinary =
+                    host.request(HttpMethod::Get, "http://test".into(), vec![], None).await;
+                drop((limited, host));
+                assert!(weak.upgrade().is_none(), "host view released before assertions");
+                assert_eq!(ordinary.expect("uncapped").body, encoded);
+                if size > 65_536 {
+                    assert!(matches!(result, Err(TransportError::ResponseTooLarge { ref headers })
+                    if headers.iter().any(|h| h.name == "Retry-After" && h.value == "17")));
+                } else {
+                    assert_eq!(result.expect("decoded host response below cap").body, decoded);
+                }
+            }
+        }
+    }
 
     #[test]
     fn redact_url_strips_proxy_credentials() {

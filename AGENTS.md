@@ -93,6 +93,18 @@ Several crates export items to Swift/Kotlin/Python through UniFFI — `livekit-f
   - Applies to the error type of any `#[uniffi::export(with_foreign)]` trait or callback interface, since foreign code implements the method. `flat_error` is correct only for an error that travels Rust → foreign exclusively, e.g. `PublishError` in `livekit-datatrack/src/local/mod.rs`
   - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-ffi/src/core_modules/data_stream/common.rs`
 
+## CI workflow structure
+
+`.github/workflows/ci.yml` is the pull request, `main` push, and manual-dispatch aggregator. It computes path changes once and calls the validation workflows through `workflow_call`; repository rulesets should require only its final `CI` job.
+
+- Keep build and test implementation details in their reusable workflows. The aggregator owns event handling, path filters, and the final dependency list.
+- Manual runs intentionally execute every aggregated stage, including stages skipped by normal path filters.
+- Pull requests use path filters, while every `main` push runs builds, tests, feature-combination checks, and Dart tests.
+- Formatting, API tests, and license checks retain their broad existing coverage. The changeset check runs only for pull requests and responds to label changes.
+- The protobuf generation workflows remain standalone because they write generated changes back to pull request branches. Release and package-publishing workflows are also outside the review aggregate.
+- When adding or renaming files that affect a filtered stage, update the corresponding filter in `ci.yml` in the same change.
+- When adding a new pull request validation workflow, make it reusable, call it from `ci.yml`, and add it to the final `CI` job's `needs` list. Retain `workflow_dispatch` when standalone diagnostics are useful.
+
 ## Feature combinations
 
 `.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that.
@@ -142,12 +154,16 @@ A crate with no such table is not feature-checked at all. Today eleven crates ar
 
 ## Documenting changes
 
-- Changes are documented using [_knope_](https://knope.tech)
-- Every PR needs a changeset
-- Changeset must list any crates which need to be bumped stemming from the change
-- Document changes interactively from the CLI with `knope document-change` or create manually in `/.changeset`
+- Releases are managed by [_verwalter_](https://github.com/livekit/verwalter), configured in `verwalter.toml`
+- Every PR that changes a crate needs a changeset; a PR that needs no release takes the `internal` label instead
+- Write the changeset with `verwalter changeset --level <patch|minor|major>` or create it manually in `/.changeset`
+- List only the crates whose own behavior changed
+  - A crate that depends on a bumped crate gets a `patch` bump automatically, so it needs no entry
+- Choose the level by the public API. Every crate here is `0.x`, where a breaking change is `minor` and an addition or a fix is `patch`
+  - verwalter applies the level as written: `minor` on `0.2.0` gives `0.3.0`
 - Write the changeset summary as a single unwrapped line of plain prose
-  - knope renders a one-line summary as a changelog bullet. A summary spanning more than one line is instead promoted to a `####` heading, with everything after the first line left as loose body text below it — that mix of bullets and headings is what makes the release page look inconsistent
-  - A hard line wrap alone triggers this, with no Markdown involved: a summary wrapped at 80 columns produced the heading `#### Add agent guidance for detecting and preventing memory-lifecycle regressions in`, stranding the rest of the sentence underneath it
-  - So no Markdown blocks — headings, bullet lists, tables, code fences, blockquotes, or bold-led paragraphs. Inline backticks are fine and render correctly
+  - No Markdown blocks — headings, bullet lists, tables, code fences, blockquotes, or bold-led paragraphs. Inline backticks are fine
+  - Do not add the PR number or the author: verwalter adds both to the changelog entry
   - Keep it to a sentence or two written for someone reading the release notes; rationale, alternatives, and migration detail belong in the PR description
+- Never edit a version or the release PR (`release/main`) by hand; a push to `main` regenerates it
+- A new published workspace crate needs its directory in `[workspace] members` of `verwalter.toml`; the changeset check fails the PR until it is there

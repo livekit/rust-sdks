@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.5.0 (2026-11-18)
+
+### Breaking Changes
+
+- Add `semconv`, the telemetry names and enum values generated from the protocol's Weaver registry, and move the protocol submodule to `538dd3f0`, the merged registry. This is a breaking upgrade of the generated Rust source, taken as a minor bump before 1.0 with no compatibility alias: `DataTrackExtensionId::DteiParticipantSidLow` is gone and value 1 is now `DteiE2ee` (JSON name `DTEI_E2EE`, so the old name no longer parses), `media_source::Video` gains the `Videos` variant, `media_source::Video`, `StreamOutput`, `UpdateStreamRequest` and `MigrateJobRequest` lose `Eq` and `Hash`, `simulation_run::job_metrics::Turn` loses `Copy`, and request messages such as `UpdateStreamRequest` and `TransferSipParticipantRequest` gain fields, so exhaustive matches and struct literals in downstream code need `..Default::default()` or new arms. `livekit-common`, `livekit-data-stream`, `livekit-datatrack`, `livekit-rpc`, `livekit-token`, `livekit-signaling` and `livekit` expose protocol types in their public API, and `livekit-capture` exposes `livekit` types, so each takes the same break.
+
+### Fixes
+
+- AgentDB wire errors carry a numeric code with its name and description, and Hello carries the client version.
+- Update dependent SDK packages for the Agents 2.0 protocol and service client changes.
+
+## 0.4.1 (2026-11-13)
+
+### Fixes
+
+- Scope agent database access to a thread or a database: `AgentThreadGrants` gains `sql`, and the new `agentDatabase` claim (`AgentDatabaseGrants`) grants `read`, `write` and `delete` on listed databases plus project-wide `create` and `list`. `AgentGrants::database_admin` is removed, and `DatabaseClient` signs each call with only the grant it needs. A thread's database id is its thread id, so `Thread::database_id` is gone.
+
 ## 0.4.0 (2026-10-28)
 
 ### Breaking Changes
