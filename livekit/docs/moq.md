@@ -124,6 +124,15 @@ A named application track such as `telemetry` has a LiveKit track SID and handle
 | App → SFU via `dt/up/<SID>` | After the server accepts the alias, `try_push` feeds the existing LiveKit packetizer. The queue retains the freshest pending frame for each publication. Each serialized packet gets one group. Object IDs start at zero. Each chunk travels in a QUIC DATAGRAM, with END_OF_GROUP on the last chunk. |
 | SFU → app via `dt/down/<SID>` | The SDK subscribes per signaled handle, validates the alias and packet handle, and sends complete packets to the shared DataTrack depacketizer. A lost chunk can cost a frame. Later complete packets continue without waiting for repair. |
 
+Set `RoomOptions::moq_data_track_priorities` by local publication name when connecting, or set it on a connected room. Values run from 0 (highest) to 255 (lowest). A setting survives a reconnect, including a republish with a new SID.
+
+```rust
+room.set_moq_data_track_priority("telemetry", 16);
+room.set_moq_data_track_priority("thumbnails", 224);
+```
+
+The SDK picks the next pending frame by priority and writes the value on each datagram. At a MoQ subscriber’s SFU egress, the subscriber’s MOQT priority takes precedence over the publisher’s priority. Equally ranked packets keep arrival order across tracks. Setting 128 restores the default. The WebRTC data channel uses its existing send policy.
+
 A successful `try_push` reports local acceptance. Observe remote delivery on the receiving frame stream. Under backpressure an older pending frame can be dropped as a unit. The media catalog carries audio and video renditions. DataTrack discovery comes from LiveKit signaling. RPC, legacy data packets, and text or byte streams are outside this transport profile. [Send queue](../src/rtc_engine/dc_sender.rs) · [MoQ datagram framing](../src/rtc_engine/moq/datatrack.rs)
 
 For example, pass the remote track from `RoomEvent::DataTrackPublished` to a worker. This helper returns the first complete payload, or `None` when the stream ends.

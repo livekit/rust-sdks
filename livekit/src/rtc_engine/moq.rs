@@ -39,6 +39,8 @@ use super::{
     EngineError, EngineResult,
 };
 
+pub(super) const DEFAULT_DATA_PRIORITY: u8 = 128;
+
 mod datatrack;
 mod media;
 mod network;
@@ -46,6 +48,7 @@ const MAX_MEDIA: usize = 4 << 20;
 
 pub(super) enum Command {
     DataPublished {
+        name: String,
         handle: u16,
         sid: String,
         result: tokio::sync::oneshot::Sender<std::result::Result<(), PublishError>>,
@@ -138,6 +141,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 struct DataUpload {
+    name: String,
     sid: String,
     request: RequestStream,
     alias: VarInt,
@@ -317,6 +321,7 @@ impl MoqSession {
         &mut self,
         handle: u16,
         sid: String,
+        name: String,
     ) -> std::result::Result<(), PublishError> {
         if !self.can_publish_data {
             return Err(PublishError::NotAllowed);
@@ -329,10 +334,10 @@ impl MoqSession {
         }
 
         let alias = self.allocate_alias().map_err(|_| PublishError::LimitReached)?;
-        let name = format!("dt/up/{sid}").into_bytes();
+        let track_path = format!("dt/up/{sid}").into_bytes();
         let mut request = tokio::time::timeout(
             REQUEST_TIMEOUT,
-            self.conn.publish(self.namespace.clone(), name, alias, vec![], vec![]),
+            self.conn.publish(self.namespace.clone(), track_path, alias, vec![], vec![]),
         )
         .await
         .map_err(|_| PublishError::Timeout)?
@@ -342,7 +347,8 @@ impl MoqSession {
                 .await;
         let error = match reply {
             Ok(Ok(ControlMessage::RequestOk(_))) => {
-                self.uploads.insert(handle, DataUpload { sid, alias, request, next_group: 0 });
+                self.uploads
+                    .insert(handle, DataUpload { name, sid, alias, request, next_group: 0 });
                 return Ok(());
             }
             Ok(Ok(ControlMessage::RequestError(reason))) => {
@@ -394,6 +400,7 @@ impl MoqSession {
     pub(super) async fn run(
         mut self,
         queue: DataTrackSendQueue,
+        priorities: Arc<parking_lot::RwLock<HashMap<String, u8>>>,
         emitter: WeakUnboundedSender<SessionEvent>,
         mut close: watch::Receiver<bool>,
         mut commands: tokio::sync::mpsc::Receiver<Command>,
@@ -416,11 +423,15 @@ impl MoqSession {
             loop {
                 tokio::select! {
                     _ = raw.closed() => return Err("QUIC connection closed".into()),
-                    frame = queue.recv(), if self.can_publish_data => {
+                    (frame, priority) = queue.recv_with(|| {
+                        let priorities = priorities.read();
+                        queue.pop_by_priority(|handle| self.uploads.get(&handle)
+                            .and_then(|up| priorities.get(&up.name)).copied().unwrap_or(DEFAULT_DATA_PRIORITY))
+                    }), if self.can_publish_data => {
                         let Some(handle) = frame.first().and_then(|p| packet_handle(p)) else { continue };
                         let Some(upload) = self.uploads.get_mut(&handle) else { continue };
                         for packet in frame {
-                            datatrack::send_packet(&raw, upload.alias, upload.next_group, &packet)?;
+                            datatrack::send_packet(&raw, upload.alias, upload.next_group, priority, &packet)?;
                             upload.next_group += 1;
                         }
                     }
@@ -468,8 +479,8 @@ impl MoqSession {
                             };
                             let _ = result.send(accepted);
                         }
-                        Command::DataPublished { handle, sid, result } => {
-                            let _ = result.send(self.publish_data(handle, sid).await);
+                        Command::DataPublished { handle, sid, name, result } => {
+                            let _ = result.send(self.publish_data(handle, sid, name).await);
                         }
                         Command::DataUnpublished { handle, sid } => {
                             if self.uploads.get(&handle).is_some_and(|up| up.sid == sid) {

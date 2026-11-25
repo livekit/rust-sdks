@@ -773,6 +773,7 @@ impl RtcSession {
                     moq.ok_or_else(|| EngineError::Internal("missing MoQ attachment".into()))?;
                 tokio::spawn(session.run(
                     dt_packet_tx.clone(),
+                    options.moq_data_track_priorities.clone(),
                     emitter.downgrade(),
                     close_rx.clone(),
                     moq_rx,
@@ -1884,6 +1885,7 @@ impl SessionInner {
                     let command = super::moq::Command::DataPublished {
                         handle: event.handle.into(),
                         sid: info.sid().to_string(),
+                        name: info.name().to_owned(),
                         result,
                     };
                     let _ = tx.send(command).await;

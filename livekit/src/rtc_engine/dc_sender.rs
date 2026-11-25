@@ -120,6 +120,28 @@ impl DataTrackSendQueue {
             .retain(|frame| packet_handle(&frame[0]) != Some(handle));
     }
 
+    /// Choose the most urgent pending MoQ frame and preserve arrival order for ties.
+    #[cfg(feature = "moq")]
+    pub(super) fn pop_by_priority(
+        &self,
+        priority: impl Fn(u16) -> u8,
+    ) -> Option<(DataTrackFramePackets, u8)> {
+        let mut queue = self.inner.queue.lock().expect("send queue mutex poisoned");
+        let (index, priority) = queue
+            .iter()
+            .enumerate()
+            .map(|(i, frame)| {
+                (
+                    i,
+                    packet_handle(&frame[0])
+                        .map(&priority)
+                        .unwrap_or(super::moq::DEFAULT_DATA_PRIORITY),
+                )
+            })
+            .min_by_key(|&(_, priority)| priority)?;
+        queue.remove(index).map(|frame| (frame, priority))
+    }
+
     fn try_pop(&self) -> Option<DataTrackFramePackets> {
         self.inner.queue.lock().expect("send queue mutex poisoned").pop_front()
     }
@@ -131,15 +153,19 @@ impl DataTrackSendQueue {
     /// Awaits the next queued frame. Cancel-safe: dropping the future leaves
     /// any queued frame in place.
     pub(super) async fn recv(&self) -> DataTrackFramePackets {
+        self.recv_with(|| self.try_pop()).await
+    }
+
+    pub(super) async fn recv_with<T>(&self, pop: impl Fn() -> Option<T>) -> T {
         loop {
-            if let Some(packets) = self.try_pop() {
+            if let Some(packets) = pop() {
                 return packets;
             }
             // Register for wake-up before rechecking to avoid a missed notify.
             let notified = self.inner.notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if let Some(packets) = self.try_pop() {
+            if let Some(packets) = pop() {
                 return packets;
             }
             notified.await;
@@ -338,6 +364,23 @@ mod tests {
         assert_eq!(got.len(), newer.len());
         assert!(got.iter().all(|p| p[0] == 0x02));
         assert!(q.try_pop().is_none());
+    }
+
+    #[cfg(feature = "moq")]
+    #[test]
+    fn moq_priority_orders_pending_frames_with_fifo_ties() {
+        let queue = DataTrackSendQueue::for_moq();
+        for id in 1..=4 {
+            queue.send(vec![Bytes::from(vec![0, 0, 0, id])]);
+        }
+        // Replacing a pending frame keeps its place among peers at equal priority.
+        queue.send(vec![Bytes::from_static(&[0, 0, 0, 2, 99])]);
+        let priorities = [128, 255, 0, 0, 128];
+        for (expected, priority) in [(2, 0), (3, 0), (4, 128), (1, 255)] {
+            let (frame, selected) = queue.pop_by_priority(|id| priorities[id as usize]).unwrap();
+            assert_eq!(packet_handle(&frame[0]), Some(expected));
+            assert_eq!(selected, priority);
+        }
     }
 
     #[tokio::test]

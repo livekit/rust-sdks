@@ -449,6 +449,10 @@ pub enum RoomTransport {
 pub struct RoomOptions {
     /// Media and DataTrack transport. Defaults to WebRTC.
     pub transport: RoomTransport,
+    /// Publisher priorities for local MoQ DataTracks, keyed by publication name.
+    /// Lower values go first when frames compete. Unlisted tracks use 128.
+    #[cfg(feature = "moq")]
+    pub moq_data_track_priorities: HashMap<String, u8>,
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
@@ -480,6 +484,8 @@ impl Default for RoomOptions {
     fn default() -> Self {
         Self {
             transport: RoomTransport::default(),
+            #[cfg(feature = "moq")]
+            moq_data_track_priorities: HashMap::new(),
             auto_subscribe: true,
             adaptive_stream: false,
             dynacast: false,
@@ -700,6 +706,10 @@ impl Room {
             url,
             token,
             EngineOptions {
+                #[cfg(feature = "moq")]
+                moq_data_track_priorities: Arc::new(RwLock::new(std::mem::take(
+                    &mut options.moq_data_track_priorities,
+                ))),
                 rtc_config: options.rtc_config.clone(),
                 signal_options,
                 join_retries: options.join_retries,
@@ -1054,6 +1064,16 @@ impl Room {
 
     pub async fn close_with_reason(&self, reason: DisconnectReason) -> RoomResult<()> {
         self.inner.close(reason).await
+    }
+
+    /// Set the MoQ publisher priority for a local DataTrack by name, before or after publication.
+    ///
+    /// 0 is highest, 255 is lowest, and 128 restores the default. The change applies the
+    /// next time the sender selects a queued frame. It survives reconnects in this room.
+    /// WebRTC data channels do not use this setting.
+    #[cfg(feature = "moq")]
+    pub fn set_moq_data_track_priority(&self, name: &str, priority: u8) {
+        self.inner.rtc_engine.set_moq_data_track_priority(name, priority);
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {

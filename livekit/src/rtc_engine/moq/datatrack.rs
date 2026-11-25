@@ -18,6 +18,7 @@ pub(super) fn send_packet(
     raw: &quinn::Connection,
     alias: VarInt,
     group: u64,
+    priority: u8,
     packet: &[u8],
 ) -> Result<()> {
     if packet.is_empty() || packet.len() > MAX_CHUNKS * CHUNK {
@@ -31,13 +32,18 @@ pub(super) fn send_packet(
             track_alias: alias,
             group_id,
             object_id: VarInt::from_u64(i as u64)?,
-            publisher_priority: Some(128),
+            publisher_priority: Some(priority),
             properties: Vec::new(),
             object_status: None,
         };
         let mut buf = Vec::with_capacity(32 + chunk.len());
         header.encode_checked(&mut buf)?;
         buf.extend_from_slice(chunk);
+        // Quinn can evict older datagrams when its buffer fills. Preserve packets
+        // already selected by the scheduler and drop this unfinished group instead.
+        if raw.datagram_send_buffer_space() < buf.len() {
+            break;
+        }
         match raw.send_datagram(Bytes::from(buf)) {
             Ok(()) => {}
             Err(quinn::SendDatagramError::TooLarge) => break,

@@ -125,6 +125,9 @@ pub enum EngineError {
 
 #[derive(Default, Debug, Clone)]
 pub struct EngineOptions {
+    /// Per-room publisher priorities shared with successive MoQ sessions across reconnects.
+    #[cfg(feature = "moq")]
+    pub moq_data_track_priorities: Arc<RwLock<std::collections::HashMap<String, u8>>>,
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
     pub join_retries: u32,
@@ -381,6 +384,16 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.publish_data(data, kind, is_raw_packet).await
+    }
+
+    #[cfg(feature = "moq")]
+    pub(crate) fn set_moq_data_track_priority(&self, name: &str, priority: u8) {
+        let mut priorities = self.inner.options.moq_data_track_priorities.write();
+        if priority == moq::DEFAULT_DATA_PRIORITY {
+            priorities.remove(name);
+        } else {
+            priorities.insert(name.to_owned(), priority);
+        }
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {

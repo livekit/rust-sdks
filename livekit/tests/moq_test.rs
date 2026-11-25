@@ -42,6 +42,7 @@ async fn datagram_data_tracks() -> Result<()> {
             let mut rooms = test_rooms_with_options([sender, receiver].map(|transport| {
                 let mut opts = TestRoomOptions::default();
                 opts.room.transport = transport;
+                opts.room.moq_data_track_priorities.insert("telemetry".into(), 0);
                 opts
             })).await?;
             let (subscriber, mut events) = rooms.pop().unwrap();
@@ -80,6 +81,7 @@ async fn datagram_data_tracks() -> Result<()> {
                     }
                 }
             }
+            publisher.set_moq_data_track_priority("telemetry", 255);
             images.unpublish();
             loop {
                 if let RoomEvent::DataTrackUnpublished(sid) = events.recv().await.ok_or(anyhow!("room closed"))? {
@@ -514,24 +516,133 @@ async fn grant_video_and_data_after_join() -> Result<()> {
     }).await?
 }
 
-/// Consume a standard catalog rendition using moqtap directly, without the SDK's
-/// MoQ media engine or the LiveKit extension fields of the MSF catalog.
-#[tokio::test]
-#[ignore = "requires a LiveKit server with a TLS MoQ endpoint"]
-async fn independent_subscriber() -> Result<()> {
+/// Attach an independent draft-23 reader to an existing LiveKit room.
+async fn connect_moq_reader(
+    room: &Room,
+) -> Result<(
+    livekit_signaling::SignalClient,
+    livekit_signaling::SignalEvents,
+    moqtap_client::draft23::connection::Connection,
+    moqtap_codec::types::TrackNamespace,
+)> {
     use livekit_signaling::{SignalClient, SignalOptions};
     use livekit_token::{AccessToken, VideoGrants};
     use moqtap_client::draft23::connection::{ClientConfig, Connection, TransportType};
     use moqtap_codec::{
-        dispatch::AnySubgroupHeader,
-        draft23::message::ControlMessage,
         kvp::{KeyValuePair, KvpValue},
         types::TrackNamespace,
         varint::VarInt,
         version::DraftVersion,
     };
-    use serde::Deserialize;
     use url::{Position, Url};
+
+    let key = std::env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into());
+    let secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into());
+    let url = std::env::var("LIVEKIT_URL").unwrap_or_else(|_| "ws://localhost:7880".into());
+    let token = AccessToken::with_api_key(&key, &secret)
+        .with_identity("standards-reader")
+        .with_grants(VideoGrants {
+            room: room.name(),
+            room_join: true,
+            can_publish: Some(false),
+            can_publish_data: Some(false),
+            can_subscribe: Some(true),
+            ..Default::default()
+        })
+        .to_jwt()?;
+    let mut options = SignalOptions::default();
+    options.use_moq = true;
+    options.auto_subscribe = true;
+    let (ws, join, events) = SignalClient::connect(&url, &token, options, None).await?;
+    let info = join.moq.ok_or(anyhow!("missing MoQ ticket"))?;
+    let mut endpoint = Url::parse(&info.endpoint)?;
+    let authority = endpoint[Position::BeforeHost..Position::AfterPort].to_owned();
+    endpoint
+        .query_pairs_mut()
+        .append_pair("room", &room.name())
+        .append_pair("sid", &info.participant_sid)
+        .append_pair("generation", &info.generation.to_string())
+        .append_pair("ticket", &info.attachment_token);
+    let mut cfg = ClientConfig::new(DraftVersion::Draft23, TransportType::Quic)
+        .with_setup_parameters(vec![
+            KeyValuePair {
+                key: VarInt::from_u64(1)?,
+                value: KvpValue::Bytes(endpoint[Position::BeforePath..].as_bytes().to_vec()),
+            },
+            KeyValuePair {
+                key: VarInt::from_u64(5)?,
+                value: KvpValue::Bytes(authority.as_bytes().to_vec()),
+            },
+        ]);
+    if let Some(ca) = std::env::var_os("LIVEKIT_MOQ_TEST_CA_DER") {
+        cfg = cfg.with_ca_certs(vec![std::fs::read(ca)?]);
+    }
+    let conn = Connection::connect(&authority, cfg).await?;
+    let namespace = TrackNamespace(vec![b"livekit".to_vec(), info.participant_sid.into_bytes()]);
+    Ok((ws, events, conn, namespace))
+}
+
+#[tokio::test]
+#[ignore = "requires a LiveKit server with a TLS MoQ endpoint"]
+async fn publisher_priority_on_forwarded_datagrams() -> Result<()> {
+    use livekit_protocol as proto;
+    use livekit_signaling::SignalEvent;
+    use moqtap_codec::{dispatch::AnyDatagramHeader, draft23::message::ControlMessage};
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut options = TestRoomOptions::default();
+        options.room.transport = RoomTransport::Moq;
+        options.room.moq_data_track_priorities.insert("telemetry".into(), 0);
+        let (room, _events) = test_rooms_with_options([options]).await?.pop().unwrap();
+        let track = room.local_participant().publish_data_track("telemetry").await?;
+        let sid = track.info().sid().to_string();
+        let (ws, mut events, mut conn, ns) = connect_moq_reader(&room).await?;
+        ws.send(proto::signal_request::Message::UpdateDataSubscription(proto::UpdateDataSubscription {
+            updates: vec![proto::update_data_subscription::Update { track_sid: sid.clone(), subscribe: true, options: None }],
+        })).await;
+        loop {
+            if let SignalEvent::Message(message) = events.recv().await.ok_or(anyhow!("signaling closed"))? {
+                if let proto::signal_response::Message::DataTrackSubscriberHandles(handles) = *message {
+                    if handles.sub_handles.values().any(|t| t.track_sid == sid) { break; }
+                }
+            }
+        }
+        let mut sub = conn.subscribe(ns, format!("dt/down/{sid}").into_bytes(), vec![]).await?;
+        let ControlMessage::SubscribeOk(ack) = conn.recv_on_request_stream(&mut sub).await? else {
+            return Err(anyhow!("datagram subscription was rejected"));
+        };
+        for priority in [0u8, 255, 128] {
+            if priority != 0 { room.set_moq_data_track_priority("telemetry", priority); }
+            let mut tick = tokio::time::interval(Duration::from_millis(80));
+            loop {
+                tokio::select! {
+                    _ = tick.tick() => track.try_push(vec![priority; 20].into())?,
+                    received = conn.recv_datagram() => {
+                        let (AnyDatagramHeader::Draft23(header), payload) = received?;
+                        if header.track_alias == ack.track_alias && payload.ends_with(&[priority; 20]) {
+                            assert_eq!(header.publisher_priority.unwrap_or(128), priority);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        conn.close(0, b"test complete");
+        ws.close().await;
+        room.close().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await?
+}
+
+/// Consume a standard catalog rendition using moqtap directly, without the SDK's
+/// MoQ media engine or the LiveKit extension fields of the MSF catalog.
+#[tokio::test]
+#[ignore = "requires a LiveKit server with a TLS MoQ endpoint"]
+async fn independent_subscriber() -> Result<()> {
+    use moqtap_codec::{
+        dispatch::AnySubgroupHeader, draft23::message::ControlMessage, types::TrackNamespace,
+        varint::VarInt,
+    };
+    use serde::Deserialize;
 
     #[derive(Deserialize)]
     struct Catalog {
@@ -556,50 +667,7 @@ async fn independent_subscriber() -> Result<()> {
             SolidColorParams { width: 320, height: 180, luma: 185 },
         );
         video.publish(VideoCodec::VP8, false).await?;
-        let key = std::env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into());
-        let secret = std::env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into());
-        let url = std::env::var("LIVEKIT_URL").unwrap_or_else(|_| "ws://localhost:7880".into());
-        let token = AccessToken::with_api_key(&key, &secret)
-            .with_identity("standards-reader")
-            .with_grants(VideoGrants {
-                room: publisher.name(),
-                room_join: true,
-                can_publish: Some(false),
-                can_publish_data: Some(false),
-                can_subscribe: Some(true),
-                ..Default::default()
-            })
-            .to_jwt()?;
-        let mut options = SignalOptions::default();
-        options.use_moq = true;
-        options.auto_subscribe = true;
-        let (ws, join, _events) = SignalClient::connect(&url, &token, options, None).await?;
-        let info = join.moq.ok_or(anyhow!("missing MoQ ticket"))?;
-        let mut endpoint = Url::parse(&info.endpoint)?;
-        let authority = endpoint[Position::BeforeHost..Position::AfterPort].to_owned();
-        endpoint
-            .query_pairs_mut()
-            .append_pair("room", &publisher.name())
-            .append_pair("sid", &info.participant_sid)
-            .append_pair("generation", &info.generation.to_string())
-            .append_pair("ticket", &info.attachment_token);
-        let mut cfg = ClientConfig::new(DraftVersion::Draft23, TransportType::Quic)
-            .with_setup_parameters(vec![
-                KeyValuePair {
-                    key: VarInt::from_u64(1)?,
-                    value: KvpValue::Bytes(endpoint[Position::BeforePath..].as_bytes().to_vec()),
-                },
-                KeyValuePair {
-                    key: VarInt::from_u64(5)?,
-                    value: KvpValue::Bytes(authority.as_bytes().to_vec()),
-                },
-            ]);
-        if let Some(ca) = std::env::var_os("LIVEKIT_MOQ_TEST_CA_DER") {
-            cfg = cfg.with_ca_certs(vec![std::fs::read(ca)?]);
-        }
-        let mut conn = Connection::connect(&authority, cfg).await?;
-        let namespace =
-            TrackNamespace(vec![b"livekit".to_vec(), info.participant_sid.into_bytes()]);
+        let (ws, _events, mut conn, namespace) = connect_moq_reader(&publisher).await?;
         let mut upload = conn
             .publish(
                 namespace.clone(),
