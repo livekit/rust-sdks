@@ -51,6 +51,9 @@ enum RequestedVideo {
 struct RemoteInfo {
     subscribed: bool,
     allowed: bool,
+    /// Whether the application paused the track at the SFU. Not the same as the track being
+    /// disabled locally, which the SFU isn't told about.
+    paused: bool,
     requested_video: Option<RequestedVideo>,
 }
 
@@ -94,6 +97,7 @@ impl RemoteTrackPublication {
                 info: RwLock::new(RemoteInfo {
                     subscribed: auto_subscribe,
                     allowed: true,
+                    paused: false,
                     requested_video: None,
                 }),
                 events: Default::default(),
@@ -107,6 +111,9 @@ impl RemoteTrackPublication {
     pub(crate) fn set_track(&self, track: Option<RemoteTrack>) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
+
+        // A new subscription starts enabled.
+        self.remote.info.write().paused = false;
 
         let prev_track = self.track();
 
@@ -242,13 +249,14 @@ impl RemoteTrackPublication {
         let handler = self.remote.events.track_settings_changed.lock();
         let Some(handler) = handler.as_ref() else { return };
 
+        let info = self.remote.info.read();
         let mut settings = proto::UpdateTrackSettings {
             track_sids: vec![self.sid().into()],
-            disabled: self.track().is_some_and(|track| !track.is_enabled()),
+            disabled: info.paused,
             ..Default::default()
         };
         if self.kind() == TrackKind::Video {
-            match self.remote.info.read().requested_video {
+            match info.requested_video {
                 Some(RequestedVideo::Dimension(TrackDimension(width, height))) => {
                     settings.width = width;
                     settings.height = height;
@@ -308,14 +316,15 @@ impl RemoteTrackPublication {
     }
 
     pub fn set_enabled(&self, enabled: bool) {
-        if self.is_subscribed() && enabled != self.is_enabled() {
-            let track = self.track().unwrap();
-            if self.is_enabled() {
-                track.disable();
-            } else {
-                track.enable();
-            }
+        let Some(track) = self.track() else { return };
+        if enabled {
+            track.enable();
+        } else {
+            track.disable();
+        }
 
+        let was_paused = std::mem::replace(&mut self.remote.info.write().paused, !enabled);
+        if was_paused == enabled {
             self.send_track_settings();
         }
     }

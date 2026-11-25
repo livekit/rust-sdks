@@ -594,13 +594,15 @@ async fn test_dynacast_multiple_subscribers_only_publish_requested_tracks() -> R
     Ok(())
 }
 
-/// Verifies that the size an application asked for outlives updates about the publisher.
-///
-/// A participant update carries the size the publisher announces. It must not replace the size
-/// the subscriber asked for, which is sent again when the subscriber resumes a paused track.
+/// Subscribes to a simulcast track of a new publisher and waits until all its layers are active.
+/// Also returns what has to stay alive for the track to keep flowing.
 #[cfg(feature = "__lk-e2e-test")]
-#[test_log::test(tokio::test)]
-async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
+async fn subscribe_to_active_simulcast_track() -> Result<(
+    (Room, Arc<Room>, SolidColorTrack),
+    UnboundedReceiver<RoomEvent>,
+    LocalVideoTrack,
+    RemoteTrackPublication,
+)> {
     let mut pub_room_opts = RoomOptions::default();
     pub_room_opts.dynacast = true;
     let mut pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
@@ -608,7 +610,7 @@ async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
 
     let mut rooms = test_rooms_with_options([pub_options, TestRoomOptions::default()]).await?;
     let (pub_room, _pub_events) = rooms.remove(0);
-    let (_sub_room, mut sub_events) = rooms.remove(0);
+    let (sub_room, mut sub_events) = rooms.remove(0);
 
     let pub_room = Arc::new(pub_room);
     let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
@@ -632,10 +634,49 @@ async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
         layers.len() > 1 && layers.iter().all(|layer| layer.active)
     })
     .await?;
+    Ok(((sub_room, pub_room, solid_track), sub_events, pub_video_track, sub_publication))
+}
 
-    let only_low_active = |layers: &[PublishingLayer]| {
-        layers.iter().all(|layer| layer.active == (layer.quality == PublishingLayerQuality::Low))
-    };
+#[cfg(feature = "__lk-e2e-test")]
+fn only_low_active(layers: &[PublishingLayer]) -> bool {
+    layers.iter().all(|layer| layer.active == (layer.quality == PublishingLayerQuality::Low))
+}
+
+/// Pauses a subscribed track at the SFU and waits until the publisher sends nothing.
+#[cfg(feature = "__lk-e2e-test")]
+async fn pause(publication: &RemoteTrackPublication, pub_track: &LocalVideoTrack) -> Result<()> {
+    publication.set_enabled(false);
+    wait_for_layers(pub_track, "paused", Duration::from_secs(30), |layers| {
+        layers.iter().all(|layer| !layer.active)
+    })
+    .await?;
+    Ok(())
+}
+
+/// Resumes a paused track and returns the layers the publisher then sends.
+#[cfg(feature = "__lk-e2e-test")]
+async fn resume(
+    publication: &RemoteTrackPublication,
+    pub_track: &LocalVideoTrack,
+) -> Result<Vec<PublishingLayer>> {
+    publication.set_enabled(true);
+    wait_for_layers(pub_track, "resumed", Duration::from_secs(30), |layers| {
+        layers.iter().any(|layer| layer.active)
+    })
+    .await
+}
+
+/// Verifies that the size an application asked for outlives updates about the publisher.
+///
+/// A participant update carries the size the publisher announces. It must not replace the size
+/// the subscriber asked for, which is sent again when the subscriber resumes a paused track.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
+    let (rooms, mut sub_events, pub_video_track, sub_publication) =
+        subscribe_to_active_simulcast_track().await?;
+    let (_, pub_room, _) = &rooms;
+
     sub_publication.update_video_dimensions(TrackDimension(320, 180));
     wait_for_layers(
         &pub_video_track,
@@ -661,22 +702,61 @@ async fn test_requested_dimensions_survive_participant_update() -> Result<()> {
     })
     .await??;
 
-    sub_publication.set_enabled(false);
-    wait_for_layers(&pub_video_track, "paused", Duration::from_secs(30), |layers| {
-        layers.iter().all(|layer| !layer.active)
-    })
-    .await?;
-
-    sub_publication.set_enabled(true);
-    let layers = wait_for_layers(&pub_video_track, "resumed", Duration::from_secs(30), |layers| {
-        layers.iter().any(|layer| layer.active)
-    })
-    .await?;
+    pause(&sub_publication, &pub_video_track).await?;
+    let layers = resume(&sub_publication, &pub_video_track).await?;
     assert!(
         only_low_active(&layers),
         "expected the resumed track to keep the requested size (only Low active), got {:?}",
         layers
     );
+
+    Ok(())
+}
+
+/// Verifies that a track disabled locally isn't paused at the SFU when its quality or dimensions
+/// are requested. Enabling it locally again sends nothing that would undo the pause.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_locally_disabled_track_is_not_paused() -> Result<()> {
+    let (_rooms, _sub_events, pub_video_track, sub_publication) =
+        subscribe_to_active_simulcast_track().await?;
+    let Some(track) = sub_publication.track() else {
+        return Err(anyhow!("No subscribed track"));
+    };
+    track.disable();
+
+    sub_publication.set_video_quality(VideoQuality::Low);
+    wait_for_layers(
+        &pub_video_track,
+        "Low requested while locally disabled",
+        Duration::from_secs(30),
+        only_low_active,
+    )
+    .await?;
+
+    sub_publication.update_video_dimensions(TrackDimension(1280, 720));
+    wait_for_layers(
+        &pub_video_track,
+        "full size requested while locally disabled",
+        Duration::from_secs(30),
+        |layers| layers.iter().all(|layer| layer.active),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Verifies that a quality requested while a track is paused is the one it resumes with.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_quality_requested_while_paused_is_used_on_resume() -> Result<()> {
+    let (_rooms, _sub_events, pub_video_track, sub_publication) =
+        subscribe_to_active_simulcast_track().await?;
+
+    pause(&sub_publication, &pub_video_track).await?;
+    sub_publication.set_video_quality(VideoQuality::Low);
+    let layers = resume(&sub_publication, &pub_video_track).await?;
+    assert!(only_low_active(&layers), "expected only Low to be active, got {:?}", layers);
 
     Ok(())
 }
