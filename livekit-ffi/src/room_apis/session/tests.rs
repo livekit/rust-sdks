@@ -320,6 +320,35 @@ fn connect_failure_reports_the_cause_and_finishes() {
     assert!(shared.upgrade().is_none(), "the session leaked");
 }
 
+/// The check of the `room-apis-host-transport` build: with no host client
+/// registered, connect fails at once with the typed cause. A bundled network
+/// stack in the build makes this fail, because connect then reaches the
+/// closed port and reports a transport error instead.
+///
+/// No test in this binary registers a client. The livekit-net registry is
+/// process-wide and its first registration stays for the whole process, so a
+/// test that registers one must run in a different binary.
+#[cfg(feature = "room-apis-host-transport")]
+#[test]
+fn connect_without_host_transport_is_not_configured() {
+    use super::errors::NativeSignalFailure;
+
+    assert!(!livekit_net::has_ws_client() && !livekit_net::has_http_client());
+    let session = NativeRoomSession::new();
+
+    let result =
+        block_on(session.connect("ws://127.0.0.1:1".to_owned(), "t".into(), connect_options()));
+    assert_eq!(
+        result,
+        Err(NativeSessionError::Signal { failure: NativeSignalFailure::TransportNotConfigured })
+    );
+    block_on(session.disconnect());
+}
+
+// Only with the bundled stack: this test needs a handshake that stays pending
+// on a real socket. The host-transport build has no client in this binary, so
+// its connect fails at once and can end before the cancel.
+#[cfg(feature = "room-apis")]
 #[test]
 fn cancel_during_connect_returns_at_once() {
     // The listener accepts the TCP connection in its backlog and never
