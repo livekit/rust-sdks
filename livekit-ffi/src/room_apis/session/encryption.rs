@@ -160,7 +160,11 @@ impl NativeKeyProvider {
         self.index(index)?;
         validate_key(&key)?;
         match self.identity(participant_identity)? {
-            None => self.core.set_shared_key(key.to_vec(), index),
+            None => {
+                if !self.core.set_shared_key(key.to_vec(), index) {
+                    return Err(invalid("core rejected shared key"));
+                }
+            }
             Some(identity) => {
                 if !self.core.set_key(&identity, index, key.to_vec()) {
                     return Err(invalid("core rejected participant key"));

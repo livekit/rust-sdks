@@ -166,16 +166,19 @@ impl NativeVideoFrame {
         ) {
             return Err(invalid("decoded pixel format is outside the supported 8-bit formats"));
         }
-        let (data, info) = crate::server::colorcvt::to_video_buffer_info(
+        // The snapshot owns its bytes, so there is no stream buffer to reuse.
+        let mut dst = crate::server::colorcvt::FrameBuffer::default();
+        let info = crate::server::colorcvt::to_video_buffer_info(
             frame.buffer,
             Some(crate::proto::VideoBufferType::Bgra),
             true,
+            &mut dst,
         )
         .map_err(|e| invalid(&e.to_string()))?;
         Ok(Self {
             format: NativeVideoPixelFormat::Bgra,
             chroma_stride: None,
-            data: data.into_vec(),
+            data: dst.into_vec(),
             width: info.width,
             height: info.height,
             stride: info.stride.unwrap_or(info.width * 4),
