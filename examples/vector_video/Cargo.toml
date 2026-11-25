@@ -1,0 +1,44 @@
+[package]
+name = "vector_video"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+default-run = "vector_video"
+
+[dependencies]
+log.workspace = true
+parking_lot.workspace = true
+tract-onnx = "0.22.3"
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["load-dynamic"], optional = true }
+image = { version = "0.25", default-features = false }
+eframe = { workspace = true, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+futures-util = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-token = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-avfoundation"] }
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["coreml"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-v4l"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-msmf"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { workspace = true, features = ["android-native-activity"] }
+
+[features]
+object-layers = ["dep:ort"]
+apple-vision = ["object-layers", "dep:cc"]
+
+[build-dependencies]
+cc = { workspace = true, optional = true }
+
+[package.metadata.feature-combinations]
+mode = "powerset"
