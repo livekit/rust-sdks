@@ -39,6 +39,7 @@ pub struct SolidColorParams {
 pub struct SolidColorTrack {
     rtc_source: NativeVideoSource,
     params: SolidColorParams,
+    alternate_luma: Option<u8>,
     room: Arc<Room>,
     handle: Option<TrackHandle>,
 }
@@ -57,9 +58,16 @@ impl SolidColorTrack {
                 false,
             ),
             params,
+            alternate_luma: None,
             room,
             handle: None,
         }
+    }
+
+    /// Alternate the luma on successive frames to check that decoded video advances.
+    pub fn alternate_luma(mut self, luma: u8) -> Self {
+        self.alternate_luma = Some(luma);
+        self
     }
 
     pub async fn publish(&mut self, codec: VideoCodec, simulcast: bool) -> RoomResult<()> {
@@ -87,8 +95,12 @@ impl SolidColorTrack {
             "solid-color-track",
             RtcVideoSource::Native(self.rtc_source.clone()),
         );
-        let task =
-            tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
+        let task = tokio::spawn(Self::track_task(
+            close_rx,
+            self.rtc_source.clone(),
+            self.params.clone(),
+            self.alternate_luma,
+        ));
         self.room
             .local_participant()
             .publish_track(LocalTrack::Video(track.clone()), options)
@@ -108,8 +120,12 @@ impl SolidColorTrack {
             "solid-color-track",
             RtcVideoSource::Native(self.rtc_source.clone()),
         );
-        let task =
-            tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
+        let task = tokio::spawn(Self::track_task(
+            close_rx,
+            self.rtc_source.clone(),
+            self.params.clone(),
+            self.alternate_luma,
+        ));
         self.room
             .local_participant()
             .publish_track_without_video_send_encodings(LocalTrack::Video(track.clone()), options)
@@ -132,7 +148,9 @@ impl SolidColorTrack {
         mut close_rx: oneshot::Receiver<()>,
         rtc_source: NativeVideoSource,
         params: SolidColorParams,
+        alternate_luma: Option<u8>,
     ) {
+        let mut luma = params.luma;
         let interval = std::time::Duration::from_millis(1000 / 5); // ~5 FPS
         loop {
             if close_rx.try_recv().is_ok() {
@@ -140,7 +158,12 @@ impl SolidColorTrack {
             }
             let mut buffer = I420Buffer::new(params.width, params.height);
             let (data_y, data_u, data_v) = buffer.data_mut();
-            data_y.fill(params.luma);
+            data_y.fill(luma);
+            luma = if luma == params.luma {
+                alternate_luma.unwrap_or(params.luma)
+            } else {
+                params.luma
+            };
             data_u.fill(128);
             data_v.fill(128);
 

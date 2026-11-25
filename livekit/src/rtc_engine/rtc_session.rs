@@ -196,6 +196,12 @@ pub enum SessionEvent {
     RpcAck {
         request_id: String,
     },
+    #[cfg(feature = "moq")]
+    MoqMedia {
+        participant_id: crate::id::ParticipantSid,
+        track_id: crate::id::TrackSid,
+        track: Option<Result<MediaStreamTrack, crate::track::TrackError>>,
+    },
     MediaTrack {
         track: MediaStreamTrack,
         stream: MediaStream,
@@ -392,6 +398,8 @@ struct IceCandidateJson {
 
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
+    #[cfg(feature = "moq")]
+    moq_tx: Option<mpsc::Sender<super::moq::Command>>,
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
     fast_publish: AtomicBool,
@@ -401,9 +409,7 @@ struct SessionInner {
     connect_started: Instant,
 
     publisher_pc: PeerTransport,
-    /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
-    /// send and receive. `wait_pc_connection_inner` relies on that equivalence, reading absence
-    /// as "no second transport to wait for".
+    /// Only present for dual-peer-connection WebRTC sessions.
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
@@ -428,11 +434,9 @@ struct SessionInner {
 
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
-    lossy_dc: DataChannel,
+    publisher_channels: Option<PublisherDataChannels>,
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
-    reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
-    data_track_dc: DataChannel,
 
     /// Negotiated SCTP max message size (bytes), parsed from the publisher
     /// answer SDP (`a=max-message-size`). `0` means "no limit". Defaults to
@@ -532,15 +536,20 @@ impl Debug for RtcSession {
 struct SessionHandle {
     close_tx: watch::Sender<bool>, // false = is_running
     signal_task: JoinHandle<()>,
-    rtc_task: JoinHandle<()>,
-    dc_task: JoinHandle<()>,
+    rtc_tasks: Option<(JoinHandle<()>, JoinHandle<()>)>,
     dt_sender_task: JoinHandle<()>,
+}
+
+struct PublisherDataChannels {
+    reliable: DataChannel,
+    lossy: DataChannel,
+    data_track: DataChannel,
 }
 
 /// Publisher transport created before joining, whose offer travels with the join request.
 struct EarlyPublisher {
     pc: PeerTransport,
-    data_channels: (DataChannel, DataChannel, DataChannel),
+    data_channels: PublisherDataChannels,
     initial_publish: InitialPublish,
 }
 
@@ -576,7 +585,12 @@ impl RtcSession {
         let mut options = options;
         options.rtc_config.enable_sctp_snap = true;
 
-        let use_single_pc = options.signal_options.single_peer_connection;
+        let use_moq = options.signal_options.use_moq;
+        #[cfg(not(feature = "moq"))]
+        if use_moq {
+            return Err(EngineError::Internal("MoQ support is disabled in this build".into()));
+        }
+        let use_single_pc = options.signal_options.single_peer_connection && !use_moq;
 
         let early_publisher = if use_single_pc {
             Self::create_early_publisher(
@@ -613,7 +627,7 @@ impl RtcSession {
             }
         };
         let signal_client = Arc::new(signal_client);
-        log::debug!("received JoinResponse: {:?}", join_response);
+        log::debug!("received room join response");
         let subscriber_primary = join_response.subscriber_primary;
 
         // Determine if single PC mode is active based on the path used
@@ -627,7 +641,13 @@ impl RtcSession {
         }
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
-        let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
+        // The public publisher() accessor exposes a PeerTransport for every session.
+        // In MoQ rooms it stays idle and has no ICE servers, SDP or SCTP channels.
+        let rtc_config = if use_moq {
+            RtcConfiguration::default()
+        } else {
+            make_rtc_config_join(join_response.clone(), options.rtc_config.clone())
+        };
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
@@ -653,30 +673,34 @@ impl RtcSession {
             early => early,
         };
         let sent_publisher_offer = early_publisher.is_some();
-        let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
+        let (mut publisher_pc, mut publisher_channels) =
             if let Some(EarlyPublisher { pc, data_channels: mut dcs, .. }) = early_publisher {
                 if !use_negotiated_dcs {
                     // The SCTP section is already in the offer, so in-band channels can be
                     // opened on it without sdp renegotiation.
-                    dcs.0.close();
-                    dcs.1.close();
-                    dcs.2.close();
+                    dcs.reliable.close();
+                    dcs.lossy.close();
+                    dcs.data_track.close();
                     dcs = Self::create_data_channels(&pc, &emitter, false)?;
                 }
                 pc.peer_connection().set_configuration(rtc_config.clone())?;
-                (pc, dcs.0, dcs.1, dcs.2)
+                (pc, Some(dcs))
             } else {
                 let publisher_pc = PeerTransport::new(
                     lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
                     proto::SignalTarget::Publisher,
                     single_pc_mode,
                 );
-                let dcs = Self::create_data_channels(&publisher_pc, &emitter, use_negotiated_dcs)?;
-                (publisher_pc, dcs.0, dcs.1, dcs.2)
+                let channels = if use_moq {
+                    None
+                } else {
+                    Some(Self::create_data_channels(&publisher_pc, &emitter, use_negotiated_dcs)?)
+                };
+                (publisher_pc, channels)
             };
 
-        // In single PC mode, subscriber_pc is None
-        let mut subscriber_pc = if single_pc_mode {
+        // Only dual-PC WebRTC rooms use a subscriber peer connection.
+        let mut subscriber_pc = if single_pc_mode || use_moq {
             None
         } else {
             Some(PeerTransport::new(
@@ -687,23 +711,79 @@ impl RtcSession {
         };
 
         // Forward events received inside the signaling thread to our rtc channel
-        rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
-        if let Some(ref mut sub_pc) = subscriber_pc {
-            rtc_events::forward_pc_events(sub_pc, rtc_emitter.clone());
+        if let Some(channels) = &mut publisher_channels {
+            rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
+            if let Some(ref mut sub_pc) = subscriber_pc {
+                rtc_events::forward_pc_events(sub_pc, rtc_emitter.clone());
+            }
+            rtc_events::forward_dc_events(
+                &mut channels.lossy,
+                DataPacketKind::Lossy,
+                rtc_emitter.clone(),
+            );
+            rtc_events::forward_dc_events(
+                &mut channels.reliable,
+                DataPacketKind::Reliable,
+                rtc_emitter,
+            );
         }
-        rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
-        rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let (close_tx, close_rx) = watch::channel(false);
-
-        let dt_sender_options = DataChannelSenderOptions {
-            low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
-            dc: data_track_dc.clone(),
-            close_rx: close_rx.clone(),
+        #[cfg(feature = "moq")]
+        let moq = if options.signal_options.use_moq {
+            match super::moq::MoqSession::from_join(
+                &join_response,
+                options.signal_options.connect_timeout,
+            )
+            .await
+            {
+                Ok(session) => Some(session),
+                Err(err) => {
+                    signal_client.close().await;
+                    return Err(err);
+                }
+            }
+        } else {
+            None
         };
-        let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
 
+        #[cfg(feature = "moq")]
+        let (moq_tx, moq_rx) = mpsc::channel(16);
+        #[cfg(feature = "moq")]
+        let moq_tx = moq.as_ref().map(|_| moq_tx);
+        #[cfg(feature = "moq")]
+        let dt_packet_tx =
+            if use_moq { DataTrackSendQueue::for_moq() } else { DataTrackSendQueue::default() };
+        #[cfg(not(feature = "moq"))]
+        let dt_packet_tx = DataTrackSendQueue::default();
+        let dt_sender_task = if let Some(channels) = &publisher_channels {
+            let sender = DataChannelSender::new(
+                DataChannelSenderOptions {
+                    low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
+                    dc: channels.data_track.clone(),
+                    close_rx: close_rx.clone(),
+                },
+                dt_packet_tx.clone(),
+            );
+            tokio::spawn(sender.run())
+        } else {
+            #[cfg(feature = "moq")]
+            {
+                let session =
+                    moq.ok_or_else(|| EngineError::Internal("missing MoQ attachment".into()))?;
+                tokio::spawn(session.run(
+                    dt_packet_tx.clone(),
+                    emitter.downgrade(),
+                    close_rx.clone(),
+                    moq_rx,
+                ))
+            }
+            #[cfg(not(feature = "moq"))]
+            return Err(EngineError::Internal("missing WebRTC data channels".into()));
+        };
         let inner = Arc::new(SessionInner {
+            #[cfg(feature = "moq")]
+            moq_tx,
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
             connect_started,
@@ -714,15 +794,13 @@ impl RtcSession {
             mid_to_track_id: Mutex::new(HashMap::new()),
             dispatched_streams: Mutex::new(HashSet::new()),
             pending_tracks: Default::default(),
-            lossy_dc,
+            publisher_channels,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
-            reliable_dc,
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
-            data_track_dc,
             max_message_size: AtomicU64::new(DEFAULT_MAX_MESSAGE_SIZE),
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
@@ -752,26 +830,28 @@ impl RtcSession {
 
         // Log when a publisher data channel closes without the engine or peer
         // connection tearing it down
-        for (dc, label) in [
-            (&inner.reliable_dc, RELIABLE_DC_LABEL),
-            (&inner.lossy_dc, LOSSY_DC_LABEL),
-            (&inner.data_track_dc, DATA_TRACK_DC_LABEL),
-        ] {
-            let weak_inner = Arc::downgrade(&inner);
-            dc.on_state_change(Some(Box::new(move |state| {
-                if state != DataChannelState::Closed {
-                    return;
-                }
-                let Some(inner) = weak_inner.upgrade() else {
-                    return;
-                };
-                if !inner.closed.load(Ordering::Acquire)
-                    && !inner.disconnecting.load(Ordering::Acquire)
-                    && inner.publisher_pc.is_connected()
-                {
-                    log::error!("publisher data channel '{}' closed unexpectedly", label);
-                }
-            })));
+        if let Some(channels) = &inner.publisher_channels {
+            for (dc, label) in [
+                (&channels.reliable, RELIABLE_DC_LABEL),
+                (&channels.lossy, LOSSY_DC_LABEL),
+                (&channels.data_track, DATA_TRACK_DC_LABEL),
+            ] {
+                let weak_inner = Arc::downgrade(&inner);
+                dc.on_state_change(Some(Box::new(move |state| {
+                    if state != DataChannelState::Closed {
+                        return;
+                    }
+                    let Some(inner) = weak_inner.upgrade() else {
+                        return;
+                    };
+                    if !inner.closed.load(Ordering::Acquire)
+                        && !inner.disconnecting.load(Ordering::Acquire)
+                        && inner.publisher_pc.is_connected()
+                    {
+                        log::error!("publisher data channel '{}' closed unexpectedly", label);
+                    }
+                })));
+            }
         }
 
         // Tracks without a receiver were not sent with the join and must be published normally.
@@ -792,17 +872,15 @@ impl RtcSession {
 
         // Start session tasks
         let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
-        let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
-        let dt_sender_task = tokio::spawn(dt_sender.run());
+        let rtc_tasks = inner.publisher_channels.as_ref().map(|_| {
+            let rtc_task =
+                tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
+            let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx));
+            (rtc_task, dc_task)
+        });
 
-        let handle = Mutex::new(Some(SessionHandle {
-            close_tx,
-            signal_task,
-            rtc_task,
-            dc_task,
-            dt_sender_task,
-        }));
+        let handle =
+            Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_tasks, dt_sender_task }));
 
         // If we already sent the publisher offer with the JoinRequest, skip initial
         // negotiation - the server will respond with an answer via the signal channel.
@@ -882,7 +960,7 @@ impl RtcSession {
         publisher_pc: &PeerTransport,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
         negotiated: bool,
-    ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
+    ) -> EngineResult<PublisherDataChannels> {
         let reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
             DataChannelInit {
@@ -914,7 +992,11 @@ impl RtcSession {
         )?;
         handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
-        Ok((reliable_dc, lossy_dc, data_track_dc))
+        Ok(PublisherDataChannels {
+            reliable: reliable_dc,
+            lossy: lossy_dc,
+            data_track: data_track_dc,
+        })
     }
 
     fn add_recv_media_sections(
@@ -942,6 +1024,47 @@ impl RtcSession {
     }
 
     /// Returns whether single peer connection mode is active
+    #[cfg(feature = "moq")]
+    pub(crate) fn uses_moq(&self) -> bool {
+        self.inner.moq_tx.is_some()
+    }
+
+    #[cfg(feature = "moq")]
+    pub(crate) async fn publish_moq(
+        &self,
+        sid: &str,
+        track: LocalTrack,
+        options: crate::options::TrackPublishOptions,
+    ) -> EngineResult<()> {
+        let (result, rx) = oneshot::channel();
+        let tx = self
+            .inner
+            .moq_tx
+            .as_ref()
+            .ok_or_else(|| EngineError::Connection("MoQ session ended".into()))?;
+        tx.send(super::moq::Command::Publish { sid: sid.to_owned(), track, options, result })
+            .await
+            .map_err(|_| EngineError::Connection("MoQ session ended".into()))?;
+        rx.await.map_err(|_| EngineError::Connection("MoQ publication interrupted".into()))?
+    }
+    #[cfg(feature = "moq")]
+    pub(crate) async fn unpublish_moq(&self, sid: &str) -> EngineResult<()> {
+        let tx = self
+            .inner
+            .moq_tx
+            .as_ref()
+            .ok_or_else(|| EngineError::Connection("MoQ session ended".into()))?;
+        tx.send(super::moq::Command::Unpublish(sid.to_owned()))
+            .await
+            .map_err(|_| EngineError::Connection("MoQ session ended".into()))?;
+        self.signal_client()
+            .send(proto::signal_request::Message::UnpublishTrack(proto::UnpublishTrackRequest {
+                track_sid: sid.to_owned(),
+            }))
+            .await;
+        Ok(())
+    }
+
     pub fn is_single_pc_mode(&self) -> bool {
         self.inner.single_pc_mode
     }
@@ -1003,9 +1126,11 @@ impl RtcSession {
             let _ = task.await;
         }
         if let Some(handle) = handle {
-            let _ = handle.rtc_task.await;
+            if let Some((rtc_task, dc_task)) = handle.rtc_tasks {
+                let _ = rtc_task.await;
+                let _ = dc_task.await;
+            }
             let _ = handle.signal_task.await;
-            let _ = handle.dc_task.await;
             let _ = handle.dt_sender_task.await;
         }
 
@@ -1249,9 +1374,13 @@ impl SessionInner {
         let mut current =
             HashMap::<(String, String), (MediaStream, MediaStreamTrack, RtpTransceiver)>::new();
         for transceiver in pc.transceivers() {
-            let Some(mid) = transceiver.mid() else { continue };
+            let Some(mid) = transceiver.mid() else {
+                continue;
+            };
             let receiver = transceiver.receiver();
-            let Some(track) = receiver.track() else { continue };
+            let Some(track) = receiver.track() else {
+                continue;
+            };
             for stream in receiver.streams() {
                 let stream_id = stream.id();
                 current
@@ -1562,6 +1691,11 @@ impl SessionInner {
         event: proto::signal_response::Message,
     ) -> EngineResult<()> {
         match event {
+            proto::signal_response::Message::Answer(_)
+            | proto::signal_response::Message::Offer(_)
+            | proto::signal_response::Message::Trickle(_)
+            | proto::signal_response::Message::MediaSectionsRequirement(_)
+                if self.options.signal_options.use_moq => {}
             proto::signal_response::Message::Answer(answer) => {
                 log::debug!("received publisher answer: {:?}", answer);
 
@@ -1668,6 +1802,22 @@ impl SessionInner {
                     });
                 }
 
+                #[cfg(feature = "moq")]
+                if let Some(tx) = &self.moq_tx {
+                    if let Some(permission) = update
+                        .participants
+                        .iter()
+                        .find(|pi| pi.sid == self.participant_info.sid.as_str())
+                        .and_then(|pi| pi.permission.as_ref())
+                    {
+                        let _ = tx
+                            .send(super::moq::Command::Permissions {
+                                can_publish_data: permission.can_publish_data,
+                                can_subscribe: permission.can_subscribe,
+                            })
+                            .await;
+                    }
+                }
                 let local_participant_identity = self.participant_info.identity.as_str().into();
                 if let Ok(event) = dt::remote::event_from_participant_update(
                     &mut update,
@@ -1728,13 +1878,68 @@ impl SessionInner {
             }
             proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
                 let event: dt::local::SfuPublishResponse = publish_res.try_into()?;
+                #[cfg(feature = "moq")]
+                let event = if let (Some(tx), Ok(info)) = (&self.moq_tx, &event.result) {
+                    let (result, ack) = tokio::sync::oneshot::channel();
+                    let command = super::moq::Command::DataPublished {
+                        handle: event.handle.into(),
+                        sid: info.sid().to_string(),
+                        result,
+                    };
+                    let _ = tx.send(command).await;
+                    match ack.await {
+                        Ok(Ok(())) => event,
+                        outcome => {
+                            // Release the logical publication if its datagram track failed to open.
+                            self.signal_client
+                                .send(proto::signal_request::Message::UnpublishDataTrackRequest(
+                                    proto::UnpublishDataTrackRequest {
+                                        pub_handle: event.handle.into(),
+                                    },
+                                ))
+                                .await;
+                            let error = match outcome {
+                                Ok(Err(error)) => error,
+                                _ => livekit_datatrack::api::PublishError::Disconnected,
+                            };
+                            dt::local::SfuPublishResponse {
+                                handle: event.handle,
+                                result: Err(error),
+                            }
+                        }
+                    }
+                } else {
+                    event
+                };
                 _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
             }
             proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
+                #[cfg(feature = "moq")]
+                if let (Some(tx), Some(info)) = (&self.moq_tx, &unpublish_res.info) {
+                    if let Ok(handle) = u16::try_from(info.pub_handle) {
+                        let _ = tx
+                            .send(super::moq::Command::DataUnpublished {
+                                handle,
+                                sid: info.sid.clone(),
+                            })
+                            .await;
+                    }
+                }
                 let event: dt::local::SfuUnpublishResponse = unpublish_res.try_into()?;
                 _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
+                #[cfg(feature = "moq")]
+                if let Some(tx) = &self.moq_tx {
+                    let handles = subscriber_handles
+                        .sub_handles
+                        .iter()
+                        .filter_map(|(&handle, t)| {
+                            u16::try_from(handle).ok().map(|h| (h, t.track_sid.clone()))
+                        })
+                        .collect();
+                    let _ = tx.send(super::moq::Command::DataHandles(handles)).await;
+                }
                 let event: dt::remote::SfuSubscriberHandles = subscriber_handles.try_into()?;
                 _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
             }
@@ -2222,6 +2427,9 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        if self.options.signal_options.use_moq {
+            return Err(EngineError::Internal("MoQ media publication is unavailable".into()));
+        }
         Self::create_sender_for_pc(&self.publisher_pc, &track, &options, encodings).await
     }
 
@@ -2387,6 +2595,20 @@ impl SessionInner {
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
+            #[cfg(all(feature = "moq", feature = "__lk-e2e-test"))]
+            SimulateScenario::MoqNetworkHandoff(ip) => {
+                let tx = self
+                    .moq_tx
+                    .as_ref()
+                    .ok_or_else(|| EngineError::Connection("expected MoQ".into()))?;
+                let (ack, rx) = oneshot::channel();
+                tx.send(super::moq::Command::Handoff(ip, ack))
+                    .await
+                    .map_err(|_| EngineError::Connection("MoQ session ended".into()))?;
+                rx.await
+                    .map_err(|_| EngineError::Connection("MoQ handoff interrupted".into()))?
+                    .map_err(|err| EngineError::Connection(err.to_string().into()))?;
+            }
             SimulateScenario::SignalReconnect => {
                 self.simulate_signal_loss().await;
             }
@@ -2493,6 +2715,11 @@ impl SessionInner {
         kind: DataPacketKind,
         is_raw_packet: bool,
     ) -> Result<(), EngineError> {
+        if self.options.signal_options.use_moq {
+            return Err(EngineError::Internal(
+                "MoQ rooms support DataTracks for application data".into(),
+            ));
+        }
         self.ensure_publisher_connected(kind).await?;
 
         // Populate local participant info fields
@@ -2586,7 +2813,14 @@ impl SessionInner {
         // (including the post-resume participant snapshot) on a concurrent task.
         *self.resume_seen_identities.lock() = Some(HashSet::new());
         let reconnect_response = self.signal_client.restart(reason).await?;
-        log::debug!("received reconnect response: {:?}", reconnect_response);
+        log::debug!("received room reconnect response");
+        #[cfg(feature = "moq")]
+        if let Some(tx) = &self.moq_tx {
+            if tx.is_closed() || reconnect_response.moq.is_none() {
+                return Err(EngineError::Connection("room lost its MoQ attachment".into()));
+            }
+            return Ok(reconnect_response);
+        }
 
         let rtc_config =
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
@@ -2622,6 +2856,9 @@ impl SessionInner {
     }
 
     async fn restart_publisher(&self) -> EngineResult<()> {
+        if self.options.signal_options.use_moq {
+            return Ok(());
+        }
         // In single-PC mode the publisher is the only transport, so always restart its ICE
         // even if the user hasn't explicitly published a track yet. Otherwise only restart
         // when we have something to keep alive on the publisher side.
@@ -2644,6 +2881,9 @@ impl SessionInner {
     /// created. Resumes go through [`Self::wait_pc_reconnected_with_snapshot`] instead and
     /// keep the estimator they have.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
+        if self.options.signal_options.use_moq {
+            return Ok(());
+        }
         self.wait_pc_connection_inner(None, Duration::ZERO).await?;
         let setup = self.connect_started.elapsed();
         log::info!("connection setup took {} ms", setup.as_millis());
@@ -2674,6 +2914,14 @@ impl SessionInner {
         snapshot: PcGenerationSnapshot,
         settle_delay: Duration,
     ) -> EngineResult<()> {
+        #[cfg(feature = "moq")]
+        if let Some(tx) = &self.moq_tx {
+            return if tx.is_closed() {
+                Err(EngineError::Connection("MoQ attachment ended during resume".into()))
+            } else {
+                Ok(())
+            };
+        }
         self.wait_pc_connection_inner(Some(snapshot), settle_delay).await
     }
 
@@ -2767,6 +3015,9 @@ impl SessionInner {
 
     /// Start publisher negotiation
     fn publisher_negotiation_needed(self: &Arc<Self>) {
+        if self.options.signal_options.use_moq {
+            return;
+        }
         if self.closed.load(Ordering::Acquire) {
             return;
         }
@@ -2911,14 +3162,18 @@ impl SessionInner {
         self: &Arc<Self>,
         kind: DataPacketKind,
     ) -> EngineResult<()> {
-        let required_dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
+        let required_dc = self.data_channel(SignalTarget::Publisher, kind).ok_or_else(|| {
+            EngineError::Internal("MoQ rooms support DataTracks for application data".into())
+        })?;
         self.ensure_publisher_connected_with_dc(required_dc).await?;
         Ok(())
     }
 
     /// Ensure the required data channel for publishing data track frames is open.
     async fn ensure_data_track_publisher_connected(self: &Arc<Self>) -> EngineResult<()> {
-        self.ensure_publisher_connected_with_dc(self.data_track_dc.clone()).await?;
+        if let Some(channels) = &self.publisher_channels {
+            self.ensure_publisher_connected_with_dc(channels.data_track.clone()).await?;
+        }
         Ok(())
     }
 
@@ -2965,9 +3220,9 @@ impl SessionInner {
     fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         if target == SignalTarget::Publisher {
             if kind == DataPacketKind::Reliable {
-                Some(self.reliable_dc.clone())
+                self.publisher_channels.as_ref().map(|c| c.reliable.clone())
             } else {
-                Some(self.lossy_dc.clone())
+                self.publisher_channels.as_ref().map(|c| c.lossy.clone())
             }
         } else if target == SignalTarget::Subscriber {
             if kind == DataPacketKind::Reliable {
@@ -3069,7 +3324,9 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
             return;
         }
         let packet: Bytes = buffer.data.to_vec().into(); // TODO: avoid clone if possible
-        let Some(emitter) = emitter.upgrade() else { return };
+        let Some(emitter) = emitter.upgrade() else {
+            return;
+        };
         _ = emitter.send(SessionEvent::RemoteDataTrackInput(packet.into()));
     });
     dc.on_message(on_message.into());

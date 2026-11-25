@@ -141,3 +141,99 @@ async fn update_after_remote_map_drain_releases_participant() {
     while events.try_recv().is_ok() {}
     assert_released(&[&session_dropped, &participant_dropped, &original_dropped]).await;
 }
+
+/// Catalog membership and publication metadata travel on independent connections.
+#[cfg(feature = "moq")]
+#[tokio::test]
+async fn moq_track_reconciles_with_late_signaling_and_catalog_removal() {
+    let (room, mut events) = test_room().await;
+    let mut info = remote_info();
+    info.tracks[0].encryption = proto::encryption::Type::None as i32;
+    let participant_id: ParticipantSid = info.sid.clone().try_into().unwrap();
+    let track_id: TrackSid = info.tracks[0].sid.clone().try_into().unwrap();
+    let source = NativeVideoSource::new(VideoResolution { width: 64, height: 64 }, false);
+    let local = LocalVideoTrack::create_video_track("video", RtcVideoSource::Native(source));
+    let update = |present: bool| {
+        room.inner.handle_moq_media(
+            participant_id.clone(),
+            track_id.clone(),
+            present.then(|| Ok(MediaStreamTrack::Video(local.rtc_track()))),
+        )
+    };
+
+    // A catalog entry withdrawn before signaling must never produce TrackSubscribed.
+    update(true);
+    update(false);
+    room.inner.handle_participant_update(vec![info.clone()]);
+    let participant = room.inner.get_participant_by_sid(&participant_id).unwrap();
+    assert!(!participant.get_track_publication(&track_id).unwrap().is_subscribed());
+
+    let tracks = std::mem::take(&mut info.tracks);
+    room.inner.handle_participant_update(vec![info.clone()]);
+    update(true);
+    info.tracks = tracks;
+    room.inner.handle_participant_update(vec![info.clone(), info]);
+    let publication = participant.get_track_publication(&track_id).unwrap();
+    assert!(publication.is_subscribed());
+    update(false);
+    update(false);
+    assert!(!publication.is_subscribed());
+    let mut transitions = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            RoomEvent::TrackSubscribed { .. } => transitions.push(true),
+            RoomEvent::TrackUnsubscribed { .. } => transitions.push(false),
+            _ => {}
+        }
+    }
+    assert_eq!(transitions, [true, false]);
+    room.close().await.unwrap();
+}
+
+/// Failures use the same cross-connection ordering as successful MoQ attachments.
+#[cfg(feature = "moq")]
+#[tokio::test]
+async fn moq_failure_waits_for_signaling_and_is_cleared_on_withdrawal() {
+    let (room, mut events) = test_room().await;
+    let info = remote_info();
+    let participant_id: ParticipantSid = info.sid.clone().try_into().unwrap();
+    let sid: TrackSid = info.tracks[0].sid.clone().try_into().unwrap();
+    let failure = || Some(Err(track::TrackError::MoqSubscription("subscription limit".into())));
+    let update = |state| room.inner.handle_moq_media(participant_id.clone(), sid.clone(), state);
+    update(failure());
+    update(None);
+    room.inner.handle_participant_update(vec![info.clone()]);
+    assert!(!std::iter::from_fn(|| events.try_recv().ok())
+        .any(|e| matches!(e, RoomEvent::TrackSubscriptionFailed { .. })));
+
+    let mut missing = info.clone();
+    missing.tracks.clear();
+    room.inner.handle_participant_update(vec![missing]);
+    update(failure());
+    room.inner.handle_participant_update(vec![info.clone(), info]);
+    let mut failures = 0;
+    while let Ok(event) = events.try_recv() {
+        if let RoomEvent::TrackSubscriptionFailed { participant, track_sid, error } = event {
+            assert_eq!(participant.sid(), participant_id);
+            assert_eq!(track_sid, sid);
+            assert!(matches!(error, track::TrackError::MoqSubscription(_)));
+            failures += 1;
+        }
+    }
+    assert_eq!(failures, 1);
+
+    let source = NativeVideoSource::new(VideoResolution { width: 64, height: 64 }, false);
+    let local = LocalVideoTrack::create_video_track("video", RtcVideoSource::Native(source));
+    update(Some(Ok(MediaStreamTrack::Video(local.rtc_track()))));
+    update(failure());
+    let transitions: Vec<_> = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|e| match e {
+            RoomEvent::TrackSubscribed { .. } => Some("subscribed"),
+            RoomEvent::TrackUnsubscribed { .. } => Some("unsubscribed"),
+            RoomEvent::TrackSubscriptionFailed { .. } => Some("failed"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(transitions, ["subscribed", "unsubscribed", "failed"]);
+    room.close().await.unwrap();
+}

@@ -2066,6 +2066,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastbloom"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef975e30683b2d965054bb0a836f8973857c4ebf6acf274fe46617cd285060d8"
+dependencies = [
+ "foldhash 0.2.0",
+ "libm",
+ "portable-atomic",
+ "siphasher",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3782,9 +3794,15 @@ dependencies = [
  "livekit-signaling",
  "livekit-token",
  "log",
+ "moqtap-client",
+ "moqtap-codec",
  "parking_lot",
  "prost 0.14.4",
+ "quinn",
  "rand 0.9.5",
+ "rustix 1.1.4",
+ "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "serial_test",
@@ -3793,6 +3811,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+ "url",
 ]
 
 [[package]]
@@ -4303,6 +4322,31 @@ dependencies = [
  "parking_lot",
  "tokio",
  "webrtc-sys-build",
+]
+
+[[package]]
+name = "moqtap-client"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53880c028b28c92e2037d297e879f3490ff4cd834bae96a99376968b41f9b39e"
+dependencies = [
+ "bytes",
+ "moqtap-codec",
+ "quinn",
+ "rustls",
+ "thiserror 2.0.19",
+ "tokio",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "moqtap-codec"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e4cb907c70a30eb52262e5caa97243058b5fe7d5149fd7a7c5e27c8d30b12fe"
+dependencies = [
+ "bytes",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5881,9 +5925,9 @@ dependencies = [
 
 [[package]]
 name = "quinn"
-version = "0.11.11"
+version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1a41e437b6bbd489372cd4971de128e85c855f56c57f283d20ff016cf7c0a8"
+checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -5901,11 +5945,12 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.16"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f4bfc015262b9df63c8845072ce59068853ff5872180c2ce2f13038b970e560"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "bytes",
+ "fastbloom",
  "getrandom 0.4.3",
  "lru-slab",
  "rand 0.10.2",
@@ -5914,6 +5959,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "slab",
  "thiserror 2.0.19",
  "tinyvec",
@@ -7279,7 +7325,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",

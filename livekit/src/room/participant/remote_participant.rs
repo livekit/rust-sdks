@@ -158,7 +158,7 @@ impl RemoteParticipant {
         &self,
         sid: TrackSid,
         media_track: MediaStreamTrack,
-        transceiver: RtpTransceiver,
+        transceiver: Option<RtpTransceiver>,
     ) {
         let wait_publication = {
             let participant = self.clone();
@@ -178,55 +178,13 @@ impl RemoteParticipant {
             }
         };
 
-        if let Ok(Some(remote_publication)) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
+        if let Ok(Some(_)) = timeout(ADD_TRACK_TIMEOUT, wait_publication).await {
             let closed = self.remote.closed.lock();
-            if *closed {
-                return;
+            if !*closed {
+                if let Some(publication) = self.get_track_publication(&sid) {
+                    self.attach_subscribed_media_track(publication, media_track, transceiver);
+                }
             }
-            let track = match remote_publication.kind() {
-                TrackKind::Audio => {
-                    if let MediaStreamTrack::Audio(rtc_track) = media_track {
-                        let audio_track = RemoteAudioTrack::new(
-                            remote_publication.sid(),
-                            remote_publication.name(),
-                            rtc_track,
-                        );
-                        RemoteTrack::Audio(audio_track)
-                    } else {
-                        unreachable!();
-                    }
-                }
-                TrackKind::Video => {
-                    if let MediaStreamTrack::Video(rtc_track) = media_track {
-                        let video_track = RemoteVideoTrack::new(
-                            remote_publication.sid(),
-                            remote_publication.name(),
-                            rtc_track,
-                        );
-                        RemoteTrack::Video(video_track)
-                    } else {
-                        unreachable!()
-                    }
-                }
-            };
-
-            track.set_transceiver(Some(transceiver));
-
-            //track.set_muted(remote_publication.is_muted());
-            track.update_info(proto::TrackInfo {
-                sid: remote_publication.sid().to_string(),
-                name: remote_publication.name(),
-                r#type: proto::TrackType::from(remote_publication.kind()) as i32,
-                source: proto::TrackSource::from(remote_publication.source()) as i32,
-                muted: remote_publication.is_muted(),
-                ..Default::default()
-            });
-
-            self.add_publication_inner(TrackPublication::Remote(remote_publication.clone()));
-            track.enable();
-
-            remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
-                                                       // publication
         } else {
             let closed = self.remote.closed.lock();
             if *closed {
@@ -244,6 +202,75 @@ impl RemoteParticipant {
                 );
             }
         }
+    }
+
+    // Keep either outcome until the matching publication arrives over signaling.
+    #[cfg(feature = "moq")]
+    pub(crate) fn apply_moq_media(
+        &self,
+        sid: &TrackSid,
+        track: Option<Result<MediaStreamTrack, TrackError>>,
+    ) -> Option<Result<MediaStreamTrack, TrackError>> {
+        let closed = self.remote.closed.lock();
+        if *closed {
+            return None;
+        }
+        let Some(publication) = self.get_track_publication(sid) else { return track };
+        match track {
+            Some(Ok(track)) if publication.is_desired() => {
+                self.attach_subscribed_media_track(publication, track, None)
+            }
+            Some(Err(error)) if publication.is_desired() => {
+                if let Some(track) = publication.track() {
+                    track.disable();
+                    publication.set_track(None);
+                }
+                if let Some(handler) = self.remote.events.track_subscription_failed.lock().as_ref()
+                {
+                    handler(self.clone(), sid.clone(), error);
+                }
+            }
+            None => {
+                if let Some(track) = publication.track() {
+                    track.disable();
+                    publication.set_track(None);
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    // The caller holds the publication mutation lock.
+    fn attach_subscribed_media_track(
+        &self,
+        publication: RemoteTrackPublication,
+        media_track: MediaStreamTrack,
+        transceiver: Option<RtpTransceiver>,
+    ) {
+        let track = match (publication.kind(), media_track) {
+            (TrackKind::Audio, MediaStreamTrack::Audio(rtc_track)) => RemoteTrack::Audio(
+                RemoteAudioTrack::new(publication.sid(), publication.name(), rtc_track),
+            ),
+            (TrackKind::Video, MediaStreamTrack::Video(rtc_track)) => RemoteTrack::Video(
+                RemoteVideoTrack::new(publication.sid(), publication.name(), rtc_track),
+            ),
+            _ => {
+                log::warn!("received media of the wrong kind for {}", publication.sid());
+                return;
+            }
+        };
+        track.set_transceiver(transceiver);
+        track.update_info(proto::TrackInfo {
+            sid: publication.sid().to_string(),
+            name: publication.name(),
+            r#type: proto::TrackType::from(publication.kind()) as i32,
+            source: proto::TrackSource::from(publication.source()) as i32,
+            muted: publication.is_muted(),
+            ..Default::default()
+        });
+        track.enable();
+        publication.set_track(Some(track));
     }
 
     pub(crate) fn unpublish_track(&self, sid: &TrackSid) {

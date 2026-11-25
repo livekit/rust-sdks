@@ -62,7 +62,14 @@ fn main() {
         rust_files.push("src/desktop_capturer.rs");
     }
 
+    let standalone_codecs = env::var_os("CARGO_FEATURE_STANDALONE_CODECS").is_some();
+    if standalone_codecs {
+        rust_files.extend(["src/audio_codec.rs", "src/video_codec.rs"]);
+    }
     let mut builder = cxx_build::bridges(rust_files);
+    if standalone_codecs {
+        builder.files(["src/audio_codec.cpp", "src/video_codec.cpp"]);
+    }
 
     builder.files(&[
         "src/peer_connection.cpp",

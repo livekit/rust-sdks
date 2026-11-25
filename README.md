@@ -139,6 +139,8 @@ async fn main() {
 
 ## Using Real-time SDK
 
+To carry media and DataTracks over native QUIC, see the [Rust SDK MoQ integration guide](livekit/docs/moq.md).
+
 ### Connect to a Room and listen for events:
 
 ```rust

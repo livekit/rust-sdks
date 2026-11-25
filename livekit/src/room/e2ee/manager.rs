@@ -115,7 +115,8 @@ impl E2eeManager {
         participant: RemoteParticipant,
     ) {
         let identity = participant.identity();
-        let receiver = track.transceiver().unwrap().receiver();
+        let Some(transceiver) = track.transceiver() else { return };
+        let receiver = transceiver.receiver();
         let mut packet_trailer_handler = None;
 
         let needs_packet_trailer_handler = needs_video_receiver_packet_trailer_handler(
@@ -165,7 +166,8 @@ impl E2eeManager {
         participant: LocalParticipant,
     ) {
         let identity = participant.identity();
-        let sender = track.transceiver().unwrap().sender();
+        let Some(transceiver) = track.transceiver() else { return };
+        let sender = transceiver.sender();
 
         let packet_trailer_handler = if let LocalTrack::Video(video_track) = &track {
             let handler = video_track.packet_trailer_handler();

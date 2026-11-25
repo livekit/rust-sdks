@@ -66,6 +66,10 @@ impl SineTrack {
     }
 
     pub async fn publish(&mut self) -> RoomResult<()> {
+        self.publish_with_options(TrackPublishOptions::default()).await
+    }
+
+    pub async fn publish_with_options(&mut self, options: TrackPublishOptions) -> RoomResult<()> {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalAudioTrack::create_audio_track(
             "sine-track",
@@ -75,7 +79,7 @@ impl SineTrack {
             tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
         self.room
             .local_participant()
-            .publish_track(LocalTrack::Audio(track.clone()), TrackPublishOptions::default())
+            .publish_track(LocalTrack::Audio(track.clone()), options)
             .await?;
         let handle = TrackHandle { close_tx, track, task };
         self.handle = Some(handle);

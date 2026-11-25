@@ -26,6 +26,11 @@ use tokio::sync::{mpsc, watch, Notify};
 /// leaves partially queued frame.
 pub type DataTrackFramePackets = Vec<Bytes>;
 
+// The LiveKit wire header encodes its handle as a network-order u16 at byte 2.
+pub(super) fn packet_handle(packet: &[u8]) -> Option<u16> {
+    Some(u16::from_be_bytes(packet.get(2..4)?.try_into().ok()?))
+}
+
 /// Options for constructing a [`DataChannelSender`].
 pub struct DataChannelSenderOptions {
     pub low_buffer_threshold: u64,
@@ -50,6 +55,14 @@ struct DataTrackSendQueueInner {
     queue: Mutex<VecDeque<DataTrackFramePackets>>,
     notify: Notify,
     capacity: usize,
+    per_track: bool,
+}
+
+impl Default for DataTrackSendQueue {
+    fn default() -> Self {
+        // The WebRTC data channel retains the freshest complete pending frame.
+        Self::new(1)
+    }
 }
 
 impl DataTrackSendQueue {
@@ -60,6 +73,20 @@ impl DataTrackSendQueue {
                 queue: Mutex::new(VecDeque::with_capacity(capacity)),
                 notify: Notify::new(),
                 capacity,
+                per_track: false,
+            }),
+        }
+    }
+
+    /// Keep the newest pending frame for each MoQ publication. Active requests are capped at 128.
+    #[cfg(feature = "moq")]
+    pub(super) fn for_moq() -> Self {
+        Self {
+            inner: Arc::new(DataTrackSendQueueInner {
+                queue: Mutex::new(VecDeque::new()),
+                notify: Notify::new(),
+                capacity: 128,
+                per_track: true,
             }),
         }
     }
@@ -71,6 +98,12 @@ impl DataTrackSendQueue {
             return None;
         }
         let mut queue = self.inner.queue.lock().expect("send queue mutex poisoned");
+        if self.inner.per_track {
+            let handle = packet_handle(&packets[0]);
+            if let Some(slot) = queue.iter_mut().find(|frame| packet_handle(&frame[0]) == handle) {
+                return Some(std::mem::replace(slot, packets));
+            }
+        }
         let dropped = if queue.len() >= self.inner.capacity { queue.pop_front() } else { None };
         queue.push_back(packets);
         drop(queue);
@@ -78,17 +111,26 @@ impl DataTrackSendQueue {
         dropped
     }
 
+    #[cfg(feature = "moq")]
+    pub(super) fn discard_handle(&self, handle: u16) {
+        self.inner
+            .queue
+            .lock()
+            .expect("send queue mutex poisoned")
+            .retain(|frame| packet_handle(&frame[0]) != Some(handle));
+    }
+
     fn try_pop(&self) -> Option<DataTrackFramePackets> {
         self.inner.queue.lock().expect("send queue mutex poisoned").pop_front()
     }
 
-    fn drain(&self) -> VecDeque<DataTrackFramePackets> {
+    pub(super) fn drain(&self) -> VecDeque<DataTrackFramePackets> {
         std::mem::take(&mut *self.inner.queue.lock().expect("send queue mutex poisoned"))
     }
 
     /// Awaits the next queued frame. Cancel-safe: dropping the future leaves
     /// any queued frame in place.
-    async fn recv(&self) -> DataTrackFramePackets {
+    pub(super) async fn recv(&self) -> DataTrackFramePackets {
         loop {
             if let Some(packets) = self.try_pop() {
                 return packets;
@@ -141,30 +183,19 @@ pub struct DataChannelSender {
 }
 
 impl DataChannelSender {
-    /// Queue capacity in frames. Set to 1 so only the freshest pending frame
-    /// is held; older queued frames are evicted on the next send.
-    const QUEUE_CAPACITY: usize = 1;
-
-    /// Creates a new sender.
-    ///
-    /// Returns a tuple containing the following:
-    /// - The sender itself to be spawned by the caller (see [`DataChannelSender::run`]).
-    /// - A cloneable queue handle for producers to push frames onto.
-    pub fn new(options: DataChannelSenderOptions) -> (Self, DataTrackSendQueue) {
-        let queue = DataTrackSendQueue::new(Self::QUEUE_CAPACITY);
+    pub fn new(options: DataChannelSenderOptions, queue: DataTrackSendQueue) -> Self {
         let (dc_event_tx, dc_event_rx) = mpsc::unbounded_channel();
 
-        let sender = Self {
+        Self {
             low_buffer_threshold: options.low_buffer_threshold,
             dc: options.dc,
-            queue: queue.clone(),
+            queue,
             in_flight: VecDeque::new(),
             dc_event_rx,
             dc_event_tx,
             close_rx: options.close_rx,
             buffered_amount: 0,
-        };
-        (sender, queue)
+        }
     }
 
     /// Run the sender task, consuming self.
@@ -206,7 +237,9 @@ impl DataChannelSender {
     /// while still respecting DC backpressure between them.
     fn drain_in_flight(&mut self) {
         while self.buffered_amount <= self.low_buffer_threshold {
-            let Some(packet) = self.in_flight.pop_front() else { break };
+            let Some(packet) = self.in_flight.pop_front() else {
+                break;
+            };
             self.dispatch(packet);
         }
     }
@@ -250,7 +283,9 @@ fn on_buffered_amount_change(
     Box::new(move |bytes_sent| {
         // Note: this callback is holding onto a weak sender, which will not
         // prevent the channel from closing.
-        let Some(event_tx) = event_tx.upgrade() else { return };
+        let Some(event_tx) = event_tx.upgrade() else {
+            return;
+        };
         _ = event_tx.send(DataChannelEvent::BytesSent(bytes_sent));
     })
 }

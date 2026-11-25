@@ -28,6 +28,12 @@
 namespace livekit_ffi {
 enum class VideoEncoderBackend : std::int32_t;
 
+// Returns `format` tagged so that VideoEncoderFactory::Create prefers
+// `backend`, the same way RtpSender::set_video_encoder_backend does.
+webrtc::SdpVideoFormat WithVideoEncoderBackend(
+    const webrtc::SdpVideoFormat& format,
+    VideoEncoderBackend backend);
+
 struct VideoEncoderBackendFactory {
   VideoEncoderBackend backend;
   std::unique_ptr<webrtc::VideoEncoderFactory> factory;

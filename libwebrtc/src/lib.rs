@@ -69,6 +69,8 @@ pub mod video_track;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
+    #[cfg(feature = "standalone-codecs")]
+    pub use crate::imp::{audio_codec, video_codec};
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
     pub use crate::imp::{

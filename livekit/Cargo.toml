@@ -12,6 +12,7 @@ readme = "README.md"
 default = ["native"]
 
 native = ["livekit-signaling/native"]
+moq = ["native", "libwebrtc/standalone-codecs", "dep:moqtap-client", "dep:moqtap-codec", "dep:quinn", "dep:rustls", "dep:rustls-platform-verifier", "dep:url"]
 
 # Back-compat alias from when this also selected a runtime.
 tokio = ["native"]
@@ -43,6 +44,7 @@ check = [
     ["default"],                                        # a plain `cargo check`
     [],                                                 # --no-default-features
     ["native"],
+    ["moq"],
     ["native", "native-tls"],
     ["native", "native-tls-vendored"],
     ["native", "rustls-tls-native-roots"],
@@ -52,6 +54,12 @@ check = [
 ]
 
 [dependencies]
+moqtap-client = { version = "=0.16.0", default-features = false, features = ["draft23"], optional = true }
+moqtap-codec = { version = "=0.13.1", default-features = false, features = ["draft23"], optional = true }
+quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls-platform-verifier = { version = "0.7", optional = true }
+url = { version = "2", optional = true }
 livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
@@ -89,3 +97,7 @@ test-case = "3.3"
 serial_test = "3.0"
 http = "1.1"
 rand = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# Shared kernel clock for the multi-process network handoff benchmark.
+rustix = { version = "1", features = ["time"] }

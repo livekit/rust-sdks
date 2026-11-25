@@ -302,6 +302,12 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
 #endif
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
+webrtc::SdpVideoFormat WithVideoEncoderBackend(
+    const webrtc::SdpVideoFormat& format,
+    VideoEncoderBackend backend) {
+  return WithBackend(format, backend);
+}
+
 rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   rust::Vec<VideoEncoderBackend> backends;
   backends.push_back(VideoEncoderBackend::Auto);

@@ -3776,7 +3776,7 @@ impl AudioMixing {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalRequest {
-    #[prost(oneof = "signal_request::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof = "signal_request::Message", tags = "1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
     pub message: ::core::option::Option<signal_request::Message>,
 }
 /// Nested message and enum types in `SignalRequest`.
@@ -3850,6 +3850,9 @@ pub mod signal_request {
         /// Retrieve a stored data blob.
         #[prost(message, tag = "23")]
         GetDataBlobRequest(super::GetDataBlobRequest),
+        /// Explicit publication removal for media transports without SDP.
+        #[prost(message, tag = "24")]
+        UnpublishTrack(super::UnpublishTrackRequest),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4130,6 +4133,9 @@ pub struct JoinResponse {
     /// when set, client should attempt to establish publish peer connection when joining room to speed up publishing
     #[prost(bool, tag = "15")]
     pub fast_publish: bool,
+    /// Present only when MoQ was explicitly selected during WebSocket join.
+    #[prost(message, optional, tag = "16")]
+    pub moq: ::core::option::Option<MoQTransportInfo>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReconnectResponse {
@@ -4142,6 +4148,9 @@ pub struct ReconnectResponse {
     /// last sequence number of reliable message received before resuming
     #[prost(uint32, tag = "4")]
     pub last_message_seq: u32,
+    /// Fresh attachment credential; an existing healthy MoQ connection stays attached.
+    #[prost(message, optional, tag = "5")]
+    pub moq: ::core::option::Option<MoQTransportInfo>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPublishedResponse {
@@ -4763,6 +4772,31 @@ pub struct MediaSectionsRequirement {
     pub num_audios: u32,
     #[prost(uint32, tag = "2")]
     pub num_videos: u32,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UnpublishTrackRequest {
+    #[prost(string, tag = "1")]
+    pub track_sid: ::prost::alloc::string::String,
+}
+/// Binds the MoQ data plane to the participant that joined over WebSocket.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MoQTransportInfo {
+    #[prost(string, tag = "1")]
+    pub endpoint: ::prost::alloc::string::String,
+    /// Short-lived bearer credential; never log or persist this value.
+    #[prost(string, tag = "2")]
+    pub attachment_token: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub profile: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub participant_sid: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "5")]
+    pub generation: u64,
+    /// Unix seconds
+    #[prost(int64, tag = "6")]
+    pub expires_at: i64,
+    #[prost(string, tag = "7")]
+    pub namespace_prefix: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -11218,6 +11252,8 @@ pub struct StartSession {
     /// API key that issued the join token, for correlating sessions with the key
     #[prost(string, tag = "27")]
     pub api_key: ::prost::alloc::string::String,
+    #[prost(bool, tag = "28")]
+    pub use_moq_transport: bool,
 }
 /// room info that should not be returned to clients
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -9,6 +9,7 @@ repository.workspace = true
 
 [features]
 default = []
+standalone-codecs = []
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.

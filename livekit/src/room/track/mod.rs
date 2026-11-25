@@ -44,6 +44,10 @@ pub use video_track::*;
 pub enum TrackError {
     #[error("could not find published track with sid: {0:?}")]
     TrackNotFound(TrackSid),
+    /// An advertised MoQ rendition could not be subscribed to or decoded.
+    #[cfg(feature = "moq")]
+    #[error("MoQ media subscription failed: {0}")]
+    MoqSubscription(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -533,10 +533,38 @@ impl LocalParticipant {
             options.video_codec = negotiable_video_codec(&options)?;
         }
 
+        #[cfg(feature = "moq")]
+        if self.inner.rtc_engine.session().uses_moq() {
+            if self.local.encryption_type != EncryptionType::None {
+                return Err(RoomError::Internal(
+                    "MoQ publication requires unencrypted media".into(),
+                ));
+            }
+            if !options.frame_metadata_features.is_empty() {
+                return Err(RoomError::Internal(
+                    "MoQ video does not carry RTP packet trailer metadata".into(),
+                ));
+            }
+            options.simulcast = false;
+            options.red = false;
+        }
         let (req, encodings) =
             prepare_publish(&track, &options, self.local.encryption_type, video_send_encodings);
         let track_info = self.inner.rtc_engine.add_track(req).await?;
 
+        #[cfg(feature = "moq")]
+        {
+            let session = self.inner.rtc_engine.session();
+            if session.uses_moq() {
+                if let Err(err) =
+                    session.publish_moq(&track_info.sid, track.clone(), options.clone()).await
+                {
+                    let _ = session.unpublish_moq(&track_info.sid).await;
+                    return Err(err.into());
+                }
+                return Ok(self.complete_publish(track, options, track_info));
+            }
+        }
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
         track.set_transceiver(Some(transceiver));
@@ -736,9 +764,17 @@ impl LocalParticipant {
         let publication = self.remove_publication(sid);
         if let Some(TrackPublication::Local(publication)) = publication {
             let track = publication.track().unwrap();
-            let remove_result = {
-                let sender = track.transceiver().unwrap().sender();
-                self.inner.rtc_engine.remove_track(sender)
+            let remove_result = if let Some(transceiver) = track.transceiver() {
+                self.inner.rtc_engine.remove_track(transceiver.sender())
+            } else {
+                #[cfg(feature = "moq")]
+                {
+                    self.inner.rtc_engine.session().unpublish_moq(&sid.to_string()).await
+                }
+                #[cfg(not(feature = "moq"))]
+                {
+                    Err(EngineError::Internal("published track has no sender".into()))
+                }
             };
 
             // The peer connection may already be closed after a server-initiated

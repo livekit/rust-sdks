@@ -432,9 +432,23 @@ impl RoomDataStreamOptions {
     }
 }
 
+/// Selects the media and DataTrack transport used for a room session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RoomTransport {
+    /// Use WebRTC for media and data.
+    #[default]
+    WebRtc,
+    /// Attach native Media over QUIC to the room WebSocket.
+    #[cfg(feature = "moq")]
+    Moq,
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomOptions {
+    /// Media and DataTrack transport. Defaults to WebRTC.
+    pub transport: RoomTransport,
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
@@ -465,6 +479,7 @@ pub struct RoomOptions {
 impl Default for RoomOptions {
     fn default() -> Self {
         Self {
+            transport: RoomTransport::default(),
             auto_subscribe: true,
             adaptive_stream: false,
             dynacast: false,
@@ -534,6 +549,10 @@ pub(crate) struct RoomSession {
     active_speakers: RwLock<Vec<Participant>>,
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
+    // Catalog subscriptions and WebSocket publication metadata can arrive in either order.
+    #[cfg(feature = "moq")]
+    pending_moq_media:
+        Mutex<HashMap<(ParticipantSid, TrackSid), Result<MediaStreamTrack, track::TrackError>>>,
     e2ee_manager: E2eeManager,
     incoming_data_stream_input: ds::incoming::ManagerInput,
     pub(crate) outgoing_stream_manager: ds::outgoing::Manager,
@@ -644,10 +663,17 @@ impl Room {
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
-        signal_options.single_peer_connection = options.single_peer_connection;
+        signal_options.use_moq = options.transport != RoomTransport::WebRtc;
+        let single_peer_connection = options.single_peer_connection && !signal_options.use_moq;
+        signal_options.single_peer_connection = single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
 
         let encryption_type = e2ee_manager.encryption_type();
+        if signal_options.use_moq && encryption_type != EncryptionType::None {
+            return Err(RoomError::Internal(
+                "MoQ rooms do not support end-to-end encryption".into(),
+            ));
+        }
         let mut publish_tracks = std::mem::take(&mut options.publish_tracks);
         // Requests and their responses are matched by track cid.
         let mut cids = HashSet::new();
@@ -667,7 +693,7 @@ impl Room {
         // frame cryptor (which needs the identity from the join response) is attached. Encrypted
         // rooms therefore publish these tracks normally instead.
         let join_publish_tracks: &[(LocalTrack, TrackPublishOptions)] = match encryption_type {
-            EncryptionType::None => &publish_tracks,
+            EncryptionType::None if !signal_options.use_moq => &publish_tracks,
             _ => &[],
         };
         let (rtc_engine, join_response, engine_events, pre_publish_receivers) = RtcEngine::connect(
@@ -677,7 +703,7 @@ impl Room {
                 rtc_config: options.rtc_config.clone(),
                 signal_options,
                 join_retries: options.join_retries,
-                single_peer_connection: options.single_peer_connection,
+                single_peer_connection,
             },
             Some(e2ee_manager.clone()),
             join_publish_tracks,
@@ -833,6 +859,8 @@ impl Room {
                 reliable_dc_options: Default::default(),
             }),
             remote_participants: Default::default(),
+            #[cfg(feature = "moq")]
+            pending_moq_media: Default::default(),
             active_speakers: Default::default(),
             options: options.clone(),
             rtc_engine: rtc_engine.clone(),
@@ -1218,6 +1246,10 @@ impl RoomSession {
             EngineEvent::ParticipantReconcile { seen_identities } => {
                 self.reconcile_absent_participants(seen_identities.into_iter())
             }
+            #[cfg(feature = "moq")]
+            EngineEvent::MoqMedia { participant_id, track_id, track } => {
+                self.handle_moq_media(participant_id, track_id, track);
+            }
             EngineEvent::MediaTrack { track, stream, transceiver } => {
                 self.handle_media_track(track, stream, transceiver)
             }
@@ -1363,6 +1395,8 @@ impl RoomSession {
             self.closing.store(true, Ordering::Relaxed);
             std::mem::take(&mut *participants)
         };
+        #[cfg(feature = "moq")]
+        self.pending_moq_media.lock().clear();
         for participant in participants.into_values() {
             participant.teardown();
         }
@@ -1481,8 +1515,8 @@ impl RoomSession {
                     remote_participant.update_info(pi.clone());
                     self.clone().handle_participant_disconnect(remote_participant)
                 } else {
-                    // Ignore, just received the ParticipantInfo but the participant is already
-                    // disconnected
+                    #[cfg(feature = "moq")]
+                    self.pending_moq_media.lock().retain(|(sid, _), _| *sid != participant_sid);
                 }
             } else if let Some(remote_participant) = remote_participant {
                 let already_active = remote_participant.state() == ParticipantState::Active;
@@ -1531,8 +1565,37 @@ impl RoomSession {
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
         }
+        #[cfg(feature = "moq")]
+        {
+            let pending = std::mem::take(&mut *self.pending_moq_media.lock());
+            for ((participant, sid), track) in pending {
+                self.handle_moq_media(participant, sid, Some(track));
+            }
+        }
         if !participants.is_empty() {
             self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated { participants });
+        }
+    }
+
+    #[cfg(feature = "moq")]
+    fn handle_moq_media(
+        &self,
+        participant_id: ParticipantSid,
+        track_id: TrackSid,
+        track: Option<Result<MediaStreamTrack, track::TrackError>>,
+    ) {
+        let track = match self.get_participant_by_sid(&participant_id) {
+            Some(participant) => participant.apply_moq_media(&track_id, track),
+            None => track,
+        };
+        let mut pending = self.pending_moq_media.lock();
+        if !self.closing.load(Ordering::Relaxed) {
+            let key = (participant_id, track_id);
+            if let Some(track) = track {
+                pending.insert(key, track);
+            } else {
+                pending.remove(&key);
+            }
         }
     }
 
@@ -1609,7 +1672,9 @@ impl RoomSession {
 
         if let Some(remote_participant) = remote_participant {
             tokio::spawn(async move {
-                remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
+                remote_participant
+                    .add_subscribed_media_track(track_id, track, Some(transceiver))
+                    .await;
             });
         } else {
             // The server should send participant updates before sending a new offer, this should
@@ -1720,7 +1785,7 @@ impl RoomSession {
 
         // In single PC mode, use publisher's offer/answer
         // In dual PC mode, use subscriber's offer/answer
-        let (offer, answer) = if single_pc_mode {
+        let (offer, answer) = if self.options.transport == RoomTransport::WebRtc && single_pc_mode {
             let pub_pc = session.publisher().peer_connection();
             let Some(local_desc) = pub_pc.current_local_description() else {
                 log::warn!("skipping sendSyncState, no publisher offer");
@@ -1728,8 +1793,8 @@ impl RoomSession {
             };
             let remote_desc = pub_pc.current_remote_description();
             // In single PC mode: offer is local (publisher initiates), answer is remote
-            (local_desc, remote_desc)
-        } else {
+            (Some(local_desc), remote_desc)
+        } else if self.options.transport == RoomTransport::WebRtc {
             let Some(sub_pc) = session.subscriber() else {
                 log::warn!("skipping sendSyncState, no subscriber");
                 return;
@@ -1744,7 +1809,9 @@ impl RoomSession {
                 return;
             };
             // In dual PC mode: answer is local, offer is remote
-            (remote_desc, Some(local_desc))
+            (Some(remote_desc), Some(local_desc))
+        } else {
+            (None, None)
         };
 
         let mut track_sids = Vec::new();
@@ -1806,7 +1873,7 @@ impl RoomSession {
                 id: 0,
                 mid_to_track_id: Default::default(),
             }),
-            offer: Some(proto::SessionDescription {
+            offer: offer.map(|offer| proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
                 id: 0,
@@ -1947,6 +2014,8 @@ impl RoomSession {
             self.dispatcher.dispatch(&RoomEvent::Reconnecting);
         }
 
+        #[cfg(feature = "moq")]
+        self.pending_moq_media.lock().clear();
         // Remove existing participants/subscriptions on full reconnect
         let participants = self.remote_participants.read().clone();
         for (_, participant) in participants.iter() {
@@ -2523,6 +2592,8 @@ impl RoomSession {
     /// A participant has disconnected
     /// Cleanup the participant and emit an event
     fn handle_participant_disconnect(self: Arc<Self>, remote_participant: RemoteParticipant) {
+        #[cfg(feature = "moq")]
+        self.pending_moq_media.lock().retain(|(sid, _), _| *sid != remote_participant.sid());
         for (sid, _) in remote_participant.track_publications() {
             remote_participant.unpublish_track(&sid);
         }

@@ -47,6 +47,8 @@ use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
 mod dc_sender;
 pub mod lk_runtime;
+#[cfg(feature = "moq")]
+mod moq;
 mod peer_transport;
 mod reconnect_strategy;
 mod rtc_events;
@@ -87,6 +89,9 @@ pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
+    /// Move a live MoQ connection to a new UDP socket, optionally on a specific local IP.
+    #[cfg(all(feature = "moq", feature = "__lk-e2e-test"))]
+    MoqNetworkHandoff(Option<std::net::IpAddr>),
     /// Closes the signal channel locally; the engine attempts a Resume.
     SignalReconnect,
     Speaker,
@@ -137,6 +142,12 @@ pub enum EngineEvent {
     /// down and its disconnection must be synthesized.
     ParticipantReconcile {
         seen_identities: HashSet<ParticipantIdentity>,
+    },
+    #[cfg(feature = "moq")]
+    MoqMedia {
+        participant_id: crate::id::ParticipantSid,
+        track_id: crate::id::TrackSid,
+        track: Option<Result<MediaStreamTrack, crate::track::TrackError>>,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -787,6 +798,11 @@ impl EngineInner {
             }
             SessionEvent::RpcAck { request_id } => {
                 let _ = self.engine_tx.send(EngineEvent::RpcAck { request_id });
+            }
+            #[cfg(feature = "moq")]
+            SessionEvent::MoqMedia { participant_id, track_id, track } => {
+                let _ =
+                    self.engine_tx.send(EngineEvent::MoqMedia { participant_id, track_id, track });
             }
             SessionEvent::MediaTrack { track, stream, transceiver } => {
                 let _ = self.engine_tx.send(EngineEvent::MediaTrack { track, stream, transceiver });

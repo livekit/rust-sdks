@@ -188,6 +188,8 @@ pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub sdk_options: SignalSdkOptions,
+    /// Request a native MoQ attachment on the room WebSocket.
+    pub use_moq: bool,
     /// Enable single peer connection mode
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
@@ -228,12 +230,22 @@ pub struct SignalOptions {
     pub cancellation_token: CancellationToken,
 }
 
+impl SignalOptions {
+    fn advertised_capabilities(&self) -> impl Iterator<Item = proto::client_info::Capability> + '_ {
+        self.client_capabilities
+            .iter()
+            .copied()
+            .filter(|c| !self.use_moq || *c != proto::client_info::Capability::CapPacketTrailer)
+    }
+}
+
 impl Default for SignalOptions {
     fn default() -> Self {
         Self {
             auto_subscribe: true,
             adaptive_stream: false,
             sdk_options: SignalSdkOptions::default(),
+            use_moq: false,
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             region_failover: true,
@@ -377,7 +389,7 @@ impl Debug for SignalClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignalClient")
             .field("url", &self.url())
-            .field("join_response", &self.join_response())
+            .field("participant_sid", &self.join_response().participant.as_ref().map(|p| &p.sid))
             .field("options", &self.options())
             .finish()
     }
@@ -640,7 +652,7 @@ impl SignalInner {
         bool,
     )> {
         // Try v1 path first if single_peer_connection is enabled
-        let use_v1_path = options.single_peer_connection;
+        let use_v1_path = options.single_peer_connection && !options.use_moq;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
         let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", initial_publish)?;
         match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
@@ -1065,7 +1077,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
-        capabilities: options.client_capabilities.iter().map(|c| *c as i32).collect(),
+        capabilities: options.advertised_capabilities().map(|c| c as i32).collect(),
         client_protocol: options.client_protocol,
         other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
@@ -1193,6 +1205,10 @@ fn get_livekit_url(
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
+        if options.use_moq {
+            lk_url.query_pairs_mut().append_pair("transport", "moq");
+        }
+
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
         }
@@ -1203,14 +1219,12 @@ fn get_livekit_url(
             lk_url.query_pairs_mut().append_pair("other_sdks", other_sdks);
         }
 
-        // parse client capabilities
-        if !options.client_capabilities.is_empty() {
-            let caps = options
-                .client_capabilities
-                .iter()
-                .map(|c| c.as_str_name())
-                .collect::<Vec<_>>()
-                .join(",");
+        let caps = options
+            .advertised_capabilities()
+            .map(|c| c.as_str_name())
+            .collect::<Vec<_>>()
+            .join(",");
+        if !caps.is_empty() {
             lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
@@ -2129,6 +2143,39 @@ mod tests {
         assert_eq!(client_info.protocol, 16);
         assert_eq!(client_info.capabilities, vec![Capability::CapCompressionDeflateRaw as i32]);
         assert_eq!(client_info.client_protocol, 3);
+    }
+
+    #[test]
+    fn moq_join_and_resume_advertise_only_supported_capabilities() {
+        use proto::client_info::Capability;
+        for reconnect in [false, true] {
+            for (caps, expected) in [
+                (vec![Capability::CapPacketTrailer], None),
+                (
+                    vec![Capability::CapPacketTrailer, Capability::CapCompressionDeflateRaw],
+                    Some("CAP_COMPRESSION_DEFLATE_RAW"),
+                ),
+            ] {
+                let options = SignalOptions {
+                    use_moq: true,
+                    client_capabilities: caps,
+                    ..Default::default()
+                };
+                let url = get_livekit_url(
+                    "wss://localhost:7880",
+                    &options,
+                    false,
+                    reconnect,
+                    None,
+                    "PA_test",
+                    None,
+                )
+                .unwrap();
+                let query: std::collections::HashMap<_, _> =
+                    url.query_pairs().into_owned().collect();
+                assert_eq!(query.get("capabilities").map(String::as_str), expected);
+            }
+        }
     }
 
     #[test]

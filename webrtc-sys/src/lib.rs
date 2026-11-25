@@ -15,6 +15,8 @@
 #[cfg(target_os = "android")]
 pub mod android;
 pub mod apm;
+#[cfg(feature = "standalone-codecs")]
+pub mod audio_codec;
 pub mod audio_device_controller;
 pub mod audio_mixer;
 pub mod audio_resampler;
@@ -37,6 +39,8 @@ pub mod rtp_parameters;
 pub mod rtp_receiver;
 pub mod rtp_sender;
 pub mod rtp_transceiver;
+#[cfg(feature = "standalone-codecs")]
+pub mod video_codec;
 pub mod video_frame;
 pub mod video_frame_buffer;
 pub mod video_track;

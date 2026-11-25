@@ -35,7 +35,7 @@ pub use crate::{
         TrackSource, VideoTrack,
     },
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
-    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
+    RoomResult, RoomSdkOptions, RoomTransport, SipDTMF, Transcription, TranscriptionSegment,
 };
 
 // Platform audio device management (native platforms only)
