@@ -15,9 +15,7 @@
 name: Changeset Check
 
 on:
-  pull_request:
-    types: [opened, synchronize, labeled, unlabeled]
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -28,232 +26,33 @@ jobs:
   # runs on the release PR, which is the last gate before publication.
   check-crates-published:
     name: Check crates exist on crates.io
-    if: github.head_ref == 'knope/release'
+    if: startsWith(github.head_ref, 'release/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - run: .github/scripts/check_crates_published.sh
 
+  # Fails a PR that changes a package of verwalter.toml without a changeset,
+  # or with a changeset level below what the change of the public API needs.
+  # The `internal` label exempts a PR. The release PR is exempt by its branch.
   check-changeset:
     name: Check for changeset
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 # the API check compares with the base of the PR
+          submodules: true # yuv-sys builds from its submodule
 
-      - name: Test detection script
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+      # For the API check (`[check].api` in verwalter.toml).
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+          rustflags: ""
+      - uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
+        with: { tool: cargo-semver-checks }
 
-      - name: Check for changeset
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -eo pipefail
-
-          COMMENT_MARKER="<!-- changeset-check -->"
-
-          delete_comment() {
-            local comment_id
-            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
-            if [ -n "$comment_id" ]; then
-              gh api -X DELETE "repos/${REPO}/issues/comments/${comment_id}" || true
-            fi
-          }
-
-          upsert_comment() {
-            local body="$1"
-            local comment_id
-            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
-            if [ -n "$comment_id" ]; then
-              gh api -X PATCH "repos/${REPO}/issues/comments/${comment_id}" -f body="$body"
-            else
-              gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
-            fi
-          }
-
-          # --- Check for internal label ---
-          HAS_INTERNAL=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels \
-            --jq '[.labels[].name] | any(. == "internal")')
-          if [ "$HAS_INTERNAL" = "true" ]; then
-            echo "PR has 'internal' label - changeset not required"
-            delete_comment
-            exit 0
-          fi
-
-          # --- Skip knope's release PR ---
-          # The release PR consumes changesets (deletes .changeset/*.md and bumps
-          # versions) rather than adding one, so it would always false-positive.
-          # It is always opened from the 'knope/release' branch (see release.yml).
-          if [ "$PR_BRANCH" = "knope/release" ]; then
-            echo "knope release PR - changeset not required"
-            delete_comment
-            exit 0
-          fi
-
-          # --- Get changed files ---
-          CHANGED_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
-
-          # --- Identify changeset files present in the diff ---
-          CHANGESET_FILES=$(echo "$CHANGED_FILES" | grep '^\.changeset/.*\.md$' || true)
-
-          # --- Detect affected packages AND validate existing changeset coverage ---
-          #
-          # A changed crate requires a version bump not just for itself, but for
-          # every crate that (transitively) depends on it. The changeset must
-          # cover the full closure; a changeset that bumps only a subset is
-          # incomplete and fails the check. See .github/scripts/changeset_detect.py.
-          export CHANGED_FILES CHANGESET_FILES
-          DETECTION=$(python3 .github/scripts/changeset_detect.py)
-
-          # Handle cargo metadata errors gracefully
-          ERROR=$(echo "$DETECTION" | jq -r '.error // empty')
-          if [ -n "$ERROR" ]; then
-            echo "::warning::Failed to detect packages via cargo metadata: $ERROR"
-          fi
-
-          # --- Reject bump lines knope can't parse (e.g. quoted package names) ---
-          # Knope silently ignores entries like `"livekit": patch` (the JS
-          # changesets convention), so they'd never be released.
-          NUM_INVALID=$(echo "$DETECTION" | jq '.invalid | length')
-          if [ "$NUM_INVALID" != "0" ]; then
-            INVALID_LIST=$(echo "$DETECTION" | jq -r '.invalid[] | "- `\(.file)` line \(.line): `\(.content)` should be `\(.fixed)`"')
-            COMMENT_BODY=$(
-              echo "$COMMENT_MARKER"
-              echo "### Changeset format error"
-              echo ""
-              echo "Knope requires unquoted package names in changeset front matter and silently ignores entries in any other format, so the following lines would never be released:"
-              echo ""
-              echo "$INVALID_LIST"
-            )
-            upsert_comment "$COMMENT_BODY" || true
-            echo "::error::Changeset front matter contains bump lines knope would ignore (quoted package names). See the PR comment for fixes."
-            exit 1
-          fi
-
-          # --- Gate: knope.toml must stay in sync with the workspace ---
-          # A publishable crate missing from knope.toml silently escapes changeset
-          # enforcement and is never released; a knope entry with no matching crate
-          # is dangling config. Either is a release-pipeline bug, so fail hard until
-          # the config is reconciled. This runs before the "no versioned packages"
-          # early-out below because a brand-new unmanaged crate maps to no knope
-          # package and would otherwise slip through as "nothing affected".
-          NUM_UNMANAGED=$(echo "$DETECTION" | jq '.unmanaged | length')
-          NUM_STALE=$(echo "$DETECTION" | jq '.stale | length')
-          if [ "$NUM_UNMANAGED" != "0" ] || [ "$NUM_STALE" != "0" ]; then
-            COMMENT_BODY=$(
-              echo "$COMMENT_MARKER"
-              echo "### knope.toml is out of sync with the workspace"
-              echo ""
-              if [ "$NUM_UNMANAGED" != "0" ]; then
-                UNMANAGED_LIST=$(echo "$DETECTION" | jq -r '.unmanaged[] | "- `\(.)`"')
-                echo "These publishable crates are **not** managed by knope, so they would never get a changeset requirement or a release:"
-                echo ""
-                echo "$UNMANAGED_LIST"
-                echo ""
-                echo "Fix each one by **either**:"
-                echo "- adding a \`[packages.<name>]\` block to \`knope.toml\` (if it should be released), **or**"
-                echo "- setting \`publish = false\` in its \`Cargo.toml\` (if it should not)."
-                echo ""
-              fi
-              if [ "$NUM_STALE" != "0" ]; then
-                STALE_LIST=$(echo "$DETECTION" | jq -r '.stale[] | "- `\(.)`"')
-                echo "These \`knope.toml\` packages have no matching workspace crate (renamed or removed?):"
-                echo ""
-                echo "$STALE_LIST"
-                echo ""
-                echo "Remove the stale \`[packages.<name>]\` block(s) from \`knope.toml\`."
-                echo ""
-              fi
-            )
-            upsert_comment "$COMMENT_BODY" || echo "::warning::Could not post PR comment (this can happen for fork PRs with limited permissions)"
-            echo "::error::knope.toml is out of sync with the workspace (unmanaged: ${NUM_UNMANAGED}, stale: ${NUM_STALE}). See the PR comment for details."
-            exit 1
-          fi
-
-          # --- If no versioned packages are affected, no changeset is required ---
-          NUM_REQUIRED=$(echo "$DETECTION" | jq '.required | length')
-          if [ "$NUM_REQUIRED" = "0" ]; then
-            echo "No versioned packages affected - changeset not required"
-            delete_comment
-            exit 0
-          fi
-
-          # --- If every affected package is covered, the changeset is complete ---
-          NUM_MISSING=$(echo "$DETECTION" | jq '.missing | length')
-          if [ "$NUM_MISSING" = "0" ]; then
-            echo "Changeset covers all affected packages"
-
-            TABLE_ROWS=$(echo "$DETECTION" | jq -r '.present[] | "| `\(.[0])` | `\(.[1])` |"')
-            COMMENT_BODY=$(
-              echo "$COMMENT_MARKER"
-              echo "### Changeset ✓"
-              echo ""
-              echo "This PR includes a changeset covering all affected packages:"
-              echo ""
-              echo "| Package | Bump |"
-              echo "|---------|------|"
-              echo "$TABLE_ROWS"
-            )
-            upsert_comment "$COMMENT_BODY" || true
-            exit 0
-          fi
-
-          # --- Some affected packages are missing a bump: build comment and fail ---
-          CHANGESET_CONTENT=$(echo "$DETECTION" | jq -r '.changeset_content')
-
-          # Generate a file-name slug from the PR title
-          SLUG=$(echo "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_' | sed 's/^_//; s/_$//')
-          SLUG="${SLUG:0:60}"
-          [ -z "$SLUG" ] && SLUG="pr_${PR_NUMBER}"
-
-          # Build a GitHub create-file URL that pre-populates the missing bumps
-          ENCODED_CONTENT=$(printf '%s' "$CHANGESET_CONTENT" | jq -sRr @uri)
-          CREATE_URL="https://github.com/${REPO}/new/${PR_BRANCH}?filename=.changeset/${SLUG}.md&value=${ENCODED_CONTENT}"
-
-          MISSING_LIST=$(echo "$DETECTION" | jq -r '.missing[] | "- `\(.)`"')
-          NUM_PRESENT=$(echo "$DETECTION" | jq '.present | length')
-
-          if [ "$NUM_PRESENT" = "0" ]; then
-            HEADING="### No changeset found"
-            INTRO="This PR modifies versioned packages but doesn't include a changeset. The following packages require a version bump:"
-          else
-            HEADING="### Changeset incomplete"
-            PRESENT_LIST=$(echo "$DETECTION" | jq -r '.present[] | "- `\(.[0])` (`\(.[1])`)"')
-            INTRO="This PR's changeset is missing version bumps for packages that are affected by the change. The following packages still require a bump:"
-          fi
-
-          COMMENT_BODY=$(
-            echo "$COMMENT_MARKER"
-            echo "$HEADING"
-            echo ""
-            echo "$INTRO"
-            echo ""
-            echo "$MISSING_LIST"
-            echo ""
-            if [ "$NUM_PRESENT" != "0" ]; then
-              echo "Already covered:"
-              echo ""
-              echo "$PRESENT_LIST"
-              echo ""
-            fi
-            echo "A package must be bumped when its own files change, **and** whenever a package it depends on is bumped (so downstream consumers get a matching release)."
-            echo ""
-            echo "[**Click here to create a changeset for the missing packages**](${CREATE_URL})"
-            echo ""
-            echo "The link pre-populates a changeset file with \`patch\` bumps for the missing packages. You can also add them to your existing changeset. Edit the bump types as needed before committing."
-            echo ""
-            echo "If this change doesn't require a version bump, add the \`internal\` label to this PR."
-          )
-
-          # --- Post or update comment ---
-          upsert_comment "$COMMENT_BODY" || echo "::warning::Could not post PR comment (this can happen for fork PRs with limited permissions)"
-
-          MISSING_CSV=$(echo "$DETECTION" | jq -r '.missing | join(", ")')
-          echo "::error::Changeset is missing version bumps for: ${MISSING_CSV}. Add them or apply the 'internal' label."
-          exit 1
+      - uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
+        with:
+          command: check

@@ -107,6 +107,11 @@ pub struct LocalVideoTrack {
     source: RtcVideoSource,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
+    /// Last qualities requested by dynacast, re-applied after renegotiation.
+    subscribed_qualities: Arc<Mutex<Option<Vec<proto::SubscribedQuality>>>>,
+    /// The runtime whose factory created the native track. Its threads must outlive the track,
+    /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
+    _runtime: Arc<LkRuntime>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -142,6 +147,15 @@ impl Stream for PublishTimingEventStream {
 
 impl LocalVideoTrack {
     pub fn new(name: String, rtc_track: RtcVideoTrack, source: RtcVideoSource) -> Self {
+        Self::with_runtime(name, rtc_track, source, LkRuntime::instance())
+    }
+
+    fn with_runtime(
+        name: String,
+        rtc_track: RtcVideoTrack,
+        source: RtcVideoSource,
+        runtime: Arc<LkRuntime>,
+    ) -> Self {
         Self {
             inner: Arc::new(super::new_inner(
                 "TR_unknown".to_owned().try_into().unwrap(),
@@ -152,22 +166,25 @@ impl LocalVideoTrack {
             source,
             packet_trailer_handler: Arc::new(Mutex::new(None)),
             publish_timing_tx: Arc::new(Mutex::new(None)),
+            subscribed_qualities: Arc::new(Mutex::new(None)),
+            _runtime: runtime,
         }
     }
 
     pub fn create_video_track(name: &str, source: RtcVideoSource) -> LocalVideoTrack {
+        let runtime = LkRuntime::instance();
         let rtc_track = match source.clone() {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(native_source) => {
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-                LkRuntime::instance()
+                runtime
                     .pc_factory()
                     .create_video_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
             _ => panic!("unsupported video source"),
         };
 
-        Self::new(name.to_string(), rtc_track, source)
+        Self::with_runtime(name.to_string(), rtc_track, source, runtime)
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -323,6 +340,10 @@ impl LocalVideoTrack {
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        // clear subscribed qualities on unpublish
+        if transceiver.is_none() {
+            *self.subscribed_qualities.lock() = None;
+        }
         self.inner.info.write().transceiver = transceiver;
     }
 
@@ -356,6 +377,19 @@ impl LocalVideoTrack {
         &self,
         qualities: &[proto::SubscribedQuality],
     ) -> RoomResult<()> {
+        merge_qualities(self.subscribed_qualities.lock().get_or_insert_with(Vec::new), qualities);
+        self.apply_publishing_layers(qualities)
+    }
+
+    /// Re-applies the last dynacast qualities, since renegotiation re-enables paused layers.
+    pub(crate) fn refresh_publishing_layers(&self) -> RoomResult<()> {
+        let Some(qualities) = self.subscribed_qualities.lock().clone() else {
+            return Ok(());
+        };
+        self.apply_publishing_layers(&qualities)
+    }
+
+    fn apply_publishing_layers(&self, qualities: &[proto::SubscribedQuality]) -> RoomResult<()> {
         let transceiver = self.transceiver().ok_or_else(|| {
             RoomError::Internal("cannot set publishing layers: no transceiver".into())
         })?;
@@ -423,5 +457,51 @@ impl LocalVideoTrack {
             })
             .collect();
         self.set_publishing_layers(&qualities)
+    }
+}
+
+/// Merges `update` into `cached` by quality, leaving qualities missing from an update untouched.
+fn merge_qualities(
+    cached: &mut Vec<proto::SubscribedQuality>,
+    update: &[proto::SubscribedQuality],
+) {
+    for quality in update {
+        match cached.iter_mut().find(|q| q.quality == quality.quality) {
+            Some(existing) => existing.enabled = quality.enabled,
+            None => cached.push(*quality),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use libwebrtc::{prelude::VideoResolution, video_source::native::NativeVideoSource};
+
+    use super::*;
+
+    /// A track created before any room exists must keep its runtime, so the room reuses it
+    /// instead of a new one whose threads the track does not belong to.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn track_keeps_the_runtime_that_created_it() {
+        let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+        let track = LocalVideoTrack::create_video_track("video", RtcVideoSource::Native(source));
+        assert!(Arc::ptr_eq(&track._runtime, &LkRuntime::instance()));
+    }
+
+    fn quality(quality: proto::VideoQuality, enabled: bool) -> proto::SubscribedQuality {
+        proto::SubscribedQuality { quality: quality as i32, enabled }
+    }
+
+    #[test]
+    fn merge_qualities_keeps_earlier_layers() {
+        let mut cached = Vec::new();
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::Medium, false)]);
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::High, false)]);
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::Medium, true)]);
+        assert_eq!(
+            cached,
+            [quality(proto::VideoQuality::Medium, true), quality(proto::VideoQuality::High, false)]
+        );
     }
 }

@@ -82,6 +82,15 @@ pub mod ffi {
         use_obsolete_sctp_sdp: bool,
     }
 
+    pub struct BitrateSettings {
+        pub has_min_bitrate_bps: bool,
+        pub min_bitrate_bps: i32,
+        pub has_start_bitrate_bps: bool,
+        pub start_bitrate_bps: i32,
+        pub has_max_bitrate_bps: bool,
+        pub max_bitrate_bps: i32,
+    }
+
     pub struct IceServer {
         pub urls: Vec<String>,
         pub username: String,
@@ -133,6 +142,7 @@ pub mod ffi {
         type PeerConnection;
 
         fn set_configuration(self: &PeerConnection, config: RtcConfiguration) -> Result<()>;
+        fn set_bitrate(self: &PeerConnection, settings: BitrateSettings) -> Result<()>;
 
         fn create_offer(
             self: &PeerConnection,

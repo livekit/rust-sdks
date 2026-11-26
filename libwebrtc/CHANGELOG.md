@@ -139,6 +139,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.4.2 (2026-11-18)
+
+### Fixes
+
+- Fix Objective-C linking - #1394 (@ladvoc)
+- Fix a debug-build abort when a data channel receives an empty message.
+- Fix an intermittent abort on Windows when a webrtc-sys call reports an error to Rust. The prebuilt libwebrtc is compiled with `_HAS_EXCEPTIONS=0`, and the build script copies that define onto this crate, so MSVC's `std::runtime_error(const std::string&)` kept only a pointer to the temporary message instead of copying it. `what()` then dangled while the exception unwound and cxx read freed memory to build the Rust `Err`. Error messages are now owned by the thrown exception.
+
+## 0.4.1 (2026-11-13)
+
+### Fixes
+
+- Handle out-of-range key indices gracefully in `KeyProvider` and clamp `key_ring_size` to valid bounds.
+- Log libwebrtc messages at their own severity instead of reporting every one as debug, so its warnings and errors are no longer filtered out by default in every SDK.
+
+## 0.4.0 (2026-11-04)
+
+### Breaking Changes
+
+- `OfferOptions::offer_to_receive_audio` and `offer_to_receive_video` are now `Option<bool>`. `None` leaves libwebrtc's option unset, so receive-only transceivers stay receive-only. The default is still `Some(false)`. Single peer connection offers leave both unset and no longer rewrite `a=inactive` to `a=recvonly`.
+
+### Features
+
+- Pre-encoded video publishing no longer requires a local encoder for its codec, so pre-encoded H265 works on hosts without an H265 encoder, a camera track requesting a codec no local encoder produces now publishes VP8 instead of a codec it cannot encode, and `PeerConnectionFactory::video_encoder_codecs` reports codec support using a non-exhaustive `libwebrtc::video_codec::VideoCodec` enum supporting `FromStr`, with `Auto` excluding the pre-encoded pass-through backend.
+
+### Fixes
+
+- Preserve distinct frame metadata when queued video frames are captured within the same millisecond, including pre-encoded frames that share an RTP timestamp.
+
+## 0.3.55 (2026-10-28)
+
+### Fixes
+
+- Keep NVIDIA's Jetson video codec plugin loaded while probing MMAPI encoder capabilities, preventing probe teardown from breaking subsequent GStreamer capture.
+- Release local tracks when the server ends the room by detaching publisher senders before the publisher PeerConnection closes, and make `RtpSender::track()` return `None` for a detached sender instead of dereferencing null.
+
+## 0.3.54 (2026-10-23)
+
+### Fixes
+
+- fix: bump libwebrtc to webrtc-a545de4 to drop roots that trust the compromised eMudhra intermediates. The new build refreshes the TURN/TLS anchors compiled into `rtc_base/ssl_roots.h`, which no longer include `AAA Certificate Services`, the root that cross-signs the eight eMudhra intermediate CAs whose keys were disclosed on 2026-10-20.
+- Fix the VAAPI H.264 encoder leaking VA parameter buffers on every frame; they are now destroyed after vaEndPicture().
+- Stop the NVIDIA and Jetson encoders from reporting an already delivered frame as an encode error, which aborted the process in `SimulcastEncoderAdapter` when dynacast paused a simulcast layer or a track was unpublished mid-encode.
+
+## 0.3.53 (2026-10-20)
+
+### Fixes
+
+- Synthesize index-based identifiers on platforms without hardware audio GUIDs and add index-based selection to PlatformAudio.
+- Prefix every ffmpeg symbol bundled in the linux `libwebrtc.a` with `LK_`, so an application that also links its own FFmpeg, shared or static, no longer calls libwebrtc's copy or fails to link.
+- Update `zip` to 9.0.4, as older releases have security issues and were temporarily yanked ([zip-rs/zip2#1075](https://github.com/zip-rs/zip2/issues/1075)).
+
+## 0.3.52 (2026-10-12)
+
+### Features
+
+- Add `PeerConnection::set_bitrate` to set the send bitrate limits of a peer connection.
+
+### Fixes
+
+- Keep pre-encoded video decodable when WebRTC drops frames: the passthrough encoder disables WebRTC's frame dropper, and after a frame is dropped before it, holds delta frames and requests a keyframe until the next keyframe arrives.
+
+## 0.3.51 (2026-10-07)
+
+### Fixes
+
+- Manage VAAPI displays across capability probes and encoder lifecycles so driver resources and threads are released without invalidating active encoders.
+
 ## 0.3.50 (2026-09-24)
 
 ### Fixes

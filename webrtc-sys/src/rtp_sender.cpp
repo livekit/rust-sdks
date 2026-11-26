@@ -153,7 +153,13 @@ bool RtpSender::set_track(std::shared_ptr<MediaStreamTrack> track) const {
 }
 
 std::shared_ptr<MediaStreamTrack> RtpSender::track() const {
-  return rtc_runtime_->get_or_create_media_stream_track(sender_->track());
+  // A sender legitimately has no track after RemoveTrack / SetTrack(nullptr);
+  // get_or_create_media_stream_track dereferences its argument, so map null
+  // here (the Rust side already turns a null handle into None).
+  auto rtc_track = sender_->track();
+  if (!rtc_track)
+    return nullptr;
+  return rtc_runtime_->get_or_create_media_stream_track(rtc_track);
 }
 
 uint32_t RtpSender::ssrc() const {
@@ -203,7 +209,7 @@ RtpParameters RtpSender::get_parameters() const {
 void RtpSender::set_parameters(RtpParameters params) const {
   auto error = sender_->SetParameters(to_native_rtp_parameters(params));
   if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+    throw BridgeException(serialize_error(to_error(error)));
 }
 
 void RtpSender::set_video_encoder_backend(VideoEncoderBackend backend) const {

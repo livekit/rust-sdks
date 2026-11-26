@@ -46,7 +46,14 @@ struct TransportInner {
     // Whether an offer carrying `x-google-start-bitrate` has been accepted locally. The
     // hint is written once per peer connection; see `compute_start_bitrate_kbps`.
     start_bitrate_applied: bool,
-    pending_initial_offer: Option<SessionDescription>,
+    pending_initial_offer: Option<MungedOffer>,
+}
+
+/// An offer after local SDP munging, see [`PeerTransport::munge_offer`].
+struct MungedOffer {
+    offer: SessionDescription,
+    /// Whether the offer carries the one-shot `x-google-start-bitrate` hint.
+    has_start_bitrate: bool,
 }
 
 pub struct PeerTransport {
@@ -162,8 +169,12 @@ impl PeerTransport {
     ) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
-        if let Some(pending_offer) = inner.pending_initial_offer.take() {
-            self.peer_connection.set_local_description(pending_offer).await?;
+        if let Some(pending) = inner.pending_initial_offer.take() {
+            self.peer_connection.set_local_description(pending.offer).await?;
+            // Only consume the one-shot hint once the offer carrying it is accepted locally.
+            if pending.has_start_bitrate {
+                inner.start_bitrate_applied = true;
+            }
         }
 
         self.peer_connection.set_remote_description(remote_description).await?;
@@ -206,8 +217,12 @@ impl PeerTransport {
         offer: SessionDescription,
         options: AnswerOptions,
     ) -> EngineResult<SessionDescription> {
+        let offer_sdp = offer.to_string();
         self.set_remote_description(offer).await?;
         let answer = self.peer_connection().create_answer(options).await?;
+        let answer = Self::munge_opus_nack_for_answer(&answer.to_string(), &offer_sdp)
+            .and_then(|munged| Self::parse_munged(&munged, answer.sdp_type()))
+            .unwrap_or(answer);
         self.peer_connection().set_local_description(answer.clone()).await?;
 
         Ok(answer)
@@ -216,19 +231,10 @@ impl PeerTransport {
     /// Create an initial offer without setting it as local description.
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
-    /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published, so only the `inactive→recvonly` munging applies.
-    ///
-    /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
-    /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
-    /// published — always after this runs — so there is never a target to write here. Writing
-    /// one would also have to consume the one-shot latch before the offer becomes the local
-    /// description, which happens later in `set_remote_description`, and the offer can be
-    /// dropped without ever being applied: when the server declines single PC mode,
-    /// `RtcSession` calls `clear_pending_initial_offer` and reuses this transport for the rest
-    /// of the session. The latch would then be spent on an offer that never existed, silently
-    /// skipping the hint for the life of the connection. `create_and_send_offer` owns the hint
-    /// and latches only once `set_local_description` has succeeded.
+    /// It gets the same munging as [`Self::create_and_send_offer`], including the
+    /// `x-google-start-bitrate` hint when join-time video tracks are present. That hint is
+    /// computed without a connection setup time, since the connection does not exist yet, so it
+    /// stays capped at [`Self::MAX_START_BITRATE_KBPS`].
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
@@ -236,25 +242,16 @@ impl PeerTransport {
         }
         drop(inner);
 
-        let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let sdp = offer.to_string();
-
-        // Apply inactive→recvonly munging for single PC mode
-        let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
-        if recvonly_munged != sdp {
-            if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                offer = parsed;
-            }
-        }
+        let offer = self
+            .peer_connection
+            .create_offer(Self::single_pc_offer_options(OfferOptions::default()))
+            .await?;
 
         let mut inner = self.inner.lock().await;
-        inner.pending_initial_offer = Some(offer.clone());
+        let munged = Self::munge_offer(&inner, offer);
+        let offer = munged.offer.clone();
+        inner.pending_initial_offer = Some(munged);
         Ok(Some(offer))
-    }
-
-    pub async fn clear_pending_initial_offer(&self) {
-        let mut inner = self.inner.lock().await;
-        inner.pending_initial_offer = None;
     }
 
     pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, is_screen_share: bool) {
@@ -301,10 +298,9 @@ impl PeerTransport {
     /// sender exists. It grows with round-trip time and loss, which also mark the links where
     /// a 1 Mbps seed overshoots, so the cap ramps linearly from
     /// [`Self::MAX_START_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MAX_BITRATE`] down to
-    /// [`Self::MIN_TARGET_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MIN_BITRATE`]. Once the
-    /// cap is below the 1 Mbps ceiling it applies to screen share too: a connection that slow
-    /// cannot carry an uncapped screen-share seed either. Without a setup time (an offer
-    /// before the initial connect completed) the cap stays at the 1 Mbps ceiling.
+    /// [`Self::MIN_TARGET_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MIN_BITRATE`]. Screen
+    /// share is exempt from this ramp as well, however slow the setup. Without a setup time
+    /// (an offer before the initial connect completed) the cap stays at the 1 Mbps ceiling.
     ///
     /// Returns None if no target bitrate is set (initial offer before track publish) or if
     /// the target is below [`Self::MIN_TARGET_BITRATE_KBPS`].
@@ -332,55 +328,11 @@ impl PeerTransport {
         };
 
         let start_kbps = ((target_kbps as f64 * 0.9).round() as u32).min(target_kbps);
-        if is_screen_share && cap_kbps >= Self::MAX_START_BITRATE_KBPS {
+        if is_screen_share {
             Some(start_kbps)
         } else {
             Some(start_kbps.min(cap_kbps))
         }
-    }
-
-    /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
-    /// This is needed because WebRTC can generate inactive direction even when transceivers
-    /// were configured as recvonly.
-    ///
-    /// We intentionally limit this to RTP m-sections, so non-RTP sections (for example
-    /// data-channel `m=application` sections) are not rewritten.
-    fn munge_inactive_to_recvonly_for_media(sdp: &str) -> String {
-        // Detect what line ending the original SDP uses
-        let uses_crlf = sdp.contains("\r\n");
-        let eol = if uses_crlf { "\r\n" } else { "\n" };
-
-        let lines: Vec<&str> =
-            if uses_crlf { sdp.split("\r\n").collect() } else { sdp.split('\n').collect() };
-
-        let mut out: Vec<String> = Vec::with_capacity(lines.len());
-        let mut in_rtp_media_section = false;
-
-        for line in lines {
-            let l = line.trim();
-
-            // Track whether the current m-section is RTP-based.
-            if l.starts_with("m=") {
-                // Example RTP m-line:
-                //   m=audio 9 UDP/TLS/RTP/SAVPF 111
-                // Example data channel m-line:
-                //   m=application 9 UDP/DTLS/SCTP webrtc-datachannel
-                in_rtp_media_section = l.contains("RTP/");
-            }
-
-            // Change inactive to recvonly for RTP media m-sections.
-            if in_rtp_media_section && l == "a=inactive" {
-                out.push("a=recvonly".to_string());
-            } else {
-                out.push(line.to_string());
-            }
-        }
-
-        let mut munged = out.join(eol);
-        if !munged.ends_with(eol) {
-            munged.push_str(eol);
-        }
-        munged
     }
 
     /// Munge SDP to add stereo=1 to opus audio fmtp lines for single PC mode
@@ -441,6 +393,64 @@ impl PeerTransport {
             munged.push_str(eol);
         }
         munged
+    }
+
+    /// Parses munged SDP, logging and returning `None` if libwebrtc rejects it.
+    fn parse_munged(munged: &str, sdp_type: SdpType) -> Option<SessionDescription> {
+        SessionDescription::parse(munged, sdp_type)
+            .inspect_err(|e| log::warn!("Failed to parse munged SDP, using original: {e}"))
+            .ok()
+    }
+
+    /// Adds Opus NACK to each audio section where `wants_nack` holds, since libwebrtc offers
+    /// only `transport-cc`. Returns `None` if there is nothing to add.
+    fn munge_opus_nack(sdp: &str, wants_nack: impl Fn(SdpSection) -> bool) -> Option<String> {
+        let eol = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
+        let lines: Vec<&str> = sdp.split_inclusive('\n').collect();
+        let mut munged = String::with_capacity(sdp.len());
+        let mut changed = false;
+
+        for section in SdpSection::split(&lines) {
+            let add_nack = section.is_audio() && wants_nack(section);
+            for line in section.lines {
+                munged.push_str(line);
+                let Some(pt) = opus_pt(line) else { continue };
+                if !add_nack || section.has_nack(pt) {
+                    continue;
+                }
+                if !line.ends_with('\n') {
+                    munged.push_str(eol);
+                }
+                munged.extend(["a=rtcp-fb:", pt, " nack", eol]);
+                changed = true;
+            }
+        }
+
+        changed.then_some(munged)
+    }
+
+    /// Adds Opus NACK to every audio section of a single PC offer, whatever its direction.
+    ///
+    /// The server takes audio feedback from the first audio section of the first offer only.
+    /// That section can be the client's own `sendonly` mic, so every section needs NACK.
+    fn munge_opus_nack_for_offer(sdp: &str) -> Option<String> {
+        Self::munge_opus_nack(sdp, |_| true)
+    }
+
+    /// Adds Opus NACK to each audio section of a dual PC answer whose counterpart in `offer`
+    /// (matched by mid) has it. libwebrtc drops it from the answer otherwise.
+    fn munge_opus_nack_for_answer(answer: &str, offer: &str) -> Option<String> {
+        let offer_lines: Vec<&str> = offer.split_inclusive('\n').collect();
+        let nack_mids: Vec<&str> = SdpSection::split(&offer_lines)
+            .filter(|section| {
+                section.is_audio() && section.opus_pts().any(|pt| section.has_nack(pt))
+            })
+            .filter_map(SdpSection::mid)
+            .collect();
+
+        Self::munge_opus_nack(answer, |section| {
+            section.mid().is_some_and(|mid| nack_mids.contains(&mid))
+        })
     }
 
     /// Check if a codec string represents a video codec that should get start bitrate hint.
@@ -552,6 +562,82 @@ impl PeerTransport {
         munged
     }
 
+    /// Leaves libwebrtc's legacy `offer_to_receive_*` options unset. The publisher receives
+    /// on its own receive-only transceivers in single PC mode, and an explicit `false` would
+    /// make libwebrtc turn them inactive.
+    fn single_pc_offer_options(options: OfferOptions) -> OfferOptions {
+        OfferOptions { offer_to_receive_audio: None, offer_to_receive_video: None, ..options }
+    }
+
+    /// Applies the local SDP munging to a freshly created offer.
+    fn munge_offer(inner: &TransportInner, mut offer: SessionDescription) -> MungedOffer {
+        let mut sdp = offer.to_string();
+
+        if inner.single_pc_mode {
+            // Apply stereo and Opus NACK munging for single PC mode
+            let stereo = Self::munge_stereo_for_audio(&sdp);
+            let munged = Self::munge_opus_nack_for_offer(&stereo).unwrap_or(stereo);
+            if munged != sdp {
+                if let Some(parsed) = Self::parse_munged(&munged, offer.sdp_type()) {
+                    offer = parsed;
+                    sdp = munged;
+                }
+            }
+        }
+
+        // Apply x-google-start-bitrate for all video codecs to improve initial quality.
+        //
+        // The same value goes on every video codec, and only on the first offer that carries
+        // local video. libwebrtc reads this fmtp parameter per m-section but applies it to the
+        // shared Call (`WebRtcVideoSendChannel::ApplyChangedParams` -> `SetSdpBitrateParameters`),
+        // where `RtpBitrateConfigurator` keeps one config for the whole peer connection: it
+        // retains `start_bitrate_bps` and re-applies it on network route changes, so rewriting
+        // it later is at best a no-op and at worst restarts a converged bandwidth estimator. A
+        // full reconnect builds a new peer connection and seeds the new estimator again.
+        //
+        // x-google-max-bitrate is deliberately never written: the same Call-level promotion
+        // would turn a per-track cap into a ceiling on total send bandwidth, starving concurrent
+        // tracks. Per-track and per-layer caps belong in the encodings' max_bitrate.
+        let mut has_start_bitrate = false;
+        let has_video = sdp.contains(" VP8/90000")
+            || sdp.contains(" VP9/90000")
+            || sdp.contains(" AV1/90000")
+            || sdp.contains(" H264/90000")
+            || sdp.contains(" H265/90000");
+        if has_video && !inner.start_bitrate_applied {
+            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
+                inner.max_send_bitrate_bps,
+                inner.max_send_bitrate_is_screen_share,
+                inner.connection_setup_time,
+            ) {
+                log::info!(
+                    "Applying x-google-start-bitrate={} kbps (target_bps={:?}, connection_setup_ms={:?})",
+                    start_kbps,
+                    inner.max_send_bitrate_bps,
+                    inner.connection_setup_time.map(|t| t.as_millis())
+                );
+
+                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
+                if munged != sdp {
+                    log::debug!("SDP munged successfully for video codec");
+                    match SessionDescription::parse(&munged, offer.sdp_type()) {
+                        Ok(parsed) => {
+                            offer = parsed;
+                            has_start_bitrate = true;
+                        }
+                        Err(e) => log::warn!(
+                            "Failed to parse munged SDP, falling back to original offer: {e}"
+                        ),
+                    }
+                } else {
+                    log::debug!("SDP munging produced no changes");
+                }
+            }
+        }
+
+        MungedOffer { offer, has_start_bitrate }
+    }
+
     pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
         if options.ice_restart {
@@ -580,94 +666,15 @@ impl PeerTransport {
             return Ok(());
         }
 
-        let mut offer = self.peer_connection.create_offer(options).await?;
-        let mut sdp = offer.to_string();
-
-        if inner.single_pc_mode {
-            // Fix inactive media m-lines to recvonly for single PC mode.
-            // WebRTC can generate a=inactive even when transceivers are recvonly.
-            let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
-            if recvonly_munged != sdp {
-                match SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                    Ok(parsed) => {
-                        offer = parsed;
-                        sdp = recvonly_munged;
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse recvonly-munged SDP: {e}");
-                    }
-                }
-            }
-
-            // Apply stereo munging for single PC mode
-            let stereo_munged = Self::munge_stereo_for_audio(&sdp);
-            if stereo_munged != sdp {
-                match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
-                    Ok(parsed) => {
-                        offer = parsed;
-                        sdp = stereo_munged;
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
-                    }
-                }
-            }
-        }
-
-        // Apply x-google-start-bitrate for all video codecs to improve initial quality.
-        //
-        // The same value goes on every video codec, and only on the first offer that carries
-        // local video. libwebrtc reads this fmtp parameter per m-section but applies it to the
-        // shared Call (`WebRtcVideoSendChannel::ApplyChangedParams` -> `SetSdpBitrateParameters`),
-        // where `RtpBitrateConfigurator` keeps one config for the whole peer connection: it
-        // retains `start_bitrate_bps` and re-applies it on network route changes, so rewriting
-        // it later is at best a no-op and at worst restarts a converged bandwidth estimator. A
-        // full reconnect builds a new peer connection and seeds the new estimator again.
-        //
-        // x-google-max-bitrate is deliberately never written: the same Call-level promotion
-        // would turn a per-track cap into a ceiling on total send bandwidth, starving concurrent
-        // tracks. Per-track and per-layer caps belong in the encodings' max_bitrate.
-        let mut applied_start_bitrate = false;
-        let has_video = sdp.contains(" VP8/90000")
-            || sdp.contains(" VP9/90000")
-            || sdp.contains(" AV1/90000")
-            || sdp.contains(" H264/90000")
-            || sdp.contains(" H265/90000");
-        if has_video && !inner.start_bitrate_applied {
-            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
-                inner.max_send_bitrate_bps,
-                inner.max_send_bitrate_is_screen_share,
-                inner.connection_setup_time,
-            ) {
-                log::info!(
-                    "Applying x-google-start-bitrate={} kbps (target_bps={:?}, connection_setup_ms={:?})",
-                    start_kbps,
-                    inner.max_send_bitrate_bps,
-                    inner.connection_setup_time.map(|t| t.as_millis())
-                );
-
-                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
-                if munged != sdp {
-                    log::debug!("SDP munged successfully for video codec");
-                    match SessionDescription::parse(&munged, offer.sdp_type()) {
-                        Ok(parsed) => {
-                            offer = parsed;
-                            applied_start_bitrate = true;
-                        }
-                        Err(e) => log::warn!(
-                            "Failed to parse munged SDP, falling back to original offer: {e}"
-                        ),
-                    }
-                } else {
-                    log::debug!("SDP munging produced no changes");
-                }
-            }
-        }
+        let options =
+            if inner.single_pc_mode { Self::single_pc_offer_options(options) } else { options };
+        let offer = self.peer_connection.create_offer(options).await?;
+        let MungedOffer { offer, has_start_bitrate } = Self::munge_offer(&inner, offer);
 
         self.peer_connection.set_local_description(offer.clone()).await?;
 
         // Only consume the one-shot hint once the offer carrying it is accepted locally.
-        if applied_start_bitrate {
+        if has_start_bitrate {
             inner.start_bitrate_applied = true;
         }
 
@@ -679,9 +686,66 @@ impl PeerTransport {
     }
 }
 
+/// A section of an SDP, the session part or one m-section, as lines with their line endings.
+/// `'s` borrows the lines and `'a` the SDP text.
+#[derive(Clone, Copy)]
+struct SdpSection<'s, 'a> {
+    lines: &'s [&'a str],
+}
+
+impl<'s, 'a> SdpSection<'s, 'a> {
+    /// Splits SDP lines into the session section followed by one section per `m=` line.
+    fn split(lines: &'s [&'a str]) -> impl Iterator<Item = Self> {
+        lines.chunk_by(|_, next| !next.starts_with("m=")).map(|lines| Self { lines })
+    }
+
+    /// The values of the `a=` lines, without the `a=` prefix and the line ending.
+    fn attributes(self) -> impl Iterator<Item = &'a str> + use<'s, 'a> {
+        self.lines.iter().filter_map(|line| line.trim_end().strip_prefix("a="))
+    }
+
+    /// Whether this is an audio m-section.
+    fn is_audio(self) -> bool {
+        self.lines.first().is_some_and(|line| line.starts_with("m=audio "))
+    }
+
+    /// The value of the `a=mid` line.
+    fn mid(self) -> Option<&'a str> {
+        self.attributes().find_map(|attribute| attribute.strip_prefix("mid:"))
+    }
+
+    /// The Opus payload types, from the `a=rtpmap` lines.
+    fn opus_pts(self) -> impl Iterator<Item = &'a str> + use<'s, 'a> {
+        self.lines.iter().copied().filter_map(opus_pt)
+    }
+
+    /// Whether payload type `pt` has plain `nack` feedback, directly or through the `*`
+    /// wildcard. `nack pli` is a different feedback type and does not count.
+    fn has_nack(self, pt: &str) -> bool {
+        self.attributes().filter_map(|attribute| attribute.strip_prefix("rtcp-fb:")).any(
+            |feedback| {
+                let mut fields = feedback.split_whitespace();
+                matches!(fields.next(), Some(fb_pt) if fb_pt == pt || fb_pt == "*")
+                    && fields.next() == Some("nack")
+                    && fields.next().is_none()
+            },
+        )
+    }
+}
+
+/// Returns the payload type of an `a=rtpmap` line for Opus, matching the name in any case.
+fn opus_pt(line: &str) -> Option<&str> {
+    let mut fields = line.trim_end().strip_prefix("a=rtpmap:")?.split_whitespace();
+    let pt = fields.next()?;
+    fields.next()?.split('/').next()?.eq_ignore_ascii_case("opus").then_some(pt)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
+
+    use libwebrtc::prelude::{PeerConnection, PeerConnectionFactory, RtpTransceiverDirection};
+    use parking_lot::Mutex;
 
     use super::PeerTransport;
 
@@ -779,6 +843,44 @@ mod tests {
             "the deferred renegotiation should emit a follow-up offer"
         );
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+    }
+
+    /// Join-time video makes the initial offer carry the start bitrate hint, which is consumed
+    /// only once the server's answer applies the offer as the local description.
+    #[tokio::test]
+    async fn initial_offer_carries_start_bitrate_hint() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let alice_pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        let bob_pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+
+        let init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::SendOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+        alice_pc.add_transceiver_for_media(MediaType::Video, init).unwrap();
+
+        let transport = PeerTransport::new(
+            alice_pc,
+            proto::SignalTarget::Publisher,
+            /* single_pc_mode= */ true,
+        );
+        transport.set_max_send_bitrate_bps(Some(2_000_000), false).await;
+
+        let offer = transport.create_initial_offer().await.unwrap().expect("single PC mode");
+        // 90% of the 2 Mbps target, capped at 1 Mbps without a connection setup time.
+        assert!(offer.to_string().contains("x-google-start-bitrate=1000"));
+        assert!(!transport.inner.lock().await.start_bitrate_applied);
+
+        bob_pc.set_remote_description(offer).await.unwrap();
+        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
+        bob_pc.set_local_description(answer.clone()).await.unwrap();
+
+        transport.set_remote_description(answer).await.unwrap();
+        assert!(transport.inner.lock().await.start_bitrate_applied);
     }
 
     /// The two counters are the whole basis on which a resume decides a transport recovered,
@@ -919,7 +1021,7 @@ a=fmtp:111 minptime=10;useinbandfec=1\n";
     }
 
     #[test]
-    fn slow_connection_setup_caps_screen_share_too() {
+    fn slow_connection_setup_leaves_screen_share_uncapped() {
         let screen_share = |ms| {
             PeerTransport::compute_start_bitrate_kbps(
                 Some(3_000_000),
@@ -927,9 +1029,9 @@ a=fmtp:111 minptime=10;useinbandfec=1\n";
                 Some(Duration::from_millis(ms)),
             )
         };
-        assert_eq!(screen_share(1273), Some(2700), "a fast setup leaves screen share uncapped");
-        assert_eq!(screen_share(2500), Some(650), "below the ceiling the cap applies to it too");
-        assert_eq!(screen_share(4061), Some(300), "the slowest setups seed it at the floor");
+        assert_eq!(screen_share(1273), Some(2700), "a fast setup");
+        assert_eq!(screen_share(2500), Some(2700), "mid-ramp");
+        assert_eq!(screen_share(4061), Some(2700), "past the slow anchor");
     }
 
     #[test]
@@ -1142,43 +1244,6 @@ a=fmtp:98 profile-id=0;x-google-start-bitrate=1000\n";
     }
 
     #[test]
-    fn inactive_media_is_munged_to_recvonly_for_all_rtp_sections() {
-        let sdp = "v=0\n\
-o=- 0 0 IN IP4 127.0.0.1\n\
-s=-\n\
-t=0 0\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n\
-a=rtpmap:111 opus/48000/2\n\
-m=video 9 UDP/TLS/RTP/SAVPF 96\n\
-a=inactive\n\
-m=text 9 UDP/TLS/RTP/SAVPF 98\n\
-a=inactive\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n";
-        let out = PeerTransport::munge_inactive_to_recvonly_for_media(sdp);
-        assert!(out.contains("m=audio 9 UDP/TLS/RTP/SAVPF 111\na=recvonly\n"));
-        assert!(out.contains("m=text 9 UDP/TLS/RTP/SAVPF 98\na=recvonly\n"));
-        assert_eq!(out.matches("a=recvonly").count(), 4);
-        assert_eq!(out.matches("a=inactive").count(), 0);
-    }
-
-    #[test]
-    fn inactive_application_section_is_not_munged() {
-        let sdp = "v=0\n\
-o=- 0 0 IN IP4 127.0.0.1\n\
-s=-\n\
-t=0 0\n\
-m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
-a=inactive\n\
-m=application 9 UDP/DTLS/SCTP webrtc-datachannel\n\
-a=inactive\n";
-        let out = PeerTransport::munge_inactive_to_recvonly_for_media(sdp);
-        assert!(out.contains("m=audio 9 UDP/TLS/RTP/SAVPF 111\na=recvonly\n"));
-        assert!(out.contains("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\na=inactive\n"));
-    }
-
-    #[test]
     fn stereo_is_added_for_opus_fmtp_only_once() {
         let sdp = "v=0\n\
 o=- 0 0 IN IP4 127.0.0.1\n\
@@ -1206,5 +1271,272 @@ a=rtpmap:111 opus/48000/2\n\
 a=fmtp:111 minptime=10;stereo=1\n";
         let out = PeerTransport::munge_stereo_for_audio(sdp);
         assert_eq!(out.matches("stereo=1").count(), 1);
+    }
+
+    /// An audio m-section with Opus on payload type 111, as libwebrtc writes it.
+    fn audio_section(mid: &str, direction: &str, extra: &str) -> String {
+        format!(
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111 0\r\n\
+a=mid:{mid}\r\n\
+a={direction}\r\n\
+a=rtpmap:111 OPUS/48000/2\r\n\
+{extra}\
+a=rtcp-fb:111 transport-cc\r\n\
+a=fmtp:111 minptime=10;useinbandfec=1\r\n\
+a=rtpmap:0 PCMU/8000\r\n"
+        )
+    }
+
+    fn sdp(sections: &[String]) -> String {
+        format!("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n{}", sections.concat())
+    }
+
+    const NACK: &str = "a=rtcp-fb:111 nack\r\n";
+
+    #[test]
+    fn offer_nack_on_every_audio_section() {
+        let video = "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:3\r\na=rtpmap:96 VP8/90000\r\n";
+        let offer = sdp(&[
+            audio_section("0", "sendonly", ""),
+            audio_section("1", "recvonly", ""),
+            audio_section("2", "sendrecv", ""),
+            video.to_string(),
+        ]);
+        let out = PeerTransport::munge_opus_nack_for_offer(&offer);
+        let expected = sdp(&[
+            audio_section("0", "sendonly", NACK),
+            audio_section("1", "recvonly", NACK),
+            audio_section("2", "sendrecv", NACK),
+            video.to_string(),
+        ]);
+        assert_eq!(out, Some(expected));
+    }
+
+    /// Every Opus payload type gets NACK, with LF or CRLF line endings. `nack pli` is not plain
+    /// NACK, and other codecs and sections, even with the same payload type, stay unchanged.
+    #[test]
+    fn offer_nack_on_every_opus_payload_type() {
+        for eol in ["\n", "\r\n"] {
+            let offer = [
+                "v=0",
+                "m=audio 9 UDP/TLS/RTP/SAVPF 109 112 0",
+                "a=rtpmap:109 OPUS/48000/2",
+                "a=rtcp-fb:109 nack pli",
+                "a=rtpmap:112 opus/48000/2",
+                "a=rtpmap:0 PCMU/8000",
+                "m=video 9 UDP/TLS/RTP/SAVPF 109",
+                "a=rtpmap:109 VP8/90000",
+                "",
+            ]
+            .join(eol);
+            let expected = [
+                "v=0",
+                "m=audio 9 UDP/TLS/RTP/SAVPF 109 112 0",
+                "a=rtpmap:109 OPUS/48000/2",
+                "a=rtcp-fb:109 nack",
+                "a=rtcp-fb:109 nack pli",
+                "a=rtpmap:112 opus/48000/2",
+                "a=rtcp-fb:112 nack",
+                "a=rtpmap:0 PCMU/8000",
+                "m=video 9 UDP/TLS/RTP/SAVPF 109",
+                "a=rtpmap:109 VP8/90000",
+                "",
+            ]
+            .join(eol);
+            let out = PeerTransport::munge_opus_nack_for_offer(&offer);
+            assert_eq!(out.as_deref(), Some(expected.as_str()));
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&expected), None);
+        }
+    }
+
+    /// An Opus `a=rtpmap` as the last line, without a line ending, still gets NACK on its own line.
+    #[test]
+    fn offer_nack_after_last_line_without_line_ending() {
+        for eol in ["\n", "\r\n"] {
+            let offer =
+                ["v=0", "m=audio 9 UDP/TLS/RTP/SAVPF 111", "a=rtpmap:111 opus/48000/2"].join(eol);
+            let expected = format!("{offer}{eol}a=rtcp-fb:111 nack{eol}");
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), Some(expected));
+        }
+    }
+
+    /// Existing plain NACK, also through the `*` wildcard or with a tab, is not added twice,
+    /// and it counts as NACK in an offer that an answer mirrors.
+    #[test]
+    fn existing_nack_is_kept_and_mirrored() {
+        for feedback in
+            ["a=rtcp-fb:111 nack\r\n", "a=rtcp-fb:* nack\r\n", "a=rtcp-fb:111\tnack\r\n"]
+        {
+            let offer = sdp(&[audio_section("0", "sendonly", feedback)]);
+            assert_eq!(PeerTransport::munge_opus_nack_for_offer(&offer), None);
+
+            let answer = sdp(&[audio_section("0", "recvonly", "")]);
+            assert_eq!(
+                PeerTransport::munge_opus_nack_for_answer(&answer, &offer),
+                Some(sdp(&[audio_section("0", "recvonly", NACK)]))
+            );
+        }
+        let no_opus = "v=0\nm=audio 9 UDP/TLS/RTP/SAVPF 0\na=rtpmap:0 PCMU/8000\n";
+        assert_eq!(PeerTransport::munge_opus_nack_for_offer(no_opus), None);
+        assert_eq!(PeerTransport::munge_opus_nack_for_offer(""), None);
+    }
+
+    #[test]
+    fn answer_nack_mirrors_offer_by_mid() {
+        let offer =
+            sdp(&[audio_section("0", "sendonly", NACK), audio_section("1", "sendonly", "")]);
+        let answer = sdp(&[audio_section("0", "recvonly", ""), audio_section("1", "recvonly", "")]);
+        let out = PeerTransport::munge_opus_nack_for_answer(&answer, &offer);
+        let expected =
+            sdp(&[audio_section("0", "recvonly", NACK), audio_section("1", "recvonly", "")]);
+        assert_eq!(out, Some(expected));
+    }
+
+    #[test]
+    fn answer_untouched_when_offer_has_no_nack() {
+        let offer = sdp(&[audio_section("0", "sendonly", "")]);
+        let answer = sdp(&[audio_section("0", "recvonly", "")]);
+        assert_eq!(PeerTransport::munge_opus_nack_for_answer(&answer, &offer), None);
+    }
+
+    // The tests below run the munges on SDP that libwebrtc writes and parses. They are adapted
+    // from livekit/rust-sdks#1695.
+
+    const ALL_DIRECTIONS: [RtpTransceiverDirection; 3] = [
+        RtpTransceiverDirection::SendOnly,
+        RtpTransceiverDirection::RecvOnly,
+        RtpTransceiverDirection::SendRecv,
+    ];
+
+    /// Creates a peer connection with one audio transceiver per direction.
+    fn pc_with_audio(
+        factory: &PeerConnectionFactory,
+        directions: &[RtpTransceiverDirection],
+    ) -> PeerConnection {
+        use libwebrtc::prelude::{MediaType, RtcConfiguration, RtpTransceiverInit};
+
+        let pc = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        for &direction in directions {
+            pc.add_transceiver_for_media(
+                MediaType::Audio,
+                RtpTransceiverInit { direction, stream_ids: vec![], send_encodings: vec![] },
+            )
+            .unwrap();
+        }
+        pc
+    }
+
+    /// For each audio section of `sdp`, whether every Opus payload type has plain NACK.
+    fn audio_nack(sdp: &str) -> Vec<bool> {
+        sdp.split("\nm=")
+            .filter(|section| section.starts_with("audio "))
+            .map(|section| {
+                let pts: Vec<&str> = section
+                    .lines()
+                    .filter_map(|line| {
+                        let (pt, codec) = line.strip_prefix("a=rtpmap:")?.split_once(' ')?;
+                        codec.to_ascii_lowercase().starts_with("opus/").then_some(pt)
+                    })
+                    .collect();
+                assert!(!pts.is_empty(), "audio section without Opus: {section}");
+                pts.iter()
+                    .all(|pt| section.lines().any(|line| line == format!("a=rtcp-fb:{pt} nack")))
+            })
+            .collect()
+    }
+
+    /// The initial offer has NACK in every direction, the stored offer is the one sent with
+    /// the join, and NACK is still there once that offer is set locally.
+    #[tokio::test]
+    async fn single_pc_initial_offer_has_opus_nack() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let transport = PeerTransport::new(
+            pc_with_audio(&factory, &ALL_DIRECTIONS),
+            proto::SignalTarget::Publisher,
+            /* single_pc_mode= */ true,
+        );
+        let offer = transport.create_initial_offer().await.unwrap().expect("no initial offer");
+        assert_eq!(audio_nack(&offer.to_string()), [true; 3]);
+        let pending = transport
+            .inner
+            .lock()
+            .await
+            .pending_initial_offer
+            .as_ref()
+            .map(|p| p.offer.to_string());
+        assert_eq!(pending, Some(offer.to_string()), "stored offer differs from the sent offer");
+
+        let remote = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+        remote.set_remote_description(offer).await.unwrap();
+        let answer = remote.create_answer(AnswerOptions::default()).await.unwrap();
+        remote.set_local_description(answer.clone()).await.unwrap();
+        transport.set_remote_description(answer).await.unwrap();
+        let local = transport.peer_connection().current_local_description().unwrap();
+        assert_eq!(audio_nack(&local.to_string()), [true; 3]);
+
+        transport.close();
+        remote.close();
+    }
+
+    /// Later offers have NACK in every direction in single PC mode, and none in dual PC mode.
+    #[tokio::test]
+    async fn offers_have_opus_nack_only_in_single_pc_mode() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        for single_pc in [true, false] {
+            let transport = PeerTransport::new(
+                pc_with_audio(&factory, &ALL_DIRECTIONS),
+                proto::SignalTarget::Publisher,
+                single_pc,
+            );
+            let offers = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&offers);
+            transport.on_offer(Some(Box::new(move |offer| captured.lock().push(offer))));
+
+            transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+            let offer = offers.lock().last().expect("no offer sent").to_string();
+            assert_eq!(audio_nack(&offer), [single_pc; 3], "single_pc_mode={single_pc}");
+            transport.close();
+        }
+    }
+
+    /// A dual PC answer has NACK exactly when the remote offer has it. libwebrtc alone drops
+    /// it from the answer.
+    #[tokio::test]
+    async fn dual_pc_answer_mirrors_offer_nack() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        for offer_nack in [true, false] {
+            let remote = pc_with_audio(&factory, &[RtpTransceiverDirection::SendOnly]);
+            let mut offer = remote.create_offer(OfferOptions::default()).await.unwrap();
+            if offer_nack {
+                let sdp = PeerTransport::munge_opus_nack_for_offer(&offer.to_string())
+                    .expect("libwebrtc offered Opus NACK already");
+                offer = SessionDescription::parse(&sdp, offer.sdp_type()).unwrap();
+            }
+            assert_eq!(audio_nack(&offer.to_string()), [offer_nack]);
+            remote.set_local_description(offer.clone()).await.unwrap();
+
+            let transport = PeerTransport::new(
+                factory.create_peer_connection(RtcConfiguration::default()).unwrap(),
+                proto::SignalTarget::Subscriber,
+                /* single_pc_mode= */ false,
+            );
+            let answer = transport.create_anwser(offer, AnswerOptions::default()).await.unwrap();
+            assert_eq!(audio_nack(&answer.to_string()), [offer_nack], "offer_nack={offer_nack}");
+            let local = transport.peer_connection().current_local_description().unwrap();
+            assert_eq!(audio_nack(&local.to_string()), [offer_nack]);
+            remote.set_remote_description(answer).await.unwrap();
+
+            transport.close();
+            remote.close();
+        }
     }
 }

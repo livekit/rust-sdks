@@ -173,7 +173,7 @@ impl TokenSourceConfigurable for TokenSourceDevelopmentTokenServer {
 /// **This token provider is INSECURE and should NOT be used in
 /// production.**
 ///
-/// See <https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/>.
+/// See <https://docs.livekit.io/frontends/build/authentication/development-token-server/>.
 pub fn development_token_server(
     token_server_id: impl Into<String>,
 ) -> TokenSourceDevelopmentTokenServer {

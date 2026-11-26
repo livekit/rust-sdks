@@ -18,4 +18,6 @@ pub(crate) mod events;
 pub(crate) mod manager;
 
 mod stream_reader;
-pub use stream_reader::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
+pub use stream_reader::{
+    AnyStreamReader, ByteStreamReader, StreamCloser, StreamReader, TextStreamReader,
+};

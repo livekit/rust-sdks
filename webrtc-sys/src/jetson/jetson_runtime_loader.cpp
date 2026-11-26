@@ -77,3 +77,11 @@ extern "C" int lk_jetson_runtime_libs_available(void) {
       LoadWithFallbacks("libv4l2.so.0") != nullptr;
   return available ? 1 : 0;
 }
+
+extern "C" int lk_jetson_pin_v4l2_codec_plugin(void) {
+  // Deliberately retain this handle. Releasing the final reference unloads
+  // NVIDIA's plugin and invalidates GLib thread-local state that a later
+  // GStreamer pipeline may use.
+  static void* const plugin = LoadWithFallbacks("libv4l2_nvvideocodec.so");
+  return plugin != nullptr ? 1 : 0;
+}

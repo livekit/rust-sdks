@@ -92,12 +92,14 @@ mod tests {
         if recording_count > 0 {
             let _ = audio.recording_device_name(0);
             let guid = audio.recording_device_guid(0);
+            assert!(!guid.is_empty(), "recording device guid should not be empty");
             let _ = audio.set_recording_device_by_guid(guid);
         }
 
         if playout_count > 0 {
             let _ = audio.playout_device_name(0);
             let guid = audio.playout_device_guid(0);
+            assert!(!guid.is_empty(), "playout device guid should not be empty");
             let _ = audio.set_playout_device_by_guid(guid);
         }
 

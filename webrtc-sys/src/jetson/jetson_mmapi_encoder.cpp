@@ -48,9 +48,19 @@ constexpr int kDefaultOutputBufferCount = 4;
 constexpr int kDefaultCaptureBufferCount = 4;
 constexpr int kMinBitstreamBufferSize = 1024 * 1024;
 
+/// Checks whether a path identifies an accessible character device.
+///
+/// A character device is a special filesystem node, typically under `/dev`,
+/// through which a process communicates with a kernel driver as a byte stream.
+/// Requiring this device type rejects regular files or directories that happen
+/// to exist at the expected path but cannot represent an encoder interface.
+///
+/// Returns true when the path exists, is a character device, and is readable
+/// and writable by the current process.
 bool DeviceExists(const char* path) {
   struct stat st = {};
-  return stat(path, &st) == 0;
+  return stat(path, &st) == 0 && S_ISCHR(st.st_mode) &&
+         access(path, R_OK | W_OK) == 0;
 }
 
 void CopyPlane(uint8_t* dst,
@@ -176,14 +186,25 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
            "libraries (libnvbufsurface/libv4l2) could not be loaded.";
     return false;
   }
+  // NvVideoEncoder closes its libv4l2 handle when destroyed. Keep an
+  // independent reference to NVIDIA's codec plugin so that the temporary
+  // capability probe cannot unload process-global GLib state needed by a
+  // later GStreamer pipeline.
+  if (!lk_jetson_pin_v4l2_codec_plugin()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson video codec plugin could not be pinned for capability "
+           "discovery.";
+    return false;
+  }
+
   std::unique_ptr<NvVideoEncoder> encoder(
-      NvVideoEncoder::createVideoEncoder("livekit-encoder"));
+      NvVideoEncoder::createVideoEncoder("livekit-encoder-probe"));
   if (!encoder) {
     return false;
   }
   const uint32_t pixfmt = CodecToV4L2PixFmt(codec);
-  if (encoder->setCapturePlaneFormat(pixfmt, 64, 64,
-                                     kMinBitstreamBufferSize) < 0) {
+  if (encoder->setCapturePlaneFormat(pixfmt, 64, 64, kMinBitstreamBufferSize) <
+      0) {
     const uint32_t fallback_pixfmt = CodecToV4L2FallbackPixFmt(codec);
     if (fallback_pixfmt == pixfmt ||
         encoder->setCapturePlaneFormat(fallback_pixfmt, 64, 64,
