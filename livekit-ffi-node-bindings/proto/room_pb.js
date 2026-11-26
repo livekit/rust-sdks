@@ -240,6 +240,44 @@ const DisconnectCallback = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Pick the best region of a LiveKit Cloud project before connecting, so that
+ * the next ConnectRequest to the same URL dials that region directly. The
+ * region list is refreshed in the background until that connect, until a
+ * later PrepareConnectionRequest to the same URL, or until the token expires.
+ * Best effort: the callback carries no error.
+ *
+ * @generated from message livekit.proto.PrepareConnectionRequest
+ */
+const PrepareConnectionRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrepareConnectionRequest",
+  () => [
+    { no: 1, name: "url", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "token", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.PrepareConnectionResponse
+ */
+const PrepareConnectionResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrepareConnectionResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.PrepareConnectionCallback
+ */
+const PrepareConnectionCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PrepareConnectionCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
  * @generated from message livekit.proto.SimulateScenarioRequest
  */
 const SimulateScenarioRequest = /*@__PURE__*/ proto2.makeMessageType(
@@ -1681,6 +1719,9 @@ exports.ConnectCallback_Result = ConnectCallback_Result;
 exports.DisconnectRequest = DisconnectRequest;
 exports.DisconnectResponse = DisconnectResponse;
 exports.DisconnectCallback = DisconnectCallback;
+exports.PrepareConnectionRequest = PrepareConnectionRequest;
+exports.PrepareConnectionResponse = PrepareConnectionResponse;
+exports.PrepareConnectionCallback = PrepareConnectionCallback;
 exports.SimulateScenarioRequest = SimulateScenarioRequest;
 exports.SimulateScenarioResponse = SimulateScenarioResponse;
 exports.SimulateScenarioCallback = SimulateScenarioCallback;

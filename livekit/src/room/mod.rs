@@ -32,7 +32,8 @@ use livekit_rpc::backend::{
     HandleRequestOptions, RpcClientManager, RpcServerManager, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC,
 };
 use livekit_signaling::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+    RegionUrlProvider, SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT,
+    SIGNAL_CONNECT_TIMEOUT,
 };
 use parking_lot::{Mutex, RwLock};
 pub use proto::DisconnectReason;
@@ -629,6 +630,25 @@ impl Drop for CloseOnDrop {
 }
 
 impl Room {
+    /// Picks the best region of a LiveKit Cloud project before [`Room::connect`], so that the
+    /// next connect to `url` dials that region directly. Does nothing for other URLs.
+    ///
+    /// The region list is refreshed in the background until that connect, until a later
+    /// `prepare_connection` to the same project, or until `token` expires.
+    ///
+    /// Best effort: a failure is logged, and the next connect starts at `url` as usual.
+    pub async fn prepare_connection(url: &str, token: &str) {
+        if let Err(err) = RegionUrlProvider::prepare(url, token).await {
+            log::warn!("could not prepare the connection to {url}: {err}");
+        }
+    }
+
+    /// Undoes [`Room::prepare_connection`] for `url`: stops its background refresh, and the next
+    /// connect to `url` starts at `url`.
+    pub fn cancel_prepared_connection(url: &str) {
+        RegionUrlProvider::cancel_prepared(url);
+    }
+
     pub async fn connect(
         url: &str,
         token: &str,
