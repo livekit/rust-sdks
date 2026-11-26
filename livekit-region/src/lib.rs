@@ -113,15 +113,15 @@ impl RegionCache {
         }
     }
 
-    /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
-    /// (`max_age`) as the entry's TTL and falling back to [`Self::DEFAULT_TTL`]
-    /// when the header is absent.
     /// How long the entry for `host` stays fresh: zero when it is stale or missing.
     pub fn fresh_for(&self, host: &str) -> Duration {
         let entries = self.entries.lock().unwrap();
         entries.get(host).map_or(Duration::ZERO, |e| e.ttl.saturating_sub(e.fetched_at.elapsed()))
     }
 
+    /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
+    /// (`max_age`) as the entry's TTL and falling back to [`Self::DEFAULT_TTL`]
+    /// when the header is absent.
     pub fn insert(&self, host: String, urls: Vec<String>, max_age: Option<Duration>) {
         let ttl = max_age.unwrap_or(self.default_ttl);
         self.entries
