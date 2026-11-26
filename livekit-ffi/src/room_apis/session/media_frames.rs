@@ -14,7 +14,7 @@
 
 //! Copied, validated media frames at the foreign boundary.
 
-use super::{NativeSessionError, NativeTrackKind, NativeTrackSource};
+use super::{NativeSessionError, TrackKind, TrackSource};
 use livekit::webrtc::{
     audio_frame::AudioFrame,
     video_frame::{
@@ -188,28 +188,43 @@ impl NativeVideoFrame {
     }
 }
 
-/// A value snapshot; mutating the foreign record does not alter the native track.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct NativeMediaTrackInfo {
-    pub sid: String,
-    pub name: String,
-    pub kind: NativeTrackKind,
-    pub source: NativeTrackSource,
-    pub is_muted: bool,
-    pub is_enabled: bool,
-    pub is_remote: bool,
-}
-impl From<&livekit::track::Track> for NativeMediaTrackInfo {
+/// A live core track view. Retaining it retains the underlying media track.
+#[derive(Clone, Debug, uniffi::Object)]
+pub struct FfiTrack(pub(super) livekit::track::Track);
+impl From<&livekit::track::Track> for FfiTrack {
     fn from(track: &livekit::track::Track) -> Self {
-        Self {
-            sid: track.sid().into(),
-            name: track.name(),
-            kind: track.kind(),
-            source: track.source(),
-            is_muted: track.is_muted(),
-            is_enabled: track.is_enabled(),
-            is_remote: track.is_remote(),
-        }
+        Self(track.clone())
+    }
+}
+#[uniffi::export]
+impl FfiTrack {
+    /// Reads the core sid.
+    pub fn sid(&self) -> String {
+        self.0.sid().into()
+    }
+    /// Reads the core name.
+    pub fn name(&self) -> String {
+        self.0.name()
+    }
+    /// Reads the core kind.
+    pub fn kind(&self) -> TrackKind {
+        self.0.kind()
+    }
+    /// Reads the core source.
+    pub fn source(&self) -> TrackSource {
+        self.0.source()
+    }
+    /// Reads the core is muted.
+    pub fn is_muted(&self) -> bool {
+        self.0.is_muted()
+    }
+    /// Reads the core is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.0.is_enabled()
+    }
+    /// Reads the core is remote.
+    pub fn is_remote(&self) -> bool {
+        self.0.is_remote()
     }
 }
 

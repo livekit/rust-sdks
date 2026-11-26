@@ -1,18 +1,21 @@
 //! Thin commands supported by the public core; no signaling or media backend is recreated.
 use super::{FfiRoom, NativeSessionError};
 
-/// A participant's allowed subscriptions to this room's local tracks.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct NativeTrackPermission {
-    pub participant_identity: String,
+use livekit::id::{ParticipantIdentity, TrackSid};
+pub use livekit::participant::ParticipantTrackPermission;
+
+/// Core subscription permissions; SID validation uses the core newtype converter.
+#[uniffi::remote(Record)]
+pub struct ParticipantTrackPermission {
+    pub participant_identity: ParticipantIdentity,
     pub allow_all: bool,
-    pub allowed_track_sids: Vec<String>,
+    pub allowed_track_sids: Vec<TrackSid>,
 }
 
-pub use livekit::track::VideoQuality as NativeVideoQuality;
+pub use livekit::track::VideoQuality;
 /// Highest simulcast layer requested from the core; bandwidth may select a lower layer.
 #[uniffi::remote(Enum)]
-pub enum NativeVideoQuality {
+pub enum VideoQuality {
     Low,
     Medium,
     High,
@@ -49,28 +52,9 @@ impl FfiRoom {
     pub async fn set_track_subscription_permissions(
         &self,
         all_participants_allowed: bool,
-        permissions: Vec<NativeTrackPermission>,
+        permissions: Vec<ParticipantTrackPermission>,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        let permissions = permissions
-            .into_iter()
-            .map(|p| {
-                let allowed_track_sids = p
-                    .allowed_track_sids
-                    .into_iter()
-                    .map(|sid| {
-                        sid.try_into().map_err(|_| NativeSessionError::InvalidState {
-                            reason: "invalid allowed track SID".into(),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(livekit::participant::ParticipantTrackPermission {
-                    participant_identity: p.participant_identity.into(),
-                    allow_all: p.allow_all,
-                    allowed_track_sids,
-                })
-            })
-            .collect::<Result<Vec<_>, NativeSessionError>>()?;
         super::on_runtime(async move {
             room.local_participant()
                 .set_track_subscription_permissions(all_participants_allowed, permissions)

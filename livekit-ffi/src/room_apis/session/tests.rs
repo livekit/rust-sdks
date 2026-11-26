@@ -72,7 +72,7 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
 }
 
 impl FfiRoom {
-    async fn state_changed(&self, after: u64) -> Result<NativeRoomState, NativeSessionError> {
+    async fn state_changed(&self, after: u64) -> Result<FfiRoomState, NativeSessionError> {
         wait_for(&self.shared.changed, || {
             let inner = self.shared.inner.lock();
             if inner.revision > after {
@@ -95,23 +95,10 @@ fn cursor_options() -> NativeEventCursorOptions {
     limits(4096, 16 * 1024 * 1024)
 }
 
-fn connect_options() -> NativeConnectOptions {
-    NativeConnectOptions {
-        auto_subscribe: true,
-        adaptive_stream: false,
-        dynacast: false,
-        single_peer_connection: true,
-        join_retries: 0,
-        connect_timeout_ms: Some(2_000),
-        sdk: None,
-        max_stream_payload_bytes: None,
-        sdk_version: None,
-        encryption: None,
-        ice_servers: vec![],
-        ice_transport_policy: None,
-        continual_gathering_policy: None,
-        client_protocol: None,
-    }
+fn connect_options() -> Arc<FfiRoomOptions> {
+    Arc::new(
+        FfiRoomOptions::new().with_join_retries(0).with_connect_timeout(Duration::from_secs(2)),
+    )
 }
 
 fn update(revision: u64, event: NativeRoomEvent) -> NativeRoomUpdate {
@@ -124,8 +111,11 @@ fn token_event(token: &str) -> NativeRoomEvent {
 
 fn room_event(metadata: &str) -> NativeRoomEvent {
     NativeRoomEvent::RoomUpdated {
-        room: NativeRoomInfo {
+        room: RoomInfo {
             sid: None,
+            state: ConnectionState::Connected,
+            lossy_dc_options: Default::default(),
+            reliable_dc_options: Default::default(),
             name: "room".to_owned(),
             metadata: metadata.to_owned(),
             num_participants: 0,
@@ -139,7 +129,7 @@ fn room_event(metadata: &str) -> NativeRoomEvent {
     }
 }
 
-fn data_event(kind: NativeDataPacketKind, size: usize) -> NativeRoomEvent {
+fn data_event(kind: DataPacketKind, size: usize) -> NativeRoomEvent {
     NativeRoomEvent::DataReceived {
         packet: NativeDataPacket {
             payload: vec![0; size],
@@ -179,15 +169,15 @@ fn item_overflow_fails_the_cursor() {
 fn byte_overflow_fails_for_reliable_and_drops_lossy() {
     let queue = Arc::new(EventQueue::new(limits(100, 10)));
     let cursor = cursor_over(&queue);
-    queue.push(update(1, data_event(NativeDataPacketKind::Reliable, 8)));
+    queue.push(update(1, data_event(DataPacketKind::Reliable, 8)));
 
-    queue.push(update(1, data_event(NativeDataPacketKind::Lossy, 8)));
+    queue.push(update(1, data_event(DataPacketKind::Lossy, 8)));
     assert_eq!(cursor.dropped_lossy_packets(), 1);
-    assert_eq!(next(&cursor), Ok(Some(data_event(NativeDataPacketKind::Reliable, 8))));
+    assert_eq!(next(&cursor), Ok(Some(data_event(DataPacketKind::Reliable, 8))));
 
     // The read released the bytes.
-    queue.push(update(1, data_event(NativeDataPacketKind::Reliable, 8)));
-    queue.push(update(1, data_event(NativeDataPacketKind::Reliable, 8)));
+    queue.push(update(1, data_event(DataPacketKind::Reliable, 8)));
+    queue.push(update(1, data_event(DataPacketKind::Reliable, 8)));
     assert_eq!(next(&cursor), Err(NativeSessionError::Overflow { items: 1, bytes: 8 }));
 }
 
@@ -294,7 +284,7 @@ fn disconnect_before_connect_ends_the_cursor() {
 
     assert_eq!(
         next(&cursor),
-        Ok(Some(NativeRoomEvent::Disconnected { reason: NativeDisconnectReason::ClientInitiated }))
+        Ok(Some(NativeRoomEvent::Disconnected { reason: DisconnectReason::ClientInitiated }))
     );
     assert_eq!(next(&cursor), Ok(None));
     assert_eq!(
@@ -323,13 +313,13 @@ fn connect_failure_reports_the_cause_and_finishes() {
 
     assert_eq!(
         next(&cursor),
-        Ok(Some(NativeRoomEvent::Disconnected { reason: NativeDisconnectReason::JoinFailure }))
+        Ok(Some(NativeRoomEvent::Disconnected { reason: DisconnectReason::JoinFailure }))
     );
     assert_eq!(next(&cursor), Ok(None));
     block_on(session.disconnect());
     let state = session.state();
     assert_eq!(state.connection, NativeConnectionState::Disconnected);
-    assert_eq!(state.disconnect_reason, Some(NativeDisconnectReason::JoinFailure));
+    assert_eq!(state.disconnect_reason, Some(DisconnectReason::JoinFailure));
 
     let shared = Arc::downgrade(&session.shared);
     drop((session, cursor));
@@ -464,8 +454,8 @@ struct Peer {
     identity: String,
     session: Arc<FfiRoom>,
     cursor: Arc<NativeRoomEventCursor>,
-    /// The snapshot that `connect` returned. It never changes afterwards.
-    first: NativeRoomState,
+    /// Membership at connect; its participant and publication handles remain live.
+    first: FfiRoomState,
     /// The revision of the last event that this peer read.
     revision: u64,
     seen: Vec<NativeRoomEvent>,
@@ -481,7 +471,7 @@ impl Peer {
             room,
             identity,
             cursor,
-            NativeConnectOptions { connect_timeout_ms: Some(10_000), ..connect_options() },
+            Arc::new(connect_options().with_connect_timeout(Duration::from_secs(10))),
         )
     }
 
@@ -489,7 +479,7 @@ impl Peer {
         room: &str,
         identity: &str,
         cursor: NativeEventCursorOptions,
-        options: NativeConnectOptions,
+        options: Arc<FfiRoomOptions>,
     ) -> Self {
         let token = AccessToken::with_api_key(
             &env_or("LK_TEST_API_KEY", "devkey"),
@@ -513,8 +503,8 @@ impl Peer {
         assert_eq!(first.connection, NativeConnectionState::Connected);
         assert_eq!(first.room.as_ref().map(|room| room.name.as_str()), Some(room));
         let local = first.local_participant.as_ref().expect("local participant");
-        assert_eq!(local.identity, identity);
-        assert!(local.is_local);
+        assert_eq!(local.identity(), identity);
+        assert!(local.is_local());
         Self {
             identity: identity.to_owned(),
             session,
@@ -562,7 +552,7 @@ impl Peer {
     /// the session stays alive. Returns every event that the peer read.
     fn leave(mut self) -> Vec<NativeRoomEvent> {
         block_on(self.session.disconnect());
-        let reason = NativeDisconnectReason::ClientInitiated;
+        let reason = DisconnectReason::ClientInitiated;
         while let Some(update) = block_on(self.cursor.next()).expect("the cursor failed") {
             self.seen.push(update.event);
         }
@@ -582,9 +572,8 @@ impl Peer {
     }
 }
 
-fn remote_identities(state: &NativeRoomState) -> Vec<&str> {
-    let mut identities: Vec<_> =
-        state.remote_participants.iter().map(|p| p.identity.as_str()).collect();
+fn remote_identities(state: &FfiRoomState) -> Vec<String> {
+    let mut identities: Vec<_> = state.remote_participants.iter().map(|p| p.identity()).collect();
     identities.sort_unstable();
     identities
 }
@@ -623,9 +612,9 @@ fn two_rooms_exchange_state_and_data() {
         _ => None,
     };
     let seen_bob = alice.expect(joined);
-    assert_eq!((seen_bob.identity.as_str(), seen_bob.is_local), ("bob", false));
+    assert_eq!((seen_bob.identity().as_str(), seen_bob.is_local()), ("bob", false));
     assert!(alice.revision > alice.first.revision);
-    assert_eq!(carol.expect(joined).identity, "dave");
+    assert_eq!(carol.expect(joined).identity(), "dave");
 
     // Reliable data, in order, with topic and sender.
     for index in 0..50u8 {
@@ -634,7 +623,7 @@ fn two_rooms_exchange_state_and_data() {
     for index in 0..50u8 {
         let packet = bob.expect_data();
         assert_eq!(packet.payload, [b'a', index]);
-        assert_eq!(packet.kind, NativeDataPacketKind::Reliable);
+        assert_eq!(packet.kind, DataPacketKind::Reliable);
         assert_eq!(packet.topic.as_deref(), Some("topic-a"));
         assert_eq!(packet.participant_identity.as_deref(), Some("alice"));
     }
@@ -666,7 +655,7 @@ fn two_rooms_exchange_state_and_data() {
         packet
     };
     assert_eq!(lossy.payload, b"lossy");
-    assert_eq!(lossy.kind, NativeDataPacketKind::Lossy);
+    assert_eq!(lossy.kind, DataPacketKind::Lossy);
     assert_eq!(lossy.participant_identity.as_deref(), Some("bob"));
 
     // Participant state: the event carries the new value, the old snapshot
@@ -680,20 +669,24 @@ fn two_rooms_exchange_state_and_data() {
         }
         _ => None,
     });
-    assert_eq!((changed, participant.identity.as_str()), (attributes.clone(), "alice"));
-    assert_eq!(participant.attributes, attributes);
+    assert_eq!((changed, participant.identity().as_str()), (attributes.clone(), "alice"));
+    assert_eq!(participant.attributes(), attributes);
     bob.expect(|event| match event {
         NativeRoomEvent::ParticipantNameChanged { participant, .. } => {
-            (participant.name == "Alice A").then_some(())
+            (participant.name() == "Alice A").then_some(())
         }
         _ => None,
     });
-    assert!(bob.first.remote_participants[0].attributes.is_empty());
+    assert_eq!(
+        bob.first.remote_participants[0].attributes(),
+        attributes,
+        "retained handles read current core values"
+    );
     let newer = block_on(bob.session.state_changed(bob.first.revision)).expect("newer state");
     assert!(newer.revision > bob.first.revision);
     let current = bob.session.state();
-    assert_eq!(current.remote_participants[0].attributes, attributes);
-    assert_eq!(current.remote_participants[0].name, "Alice A");
+    assert_eq!(current.remote_participants[0].attributes(), attributes);
+    assert_eq!(current.remote_participants[0].name(), "Alice A");
 
     // Room A ends for alice. Bob sees it, and room B keeps working.
     let alice_events = alice.leave();
@@ -701,7 +694,7 @@ fn two_rooms_exchange_state_and_data() {
         NativeRoomEvent::ParticipantDisconnected { participant } => Some(participant.clone()),
         _ => None,
     });
-    assert_eq!(left.identity, "alice");
+    assert_eq!(left.identity(), "alice");
     assert!(bob.session.state().remote_participants.is_empty());
     dave.send(b"still-b", true, None);
     assert_eq!(carol.expect_data().payload, b"still-b");
@@ -837,7 +830,7 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
     );
     session.shared.apply(RoomEvent::TokenRefreshed { token: "late".into() });
     session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
-    session.shared.update_sid("late SID".into());
+    session.shared.update_sid("RM_late".to_owned().try_into().unwrap());
     assert_eq!(session.state(), frozen);
     session.shared.update(Inner::finish);
     block_on(session.disconnect());
@@ -875,19 +868,18 @@ fn foreign_future_runs_off_the_calling_executor() {
     }));
 }
 
-fn encrypted_options(key: &str) -> NativeConnectOptions {
+fn encrypted_options(key: &str) -> Arc<FfiRoomOptions> {
     use super::encryption::{NativeEncryptionOptions, NativeKeyProvider, NativeKeyProviderOptions};
-    NativeConnectOptions {
-        encryption: Some(NativeEncryptionOptions {
+    Arc::new(
+        connect_options().with_encryption(Some(NativeEncryptionOptions {
             key_provider: NativeKeyProvider::new(
                 NativeKeyProviderOptions::default(),
                 Some(bytes::Bytes::copy_from_slice(key.as_bytes())),
             )
             .unwrap(),
             legacy_media_only: false,
-        }),
-        ..connect_options()
-    }
+        })),
+    )
 }
 
 #[serial_test::serial]
@@ -1115,13 +1107,14 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
     }
 }
 
-fn media_publish_options(source: NativeTrackSource) -> NativeMediaPublishOptions {
-    NativeMediaPublishOptions {
+fn media_publish_options(source: TrackSource) -> TrackPublishOptions {
+    TrackPublishOptions {
         source,
         dtx: false,
         red: true,
         simulcast: false,
         stream: String::new(),
+        ..Default::default()
     }
 }
 
@@ -1132,9 +1125,9 @@ fn media_validation_and_child_handles_do_not_retain_session() {
     assert!(block_on(session.create_video_track("bad".into(), u32::MAX, 180, false)).is_err());
     let audio = block_on(session.create_audio_track("local".into(), 1)).expect("source");
     block_on(audio.set_muted(true)).expect("mute before publishing");
-    assert!(audio.info().unwrap().is_muted);
+    assert!(audio.info().unwrap().is_muted());
     block_on(audio.set_muted(false)).expect("unmute before publishing");
-    assert!(!audio.info().unwrap().is_muted);
+    assert!(!audio.info().unwrap().is_muted());
     assert!(block_on(audio.capture_frame(NativeAudioFrame {
         samples: vec![],
         sample_rate: 48_000,
@@ -1173,31 +1166,28 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
         let sender = Peer::join_options(&name, "publisher", cursor_options(), options());
         let audio =
             block_on(sender.session.create_audio_track("pcm".into(), 1)).expect("PCM source");
-        let publication =
-            block_on(audio.publish(media_publish_options(NativeTrackSource::Microphone)))
-                .expect("publish audio");
+        let publication = block_on(audio.publish(media_publish_options(TrackSource::Microphone)))
+            .expect("publish audio");
         let info = publication.info().expect("audio publication");
         assert_eq!(
-            info.encryption_type,
-            if encrypted { NativeEncryptionType::Gcm } else { NativeEncryptionType::None }
+            info.encryption_type(),
+            if encrypted { EncryptionType::Gcm } else { EncryptionType::None }
         );
-        let sid = info.sid;
+        let sid = info.sid();
         let mut receiver = Peer::join_options(
             &name,
             "subscriber",
             cursor_options(),
-            NativeConnectOptions {
-                auto_subscribe: false,
-                connect_timeout_ms: Some(10_000),
-                ..options()
-            },
+            Arc::new(
+                options().with_auto_subscribe(false).with_connect_timeout(Duration::from_secs(10)),
+            ),
         );
         assert!(
             receiver
                 .first
                 .publications
                 .iter()
-                .any(|p| p.sid == sid && p.participant_identity == "publisher"),
+                .any(|p| p.sid() == sid && p.participant_identity() == "publisher"),
             "initial publication missing"
         );
         let remote_publication = receiver
@@ -1206,7 +1196,9 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
             .expect("publication lookup");
         block_on(remote_publication.set_subscribed(true)).expect("subscribe audio");
         receiver.expect(|event| match event {
-            NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+            NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == sid => {
+                Some(())
+            }
             _ => None,
         });
         let remote =
@@ -1262,10 +1254,9 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
 
         if encrypted {
             receiver.expect(|event| match event {
-                NativeRoomEvent::EncryptionStateChanged {
-                    state: NativeEncryptionState::Ok,
-                    ..
-                } => Some(()),
+                NativeRoomEvent::EncryptionStateChanged { state: EncryptionState::Ok, .. } => {
+                    Some(())
+                }
                 _ => None,
             });
             assert!(sender
@@ -1281,12 +1272,12 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
 
         block_on(publication.set_muted(true)).expect("mute");
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackMuted { publication } if publication.sid == sid => Some(()),
+            NativeRoomEvent::TrackMuted { publication } if publication.sid() == sid => Some(()),
             _ => None,
         });
         block_on(publication.set_muted(false)).expect("unmute");
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackUnmuted { publication } if publication.sid == sid => Some(()),
+            NativeRoomEvent::TrackUnmuted { publication } if publication.sid() == sid => Some(()),
             _ => None,
         });
         let second_stats = block_on(audio.get_statistics()).unwrap();
@@ -1307,7 +1298,7 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
         assert!(block_on(frames.next()).expect("cancelled sink").is_none());
         block_on(remote_publication.set_subscribed(false)).expect("unsubscribe");
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid == sid => {
+            NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid() == sid => {
                 Some(())
             }
             _ => None,
@@ -1316,27 +1307,28 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
         // false->true flip can coalesce away unsubscribe and never produce a new track event.
         block_on(publication.unpublish()).expect("unpublish audio");
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackUnpublished { publication } if publication.sid == sid => Some(()),
+            NativeRoomEvent::TrackUnpublished { publication } if publication.sid() == sid => {
+                Some(())
+            }
             _ => None,
         });
-        let unsub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid == sid)).expect("unsubscribed event");
-        let unpub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnpublished { publication } if publication.sid == sid)).expect("unpublished event");
+        let unsub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnsubscribed { publication } if publication.sid() == sid)).expect("unsubscribed event");
+        let unpub = receiver.seen.iter().rposition(|e| matches!(e, NativeRoomEvent::TrackUnpublished { publication } if publication.sid() == sid)).expect("unpublished event");
         assert!(unsub < unpub);
         block_on(audio.release()).expect("release source");
 
         let video = block_on(sender.session.create_video_track("pixels".into(), 320, 180, false))
             .expect("video source");
-        let video_publication =
-            block_on(video.publish(media_publish_options(NativeTrackSource::Camera)))
-                .expect("publish video");
+        let video_publication = block_on(video.publish(media_publish_options(TrackSource::Camera)))
+            .expect("publish video");
         let video_info = video_publication.info().expect("video publication");
         assert_eq!(
-            video_info.encryption_type,
-            if encrypted { NativeEncryptionType::Gcm } else { NativeEncryptionType::None }
+            video_info.encryption_type(),
+            if encrypted { EncryptionType::Gcm } else { EncryptionType::None }
         );
-        let video_sid = video_info.sid;
+        let video_sid = video_info.sid();
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackPublished { publication } if publication.sid == video_sid => {
+            NativeRoomEvent::TrackPublished { publication } if publication.sid() == video_sid => {
                 Some(())
             }
             _ => None,
@@ -1347,7 +1339,7 @@ fn real_room_media_initial_publications_audio_video_and_teardown() {
             .expect("video lookup");
         block_on(remote_video_publication.set_subscribed(true)).expect("subscribe video");
         receiver.expect(|e| match e {
-            NativeRoomEvent::TrackSubscribed { publication } if publication.sid == video_sid => {
+            NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == video_sid => {
                 Some(())
             }
             _ => None,
@@ -1420,13 +1412,13 @@ fn real_device_microphone_to_remote_pcm() {
         Peer::join_options(&name, "listener", cursor_options(), encrypted_options(&name));
     let audio = block_on(sender.session.create_microphone_track("device".into(), None))
         .expect("physical microphone");
-    let publication = block_on(audio.publish(media_publish_options(NativeTrackSource::Microphone)))
+    let publication = block_on(audio.publish(media_publish_options(TrackSource::Microphone)))
         .expect("publish physical microphone");
     let info = publication.info().expect("publication");
-    assert_eq!(info.encryption_type, NativeEncryptionType::Gcm);
-    let sid = info.sid;
+    assert_eq!(info.encryption_type(), EncryptionType::Gcm);
+    let sid = info.sid();
     receiver.expect(|e| match e {
-        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == sid => Some(()),
         _ => None,
     });
     let remote = receiver
@@ -1519,9 +1511,16 @@ fn encryption_provider_defaults_and_unsupported_options() {
         b"participant-key"
     );
     assert!(individual.export_key(None, 0).is_err());
-    let mut options = encrypted_options("test-only-key");
-    options.encryption.as_mut().unwrap().legacy_media_only = true;
-    let core: RoomOptions = options.into();
+    let options =
+        connect_options().with_encryption(Some(super::encryption::NativeEncryptionOptions {
+            key_provider: NativeKeyProvider::new(
+                NativeKeyProviderOptions::default(),
+                Some(bytes::Bytes::from_static(b"test-only-key")),
+            )
+            .unwrap(),
+            legacy_media_only: true,
+        }));
+    let core = options.0;
     assert!(core.encryption.is_none());
     #[allow(deprecated)]
     {
@@ -1549,34 +1548,36 @@ fn typed_stats_preserve_large_numbers_groups_and_timestamps() {
 }
 
 #[test]
-fn connect_ice_options_and_protocol_boundary() {
-    let mut options = connect_options();
-    options.ice_servers = vec![NativeIceServer {
-        urls: vec!["turn:127.0.0.1:3478".into()],
-        username: "user".into(),
-        password: "credential".into(),
-    }];
-    options.ice_transport_policy = Some(NativeIceTransportPolicy::Relay);
-    options.continual_gathering_policy = Some(NativeContinualGatheringPolicy::GatherOnce);
-    options.client_protocol = Some(livekit_signaling::SignalOptions::default().client_protocol);
-    options.validate().unwrap();
-    let core: RoomOptions = options.clone().into();
-    assert_eq!(core.rtc_config.ice_servers[0].urls, options.ice_servers[0].urls);
+fn connect_core_options_preserve_nested_values_and_defaults() {
+    let defaults = FfiRoomOptions::new();
+    let options = defaults
+        .with_rtc_config(
+            vec![IceServer {
+                urls: vec!["turn:127.0.0.1:3478".into()],
+                username: "user".into(),
+                password: "credential".into(),
+            }],
+            IceTransportPolicy::Relay,
+            ContinualGatheringPolicy::GatherOnce,
+            true,
+        )
+        .with_sdk("swift".into(), "test".into(), Some("components:1".into()))
+        .with_connect_timeout(Duration::from_micros(1234567))
+        .with_max_stream_payload_bytes(Some(1u64 << 33))
+        .unwrap();
+    let core = &options.0;
     assert_eq!(core.rtc_config.ice_servers[0].username, "user");
     assert_eq!(core.rtc_config.ice_servers[0].password, "credential");
-    assert_eq!(core.rtc_config.ice_transport_type, NativeIceTransportPolicy::Relay);
-    assert_eq!(
-        core.rtc_config.continual_gathering_policy,
-        NativeContinualGatheringPolicy::GatherOnce
-    );
-    options.client_protocol = Some(0);
-    let session = FfiRoom::new();
-    assert!(matches!(
-        block_on(session.connect("ws://127.0.0.1:1".into(), "t".into(), options)),
-        Err(NativeSessionError::Unsupported { .. })
-    ));
-    assert_eq!(session.state().connection, NativeConnectionState::Idle);
-    block_on(session.disconnect());
+    assert_eq!(core.rtc_config.ice_transport_type, IceTransportPolicy::Relay);
+    assert_eq!(core.rtc_config.continual_gathering_policy, ContinualGatheringPolicy::GatherOnce);
+    assert!(core.rtc_config.enable_sctp_snap);
+    assert_eq!(core.sdk_options.other_sdks.as_deref(), Some("components:1"));
+    assert_eq!(core.connect_timeout, Duration::from_micros(1234567));
+    assert_eq!(defaults.connect_timeout(), RoomOptions::default().connect_timeout);
+    assert!(defaults.ice_servers().is_empty(), "builder must not mutate prior options");
+    let publishing = default_track_publish_options();
+    assert_eq!(publishing.simulcast, TrackPublishOptions::default().simulcast);
+    assert_eq!(publishing.frame_metadata_features, Default::default());
 }
 
 #[test]
@@ -1725,13 +1726,13 @@ fn invalid_cursor_limits_fail_without_an_event() {
 fn unexplained_end_does_not_claim_client_initiated() {
     let session = FfiRoom::new();
     session.shared.update(Inner::finish);
-    assert_eq!(session.state().disconnect_reason, Some(NativeDisconnectReason::UnknownReason));
+    assert_eq!(session.state().disconnect_reason, Some(DisconnectReason::UnknownReason));
 }
 
 #[test]
 fn secrets_are_not_debug_formatted() {
     let mut options = connect_options();
-    options.ice_servers.push(NativeIceServer {
+    Arc::make_mut(&mut options).0.rtc_config.ice_servers.push(IceServer {
         urls: vec!["turn:secret-url@example.test".into()],
         username: "secret-user".into(),
         password: "secret-password".into(),
@@ -1771,11 +1772,11 @@ fn real_receive_then_pcm_does_not_request_platform_audio() {
     let sender = Peer::join(&room, "early");
     let early = block_on(sender.session.create_audio_track("early PCM".into(), 1)).unwrap();
     let publication =
-        block_on(early.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
-    let sid = publication.info().unwrap().sid;
+        block_on(early.publish(media_publish_options(TrackSource::Microphone))).unwrap();
+    let sid = publication.info().unwrap().sid();
     let mut receiver = Peer::join(&room, "receiver");
     receiver.expect(|event| match event {
-        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == sid => Some(()),
         _ => None,
     });
     receive_then_pcm_privacy_checkpoint(1);
@@ -1785,11 +1786,11 @@ fn real_receive_then_pcm_does_not_request_platform_audio() {
     let local =
         block_on(receiver.session.create_audio_track("late PCM same room session".into(), 1))
             .unwrap();
-    block_on(local.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    block_on(local.publish(media_publish_options(TrackSource::Microphone))).unwrap();
     let other = Peer::join(&room, "other");
     let late =
         block_on(other.session.create_audio_track("late PCM other session".into(), 1)).unwrap();
-    block_on(late.publish(media_publish_options(NativeTrackSource::Microphone))).unwrap();
+    block_on(late.publish(media_publish_options(TrackSource::Microphone))).unwrap();
     for _ in 0..30 {
         for track in [&early, &local, &late] {
             block_on(track.capture_frame(NativeAudioFrame {
@@ -1816,19 +1817,19 @@ fn real_public_core_controls() {
     let video =
         block_on(sender.session.create_video_track("control-video".into(), 640, 360, false))
             .unwrap();
-    let mut options = media_publish_options(NativeTrackSource::Camera);
+    let mut options = media_publish_options(TrackSource::Camera);
     options.simulcast = true;
     let publication = block_on(video.publish(options)).unwrap();
-    let sid = publication.info().unwrap().sid;
+    let sid = publication.info().unwrap().sid();
     let mut receiver = Peer::join(&name, "controls-receiver");
     receiver.expect(|event| match event {
-        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == sid => Some(()),
         _ => None,
     });
     let remote = receiver.session.publication("controls-sender".into(), sid.clone()).unwrap();
-    assert!(remote.info().unwrap().simulcasted);
-    block_on(remote.set_video_quality(NativeVideoQuality::Low)).unwrap();
-    block_on(remote.set_video_quality(NativeVideoQuality::High)).unwrap();
+    assert!(remote.info().unwrap().simulcasted());
+    block_on(remote.set_video_quality(VideoQuality::Low)).unwrap();
+    block_on(remote.set_video_quality(VideoQuality::High)).unwrap();
     block_on(sender.session.publish_dtmf(1, "1".into(), vec!["controls-receiver".into()])).unwrap();
     receiver.expect(|event| match event {
         NativeRoomEvent::DtmfReceived {
@@ -1847,39 +1848,34 @@ fn real_public_core_controls() {
     let deadline = Instant::now() + Duration::from_secs(1);
     while Instant::now() < deadline {
         assert_ne!(
-            denied.info().unwrap().remote.unwrap().subscription_status,
-            NativeSubscriptionStatus::Subscribed
+            denied.info().unwrap().remote().unwrap().subscription_status,
+            SubscriptionStatus::Subscribed
         );
         thread::sleep(Duration::from_millis(20));
     }
     block_on(sender.session.set_track_subscription_permissions(
         false,
-        vec![NativeTrackPermission {
+        vec![ParticipantTrackPermission {
             participant_identity: "controls-receiver".into(),
             allow_all: false,
-            allowed_track_sids: vec![sid.clone()],
+            allowed_track_sids: vec![sid.clone().try_into().unwrap()],
         }],
     ))
     .unwrap();
     receiver.expect(|event| match event {
-        NativeRoomEvent::TrackSubscribed { publication } if publication.sid == sid => Some(()),
+        NativeRoomEvent::TrackSubscribed { publication } if publication.sid() == sid => Some(()),
         _ => None,
     });
-    assert!(matches!(
-        block_on(sender.session.set_track_subscription_permissions(
-            false,
-            vec![NativeTrackPermission {
-                participant_identity: "controls-receiver".into(),
-                allow_all: false,
-                allowed_track_sids: vec!["invalid".into()],
-            }]
-        )),
-        Err(NativeSessionError::InvalidState { .. })
-    ));
+    let mut invalid_sid = Vec::new();
+    <String as uniffi::FfiConverter<crate::UniFfiTag>>::write("invalid".into(), &mut invalid_sid);
+    assert!(<TrackSid as uniffi::FfiConverter<crate::UniFfiTag>>::try_read(
+        &mut invalid_sid.as_slice()
+    )
+    .is_err());
     receiver.leave();
     sender.leave();
     assert!(matches!(
-        block_on(remote.set_video_quality(NativeVideoQuality::Low)),
+        block_on(remote.set_video_quality(VideoQuality::Low)),
         Err(NativeSessionError::Closed)
     ));
 }

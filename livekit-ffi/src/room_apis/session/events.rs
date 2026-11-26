@@ -20,8 +20,8 @@ use parking_lot::Mutex;
 use tokio::sync::Notify;
 
 use super::records::{
-    NativeDataPacketKind, NativeEventCursorOptions, NativeRoomEvent, NativeRoomState,
-    NativeRoomUpdate, NativeSessionError,
+    DataPacketKind, FfiRoomState, NativeEventCursorOptions, NativeRoomEvent, NativeRoomUpdate,
+    NativeSessionError,
 };
 
 /// Waits until `check` returns a value. `notify` must fire after each change
@@ -44,23 +44,23 @@ pub(super) async fn wait_for<T>(notify: &Notify, mut check: impl FnMut() -> Opti
 
 /// Identifies events where only the newest value matters.
 #[derive(PartialEq)]
-enum CoalesceKey<'a> {
+enum CoalesceKey {
     Room,
     Speakers,
-    Quality(&'a str),
-    Participant(&'a str),
+    Quality(String),
+    Participant(String),
 }
 
 impl NativeRoomEvent {
-    fn coalesce_key(&self) -> Option<CoalesceKey<'_>> {
+    fn coalesce_key(&self) -> Option<CoalesceKey> {
         match self {
             Self::RoomUpdated { .. } => Some(CoalesceKey::Room),
             Self::ActiveSpeakersChanged { .. } => Some(CoalesceKey::Speakers),
             Self::ConnectionQualityChanged { participant } => {
-                Some(CoalesceKey::Quality(&participant.identity))
+                Some(CoalesceKey::Quality(participant.identity()))
             }
             Self::ParticipantUpdated { participant } => {
-                Some(CoalesceKey::Participant(&participant.identity))
+                Some(CoalesceKey::Participant(participant.identity()))
             }
             _ => None,
         }
@@ -77,7 +77,7 @@ impl NativeRoomEvent {
     }
 
     fn is_lossy(&self) -> bool {
-        matches!(self, Self::DataReceived { packet } if packet.kind == NativeDataPacketKind::Lossy)
+        matches!(self, Self::DataReceived { packet } if packet.kind == DataPacketKind::Lossy)
     }
 }
 
@@ -217,11 +217,11 @@ impl EventQueue {
 #[derive(uniffi::Object)]
 pub struct NativeRoomEventCursor {
     queue: Arc<EventQueue>,
-    start: NativeRoomState,
+    start: FfiRoomState,
 }
 
 impl NativeRoomEventCursor {
-    pub(super) fn new(queue: Arc<EventQueue>, start: NativeRoomState) -> Arc<Self> {
+    pub(super) fn new(queue: Arc<EventQueue>, start: FfiRoomState) -> Arc<Self> {
         Arc::new(Self { queue, start })
     }
 
@@ -250,7 +250,7 @@ impl NativeRoomEventCursor {
     /// For a connected session, subsequent events follow this snapshot. A cursor
     /// created before connect starts at Idle: consume the snapshot returned by
     /// `connect` before reading events; initial entities are not replayed here.
-    pub fn start_state(&self) -> NativeRoomState {
+    pub fn start_state(&self) -> FfiRoomState {
         self.start.clone()
     }
 

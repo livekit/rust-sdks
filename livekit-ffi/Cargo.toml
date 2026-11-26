@@ -23,6 +23,7 @@ default = ["room-apis", "rustls-tls-native-roots"]
 # below, the artifact has no network stack and exports no way to register one.
 __room-surface = [
   "dep:livekit",
+  "livekit/uniffi",
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",

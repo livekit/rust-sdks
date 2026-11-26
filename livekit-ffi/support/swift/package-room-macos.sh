@@ -34,7 +34,11 @@ for binding in "$OUT"/Sources/LiveKitFFI/*.swift; do
         -e 's/canImport(RustLiveKitDataTrack)/canImport(RustLiveKitFFI)/' \
         -e 's/import RustLiveKitDataTrack/import RustLiveKitFFI/' \
         -e 's/canImport(livekit_netFFI)/canImport(RustLiveKitFFI)/' \
-        -e 's/import livekit_netFFI/import RustLiveKitFFI/' "$binding"
+        -e 's/import livekit_netFFI/import RustLiveKitFFI/' \
+        -e 's/canImport(livekitFFI)/canImport(RustLiveKitFFI)/' \
+        -e 's/import livekitFFI/import RustLiveKitFFI/' \
+        -e 's/canImport(libwebrtcFFI)/canImport(RustLiveKitFFI)/' \
+        -e 's/import libwebrtcFFI/import RustLiveKitFFI/' "$binding"
 done
 
 FRAMEWORK="$GEN/RustLiveKitFFI.framework"

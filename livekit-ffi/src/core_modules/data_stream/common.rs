@@ -34,32 +34,13 @@ use super::outgoing::StreamProgressDelegate;
 
 // MARK: - Enums
 
-/// Encryption applied to a data stream, mirroring [`common::EncryptionType`].
-#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub use common::EncryptionType;
+/// Core encryption applied to a data stream or media track.
+#[uniffi::remote(Enum)]
 pub enum EncryptionType {
     None,
     Gcm,
     Custom,
-}
-
-impl From<common::EncryptionType> for EncryptionType {
-    fn from(value: common::EncryptionType) -> Self {
-        match value {
-            common::EncryptionType::None => Self::None,
-            common::EncryptionType::Gcm => Self::Gcm,
-            common::EncryptionType::Custom => Self::Custom,
-        }
-    }
-}
-
-impl From<EncryptionType> for common::EncryptionType {
-    fn from(value: EncryptionType) -> Self {
-        match value {
-            EncryptionType::None => Self::None,
-            EncryptionType::Gcm => Self::Gcm,
-            EncryptionType::Custom => Self::Custom,
-        }
-    }
 }
 
 /// Operation type for text streams, mirroring [`ds_api::OperationType`].
@@ -150,7 +131,7 @@ impl From<ds_api::ByteStreamInfo> for ByteStreamInfo {
             attributes,
             mime_type: info.mime_type,
             name: info.name,
-            encryption_type: info.encryption_type.into(),
+            encryption_type: info.encryption_type,
         }
     }
 }
@@ -188,7 +169,7 @@ impl From<ds_api::TextStreamInfo> for TextStreamInfo {
             reply_to_stream_id: info.reply_to_stream_id,
             attached_stream_ids: info.attached_stream_ids,
             generated: info.generated,
-            encryption_type: info.encryption_type.into(),
+            encryption_type: info.encryption_type,
         }
     }
 }
@@ -553,10 +534,7 @@ impl From<ds_api::StreamError> for DataStreamError {
             },
             ds_api::StreamError::Internal => Self::Internal,
             ds_api::StreamError::EncryptionTypeMismatch { expected, received } => {
-                Self::EncryptionTypeMismatch {
-                    expected: expected.into(),
-                    received: received.into(),
-                }
+                Self::EncryptionTypeMismatch { expected, received }
             }
             ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
             ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,

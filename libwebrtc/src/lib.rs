@@ -80,3 +80,6 @@ pub mod native {
 pub mod android {
     pub use crate::imp::android::*;
 }
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();

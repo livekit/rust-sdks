@@ -20,11 +20,21 @@ use crate::{
     MediaType, RtcError,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IceServer {
     pub urls: Vec<String>,
     pub username: String,
     pub password: String,
+}
+
+impl std::fmt::Debug for IceServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // URLs can contain user-info credentials too.
+        f.debug_struct("IceServer")
+            .field("url_count", &self.urls.len())
+            .field("credentials", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

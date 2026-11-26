@@ -3661,6 +3661,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
+ "uniffi",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3793,6 +3794,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+ "uniffi",
 ]
 
 [[package]]

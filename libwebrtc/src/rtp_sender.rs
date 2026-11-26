@@ -22,6 +22,7 @@ use crate::{
 /// Preferred backend for video encoding on an [`RtpSender`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum VideoEncoderBackend {
     /// Use the SDK's default encoder selection.
     #[default]

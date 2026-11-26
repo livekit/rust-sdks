@@ -497,7 +497,7 @@ impl Debug for Room {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RoomInfo {
     pub sid: Option<RoomSid>,
     pub name: String,
@@ -514,7 +514,7 @@ pub struct RoomInfo {
     pub active_recording: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DataChannelOptions {
     pub buffered_amount_low_threshold: u64,
 }
@@ -1093,6 +1093,11 @@ impl Room {
             return self.inner.sid_promise.result().await;
         }
         sid.unwrap()
+    }
+
+    /// Returns a coherent snapshot of the current room information.
+    pub fn info(&self) -> RoomInfo {
+        self.inner.info.read().clone()
     }
 
     pub fn maybe_sid(&self) -> Option<RoomSid> {
