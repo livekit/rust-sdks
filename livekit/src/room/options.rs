@@ -301,7 +301,9 @@ pub fn compute_appropriate_encoding(
 
     for preset in presets {
         encoding = preset.encoding.clone();
-        if preset.width > size {
+        // Screenshare presets repeat a width at rising fps, so keep going past an exact match there.
+        let past_size = if is_screenshare { preset.width > size } else { preset.width >= size };
+        if past_size {
             break;
         }
     }
@@ -600,8 +602,9 @@ mod tests {
     use libwebrtc::video_codec::VideoCodec as EncoderCodec;
 
     use super::{
-        codec_source_backend, get_default_degradation_preference, select_video_codec,
-        DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoderBackend,
+        codec_source_backend, compute_appropriate_encoding, get_default_degradation_preference,
+        screenshare, select_video_codec, video, video43, DegradationPreference,
+        TrackPublishOptions, VideoCodec, VideoEncoderBackend,
     };
     use crate::prelude::TrackSource;
 
@@ -673,6 +676,17 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn appropriate_encoding_uses_the_preset_matching_the_capture_width() {
+        let bitrate = |is_screenshare, w, h| {
+            compute_appropriate_encoding(is_screenshare, w, h, VideoCodec::VP8).max_bitrate
+        };
+        assert_eq!(bitrate(false, 960, 720), video43::H720.encoding.max_bitrate);
+        assert_eq!(bitrate(false, 1280, 720), video::H720.encoding.max_bitrate);
+        assert_eq!(bitrate(false, 1000, 750), video43::H1080.encoding.max_bitrate);
+        assert_eq!(bitrate(true, 1920, 1080), screenshare::H1080_FPS30.encoding.max_bitrate);
     }
 
     #[test]
