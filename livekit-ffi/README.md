@@ -204,10 +204,22 @@ core connection and exposes commands without a native SDK wrapper. The separate
 protobuf `server::room::FfiRoom` is unchanged.
 
 The one connect/event task is retained because dropping a core connect future has
-no documented transport-cleanup guarantee. Cancellation returns promptly; disconnect
-joins that task and closes any late successful connection. Ordinary commands are
+no documented transport-cleanup guarantee. Cancellation returns promptly and the driver
+releases room-owned media before awaiting a late connect result. `disconnect` waits up
+to ten seconds for that driver and returns `ShutdownTimeout` if cleanup is still running.
+The room retains the task handle and the complete core close future: a later disconnect
+can await completion again. A permanently stalled core can retain this owner until process
+exit; a timeout does not mark teardown complete or finish the event cursor. Successful
+late connections are closed without installing their snapshot or emitting connected events.
+An unwinding driver panic reports an internal shutdown error; release builds abort on panic.
+Ordinary commands are
 owned by their UniFFI futures and use core completion/error behavior on disconnect.
 Dropping a caller aborts its runtime hop via tokio-util; ordinary completion joins it.
+Core track-publication receivers own their pending registry entries, so dropping either
+an ordinary or startup publication removes only that registration. The low-level Rust
+`RtcEngine::connect` startup receivers are now awaitable `PendingTrack` guards rather
+than raw Tokio oneshot receivers. This does not retract
+an AddTrack request already sent to the server or guarantee server-side rollback.
 The hop is necessary because synchronous WebRTC work within a poll must not block
 Swift’s cooperative executor.
 

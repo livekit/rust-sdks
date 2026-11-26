@@ -771,3 +771,44 @@ impl Drop for NativeVideoFrames {
         self.cancel();
     }
 }
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_connect_releases_owned_media_before_late_result() {
+        for cancelled in [false, true] {
+            let session = FfiRoom::new();
+            let track = session.create_audio_track("preconnect".into(), 1).await.unwrap();
+            let owner = Arc::downgrade(session.shared.media.lock().local.get(&track.id).unwrap());
+            // Simulate an allocation that finishes after the terminal transition.
+            let racing =
+                OwnedTrack { track: owner.upgrade().unwrap().track.clone(), _device: None };
+            session
+                .shared
+                .update(|inner| inner.connection = super::super::NativeConnectionState::Connecting);
+            let (release, late_result) = tokio::sync::oneshot::channel();
+            let connect = session.shared.connect_until_terminal(late_result);
+            tokio::pin!(connect);
+            assert!(futures_util::poll!(&mut connect).is_pending());
+            session.shared.terminate(if cancelled {
+                FfiRoomError::Cancelled
+            } else {
+                FfiRoomError::Closed
+            });
+            assert!(futures_util::poll!(&mut connect).is_pending());
+            assert!(owner.upgrade().is_none(), "capture survived the cancel request");
+            assert!(session.shared.media.lock().is_empty());
+            assert!(
+                session.store_local(racing).is_err(),
+                "racing allocation was installed after termination"
+            );
+            assert!(!session.shared.inner.lock().finished, "late connect still needs cleanup");
+            assert!(session.create_audio_track("racing".into(), 1).await.is_err());
+            release.send(7).unwrap();
+            assert_eq!(connect.await.unwrap(), 7, "late completion was abandoned");
+            drop(super::super::Finish(session.shared.clone()));
+        }
+    }
+}

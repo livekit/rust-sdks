@@ -390,6 +390,61 @@ struct IceCandidateJson {
     pub candidate: String,
 }
 
+/// The sender and identity of one pending publication.
+struct PendingTrackResponse {
+    token: Arc<()>,
+    sender: oneshot::Sender<EngineResult<proto::TrackInfo>>,
+}
+
+/// Awaits a track publication response and owns its pending registration.
+///
+/// Dropping this future removes its registration even before the first poll.
+/// It does not retract an AddTrack request already sent to the server.
+pub struct PendingTrack {
+    receiver: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+    pending: std::sync::Weak<Mutex<HashMap<String, PendingTrackResponse>>>,
+    cid: String,
+    token: Arc<()>,
+}
+
+impl PendingTrack {
+    /// Reserves a client track ID until its response or this receiver's destruction.
+    fn register(
+        pending: &Arc<Mutex<HashMap<String, PendingTrackResponse>>>,
+        cid: &str,
+    ) -> EngineResult<Self> {
+        let (sender, receiver) = oneshot::channel();
+        let mut tracks = pending.lock();
+        if tracks.contains_key(cid) {
+            return Err(EngineError::Internal("track already published".into()));
+        }
+        let token = Arc::new(());
+        tracks.insert(cid.to_string(), PendingTrackResponse { token: token.clone(), sender });
+        Ok(Self { receiver, pending: Arc::downgrade(pending), cid: cid.to_string(), token })
+    }
+}
+
+impl Future for PendingTrack {
+    type Output = Result<EngineResult<proto::TrackInfo>, oneshot::error::RecvError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.receiver).poll(cx)
+    }
+}
+
+impl Drop for PendingTrack {
+    fn drop(&mut self) {
+        let Some(pending) = self.pending.upgrade() else { return };
+        let mut tracks = pending.lock();
+        if tracks.get(&self.cid).is_some_and(|entry| Arc::ptr_eq(&entry.token, &self.token)) {
+            tracks.remove(&self.cid);
+        }
+    }
+}
+
 /// Fields shared with rtc_task and signal_task
 struct SessionInner {
     signal_client: Arc<SignalClient>,
@@ -424,7 +479,7 @@ struct SessionInner {
     /// `track` events for newly-added streams.
     dispatched_streams: Mutex<HashSet<(String, String)>>,
 
-    pending_tracks: Mutex<HashMap<String, oneshot::Sender<EngineResult<proto::TrackInfo>>>>,
+    pending_tracks: Arc<Mutex<HashMap<String, PendingTrackResponse>>>,
 
     // Publisher data channels
     // used to send data to other participants (The SFU forwards the messages)
@@ -562,12 +617,7 @@ impl RtcSession {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
         publish_tracks: &[(LocalTrack, TrackPublishOptions)],
-    ) -> EngineResult<(
-        Self,
-        proto::JoinResponse,
-        SessionEvents,
-        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
-    )> {
+    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents, Vec<(String, PendingTrack)>)> {
         let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
@@ -775,15 +825,12 @@ impl RtcSession {
         }
 
         // Tracks without a receiver were not sent with the join and must be published normally.
-        let pre_publish_receivers: Vec<(
-            String,
-            oneshot::Receiver<EngineResult<proto::TrackInfo>>,
-        )> = if sent_publisher_offer {
+        let pre_publish_receivers: Vec<(String, PendingTrack)> = if sent_publisher_offer {
             publish_tracks
                 .iter()
                 .filter_map(|(track, _)| {
                     let cid = track.rtc_track().id();
-                    inner.register_pending_track(&cid).ok().map(|rx| (cid, rx))
+                    PendingTrack::register(&inner.pending_tracks, &cid).ok().map(|rx| (cid, rx))
                 })
                 .collect()
         } else {
@@ -965,10 +1012,9 @@ impl RtcSession {
 
     pub(crate) async fn wait_track_published_by_cid(
         &self,
-        cid: String,
-        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        rx: PendingTrack,
     ) -> EngineResult<proto::TrackInfo> {
-        self.inner.wait_track_published_by_cid(cid, rx).await
+        self.inner.wait_track_published_by_cid(rx).await
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
@@ -1542,7 +1588,7 @@ impl SessionInner {
     /// Updates the packet receive state (TTL map) for reliable packets.
     /// Returns `false` if the packet is a duplicate and must be dropped.
     fn update_packet_rx_state(&self, packet: &proto::DataPacket) -> bool {
-        if packet.sequence <= 0 || packet.participant_sid.is_empty() {
+        if packet.sequence == 0 || packet.participant_sid.is_empty() {
             return true;
         };
         let mut rx_state = self.packet_rx_state.lock();
@@ -1693,7 +1739,7 @@ impl SessionInner {
             proto::signal_response::Message::TrackPublished(publish_res) => {
                 let mut pending_tracks = self.pending_tracks.lock();
                 if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
-                    let _ = tx.send(Ok(publish_res.track.unwrap()));
+                    let _ = tx.sender.send(Ok(publish_res.track.unwrap()));
                 }
             }
             proto::signal_response::Message::RoomUpdate(room_update) => {
@@ -2131,45 +2177,29 @@ impl SessionInner {
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
         let cid = req.cid.clone();
-        let rx = self.register_pending_track(&cid)?;
+        let rx = PendingTrack::register(&self.pending_tracks, &cid)?;
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
-        self.wait_track_published(cid, rx, TRACK_PUBLISH_TIMEOUT).await
+        self.wait_track_published(rx, TRACK_PUBLISH_TIMEOUT).await
     }
 
     async fn wait_track_published_by_cid(
         &self,
-        cid: String,
-        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        rx: PendingTrack,
     ) -> EngineResult<proto::TrackInfo> {
-        self.wait_track_published(cid, rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
-    }
-
-    fn register_pending_track(
-        &self,
-        cid: &str,
-    ) -> EngineResult<oneshot::Receiver<EngineResult<proto::TrackInfo>>> {
-        let (tx, rx) = oneshot::channel();
-        let mut pending_tracks = self.pending_tracks.lock();
-        if pending_tracks.contains_key(cid) {
-            Err(EngineError::Internal("track already published".into()))?;
-        }
-        pending_tracks.insert(cid.to_string(), tx);
-        Ok(rx)
+        self.wait_track_published(rx, JOIN_TRACK_CONFIRM_TIMEOUT).await
     }
 
     async fn wait_track_published(
         &self,
-        cid: String,
-        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        mut rx: PendingTrack,
         timeout: Duration,
     ) -> EngineResult<proto::TrackInfo> {
         tokio::select! {
-            res = rx => match res {
+            res = &mut rx => match res {
                 Ok(res) => res,
                 Err(_) => Err(EngineError::Internal("track publication cancelled".into())),
             },
             _ = sleep(timeout) => {
-                self.pending_tracks.lock().remove(&cid);
                 Err(EngineError::Internal("track publication timed out, no response received from the server".into()))
             },
         }
@@ -2188,7 +2218,7 @@ impl SessionInner {
         let Some(tx) = self.pending_tracks.lock().remove(&req.cid) else {
             return;
         };
-        let _ = tx.send(Err(EngineError::Internal(
+        let _ = tx.sender.send(Err(EngineError::Internal(
             format!(
                 "track {} rejected by the server: {}: {}",
                 req.name,
@@ -3165,6 +3195,42 @@ mod tests {
         cancel_on_close, parse_sdp_max_message_size, recovery_decision,
         uses_negotiated_data_channels, DEFAULT_MAX_MESSAGE_SIZE,
     };
+
+    #[tokio::test]
+    async fn pending_publication_cleanup_survives_drop_panic_and_replacement() {
+        use super::PendingTrack;
+        use parking_lot::Mutex;
+        use std::{
+            collections::HashMap,
+            future::Future,
+            pin::Pin,
+            task::{Context, Waker},
+        };
+
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let mut publish = PendingTrack::register(&pending, "cid").unwrap();
+        assert!(Pin::new(&mut publish).poll(&mut Context::from_waker(Waker::noop())).is_pending());
+        assert!(PendingTrack::register(&pending, "cid").is_err());
+        drop(publish);
+        assert!(pending.lock().is_empty());
+
+        let mut publish = PendingTrack::register(&pending, "cid").unwrap();
+        let completed = pending.lock().remove("cid").unwrap();
+        completed.sender.send(Ok(Default::default())).unwrap();
+        assert!((&mut publish).await.unwrap().is_ok());
+        let replacement = PendingTrack::register(&pending, "cid").unwrap();
+        drop(publish);
+        assert!(Arc::ptr_eq(&pending.lock().get("cid").unwrap().token, &replacement.token));
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _publication = replacement;
+            panic!("publication unwind");
+        }));
+        assert!(unwound.is_err());
+        assert!(pending.lock().is_empty());
+        // Startup registrations can be dropped before anybody polls their receiver.
+        drop(PendingTrack::register(&pending, "cid").unwrap());
+        assert!(pending.lock().is_empty());
+    }
 
     /// The server picks negotiated data channels from the protocol the client advertised, so a
     /// client advertising 16 to a protocol 18 server must open them in-band, as the server does.

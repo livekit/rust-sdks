@@ -294,7 +294,7 @@ fn cancel_before_connect_is_terminal() {
     );
 
     // Regression: a room that never connected has no task to finish it.
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
     assert_eq!(next(&session.events(cursor_options())).unwrap_err(), cancelled);
 }
 
@@ -302,8 +302,8 @@ fn cancel_before_connect_is_terminal() {
 fn disconnect_before_connect_ends_the_cursor() {
     let session = FfiRoom::new();
     let cursor = session.events(cursor_options());
-    block_on(session.disconnect());
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
+    block_on(session.disconnect()).expect("shutdown completed");
 
     assert!(matches!(
         next(&cursor).unwrap(),
@@ -337,7 +337,7 @@ fn connect_failure_reports_the_cause_and_finishes() {
         Some(NativeRoomEvent::Disconnected { reason: DisconnectReason::JoinFailure })
     ));
     assert!(next(&cursor).unwrap().is_none());
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
     let state = session.state();
     assert_eq!(state.connection, NativeConnectionState::Disconnected);
     assert_eq!(state.disconnect_reason, Some(DisconnectReason::JoinFailure));
@@ -369,7 +369,7 @@ fn connect_without_host_transport_is_not_configured() {
         result.unwrap_err(),
         FfiRoomError::Signal { failure: NativeSignalFailure::TransportNotConfigured }
     );
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
 }
 
 // Only with the bundled stack: this test needs a handshake that stays pending
@@ -409,7 +409,7 @@ fn cancel_during_connect_returns_at_once() {
     assert!(started.elapsed() < Duration::from_secs(1), "cancel waited for the connect");
 
     // `disconnect` waits for the connect attempt that the core still runs.
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
     let shared = Arc::downgrade(&session.shared);
     drop((session, cursor));
     assert!(shared.upgrade().is_none(), "the session leaked");
@@ -425,7 +425,7 @@ fn repeated_create_and_release_leaves_nothing() {
         released.push(Arc::downgrade(&session.shared));
         match round % 3 {
             0 => session.cancel(),
-            1 => block_on(session.disconnect()),
+            1 => block_on(session.disconnect()).expect("shutdown completed"),
             // To release the handles has the same effect as a cancel.
             _ => {}
         }
@@ -572,7 +572,7 @@ impl Peer {
     /// Disconnects, reads the cursor to its end and checks that nothing of
     /// the room stays alive. Returns every event that the peer read.
     fn leave(mut self) -> Vec<NativeRoomEvent> {
-        block_on(self.session.disconnect());
+        block_on(self.session.disconnect()).expect("shutdown completed");
         let reason = DisconnectReason::ClientInitiated;
         while let Some(update) = block_on(self.cursor.next()).expect("the cursor failed") {
             self.seen.push(update.event);
@@ -825,7 +825,7 @@ fn cancel_races_a_real_connect() {
         }
         assert_eq!(victim.state().connection, NativeConnectionState::Disconnected);
         // The join of the room task: a room that connected late is closed here.
-        block_on(victim.disconnect());
+        block_on(victim.disconnect()).expect("shutdown completed");
         let shared = Arc::downgrade(&victim.shared);
         drop((victim, cursor));
         assert!(shared.upgrade().is_none(), "round {round} leaked its session");
@@ -876,7 +876,7 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
             && current.data_tracks.is_empty()
     );
     session.shared.update(Inner::finish);
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
 }
 
 #[test]
@@ -1132,7 +1132,7 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
             NativeRoomEvent::RpcRequested { invocation } => Some(invocation.clone()),
             _ => None,
         });
-        block_on(receiver.session.disconnect());
+        block_on(receiver.session.disconnect()).expect("shutdown completed");
         assert!(pending.join().expect("pending caller").is_err());
         assert!(!invocation.respond("after disconnect".into()));
 
@@ -1193,7 +1193,7 @@ fn media_validation_and_child_handles_do_not_retain_session() {
         Err(FfiRoomError::Cancelled)
     ));
     let weak = Arc::downgrade(&session.shared);
-    block_on(session.disconnect());
+    block_on(session.disconnect()).expect("shutdown completed");
     assert!(audio.info().is_err());
     drop(session);
     assert!(weak.upgrade().is_none(), "child audio handle retained session");
@@ -1742,7 +1742,7 @@ fn real_structured_connection_and_stream_errors() {
         ),
         "{error:?}"
     );
-    block_on(failed.disconnect());
+    block_on(failed.disconnect()).expect("shutdown completed");
     let restricted = FfiRoom::new();
     let token = AccessToken::with_api_key(
         &env_or("LK_TEST_API_KEY", "devkey"),
@@ -1771,7 +1771,7 @@ fn real_structured_connection_and_stream_errors() {
         ),
         "{error:?}"
     );
-    block_on(restricted.disconnect());
+    block_on(restricted.disconnect()).expect("shutdown completed");
     let peer = Peer::join(&unique("typed-errors"), "sender");
     let error = block_on(
         peer.session
@@ -1787,7 +1787,7 @@ fn real_structured_connection_and_stream_errors() {
         block_on(peer.session.send_bytes(bytes::Bytes::new(), StreamByteOptions::default())),
         Err(DataStreamError::Cancelled)
     ));
-    block_on(peer.session.disconnect());
+    block_on(peer.session.disconnect()).expect("shutdown completed");
     let weak = Arc::downgrade(&peer.session.shared);
     drop(peer);
     assert!(weak.upgrade().is_none());
@@ -1796,7 +1796,7 @@ fn real_structured_connection_and_stream_errors() {
         block_on(idle.send_bytes(bytes::Bytes::new(), StreamByteOptions::default())),
         Err(DataStreamError::InvalidState { .. })
     ));
-    block_on(idle.disconnect());
+    block_on(idle.disconnect()).expect("shutdown completed");
 }
 
 #[test]
@@ -1981,4 +1981,185 @@ fn real_public_core_controls() {
         block_on(remote.set_video_quality(VideoQuality::Low)),
         Err(FfiRoomError::Closed)
     ));
+}
+
+#[tokio::test]
+async fn late_sid_survives_competing_events() {
+    let session = FfiRoom::new();
+    session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
+    let (send_event, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let (send_sid, receive_sid) = tokio::sync::oneshot::channel::<RoomSid>();
+    let resolved = std::sync::atomic::AtomicBool::new(false);
+    // Like the core Promise, this future owns its receiver once polled. Losing
+    // it to a competing event closes send_sid and makes late resolution fail.
+    let sid = async {
+        let sid = receive_sid.await.unwrap();
+        resolved.store(true, std::sync::atomic::Ordering::SeqCst);
+        sid
+    };
+    let driver = session.shared.drive_events(&mut events, sid, false);
+    tokio::pin!(driver);
+    assert!(futures_util::poll!(&mut driver).is_pending());
+    for _ in 0..3 {
+        send_event.send(RoomEvent::TokenRefreshed { token: "competing".into() }).unwrap();
+        assert!(futures_util::poll!(&mut driver).is_pending());
+        assert!(!send_sid.is_closed());
+    }
+    send_sid.send("RM_late".to_owned().try_into().unwrap()).unwrap();
+    assert!(futures_util::poll!(&mut driver).is_pending());
+    assert!(resolved.load(std::sync::atomic::Ordering::SeqCst));
+    send_event.send(RoomEvent::TokenRefreshed { token: "after-sid".into() }).unwrap();
+    assert!(futures_util::poll!(&mut driver).is_pending(), "completed SID was polled again");
+    session.cancel();
+    driver.await;
+}
+
+#[test]
+fn terminal_events_cannot_resurrect_a_room() {
+    let session = FfiRoom::new();
+    let cursor = session.events(cursor_options());
+    session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
+    session.shared.terminate(FfiRoomError::Closed);
+    let revision = session.state().revision;
+    session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
+    session.shared.apply(RoomEvent::TokenRefreshed { token: "late".into() });
+    assert_eq!(session.state().revision, revision);
+    assert_eq!(session.state().connection, NativeConnectionState::Disconnected);
+    assert!(matches!(next(&cursor).unwrap(), Some(NativeRoomEvent::Disconnected { .. })));
+    session.shared.update(Inner::finish);
+    assert!(next(&cursor).unwrap().is_none());
+
+    let session = FfiRoom::new();
+    let cursor = session.events(cursor_options());
+    session.shared.update(|inner| inner.connection = NativeConnectionState::Connected);
+    session
+        .shared
+        .apply(RoomEvent::Disconnected { reason: livekit::DisconnectReason::ServerShutdown });
+    let revision = session.state().revision;
+    session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
+    session.shared.apply(RoomEvent::TokenRefreshed { token: "after-final".into() });
+    assert_eq!(session.state().revision, revision);
+    session.shared.update(Inner::finish);
+    assert!(matches!(next(&cursor).unwrap(), Some(NativeRoomEvent::Disconnected { .. })));
+    assert!(next(&cursor).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn shutdown_timeout_and_dropped_wait_keep_the_driver_owned() {
+    let session = FfiRoom::new();
+    session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
+    let shared = session.shared.clone();
+    let (release, stalled) = tokio::sync::oneshot::channel();
+    *session.shared.task.lock() = Some(tokio::spawn(async move {
+        let _finish = Finish(shared);
+        stalled.await.unwrap();
+    }));
+    session.shared.terminate(FfiRoomError::Closed);
+    assert_eq!(
+        session.shared.wait_finished(Duration::ZERO).await,
+        Err(FfiRoomError::ShutdownTimeout)
+    );
+    assert!(!session.shared.inner.lock().finished);
+    assert!(session.shared.task.lock().as_ref().is_some_and(|task| !task.is_finished()));
+    let (dropped, destroyed) = tokio::sync::oneshot::channel();
+    struct AcknowledgeDrop {
+        owner: Option<Arc<Shared>>,
+        signal: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl Drop for AcknowledgeDrop {
+        fn drop(&mut self) {
+            drop(self.owner.take());
+            let _ = self.signal.take().unwrap().send(());
+        }
+    }
+    let acknowledgment =
+        AcknowledgeDrop { owner: Some(session.shared.clone()), signal: Some(dropped) };
+    {
+        let wait =
+            on_runtime(
+                async move { acknowledgment.owner.as_ref().unwrap().wait_finished(LIMIT).await },
+            );
+        tokio::pin!(wait);
+        assert!(futures_util::poll!(&mut wait).is_pending());
+    }
+    destroyed.await.unwrap();
+    assert!(!release.is_closed(), "dropping the foreign wait abandoned shutdown");
+    release.send(()).unwrap();
+    session.disconnect().await.unwrap();
+    assert!(session.shared.inner.lock().finished);
+    assert!(session.shared.task.lock().is_none());
+    let owner = Arc::downgrade(&session.shared);
+    drop(session);
+    assert!(owner.upgrade().is_none());
+}
+
+#[tokio::test]
+async fn driver_panic_finishes_and_rejects_new_media() {
+    let session = FfiRoom::new();
+    let shared = session.shared.clone();
+    assert!(tokio::spawn(async move {
+        let _finish = Finish(shared);
+        panic!("injected driver unwind");
+    })
+    .await
+    .unwrap_err()
+    .is_panic());
+    assert!(session.shared.inner.lock().finished);
+    assert!(matches!(
+        session.create_audio_track("late".into(), 1).await,
+        Err(FfiRoomError::Closed)
+    ));
+    for _ in 0..2 {
+        assert!(matches!(session.disconnect().await, Err(FfiRoomError::Internal { .. })));
+    }
+}
+
+#[cfg(feature = "room-apis-bundled-transport")]
+#[tokio::test]
+#[ignore = "requires a local LiveKit server"]
+async fn late_connect_success_is_closed_without_installing_or_emitting_connected() {
+    for cancelled in [false, true] {
+        let session = FfiRoom::new();
+        let cursor = session.events(cursor_options());
+        let name = unique("late-success");
+        let token = AccessToken::with_api_key("devkey", "secret")
+            .with_identity("late")
+            .with_grants(VideoGrants { room_join: true, room: name, ..Default::default() })
+            .to_jwt()
+            .unwrap();
+        let connected = Room::connect(
+            &env_or("LK_TEST_URL", "ws://127.0.0.1:7880"),
+            &token,
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
+        let (release, late) = tokio::sync::oneshot::channel();
+        let shared = session.shared.clone();
+        *session.shared.task.lock() =
+            Some(tokio::spawn(shared.run_connect(async move { late.await.unwrap() })));
+        session.shared.terminate(if cancelled {
+            FfiRoomError::Cancelled
+        } else {
+            FfiRoomError::Closed
+        });
+        assert!(release.send(Ok(connected)).is_ok());
+        session.disconnect().await.unwrap();
+        assert!(session.shared.inner.lock().finished);
+        assert!(session.shared.inner.lock().room.is_none());
+        assert_eq!(session.state().connection, NativeConnectionState::Disconnected);
+        if cancelled {
+            assert_eq!(cursor.next().await.unwrap_err(), FfiRoomError::Cancelled);
+        } else {
+            assert!(matches!(
+                cursor.next().await.unwrap().unwrap().event,
+                NativeRoomEvent::Disconnected { .. }
+            ));
+            assert!(cursor.next().await.unwrap().is_none());
+        }
+        let owner = Arc::downgrade(&session.shared);
+        drop(session);
+        assert!(owner.upgrade().is_none());
+    }
 }

@@ -193,6 +193,9 @@ pub enum FfiRoomError {
     Unsupported { reason: String },
     #[error("internal failure: {reason}")]
     Internal { reason: String },
+    /// The shutdown deadline elapsed; the room still owns the running cleanup.
+    #[error("shutdown is still running")]
+    ShutdownTimeout,
 }
 
 /// Returns `true` when `error` means that the room or cursor ended.

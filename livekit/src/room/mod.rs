@@ -989,7 +989,7 @@ impl Room {
     async fn complete_pre_publish(
         &self,
         tracks: Vec<(LocalTrack, TrackPublishOptions)>,
-        receivers: Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
+        receivers: Vec<(String, crate::rtc_engine::PendingTrack)>,
     ) -> RoomResult<()> {
         let mut receivers: HashMap<_, _> = receivers.into_iter().collect();
         let local_participant = &self.inner.local_participant;
@@ -1002,7 +1002,7 @@ impl Room {
             let completed = self
                 .inner
                 .rtc_engine
-                .complete_join_track(cid, rx, |track_info| {
+                .complete_join_track(rx, |track_info| {
                     local_participant.complete_publish(track.clone(), options.clone(), track_info);
                 })
                 .await;

@@ -57,8 +57,7 @@ pub use events::NativeRoomEventCursor;
 use events::{wait_for, EventQueue};
 pub use records::*;
 
-/// Longest wait for the core to release its event channel after a close.
-// ponytail: fixed bound; the core gives no join handle for a close that it started itself.
+/// Longest foreign wait for shutdown; the owned driver continues after this deadline.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 type InitialParticipants = Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>;
@@ -73,8 +72,10 @@ struct Inner {
     data_tracks: HashMap<String, Arc<crate::data_track::remote::RemoteDataTrack>>,
     /// Why the room accepts no more work. Set one time.
     terminal: Option<FfiRoomError>,
-    /// `true` when no task of this room runs any more.
+    /// The driver exited and released local resources; see `shutdown_error` for unwinding.
     finished: bool,
+    /// A driver unwind ended local cleanup without proving core shutdown.
+    shutdown_error: Option<FfiRoomError>,
     room: Option<Arc<Room>>,
     events: Option<Arc<EventQueue>>,
     connect_result: Option<Result<FfiRoomState, FfiRoomError>>,
@@ -158,7 +159,7 @@ impl Inner {
         self.emit(NativeRoomEvent::Disconnected { reason });
     }
 
-    /// Releases everything that the room owns. No task runs after this.
+    /// Finalizes local ownership and closes the event backlog after the driver exits.
     fn finish(&mut self) {
         self.disconnected(DisconnectReason::UnknownReason);
         self.terminal.get_or_insert(FfiRoomError::Closed);
@@ -175,6 +176,9 @@ impl Inner {
         self.revision += 1;
         match event {
             RoomEvent::ConnectionStateChanged(state) => {
+                if self.terminal.is_some() {
+                    return;
+                }
                 let state = match state {
                     ConnectionState::Connected => NativeConnectionState::Connected,
                     ConnectionState::Reconnecting => NativeConnectionState::Reconnecting,
@@ -419,6 +423,24 @@ struct Shared {
     task: Mutex<Option<JoinHandle<()>>>,
 }
 
+// Runs on every exit, including unwinding panics (release builds abort).
+struct Finish(Arc<Shared>);
+impl Drop for Finish {
+    fn drop(&mut self) {
+        // Reject racing source creation before releasing resources.
+        self.0.update(|inner| {
+            inner.terminal.get_or_insert(FfiRoomError::Closed);
+            if std::thread::panicking() {
+                inner.shutdown_error = Some(FfiRoomError::Internal {
+                    reason: "room driver panicked before shutdown completed".into(),
+                });
+            }
+        });
+        self.0.media.lock().clear();
+        self.0.update(Inner::finish);
+    }
+}
+
 impl Shared {
     fn update<R>(&self, change: impl FnOnce(&mut Inner) -> R) -> R {
         let result = change(&mut self.inner.lock());
@@ -433,7 +455,6 @@ impl Shared {
             let cancelled = error == FfiRoomError::Cancelled;
             // Read this first: a cancel moves the state away from `Idle`.
             let idle = inner.connection == NativeConnectionState::Idle && inner.terminal.is_none();
-            let disconnect_idle = idle && error == FfiRoomError::Closed;
             if cancelled {
                 inner.terminal = Some(error);
             } else {
@@ -444,7 +465,7 @@ impl Shared {
                     queue.fail(FfiRoomError::Cancelled);
                 }
                 inner.disconnected(DisconnectReason::ClientInitiated);
-            } else if disconnect_idle {
+            } else if inner.room.is_none() {
                 inner.disconnected(DisconnectReason::ClientInitiated);
             }
             if idle && self.media.lock().is_empty() {
@@ -511,19 +532,19 @@ impl Shared {
     /// The one task of a room: connects, then drains the core events until
     /// the core releases the channel.
     async fn run(self: Arc<Self>, url: String, token: String, options: RoomOptions) {
-        // Runs on every exit, a panic included, so `disconnect` cannot wait forever.
-        struct Finish(Arc<Shared>);
-        impl Drop for Finish {
-            fn drop(&mut self) {
-                self.0.media.lock().clear();
-                self.0.update(Inner::finish);
-            }
-        }
+        self.run_connect(Room::connect(&url, &token, options)).await;
+    }
+
+    async fn run_connect(
+        self: Arc<Self>,
+        connect: impl Future<Output = Result<(Room, UnboundedReceiver<RoomEvent>), livekit::RoomError>>,
+    ) {
         let _finish = Finish(self.clone());
 
         // ponytail: a cancelled connect runs to its end and is closed then. The core does not
         // document that a dropped connect future releases its transports.
-        let (room, mut events) = match Room::connect(&url, &token, options).await {
+        let connected = self.connect_until_terminal(connect).await;
+        let (room, mut events) = match connected {
             Ok(connected) => connected,
             Err(error) => {
                 log::warn!("room session failed to connect: {error}");
@@ -552,8 +573,53 @@ impl Shared {
         self.drive(&room, &mut events).await;
     }
 
+    /// Keep connecting after cancellation, but release capture before awaiting the late result.
+    async fn connect_until_terminal<T>(&self, connect: impl Future<Output = T>) -> T {
+        tokio::pin!(connect);
+        tokio::select! {
+            biased;
+            _ = self.terminated() => {
+                self.media.lock().clear();
+                connect.await
+            }
+            result = &mut connect => result,
+        }
+    }
+
+    async fn wait_finished(&self, timeout: Duration) -> Result<(), FfiRoomError> {
+        tokio::time::timeout(timeout, async {
+            wait_for(&self.changed, || self.inner.lock().finished.then_some(())).await;
+            let task = self.task.lock().take();
+            if let Some(task) = task {
+                let _ = task.await;
+            }
+            self.inner.lock().shutdown_error.clone().map_or(Ok(()), Err)
+        })
+        .await
+        .map_err(|_| FfiRoomError::ShutdownTimeout)?
+    }
+
     async fn drive(self: &Arc<Self>, room: &Room, events: &mut UnboundedReceiver<RoomEvent>) {
-        let mut sid_known = room.maybe_sid().is_some();
+        self.drive_events(events, room.sid(), room.maybe_sid().is_some()).await;
+
+        self.media.lock().clear();
+        // Never drop this shutdown future: core close takes its task bundle once.
+        // `AlreadyClosed` means that the core closes the room by itself.
+        let _ = room.close().await;
+        // The core releases the channel at the end of a close, so the end of
+        // the channel is the join of the core tasks.
+        while let Some(event) = events.recv().await {
+            self.apply(event);
+        }
+    }
+
+    async fn drive_events(
+        self: &Arc<Self>,
+        events: &mut UnboundedReceiver<RoomEvent>,
+        sid: impl Future<Output = RoomSid>,
+        mut sid_known: bool,
+    ) {
+        tokio::pin!(sid);
         loop {
             tokio::select! {
                 biased;
@@ -563,30 +629,17 @@ impl Shared {
                     None => { self.terminate(FfiRoomError::Closed); break; },
                 },
                 // The core has no event for a room identifier that arrives late.
-                sid = room.sid(), if !sid_known => {
+                sid = &mut sid, if !sid_known => {
                     sid_known = true;
                     self.update_sid(sid);
                 }
             }
         }
-
-        // `AlreadyClosed` means that the core closes the room by itself.
-        let _ = room.close().await;
-        // The core releases the channel at the end of a close, so the end of
-        // the channel is the join of the core tasks.
-        let drain = async {
-            while let Some(event) = events.recv().await {
-                self.apply(event);
-            }
-        };
-        if tokio::time::timeout(CLOSE_TIMEOUT, drain).await.is_err() {
-            log::warn!("room session: the core did not release its events after a close");
-        }
     }
 
     fn update_sid(&self, sid: RoomSid) {
         self.update(|inner| {
-            if inner.terminal == Some(FfiRoomError::Cancelled) {
+            if inner.terminal.is_some() {
                 return;
             }
             let Some(mut room) = inner.room.as_deref().map(Room::info) else { return };
@@ -599,7 +652,10 @@ impl Shared {
     fn apply(&self, event: RoomEvent) {
         self.update(|inner| {
             // A cancel released the backlog and froze the state.
-            if inner.terminal != Some(FfiRoomError::Cancelled) {
+            if inner.terminal != Some(FfiRoomError::Cancelled)
+                && !(inner.terminal.is_some() && inner.room.is_none())
+                && inner.connection != NativeConnectionState::Disconnected
+            {
                 match &event {
                     RoomEvent::TrackUnsubscribed { publication, .. }
                     | RoomEvent::TrackUnpublished { publication, .. } => {
@@ -639,6 +695,7 @@ impl FfiRoom {
             data_tracks: HashMap::new(),
             terminal: None,
             finished: false,
+            shutdown_error: None,
             room: None,
             events: None,
             connect_result: None,
@@ -691,19 +748,15 @@ impl FfiRoom {
         .await
     }
 
-    /// Disconnects and waits until every task of the room ended.
+    /// Requests shutdown and waits up to ten seconds for the owned driver to finish.
     ///
-    /// The cursor delivers the events that remain, then ends. Safe to call
-    /// more than once and in every state.
-    pub async fn disconnect(&self) {
+    /// On `ShutdownTimeout`, cleanup is still running and remains owned by this room.
+    /// A later call waits again. The core shutdown future is never abandoned.
+    /// The cursor ends only after actual teardown; cancel can discard its backlog sooner.
+    pub async fn disconnect(&self) -> Result<(), FfiRoomError> {
         self.shared.terminate(FfiRoomError::Closed);
-        let task = self.shared.task.lock().take();
-        if let Some(task) = task {
-            let _ = task.await;
-        }
-        wait_for(&self.shared.changed, || self.shared.inner.lock().finished.then_some(())).await;
-
-        self.shared.media.lock().clear();
+        let shared = self.shared.clone();
+        on_runtime(async move { shared.wait_finished(CLOSE_TIMEOUT).await }).await
     }
 
     /// Ends the room at once and does not wait.
@@ -711,7 +764,7 @@ impl FfiRoom {
     /// Wakes every pending wait with [`FfiRoomError::Cancelled`],
     /// refuses later commands, releases the event backlog and starts the
     /// teardown. A connection that completes later is closed. Safe to call
-    /// more than once. [`disconnect`](Self::disconnect) waits for the teardown.
+    /// more than once. [`disconnect`](Self::disconnect) bounds its wait for teardown.
     ///
     /// With UniFFI 0.31, do not call this from a Swift `onCancel` handler.
     /// The call wakes a pending future, and that can deadlock in the handler.
