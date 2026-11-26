@@ -18,20 +18,12 @@
 //! [`crate::server`], and the core room stays the only authority.
 //!
 //! One driver task owns the event receiver that [`Room::connect`] returns. It
-//! keeps a small projection of the room in [`NativeRoomState`] and feeds the
-//! bounded backlog of [`NativeRoomEventCursor`]. The projection takes
-//! membership from the ordered events and field values from the live core
-//! objects, so a value can be newer than the event that carries it.
+//! retains core handles for ordered membership and feeds the bounded backlog
+//! of [`NativeRoomEventCursor`]. Snapshots convert those handles on demand;
+//! participant, publication, speaker and room values are never cached here.
+//! Core values can be newer than the event that carries them.
 
-use std::{
-    collections::HashMap,
-    future::Future,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 
 use livekit::prelude::*;
 use parking_lot::Mutex;
@@ -67,22 +59,16 @@ pub use records::*;
 // ponytail: fixed bound; the core gives no join handle for a close that it started itself.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 
-static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
-
 type InitialParticipants = Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>;
 
-/// The projection and the lifecycle of one session.
+/// Ordered membership holds core handles, never a second copy of participant or track state.
 struct Inner {
     connection: NativeConnectionState,
     revision: u64,
     disconnect_reason: Option<NativeDisconnectReason>,
-    room_info: Option<NativeRoomInfo>,
-    local: Option<NativeParticipant>,
-    remotes: HashMap<String, NativeParticipant>,
-    publications: HashMap<String, NativeTrackPublication>,
+    remotes: HashMap<String, RemoteParticipant>,
+    publications: HashMap<String, (String, TrackPublication)>,
     data_tracks: HashMap<String, Arc<crate::data_track::remote::RemoteDataTrack>>,
-    /// Identities in the last active-speaker update.
-    speakers: Vec<String>,
     /// Why the session accepts no more work. Set one time.
     terminal: Option<NativeSessionError>,
     /// `true` when no task of this session runs any more.
@@ -93,16 +79,26 @@ struct Inner {
 }
 
 impl Inner {
-    fn snapshot(&self, generation: u64) -> NativeRoomState {
+    fn snapshot(&self) -> NativeRoomState {
         NativeRoomState {
-            generation,
             revision: self.revision,
             connection: self.connection,
             disconnect_reason: self.disconnect_reason,
-            room: self.room_info.clone(),
-            local_participant: self.local.clone(),
-            remote_participants: self.remotes.values().cloned().collect(),
-            publications: self.publications.values().cloned().collect(),
+            room: self.room.as_deref().map(room_info),
+            local_participant: self
+                .room
+                .as_ref()
+                .map(|room| (&Participant::Local(room.local_participant())).into()),
+            remote_participants: self
+                .remotes
+                .values()
+                .map(|p| (&Participant::Remote(p.clone())).into())
+                .collect(),
+            publications: self
+                .publications
+                .values()
+                .map(|(identity, p)| NativeTrackPublication::new(identity, p))
+                .collect(),
             data_tracks: self
                 .data_tracks
                 .values()
@@ -120,57 +116,38 @@ impl Inner {
         }
     }
 
-    /// Reads `participant` from the core into the projection.
-    ///
-    /// Returns `None` for a remote participant that the projection does not
-    /// hold, so a late event cannot bring back a participant that left.
-    fn refresh(&mut self, participant: &Participant) -> Option<NativeParticipant> {
-        let record = NativeParticipant::from(participant);
-        let slot = match participant {
-            Participant::Local(_) => self.local.as_mut()?,
-            Participant::Remote(_) => self.remotes.get_mut(&record.identity)?,
-        };
-        if *slot != record {
-            *slot = record.clone();
-            self.revision += 1;
+    // Membership follows the receiver, since the live core may already contain later joins.
+    fn participant_record(&self, participant: &Participant) -> Option<NativeParticipant> {
+        match participant {
+            Participant::Local(_) if self.room.is_none() => None,
+            Participant::Remote(p) if !self.remotes.contains_key(p.identity().as_str()) => None,
+            _ => Some(participant.into()),
         }
-        Some(record)
     }
 
-    /// Reads `publication` from the core into the projection. Returns `None`
-    /// when the projection does not hold it.
-    fn refresh_publication(
-        &mut self,
+    fn publication_record(
+        &self,
         participant: &Participant,
         publication: &TrackPublication,
     ) -> Option<NativeTrackPublication> {
-        let identity: String = participant.identity().into();
-        let record = NativeTrackPublication::new(&identity, publication);
-        let slot = self.publications.get_mut(&record.sid)?;
-        if *slot != record {
-            *slot = record.clone();
-            self.revision += 1;
-        }
-        Some(record)
+        self.publications
+            .contains_key(publication.sid().as_str())
+            .then(|| NativeTrackPublication::new(participant.identity().as_str(), publication))
     }
 
     fn add_publication(&mut self, identity: &str, publication: &TrackPublication) {
-        let record = NativeTrackPublication::new(identity, publication);
-        self.publications.insert(record.sid.clone(), record.clone());
-        self.revision += 1;
-        self.emit(NativeRoomEvent::TrackPublished { publication: record });
+        self.publications
+            .insert(publication.sid().to_string(), (identity.into(), publication.clone()));
+        self.emit(NativeRoomEvent::TrackPublished {
+            publication: NativeTrackPublication::new(identity, publication),
+        });
     }
 
     fn remove_publication(&mut self, sid: &TrackSid) {
-        let Some(record) = self.publications.remove(sid.as_str()) else { return };
-        self.revision += 1;
-        self.emit(NativeRoomEvent::TrackUnpublished { publication: record });
-    }
-
-    fn set_room_info(&mut self, info: NativeRoomInfo) -> NativeRoomInfo {
-        self.room_info = Some(info.clone());
-        self.revision += 1;
-        info
+        let Some((identity, publication)) = self.publications.remove(sid.as_str()) else { return };
+        self.emit(NativeRoomEvent::TrackUnpublished {
+            publication: NativeTrackPublication::new(&identity, &publication),
+        });
     }
 
     fn disconnected(&mut self, reason: NativeDisconnectReason) {
@@ -182,7 +159,6 @@ impl Inner {
         self.remotes.clear();
         self.publications.clear();
         self.data_tracks.clear();
-        self.speakers.clear();
         self.revision += 1;
         self.emit(NativeRoomEvent::Disconnected { reason });
     }
@@ -201,6 +177,7 @@ impl Inner {
     /// Applies one core event to the projection and to the event backlog.
     fn apply(&mut self, event: RoomEvent) {
         use NativeRoomEvent as Out;
+        self.revision += 1;
         match event {
             RoomEvent::ConnectionStateChanged(state) => {
                 let state = match state {
@@ -213,7 +190,6 @@ impl Inner {
                     return;
                 }
                 self.connection = state;
-                self.revision += 1;
                 self.emit(Out::ConnectionStateChanged { state });
             }
             RoomEvent::Disconnected { reason } => {
@@ -221,17 +197,16 @@ impl Inner {
                 self.terminal.get_or_insert(NativeSessionError::Closed);
             }
             RoomEvent::RoomMetadataChanged { old_metadata, metadata } => {
-                let Some(mut room) = self.room_info.clone() else { return };
+                let Some(mut room) = self.room.as_deref().map(room_info) else { return };
                 room.metadata = metadata;
-                let room = self.set_room_info(room);
                 self.emit(Out::RoomMetadataChanged { room, old_metadata });
             }
             RoomEvent::RoomUpdated { room } => {
-                let room = self.set_room_info((&room).into());
+                let room = (&room).into();
                 self.emit(Out::RoomUpdated { room });
             }
             RoomEvent::Moved { room } => {
-                let room = self.set_room_info((&room).into());
+                let room = (&room).into();
                 self.emit(Out::RoomMoved { room });
             }
             RoomEvent::ByteStreamOpened { reader, participant_identity, .. } => {
@@ -257,12 +232,10 @@ impl Inner {
             RoomEvent::DataTrackPublished(track) => {
                 let track = Arc::new(crate::data_track::remote::RemoteDataTrack::new(track));
                 self.data_tracks.insert(track.info().sid.to_string(), track.clone());
-                self.revision += 1;
                 self.emit(Out::DataTrackPublished { identity: track.publisher_identity(), track });
             }
             RoomEvent::DataTrackUnpublished(sid) => {
                 if let Some(track) = self.data_tracks.remove(&sid.to_string()) {
-                    self.revision += 1;
                     self.emit(Out::DataTrackUnpublished {
                         sid: sid.to_string(),
                         identity: track.publisher_identity(),
@@ -279,9 +252,8 @@ impl Inner {
                 })
             }
             RoomEvent::ParticipantConnected(participant) => {
+                self.remotes.insert(participant.identity().to_string(), participant.clone());
                 let participant = NativeParticipant::from(&Participant::Remote(participant));
-                self.remotes.insert(participant.identity.clone(), participant.clone());
-                self.revision += 1;
                 self.emit(Out::ParticipantConnected { participant });
             }
             RoomEvent::ParticipantDisconnected(participant) => {
@@ -289,8 +261,7 @@ impl Inner {
                 if self.remotes.remove(&participant.identity).is_none() {
                     return;
                 }
-                self.publications.retain(|_, p| p.participant_identity != participant.identity);
-                self.revision += 1;
+                self.publications.retain(|_, (identity, _)| *identity != participant.identity);
                 self.emit(Out::ParticipantDisconnected { participant });
             }
             RoomEvent::ParticipantActive(participant) => {
@@ -302,49 +273,39 @@ impl Inner {
                 }
             }
             RoomEvent::ParticipantMetadataChanged { participant, old_metadata, .. } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantMetadataChanged { participant, old_metadata });
             }
             RoomEvent::ParticipantNameChanged { participant, old_name, .. } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantNameChanged { participant, old_name });
             }
             RoomEvent::ParticipantAttributesChanged { participant, changed_attributes } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantAttributesChanged { participant, changed_attributes });
             }
             RoomEvent::ParticipantPermissionChanged { participant, .. } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantPermissionChanged { participant });
             }
             RoomEvent::E2eeStateChanged { participant, state } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::EncryptionStateChanged { participant, state });
             }
             RoomEvent::ParticipantEncryptionStatusChanged { participant, .. } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantEncryptionStatusChanged { participant });
             }
             RoomEvent::ConnectionQualityChanged { participant, .. } => {
-                let Some(participant) = self.refresh(&participant) else { return };
+                let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ConnectionQualityChanged { participant });
             }
             RoomEvent::ActiveSpeakersChanged { speakers } => {
-                // A participant that left the list has no event of its own.
-                for identity in std::mem::take(&mut self.speakers) {
-                    let local = self.local.as_mut().filter(|local| local.identity == identity);
-                    if let Some(quiet) = local.or_else(|| self.remotes.get_mut(&identity)) {
-                        quiet.is_speaking = false;
-                        quiet.audio_level = 0.0;
-                    }
-                }
                 let speakers: Vec<_> = speakers
                     .iter()
-                    .filter_map(|speaker| self.refresh(speaker))
+                    .filter_map(|speaker| self.participant_record(speaker))
                     .map(|p| NativeSpeaker { identity: p.identity, audio_level: p.audio_level })
                     .collect();
-                self.speakers = speakers.iter().map(|s| s.identity.clone()).collect();
-                self.revision += 1;
                 self.emit(Out::ActiveSpeakersChanged { speakers });
             }
             RoomEvent::TrackPublished { publication, participant } => {
@@ -365,30 +326,29 @@ impl Inner {
             }
             RoomEvent::LocalTrackRepublished { previous_sid, publication, participant, .. } => {
                 let identity: String = participant.identity().into();
-                let publication =
-                    NativeTrackPublication::new(&identity, &TrackPublication::Local(publication));
+                let core = TrackPublication::Local(publication);
                 self.publications.remove(previous_sid.as_str());
-                self.publications.insert(publication.sid.clone(), publication.clone());
-                self.revision += 1;
+                self.publications.insert(core.sid().to_string(), (identity.clone(), core.clone()));
+                let publication = NativeTrackPublication::new(&identity, &core);
                 self.emit(Out::LocalTrackRepublished {
                     previous_sid: previous_sid.into(),
                     publication,
                 });
             }
             RoomEvent::TrackMuted { participant, publication } => {
-                let Some(publication) = self.refresh_publication(&participant, &publication) else {
+                let Some(publication) = self.publication_record(&participant, &publication) else {
                     return;
                 };
                 self.emit(Out::TrackMuted { publication });
             }
             RoomEvent::TrackUnmuted { participant, publication } => {
-                let Some(publication) = self.refresh_publication(&participant, &publication) else {
+                let Some(publication) = self.publication_record(&participant, &publication) else {
                     return;
                 };
                 self.emit(Out::TrackUnmuted { publication });
             }
             RoomEvent::TrackSubscribed { publication, participant, .. } => {
-                let Some(publication) = self.refresh_publication(
+                let Some(publication) = self.publication_record(
                     &Participant::Remote(participant),
                     &TrackPublication::Remote(publication),
                 ) else {
@@ -397,7 +357,7 @@ impl Inner {
                 self.emit(Out::TrackSubscribed { publication });
             }
             RoomEvent::TrackUnsubscribed { publication, participant, .. } => {
-                let Some(publication) = self.refresh_publication(
+                let Some(publication) = self.publication_record(
                     &Participant::Remote(participant),
                     &TrackPublication::Remote(publication),
                 ) else {
@@ -430,11 +390,9 @@ impl Inner {
 
     /// Handles a change that has no specific event.
     fn participant_updated(&mut self, participant: &Participant) {
-        let before = self.revision;
-        let Some(participant) = self.refresh(participant) else { return };
-        if self.revision != before {
-            self.emit(NativeRoomEvent::ParticipantUpdated { participant });
-        }
+        let Some(participant) = self.participant_record(participant) else { return };
+        self.revision += 1;
+        self.emit(NativeRoomEvent::ParticipantUpdated { participant });
     }
 }
 
@@ -453,28 +411,31 @@ fn room_info(room: &Room) -> NativeRoomInfo {
     }
 }
 
+/// Run core work off the foreign executor: WebRTC can block during an ordinary poll.
+/// UniFFI owns this future, which joins its runtime hop or aborts it when dropped.
+async fn on_runtime<F>(future: F) -> F::Output
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio_util::task::AbortOnDropHandle::new(crate::FFI_SERVER.async_runtime.spawn(future))
+        .await
+        .expect("core room operation panicked")
+}
+
 struct Shared {
-    generation: u64,
     rpc_slots: Arc<tokio::sync::Semaphore>,
     media: Mutex<media::Media>,
-    shutdown: tokio_util::sync::CancellationToken,
-    commands: Mutex<tokio::task::JoinSet<()>>,
     inner: Mutex<Inner>,
     /// Fires after each change to `inner`.
     changed: Notify,
-    /// The connect and driver task. [`NativeRoomSession::disconnect`] joins it.
+    /// The connect and driver task. [`FfiRoom::disconnect`] joins it.
     task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Shared {
     fn update<R>(&self, change: impl FnOnce(&mut Inner) -> R) -> R {
-        let (result, terminal) = {
-            let mut inner = self.inner.lock();
-            (change(&mut inner), inner.terminal.is_some())
-        };
-        if terminal {
-            self.shutdown.cancel();
-        }
+        let result = change(&mut self.inner.lock());
         self.changed.notify_waiters();
         result
     }
@@ -500,68 +461,17 @@ impl Shared {
             } else if disconnect_idle {
                 inner.disconnected(NativeDisconnectReason::ClientInitiated);
             }
-            if idle && self.media.lock().is_empty() && self.commands.lock().is_empty() {
+            if idle && self.media.lock().is_empty() {
                 inner.finish();
             } else if idle {
                 // Pre-connect sources also need owned runtime cleanup. Keep cancel nonblocking.
                 let shared = self.clone();
                 *self.task.lock() = Some(crate::FFI_SERVER.async_runtime.spawn(async move {
-                    shared.drain_commands().await;
                     shared.media.lock().clear();
                     shared.update(Inner::finish);
                 }));
             }
         });
-    }
-
-    /// Admits a command atomically with termination and keeps ownership until joined.
-    async fn command<T: Send + 'static>(
-        &self,
-        work: impl Future<Output = T> + Send + 'static,
-    ) -> Result<T, NativeSessionError> {
-        let cancelled = tokio_util::sync::CancellationToken::new();
-        let _caller = cancelled.clone().drop_guard();
-        let (send, receive) = tokio::sync::oneshot::channel();
-        {
-            let inner = self.inner.lock();
-            if let Some(error) = &inner.terminal {
-                return Err(error.clone());
-            }
-            let mut commands = self.commands.lock();
-            while commands.try_join_next().is_some() {}
-            // Bound accepted work even if a foreign producer never waits for results.
-            if commands.len() >= 128 {
-                return Err(NativeSessionError::InvalidState {
-                    reason: "too many pending room commands".into(),
-                });
-            }
-            let shutdown = self.shutdown.clone();
-            commands.spawn_on(
-                async move {
-                    let result = tokio::select! {
-                        biased;
-                        _ = shutdown.cancelled() => Err(NativeSessionError::Cancelled),
-                        _ = cancelled.cancelled() => Err(NativeSessionError::Cancelled),
-                        result = work => Ok(result),
-                    };
-                    let _ = send.send(result);
-                },
-                crate::FFI_SERVER.async_runtime.handle(),
-            );
-        }
-        let result = receive.await.unwrap_or_else(|_| {
-            Err(NativeSessionError::Internal { reason: "room command task failed".into() })
-        });
-        if matches!(&result, Err(NativeSessionError::Cancelled)) && self.shutdown.is_cancelled() {
-            return Err(self.inner.lock().terminal.clone().unwrap_or(NativeSessionError::Closed));
-        }
-        result
-    }
-
-    /// No command can be admitted after termination. Join every accepted task.
-    async fn drain_commands(&self) {
-        let mut commands = std::mem::take(&mut *self.commands.lock());
-        while commands.join_next().await.is_some() {}
     }
 
     fn room(&self) -> Result<Arc<Room>, NativeSessionError> {
@@ -585,23 +495,20 @@ impl Shared {
             if inner.terminal.is_some() {
                 return;
             }
-            inner.room_info = Some(room_info(room));
-            inner.local = Some((&Participant::Local(room.local_participant())).into());
             for (participant, publications) in initial {
                 let identity: String = participant.identity().into();
                 for publication in publications {
-                    let record = NativeTrackPublication::new(
-                        &identity,
-                        &TrackPublication::Remote(publication),
+                    inner.publications.insert(
+                        publication.sid().to_string(),
+                        (identity.clone(), TrackPublication::Remote(publication)),
                     );
-                    inner.publications.insert(record.sid.clone(), record);
                 }
-                inner.remotes.insert(identity, (&Participant::Remote(participant)).into());
+                inner.remotes.insert(identity, participant);
             }
             inner.connection = NativeConnectionState::Connected;
             inner.revision += 1;
             inner.room = Some(room.clone());
-            inner.connect_result = Some(Ok(inner.snapshot(self.generation)));
+            inner.connect_result = Some(Ok(inner.snapshot()));
         });
     }
 
@@ -667,8 +574,6 @@ impl Shared {
             }
         }
 
-        self.drain_commands().await;
-
         // `AlreadyClosed` means that the core closes the room by itself.
         let _ = room.close().await;
         // The core releases the channel at the end of a close, so the end of
@@ -688,9 +593,9 @@ impl Shared {
             if inner.terminal == Some(NativeSessionError::Cancelled) {
                 return;
             }
-            let Some(mut room) = inner.room_info.clone() else { return };
+            let Some(mut room) = inner.room.as_deref().map(room_info) else { return };
             room.sid = Some(sid);
-            let room = inner.set_room_info(room);
+            inner.revision += 1;
             inner.emit(NativeRoomEvent::RoomUpdated { room });
         });
     }
@@ -721,24 +626,21 @@ impl Shared {
 /// To release the session without a call to [`cancel`](Self::cancel) has the
 /// same effect as the call.
 #[derive(uniffi::Object)]
-pub struct NativeRoomSession {
+pub struct FfiRoom {
     shared: Arc<Shared>,
 }
 
 #[uniffi::export]
-impl NativeRoomSession {
+impl FfiRoom {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         let inner = Inner {
             connection: NativeConnectionState::Idle,
             revision: 0,
             disconnect_reason: None,
-            room_info: None,
-            local: None,
             remotes: HashMap::new(),
             publications: HashMap::new(),
             data_tracks: HashMap::new(),
-            speakers: Vec::new(),
             terminal: None,
             finished: false,
             room: None,
@@ -749,9 +651,6 @@ impl NativeRoomSession {
             shared: Arc::new(Shared {
                 rpc_slots: Arc::new(tokio::sync::Semaphore::new(64)),
                 media: Mutex::default(),
-                shutdown: tokio_util::sync::CancellationToken::new(),
-                commands: Mutex::new(tokio::task::JoinSet::new()),
-                generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
                 inner: Mutex::new(inner),
                 changed: Notify::new(),
                 task: Mutex::default(),
@@ -808,7 +707,7 @@ impl NativeRoomSession {
             let _ = task.await;
         }
         wait_for(&self.shared.changed, || self.shared.inner.lock().finished.then_some(())).await;
-        self.shared.drain_commands().await;
+
         self.shared.media.lock().clear();
     }
 
@@ -827,28 +726,7 @@ impl NativeRoomSession {
 
     /// Returns the current snapshot.
     pub fn state(&self) -> NativeRoomState {
-        self.shared.inner.lock().snapshot(self.shared.generation)
-    }
-
-    /// Waits for a snapshot with a revision larger than `after`.
-    ///
-    /// Pass the revision of the last snapshot that the caller read. A change
-    /// between that read and this call returns at once. Fails when the session
-    /// ended and no newer snapshot exists.
-    pub async fn state_changed(&self, after: u64) -> Result<NativeRoomState, NativeSessionError> {
-        let shared = &self.shared;
-        wait_for(&shared.changed, || {
-            let inner = shared.inner.lock();
-            if inner.revision > after {
-                return Some(Ok(inner.snapshot(shared.generation)));
-            }
-            match &inner.terminal {
-                Some(NativeSessionError::Cancelled) => Some(Err(NativeSessionError::Cancelled)),
-                Some(error) if inner.finished => Some(Err(error.clone())),
-                _ => None,
-            }
-        })
-        .await
+        self.shared.inner.lock().snapshot()
     }
 
     /// Returns the event cursor of this session.
@@ -877,7 +755,7 @@ impl NativeRoomSession {
             } else if let Some(previous) = inner.events.replace(queue.clone()) {
                 previous.fail(NativeSessionError::Cancelled);
             }
-            inner.snapshot(self.shared.generation)
+            inner.snapshot()
         });
         NativeRoomEventCursor::new(queue, start)
     }
@@ -889,37 +767,32 @@ impl NativeRoomSession {
         options: NativeDataPublishOptions,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move {
-                let packet = DataPacket {
-                    payload,
-                    topic: options.topic,
-                    reliable: options.reliable,
-                    destination_identities: options
-                        .destination_identities
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                };
-                Ok(room.local_participant().publish_data(packet).await?)
-            })
-            .await?
+        on_runtime(async move {
+            let packet = DataPacket {
+                payload,
+                topic: options.topic,
+                reliable: options.reliable,
+                destination_identities: options
+                    .destination_identities
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+            };
+            Ok(room.local_participant().publish_data(packet).await?)
+        })
+        .await
     }
 
     /// Sets the metadata of the local participant.
     pub async fn set_metadata(&self, metadata: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move { Ok(room.local_participant().set_metadata(metadata).await?) })
-            .await?
+        on_runtime(async move { Ok(room.local_participant().set_metadata(metadata).await?) }).await
     }
 
     /// Sets the name of the local participant.
     pub async fn set_name(&self, name: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move { Ok(room.local_participant().set_name(name).await?) })
-            .await?
+        on_runtime(async move { Ok(room.local_participant().set_name(name).await?) }).await
     }
 
     /// Sets attributes of the local participant. An empty value removes a key.
@@ -928,13 +801,12 @@ impl NativeRoomSession {
         attributes: HashMap<String, String>,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move { Ok(room.local_participant().set_attributes(attributes).await?) })
-            .await?
+        on_runtime(async move { Ok(room.local_participant().set_attributes(attributes).await?) })
+            .await
     }
 }
 
-impl Drop for NativeRoomSession {
+impl Drop for FfiRoom {
     fn drop(&mut self) {
         self.cancel();
     }

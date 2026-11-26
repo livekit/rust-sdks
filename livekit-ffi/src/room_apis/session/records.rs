@@ -161,7 +161,7 @@ pub enum NativeDataPacketKind {
     Reliable,
 }
 
-/// The lifecycle of a [`NativeRoomSession`](super::NativeRoomSession).
+/// The lifecycle of a [`FfiRoom`](super::FfiRoom).
 ///
 /// `Disconnected` is final. A new connection needs a new session.
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -189,10 +189,7 @@ pub enum NativeSessionError {
     /// The connection to the server failed.
     #[error("connection failed: {reason}")]
     Connection { reason: String },
-    /// The server refused a request.
-    #[error("request refused: {reason}")]
-    Request { reason: String },
-    /// Exact signaling cause when the public core retains it. Older string cases remain for compatibility.
+    /// Exact signaling cause when the public core retains it.
     #[error("signal failure: {failure:?}")]
     Signal { failure: NativeSignalFailure },
     #[error("request refused: {code:?}: {reason}")]
@@ -257,7 +254,7 @@ pub enum NativeContinualGatheringPolicy {
     GatherContinually,
 }
 
-/// Options for [`NativeRoomSession::connect`](super::NativeRoomSession::connect).
+/// Options for [`FfiRoom::connect`](super::FfiRoom::connect).
 ///
 /// Every field has a default, so a new field does not break existing callers.
 #[derive(uniffi::Record, Clone, Debug)]
@@ -359,7 +356,7 @@ impl From<NativeConnectOptions> for RoomOptions {
     }
 }
 
-/// Options for [`NativeRoomSession::events`](super::NativeRoomSession::events).
+/// Options for [`FfiRoom::events`](super::FfiRoom::events).
 #[derive(uniffi::Record, Clone, Copy, Debug)]
 pub struct NativeEventCursorOptions {
     /// Largest number of events that wait for the consumer.
@@ -370,7 +367,7 @@ pub struct NativeEventCursorOptions {
     pub max_bytes: u64,
 }
 
-/// Options for [`NativeRoomSession::publish_data`](super::NativeRoomSession::publish_data).
+/// Options for [`FfiRoom::publish_data`](super::FfiRoom::publish_data).
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeDataPublishOptions {
     #[uniffi(default = true)]
@@ -576,10 +573,7 @@ impl NativeTrackPublication {
 pub struct NativeRoomState {
     /// Remote data track publications known at this revision.
     pub data_tracks: Vec<NativeDataTrackPublication>,
-    /// Unique for each session in this process. Entity keys are only
-    /// comparable within one generation.
-    pub generation: u64,
-    /// Grows by at least one for each change to this snapshot.
+    /// Position in the ordered event stream; core values are read on demand.
     pub revision: u64,
     pub connection: NativeConnectionState,
     /// `None` until the session is `Disconnected`.

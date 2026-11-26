@@ -14,7 +14,7 @@
 
 //! Deadline-bound RPC calls and replies through the room's core RPC transport.
 
-use super::{NativeRoomEvent, NativeRoomSession, NativeSessionError};
+use super::{FfiRoom, NativeRoomEvent, NativeSessionError};
 use livekit::participant::{PerformRpcData, RpcError, RpcErrorCode};
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
@@ -101,26 +101,24 @@ impl NativeRpcInvocation {
 }
 
 #[uniffi::export]
-impl NativeRoomSession {
+impl FfiRoom {
     /// Performs an RPC on the core transport, preserving its error code and data.
     pub async fn perform_rpc(&self, options: NativeRpcOptions) -> Result<String, NativeRpcError> {
         let room = self.shared.room().map_err(rpc_session_error)?;
-        self.shared
-            .command(async move {
-                let data = PerformRpcData {
-                    destination_identity: options.destination_identity,
-                    method: options.method,
-                    payload: options.payload,
-                    response_timeout: Duration::from_millis(options.response_timeout_ms.into()),
-                    max_round_trip_latency: Duration::from_millis(
-                        options.max_round_trip_latency_ms.into(),
-                    ),
-                };
-                room.local_participant().perform_rpc(data).await
-            })
-            .await
-            .map_err(rpc_session_error)?
-            .map_err(Into::into)
+        super::on_runtime(async move {
+            let data = PerformRpcData {
+                destination_identity: options.destination_identity,
+                method: options.method,
+                payload: options.payload,
+                response_timeout: Duration::from_millis(options.response_timeout_ms.into()),
+                max_round_trip_latency: Duration::from_millis(
+                    options.max_round_trip_latency_ms.into(),
+                ),
+            };
+            room.local_participant().perform_rpc(data).await
+        })
+        .await
+        .map_err(Into::into)
     }
 
     /// Registers an RPC method. Requests arrive on the ordered room event cursor.
@@ -128,75 +126,62 @@ impl NativeRoomSession {
     pub async fn register_rpc_method(&self, method: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
         let weak = Arc::downgrade(&self.shared);
-        self.shared
-            .command(async move {
-                room.local_participant().register_rpc_method(method.clone(), move |data| {
-                    let weak = weak.clone();
-                    let method = method.clone();
-                    Box::pin(async move {
-                        let shared = weak.upgrade().ok_or_else(|| {
-                            RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)
-                        })?;
-                        let permit =
-                            shared.rpc_slots.clone().try_acquire_owned().map_err(|_| {
-                                RpcError::built_in(
-                                    RpcErrorCode::ApplicationError,
-                                    Some("Too many pending RPC requests".into()),
-                                )
-                            })?;
-                        let (reply, receive) = oneshot::channel();
-                        let timeout = data.response_timeout;
-                        let invocation = Arc::new(NativeRpcInvocation {
-                            info: NativeRpcInvocationInfo {
-                                request_id: data.request_id,
-                                caller_identity: data.caller_identity.into(),
-                                method,
-                                payload: data.payload,
-                                response_timeout_ms: timeout.as_millis().min(u64::MAX as u128)
-                                    as u64,
-                            },
-                            reply: Mutex::new(Some(reply)),
-                        });
-                        let event_owner = Arc::downgrade(&shared);
-                        shared
-                            .command(async move {
-                                let _permit = permit;
-                                if let Some(shared) = event_owner.upgrade() {
-                                    shared.update(|inner| {
-                                        if inner.terminal.is_none() {
-                                            inner
-                                                .emit(NativeRoomEvent::RpcRequested { invocation });
-                                        }
-                                    });
-                                }
-                                match tokio::time::timeout(timeout, receive).await {
-                                    Ok(Ok(result)) => result,
-                                    Ok(Err(_)) => Err(RpcError::built_in(
-                                        RpcErrorCode::ApplicationError,
-                                        Some("Reply handle released".into()),
-                                    )),
-                                    Err(_) => {
-                                        Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None))
-                                    }
-                                }
-                            })
-                            .await
-                            .map_err(rpc_session_error)?
-                    })
+        let _runtime = crate::FFI_SERVER.async_runtime.enter();
+        room.local_participant().register_rpc_method(method.clone(), move |data| {
+            let weak = weak.clone();
+            let method = method.clone();
+            Box::pin(async move {
+                let shared = weak.upgrade().ok_or_else(|| {
+                    RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)
+                })?;
+                let _permit = shared.rpc_slots.try_acquire().map_err(|_| {
+                    RpcError::built_in(
+                        RpcErrorCode::ApplicationError,
+                        Some("Too many pending RPC requests".into()),
+                    )
+                })?;
+                let (reply, receive) = oneshot::channel();
+                let timeout = data.response_timeout;
+                let invocation = Arc::new(NativeRpcInvocation {
+                    info: NativeRpcInvocationInfo {
+                        request_id: data.request_id,
+                        caller_identity: data.caller_identity.into(),
+                        method,
+                        payload: data.payload,
+                        response_timeout_ms: timeout.as_millis().min(u64::MAX as u128) as u64,
+                    },
+                    reply: Mutex::new(Some(reply)),
                 });
-                Ok(())
+                shared.update(|inner| {
+                    if inner.terminal.is_none() {
+                        inner.emit(NativeRoomEvent::RpcRequested { invocation });
+                    }
+                });
+                // Core owns this callback future; shutdown must release the foreign reply wait.
+                let result = tokio::select! {
+                    _ = shared.terminated() => return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)),
+                    result = tokio::time::timeout(timeout, receive) => result,
+                };
+                match result {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(_)) => Err(RpcError::built_in(
+                        RpcErrorCode::ApplicationError,
+                        Some("Reply handle released".into()),
+                    )),
+                    Err(_) => Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None)),
+                }
             })
-            .await?
+        });
+        Ok(())
     }
 
     /// Stops accepting new invocations of this method; pending replies keep their deadline.
     pub async fn unregister_rpc_method(&self, method: String) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move {
-                room.local_participant().unregister_rpc_method(method);
-                Ok(())
-            })
-            .await?
+        super::on_runtime(async move {
+            room.local_participant().unregister_rpc_method(method);
+            Ok(())
+        })
+        .await
     }
 }

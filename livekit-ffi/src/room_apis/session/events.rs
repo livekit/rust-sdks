@@ -211,7 +211,7 @@ impl EventQueue {
 
 /// An ordered cursor over the events of one room session.
 ///
-/// Get it from [`NativeRoomSession::events`](super::NativeRoomSession::events).
+/// Get it from [`FfiRoom::events`](super::FfiRoom::events).
 /// To release the cursor without a call to [`cancel`](Self::cancel) has the
 /// same effect as the call.
 #[derive(uniffi::Object)]

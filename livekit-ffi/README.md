@@ -165,13 +165,13 @@ cover processes that explicitly activate a microphone.
 
 ## Native room controls
 
-`NativeRoomSession.publish_dtmf(code, digit, destination_identities)` sends through
+`FfiRoom.publish_dtmf(code, digit, destination_identities)` sends through
 public core's reliable DTMF path; empty destinations use core broadcast semantics.
 Core sends this packet without data E2EE even in encrypted rooms. Incoming packets
 appear as `NativeRoomEvent::DtmfReceived { code, digit, participant_identity }`;
 optional fields retain core absence. Event payloads count against cursor bounds.
 
-`NativeRoomSession.set_track_subscription_permissions(all_participants_allowed,
+`FfiRoom.set_track_subscription_permissions(all_participants_allowed,
 permissions)` accepts `NativeTrackPermission { participant_identity, allow_all,
 allowed_track_sids }`. Invalid SIDs fail with `InvalidState`; successful completion
 means core stored the desired permissions; it does not guarantee the signaling request
@@ -183,9 +183,35 @@ the wrapper does not synthesize status or callbacks to conceal that limit.
 requires a remote video publication and requests the highest acceptable simulcast
 layer. Core ignores requests for non-simulcast tracks and may select lower quality
 under bandwidth pressure. This does not add FPS, volume or server-layer diagnostics.
-All three commands use the session's existing task admission and teardown ownership.
+These commands directly await core operations through UniFFI. The FFI runtime helper
+runs core work off the foreign executor, joining a caller-owned runtime hop. There is
+no command supervisor, admission queue or result-forwarding channel.
 No transcription export or private-core adapter is included.
 
 Reader `wait_closed` remains a room-apis-only export; core-modules retains the shipped
 reader protocols without new requirements. It observes closure independently and does
 not establish ordering against room event-cursor opens.
+
+### Thin typed room boundary
+
+`FfiRoom` is independently usable through generated UniFFI bindings. It owns the
+core connection and exposes commands without a native SDK wrapper. The separate
+protobuf `server::room::FfiRoom` is unchanged.
+
+The one connect/event task is retained because dropping a core connect future has
+no documented transport-cleanup guarantee. Cancellation returns promptly; disconnect
+joins that task and closes any late successful connection. Ordinary commands are
+owned by their UniFFI futures and use core completion/error behavior on disconnect.
+Dropping a caller aborts its runtime hop via tokio-util; ordinary completion joins it.
+The hop is necessary because synchronous WebRTC work within a poll must not block
+Swift’s cooperative executor.
+
+Snapshots are foreign value conversions, not a second mutable room model. Core
+participant/publication handles retain membership in receiver order so the initial
+snapshot cannot include a later join before its event. Values are read from core on
+demand and can be newer than the event. Revisions delimit cursor start/overflow
+recovery snapshots and ordered updates. The bounded queue carries payload events
+that cannot be reconstructed from core state; its limits protect slow consumers.
+Media handles retain source/sink ownership with weak room back-references. Error
+adapters preserve core codes and convert non-exportable payloads (HTTP status,
+borrowed strings and WebRTC errors); v2 error classification belongs in Swift.

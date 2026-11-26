@@ -71,6 +71,22 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
     poll_for(LIMIT, future).expect("the wait did not end in time")
 }
 
+impl FfiRoom {
+    async fn state_changed(&self, after: u64) -> Result<NativeRoomState, NativeSessionError> {
+        wait_for(&self.shared.changed, || {
+            let inner = self.shared.inner.lock();
+            if inner.revision > after {
+                Some(Ok(inner.snapshot()))
+            } else if inner.terminal == Some(NativeSessionError::Cancelled) || inner.finished {
+                inner.terminal.clone().map(Err)
+            } else {
+                None
+            }
+        })
+        .await
+    }
+}
+
 fn limits(max_items: u32, max_bytes: u64) -> NativeEventCursorOptions {
     NativeEventCursorOptions { max_items, max_bytes }
 }
@@ -135,7 +151,7 @@ fn data_event(kind: NativeDataPacketKind, size: usize) -> NativeRoomEvent {
 }
 
 fn cursor_over(queue: &Arc<EventQueue>) -> Arc<NativeRoomEventCursor> {
-    NativeRoomEventCursor::new(queue.clone(), NativeRoomSession::new().state())
+    NativeRoomEventCursor::new(queue.clone(), FfiRoom::new().state())
 }
 
 fn next(cursor: &NativeRoomEventCursor) -> Result<Option<NativeRoomEvent>, NativeSessionError> {
@@ -233,7 +249,7 @@ fn cancel_wakes_a_pending_next() {
 
 #[test]
 fn cancel_before_connect_is_terminal() {
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     let cursor = session.events(cursor_options());
     assert_eq!(cursor.start_state().connection, NativeConnectionState::Idle);
     let before = session.state();
@@ -271,7 +287,7 @@ fn cancel_before_connect_is_terminal() {
 
 #[test]
 fn disconnect_before_connect_ends_the_cursor() {
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     let cursor = session.events(cursor_options());
     block_on(session.disconnect());
     block_on(session.disconnect());
@@ -292,7 +308,7 @@ fn disconnect_before_connect_ends_the_cursor() {
 fn connect_failure_reports_the_cause_and_finishes() {
     // A port with no listener: the connection is refused at once.
     let port = TcpListener::bind("127.0.0.1:0").expect("bind").local_addr().expect("addr").port();
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     let cursor = session.events(cursor_options());
 
     let result =
@@ -334,7 +350,7 @@ fn connect_without_host_transport_is_not_configured() {
     use super::errors::NativeSignalFailure;
 
     assert!(!livekit_net::has_ws_client() && !livekit_net::has_http_client());
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
 
     let result =
         block_on(session.connect("ws://127.0.0.1:1".to_owned(), "t".into(), connect_options()));
@@ -355,7 +371,7 @@ fn cancel_during_connect_returns_at_once() {
     // answers, so the signal handshake waits for its timeout.
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().expect("addr").port();
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     let cursor = session.events(cursor_options());
 
     let connect = {
@@ -393,7 +409,7 @@ fn cancel_during_connect_returns_at_once() {
 fn repeated_create_and_release_leaves_nothing() {
     let mut released: Vec<Weak<Shared>> = Vec::new();
     for round in 0..60 {
-        let session = NativeRoomSession::new();
+        let session = FfiRoom::new();
         let cursor = session.events(cursor_options());
         released.push(Arc::downgrade(&session.shared));
         match round % 3 {
@@ -446,7 +462,7 @@ fn unique(name: &str) -> String {
 
 struct Peer {
     identity: String,
-    session: Arc<NativeRoomSession>,
+    session: Arc<FfiRoom>,
     cursor: Arc<NativeRoomEventCursor>,
     /// The snapshot that `connect` returned. It never changes afterwards.
     first: NativeRoomState,
@@ -489,7 +505,7 @@ impl Peer {
         .to_jwt()
         .expect("token");
 
-        let session = NativeRoomSession::new();
+        let session = FfiRoom::new();
         let cursor = session.events(cursor);
         let url = env_or("LK_TEST_URL", "ws://127.0.0.1:7880");
         let first = block_on(session.connect(url, token, options)).expect("connect");
@@ -611,11 +627,6 @@ fn two_rooms_exchange_state_and_data() {
     assert!(alice.revision > alice.first.revision);
     assert_eq!(carol.expect(joined).identity, "dave");
 
-    let mut generations: Vec<u64> =
-        [&alice, &bob, &carol, &dave].iter().map(|peer| peer.first.generation).collect();
-    generations.dedup();
-    assert_eq!(generations.len(), 4, "each session has its own generation");
-
     // Reliable data, in order, with topic and sender.
     for index in 0..50u8 {
         alice.send(&[b'a', index], true, Some("topic-a"));
@@ -680,7 +691,6 @@ fn two_rooms_exchange_state_and_data() {
     assert!(bob.first.remote_participants[0].attributes.is_empty());
     let newer = block_on(bob.session.state_changed(bob.first.revision)).expect("newer state");
     assert!(newer.revision > bob.first.revision);
-    assert_eq!(newer.generation, bob.first.generation);
     let current = bob.session.state();
     assert_eq!(current.remote_participants[0].attributes, attributes);
     assert_eq!(current.remote_participants[0].name, "Alice A");
@@ -761,7 +771,7 @@ fn cancel_races_a_real_connect() {
     let observer = Peer::join(&room, "observer");
 
     for round in 0..6u64 {
-        let victim = NativeRoomSession::new();
+        let victim = FfiRoom::new();
         let cursor = victim.events(cursor_options());
         let connect = {
             let victim = victim.clone();
@@ -812,10 +822,7 @@ fn cancel_races_a_real_connect() {
 
 #[test]
 fn cancel_supersedes_closed_during_stalled_teardown() {
-    let session = NativeRoomSession::new();
-    if let NativeRoomEvent::RoomUpdated { room } = room_event("before cancel") {
-        session.shared.update(|inner| inner.room_info = Some(room));
-    }
+    let session = FfiRoom::new();
     // Deterministic driver state: a close is pending and has not marked finished.
     session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
     session.shared.terminate(NativeSessionError::Closed);
@@ -837,31 +844,35 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
 }
 
 #[test]
-fn session_joins_commands_when_callers_drop_and_on_cancel() {
-    for drop_caller in [false, true] {
-        let session = NativeRoomSession::new();
-        let resource = Arc::new(());
-        let weak = Arc::downgrade(&resource);
-        let (started, ready) = std::sync::mpsc::channel();
-        let mut call = Box::pin(session.shared.command(async move {
-            let _resource = resource;
-            started.send(()).expect("started");
-            std::future::pending::<()>().await;
-        }));
-        assert!(poll_for(Duration::from_millis(20), &mut call).is_none());
-        ready.recv_timeout(LIMIT).expect("command started");
-        if drop_caller {
-            drop(call);
-        } else {
-            session.cancel();
-            assert_eq!(block_on(call), Err(NativeSessionError::Cancelled));
+fn dropping_foreign_future_releases_core_work() {
+    struct Resource(std::sync::mpsc::Sender<()>);
+    impl Drop for Resource {
+        fn drop(&mut self) {
+            self.0.send(()).expect("destruction observed");
         }
-        session.cancel();
-        block_on(session.disconnect());
-        assert!(weak.upgrade().is_none());
-        assert!(session.shared.commands.lock().is_empty());
-        assert_eq!(block_on(session.shared.command(async {})), Err(NativeSessionError::Cancelled));
     }
+    let (done, released) = std::sync::mpsc::channel();
+    let resource = Arc::new(Resource(done));
+    let weak = Arc::downgrade(&resource);
+    let mut call = Box::pin(on_runtime(async move {
+        let _resource = resource;
+        std::future::pending::<()>().await;
+    }));
+    assert!(poll_for(Duration::from_millis(20), &mut call).is_none());
+    drop(call);
+    released.recv_timeout(LIMIT).expect("runtime hop released the core future");
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn foreign_future_runs_off_the_calling_executor() {
+    let caller = std::thread::current().id();
+    block_on(on_runtime(async move {
+        assert_ne!(std::thread::current().id(), caller);
+        tokio::task::yield_now().await;
+        assert!(tokio::runtime::Handle::try_current().is_ok());
+        tokio::time::timeout(Duration::from_secs(1), async {}).await.unwrap();
+    }));
 }
 
 fn encrypted_options(key: &str) -> NativeConnectOptions {
@@ -1089,11 +1100,10 @@ fn real_room_helpers_streams_tracks_schema_and_rpc() {
         block_on(receiver.session.disconnect());
         assert!(pending.join().expect("pending caller").is_err());
         assert!(!invocation.respond("after disconnect".into()));
-        assert!(receiver.session.shared.commands.lock().is_empty());
 
         let held_room = sender.session.shared.room().expect("connected room");
         let weak_room = Arc::downgrade(&held_room);
-        let mut command = Box::pin(sender.session.shared.command(async move {
+        let mut command = Box::pin(on_runtime(async move {
             let _held = held_room;
             std::future::pending::<()>().await;
         }));
@@ -1117,7 +1127,7 @@ fn media_publish_options(source: NativeTrackSource) -> NativeMediaPublishOptions
 
 #[test]
 fn media_validation_and_child_handles_do_not_retain_session() {
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     assert!(block_on(session.create_audio_track("bad".into(), 0)).is_err());
     assert!(block_on(session.create_video_track("bad".into(), u32::MAX, 180, false)).is_err());
     let audio = block_on(session.create_audio_track("local".into(), 1)).expect("source");
@@ -1133,6 +1143,19 @@ fn media_validation_and_child_handles_do_not_retain_session() {
     }))
     .is_err());
     session.cancel();
+    assert!(matches!(
+        block_on(session.create_audio_track("closed".into(), 1)),
+        Err(NativeSessionError::Cancelled)
+    ));
+    assert!(matches!(
+        block_on(session.create_video_track("closed".into(), 640, 480, false)),
+        Err(NativeSessionError::Cancelled)
+    ));
+    // This must reject before touching PlatformAudio or selecting a device.
+    assert!(matches!(
+        block_on(session.create_microphone_track("closed".into(), Some("invalid-device".into()))),
+        Err(NativeSessionError::Cancelled)
+    ));
     let weak = Arc::downgrade(&session.shared);
     block_on(session.disconnect());
     assert!(audio.info().is_err());
@@ -1547,7 +1570,7 @@ fn connect_ice_options_and_protocol_boundary() {
         NativeContinualGatheringPolicy::GatherOnce
     );
     options.client_protocol = Some(0);
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     assert!(matches!(
         block_on(session.connect("ws://127.0.0.1:1".into(), "t".into(), options)),
         Err(NativeSessionError::Unsupported { .. })
@@ -1609,7 +1632,7 @@ fn structured_error_codes_are_not_derived_from_text() {
 fn real_structured_connection_and_stream_errors() {
     use super::errors::*;
     use crate::data_stream::common::{DataStreamError, StreamByteOptions, StreamIoErrorKind};
-    let failed = NativeRoomSession::new();
+    let failed = FfiRoom::new();
     let error = block_on(failed.connect(
         env_or("LK_TEST_URL", "ws://127.0.0.1:7880"),
         "not-a-valid-token".into(),
@@ -1630,7 +1653,7 @@ fn real_structured_connection_and_stream_errors() {
         "{error:?}"
     );
     block_on(failed.disconnect());
-    let restricted = NativeRoomSession::new();
+    let restricted = FfiRoom::new();
     let token = AccessToken::with_api_key(
         &env_or("LK_TEST_API_KEY", "devkey"),
         &env_or("LK_TEST_API_SECRET", "secret"),
@@ -1678,7 +1701,7 @@ fn real_structured_connection_and_stream_errors() {
     let weak = Arc::downgrade(&peer.session.shared);
     drop(peer);
     assert!(weak.upgrade().is_none());
-    let idle = NativeRoomSession::new();
+    let idle = FfiRoom::new();
     assert!(matches!(
         block_on(idle.send_bytes(bytes::Bytes::new(), StreamByteOptions::default())),
         Err(DataStreamError::InvalidState { .. })
@@ -1689,7 +1712,7 @@ fn real_structured_connection_and_stream_errors() {
 #[test]
 fn invalid_cursor_limits_fail_without_an_event() {
     for options in [limits(0, 100), limits(100, 0)] {
-        let session = NativeRoomSession::new();
+        let session = FfiRoom::new();
         let valid = session.events(cursor_options());
         let cursor = session.events(options);
         assert!(matches!(next(&cursor), Err(NativeSessionError::InvalidState { .. })));
@@ -1699,17 +1722,8 @@ fn invalid_cursor_limits_fail_without_an_event() {
 }
 
 #[test]
-fn pending_commands_preserve_closed_cause() {
-    let session = NativeRoomSession::new();
-    let mut call = Box::pin(session.shared.command(std::future::pending::<()>()));
-    assert!(poll_for(Duration::from_millis(20), &mut call).is_none());
-    block_on(session.disconnect());
-    assert_eq!(block_on(call), Err(NativeSessionError::Closed));
-}
-
-#[test]
 fn unexplained_end_does_not_claim_client_initiated() {
-    let session = NativeRoomSession::new();
+    let session = FfiRoom::new();
     session.shared.update(Inner::finish);
     assert_eq!(session.state().disconnect_reason, Some(NativeDisconnectReason::UnknownReason));
 }
@@ -1789,36 +1803,6 @@ fn real_receive_then_pcm_does_not_request_platform_audio() {
     }
     receive_then_pcm_privacy_checkpoint(2);
     other.leave();
-    receiver.leave();
-    sender.leave();
-}
-
-#[serial_test::serial]
-#[test]
-#[ignore = "requires a local server"]
-fn real_rpc_backpressure_does_not_emit_unadmitted_invocation() {
-    let room = unique("rpc-admission");
-    let sender = Peer::join(&room, "caller");
-    let receiver = Peer::join(&room, "handler");
-    block_on(receiver.session.register_rpc_method("full".into())).unwrap();
-    let mut held = Vec::new();
-    for _ in 0..128 {
-        let mut command = Box::pin(receiver.session.shared.command(std::future::pending::<()>()));
-        assert!(poll_for(Duration::from_millis(1), &mut command).is_none());
-        held.push(command);
-    }
-    let result = block_on(sender.session.perform_rpc(NativeRpcOptions {
-        destination_identity: "handler".into(),
-        method: "full".into(),
-        payload: "test".into(),
-        response_timeout_ms: 5000,
-        max_round_trip_latency_ms: 3000,
-    }));
-    assert!(matches!(result, Err(NativeRpcError::Failed { code: 1505, data: Some(_), .. })));
-    while let Some(Ok(Some(update))) = poll_for(Duration::from_millis(50), receiver.cursor.next()) {
-        assert!(!matches!(update.event, NativeRoomEvent::RpcRequested { .. }));
-    }
-    drop(held);
     receiver.leave();
     sender.leave();
 }

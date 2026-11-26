@@ -125,7 +125,7 @@ log = { workspace = true }
 thiserror = { workspace = true }
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.

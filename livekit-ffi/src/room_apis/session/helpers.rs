@@ -14,7 +14,7 @@
 
 //! Room-owned stream, data track and schema commands.
 
-use super::{NativeRoomSession, NativeSessionError};
+use super::{FfiRoom, NativeSessionError};
 use crate::data_stream::{
     common::{
         ByteStreamInfo, DataStreamError, StreamByteOptions, StreamTextOptions, TextStreamInfo,
@@ -26,7 +26,6 @@ use crate::data_track::{
     local::{DataTrackOptions, LocalDataTrack},
 };
 use bytes::Bytes;
-use std::future::Future;
 
 fn stream_session_error(error: NativeSessionError) -> DataStreamError {
     match error {
@@ -37,21 +36,8 @@ fn stream_session_error(error: NativeSessionError) -> DataStreamError {
     }
 }
 
-impl NativeRoomSession {
-    async fn stream_command<
-        T: Send + 'static,
-        F: Future<Output = Result<T, DataStreamError>> + Send + 'static,
-    >(
-        &self,
-        work: impl FnOnce(std::sync::Arc<livekit::Room>) -> F + Send + 'static,
-    ) -> Result<T, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
-        self.shared.command(work(room)).await.map_err(stream_session_error)?
-    }
-}
-
 #[uniffi::export]
-impl NativeRoomSession {
+impl FfiRoom {
     /// Looks up a currently published remote data track from a snapshot SID.
     pub fn remote_data_track(
         &self,
@@ -66,7 +52,8 @@ impl NativeRoomSession {
         text: String,
         options: StreamTextOptions,
     ) -> Result<TextStreamInfo, DataStreamError> {
-        self.stream_command(move |room| async move {
+        let room = self.shared.room().map_err(stream_session_error)?;
+        super::on_runtime(async move {
             Ok(room.local_participant().send_text(&text, options.into()).await?.into())
         })
         .await
@@ -78,7 +65,8 @@ impl NativeRoomSession {
         data: Bytes,
         options: StreamByteOptions,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        self.stream_command(move |room| async move {
+        let room = self.shared.room().map_err(stream_session_error)?;
+        super::on_runtime(async move {
             Ok(room.local_participant().send_bytes(data, options.into()).await?.into())
         })
         .await
@@ -90,7 +78,8 @@ impl NativeRoomSession {
         path: String,
         options: StreamByteOptions,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        self.stream_command(move |room| async move {
+        let room = self.shared.room().map_err(stream_session_error)?;
+        super::on_runtime(async move {
             Ok(room.local_participant().send_file(path, options.into()).await?.into())
         })
         .await
@@ -101,7 +90,8 @@ impl NativeRoomSession {
         &self,
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
-        self.stream_command(move |room| async move {
+        let room = self.shared.room().map_err(stream_session_error)?;
+        super::on_runtime(async move {
             Ok(TextStreamWriter(room.local_participant().stream_text(options.into()).await?))
         })
         .await
@@ -112,7 +102,8 @@ impl NativeRoomSession {
         &self,
         options: StreamByteOptions,
     ) -> Result<ByteStreamWriter, DataStreamError> {
-        self.stream_command(move |room| async move {
+        let room = self.shared.room().map_err(stream_session_error)?;
+        super::on_runtime(async move {
             Ok(ByteStreamWriter(room.local_participant().stream_bytes(options.into()).await?))
         })
         .await
@@ -133,12 +124,10 @@ impl NativeRoomSession {
             }
         };
         let room = self.shared.room().map_err(session_error)?;
-        self.shared
-            .command(async move {
-                room.local_participant().publish_data_track(options).await.map(LocalDataTrack::new)
-            })
-            .await
-            .map_err(session_error)?
+        super::on_runtime(async move {
+            room.local_participant().publish_data_track(options).await.map(LocalDataTrack::new)
+        })
+        .await
     }
 
     /// Defines a schema on the server before publishing a track that references it.
@@ -148,11 +137,10 @@ impl NativeRoomSession {
         definition: String,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move {
-                Ok(room.local_participant().define_schema(id.into(), definition).await?)
-            })
-            .await?
+        super::on_runtime(async move {
+            Ok(room.local_participant().define_schema(id.into(), definition).await?)
+        })
+        .await
     }
 
     /// Fetches a schema defined by a participant in this room.
@@ -162,10 +150,9 @@ impl NativeRoomSession {
         participant: String,
     ) -> Result<String, NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move {
-                Ok(room.local_participant().get_schema(id.into(), participant.into()).await?)
-            })
-            .await?
+        super::on_runtime(async move {
+            Ok(room.local_participant().get_schema(id.into(), participant.into()).await?)
+        })
+        .await
     }
 }

@@ -15,7 +15,7 @@
 //! Thin core encryption configuration and host-owned key material; no room references.
 
 use super::media_frames::invalid;
-use super::{NativeRoomSession, NativeSessionError};
+use super::{FfiRoom, NativeSessionError};
 use bytes::Bytes;
 use livekit::e2ee::{
     key_provider::{KeyDerivationAlgorithm, KeyProvider, KeyProviderOptions},
@@ -242,7 +242,7 @@ pub struct NativeEncryptionStatus {
     pub data_enabled: bool,
 }
 #[uniffi::export]
-impl NativeRoomSession {
+impl FfiRoom {
     /// Reads actual room encryption status.
     pub fn encryption_status(&self) -> Result<NativeEncryptionStatus, NativeSessionError> {
         let room = self.shared.room()?;
@@ -261,10 +261,10 @@ impl NativeRoomSession {
         if room.e2ee_manager().key_provider().is_none() {
             return Err(invalid("encryption was not configured at connect"));
         }
-        self.shared
-            .command(async move {
-                room.e2ee_manager().set_enabled(enabled);
-            })
-            .await
+        super::on_runtime(async move {
+            room.e2ee_manager().set_enabled(enabled);
+        })
+        .await;
+        Ok(())
     }
 }

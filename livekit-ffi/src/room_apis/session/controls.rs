@@ -1,5 +1,5 @@
 //! Thin commands supported by the public core; no signaling or media backend is recreated.
-use super::{NativeRoomSession, NativeSessionError};
+use super::{FfiRoom, NativeSessionError};
 
 /// A participant's allowed subscriptions to this room's local tracks.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -19,7 +19,7 @@ pub enum NativeVideoQuality {
 }
 
 #[uniffi::export]
-impl NativeRoomSession {
+impl FfiRoom {
     /// Publishes a DTMF packet through the core's reliable transport.
     /// Core sends DTMF without data E2EE, including in encrypted rooms.
     pub async fn publish_dtmf(
@@ -29,21 +29,20 @@ impl NativeRoomSession {
         destination_identities: Vec<String>,
     ) -> Result<(), NativeSessionError> {
         let room = self.shared.room()?;
-        self.shared
-            .command(async move {
-                room.local_participant()
-                    .publish_dtmf(livekit::SipDTMF {
-                        code,
-                        digit,
-                        destination_identities: destination_identities
-                            .into_iter()
-                            .map(Into::into)
-                            .collect(),
-                    })
-                    .await
-                    .map_err(Into::into)
-            })
-            .await?
+        super::on_runtime(async move {
+            room.local_participant()
+                .publish_dtmf(livekit::SipDTMF {
+                    code,
+                    digit,
+                    destination_identities: destination_identities
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                })
+                .await
+                .map_err(Into::into)
+        })
+        .await
     }
 
     /// Updates core's desired subscription permissions. Completion is not an SFU acknowledgement.
@@ -72,13 +71,12 @@ impl NativeRoomSession {
                 })
             })
             .collect::<Result<Vec<_>, NativeSessionError>>()?;
-        self.shared
-            .command(async move {
-                room.local_participant()
-                    .set_track_subscription_permissions(all_participants_allowed, permissions)
-                    .await
-                    .map_err(Into::into)
-            })
-            .await?
+        super::on_runtime(async move {
+            room.local_participant()
+                .set_track_subscription_permissions(all_participants_allowed, permissions)
+                .await
+                .map_err(Into::into)
+        })
+        .await
     }
 }
