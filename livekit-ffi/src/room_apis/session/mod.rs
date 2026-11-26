@@ -32,6 +32,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+pub(crate) mod core_objects;
+pub use core_objects::{FfiParticipant, FfiTrack, FfiTrackPublication};
 mod options;
 pub use options::*;
 mod controls;
@@ -67,7 +69,7 @@ struct Inner {
     revision: u64,
     disconnect_reason: Option<DisconnectReason>,
     remotes: HashMap<String, RemoteParticipant>,
-    publications: HashMap<String, (String, TrackPublication)>,
+    publications: HashMap<String, (Participant, TrackPublication)>,
     data_tracks: HashMap<String, Arc<crate::data_track::remote::RemoteDataTrack>>,
     /// Why the session accepts no more work. Set one time.
     terminal: Option<NativeSessionError>,
@@ -85,18 +87,19 @@ impl Inner {
             connection: self.connection,
             disconnect_reason: self.disconnect_reason,
             room: self.room.as_deref().map(Room::info),
-            local_participant: self.room.as_ref().map(|room| {
-                Arc::new(FfiParticipant::from(&Participant::Local(room.local_participant())))
-            }),
+            local_participant: self
+                .room
+                .as_ref()
+                .map(|room| Arc::new(Participant::Local(room.local_participant()))),
             remote_participants: self
                 .remotes
                 .values()
-                .map(|p| Arc::new(FfiParticipant::from(&Participant::Remote(p.clone()))))
+                .map(|p| Arc::new(Participant::Remote(p.clone())))
                 .collect(),
             publications: self
                 .publications
                 .values()
-                .map(|(identity, p)| FfiTrackPublication::new(identity, p))
+                .map(|(identity, p)| FfiPublication::new(identity, p))
                 .collect(),
             data_tracks: self.data_tracks.values().cloned().collect(),
         }
@@ -113,7 +116,7 @@ impl Inner {
         match participant {
             Participant::Local(_) if self.room.is_none() => None,
             Participant::Remote(p) if !self.remotes.contains_key(p.identity().as_str()) => None,
-            _ => Some(Arc::new(FfiParticipant::from(participant))),
+            _ => Some(Arc::new(participant.clone())),
         }
     }
 
@@ -121,24 +124,24 @@ impl Inner {
         &self,
         participant: &Participant,
         publication: &TrackPublication,
-    ) -> Option<Arc<FfiTrackPublication>> {
+    ) -> Option<FfiPublication> {
         self.publications
             .contains_key(publication.sid().as_str())
-            .then(|| FfiTrackPublication::new(participant.identity().as_str(), publication))
+            .then(|| FfiPublication::new(participant, publication))
     }
 
-    fn add_publication(&mut self, identity: &str, publication: &TrackPublication) {
+    fn add_publication(&mut self, participant: &Participant, publication: &TrackPublication) {
         self.publications
-            .insert(publication.sid().to_string(), (identity.into(), publication.clone()));
+            .insert(publication.sid().to_string(), (participant.clone(), publication.clone()));
         self.emit(NativeRoomEvent::TrackPublished {
-            publication: FfiTrackPublication::new(identity, publication),
+            publication: FfiPublication::new(participant, publication),
         });
     }
 
     fn remove_publication(&mut self, sid: &TrackSid) {
         let Some((identity, publication)) = self.publications.remove(sid.as_str()) else { return };
         self.emit(NativeRoomEvent::TrackUnpublished {
-            publication: FfiTrackPublication::new(&identity, &publication),
+            publication: FfiPublication::new(&identity, &publication),
         });
     }
 
@@ -238,75 +241,87 @@ impl Inner {
                 self.emit(Out::DtmfReceived {
                     code,
                     digit,
-                    participant_identity: participant.map(|p| p.identity().into()),
+                    participant: participant.map(|p| Arc::new(Participant::Remote(p))),
                 })
             }
             RoomEvent::ParticipantConnected(participant) => {
                 self.remotes.insert(participant.identity().to_string(), participant.clone());
-                let participant = Arc::new(FfiParticipant::from(&Participant::Remote(participant)));
+                let participant = Arc::new(Participant::Remote(participant));
                 self.emit(Out::ParticipantConnected { participant });
             }
             RoomEvent::ParticipantDisconnected(participant) => {
-                let participant = Arc::new(FfiParticipant::from(&Participant::Remote(participant)));
-                if self.remotes.remove(&participant.identity()).is_none() {
+                let participant = Arc::new(Participant::Remote(participant));
+                if self.remotes.remove(participant.identity().as_str()).is_none() {
                     return;
                 }
-                self.publications.retain(|_, (identity, _)| *identity != participant.identity());
+                self.publications.retain(|_, (p, _)| p.identity() != participant.identity());
                 self.emit(Out::ParticipantDisconnected { participant });
             }
             RoomEvent::ParticipantActive(participant) => {
-                self.participant_updated(&Participant::Remote(participant));
+                self.emit(Out::ParticipantActive {
+                    participant: Arc::new(Participant::Remote(participant)),
+                });
             }
             RoomEvent::ParticipantsUpdated { participants } => {
-                for participant in &participants {
-                    self.participant_updated(participant);
-                }
+                self.emit(Out::ParticipantsUpdated {
+                    participants: participants.into_iter().map(Arc::new).collect(),
+                });
             }
-            RoomEvent::ParticipantMetadataChanged { participant, old_metadata, .. } => {
+            RoomEvent::ParticipantMetadataChanged { participant, old_metadata, metadata } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
-                self.emit(Out::ParticipantMetadataChanged { participant, old_metadata });
+                self.emit(Out::ParticipantMetadataChanged { participant, old_metadata, metadata });
             }
-            RoomEvent::ParticipantNameChanged { participant, old_name, .. } => {
+            RoomEvent::ParticipantNameChanged { participant, old_name, name } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
-                self.emit(Out::ParticipantNameChanged { participant, old_name });
+                self.emit(Out::ParticipantNameChanged { participant, old_name, name });
             }
             RoomEvent::ParticipantAttributesChanged { participant, changed_attributes } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::ParticipantAttributesChanged { participant, changed_attributes });
             }
-            RoomEvent::ParticipantPermissionChanged { participant, .. } => {
+            RoomEvent::ParticipantPermissionChanged { participant, permission } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
-                self.emit(Out::ParticipantPermissionChanged { participant });
+                self.emit(Out::ParticipantPermissionChanged { participant, permission });
             }
             RoomEvent::E2eeStateChanged { participant, state } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
                 self.emit(Out::EncryptionStateChanged { participant, state });
             }
-            RoomEvent::ParticipantEncryptionStatusChanged { participant, .. } => {
+            RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
-                self.emit(Out::ParticipantEncryptionStatusChanged { participant });
+                self.emit(Out::ParticipantEncryptionStatusChanged { participant, is_encrypted });
             }
-            RoomEvent::ConnectionQualityChanged { participant, .. } => {
+            RoomEvent::ConnectionQualityChanged { participant, quality } => {
                 let Some(participant) = self.participant_record(&participant) else { return };
-                self.emit(Out::ConnectionQualityChanged { participant });
+                self.emit(Out::ConnectionQualityChanged { participant, quality });
             }
             RoomEvent::ActiveSpeakersChanged { speakers } => {
                 let speakers: Vec<_> = speakers
                     .iter()
                     .filter_map(|speaker| self.participant_record(speaker))
-                    .map(|p| NativeSpeaker { identity: p.identity(), audio_level: p.audio_level() })
                     .collect();
                 self.emit(Out::ActiveSpeakersChanged { speakers });
             }
             RoomEvent::TrackPublished { publication, participant } => {
                 let identity: String = participant.identity().into();
                 if self.remotes.contains_key(&identity) {
-                    self.add_publication(&identity, &TrackPublication::Remote(publication));
+                    self.add_publication(
+                        &Participant::Remote(participant),
+                        &TrackPublication::Remote(publication),
+                    );
                 }
             }
-            RoomEvent::LocalTrackPublished { publication, participant, .. } => {
-                let identity: String = participant.identity().into();
-                self.add_publication(&identity, &TrackPublication::Local(publication));
+            RoomEvent::LocalTrackPublished { publication, participant, track } => {
+                let participant = Participant::Local(participant);
+                let publication = TrackPublication::Local(publication);
+                self.publications.insert(
+                    publication.sid().to_string(),
+                    (participant.clone(), publication.clone()),
+                );
+                self.emit(Out::LocalTrackPublished {
+                    publication: FfiPublication::new(&participant, &publication),
+                    track: Arc::new(track.into()),
+                });
             }
             RoomEvent::TrackUnpublished { publication, .. } => {
                 self.remove_publication(&publication.sid());
@@ -314,15 +329,18 @@ impl Inner {
             RoomEvent::LocalTrackUnpublished { publication, .. } => {
                 self.remove_publication(&publication.sid());
             }
-            RoomEvent::LocalTrackRepublished { previous_sid, publication, participant, .. } => {
-                let identity: String = participant.identity().into();
+            RoomEvent::LocalTrackRepublished { previous_sid, publication, participant, track } => {
                 let core = TrackPublication::Local(publication);
                 self.publications.remove(previous_sid.as_str());
-                self.publications.insert(core.sid().to_string(), (identity.clone(), core.clone()));
-                let publication = FfiTrackPublication::new(&identity, &core);
+                self.publications.insert(
+                    core.sid().to_string(),
+                    (Participant::Local(participant.clone()), core.clone()),
+                );
+                let publication = FfiPublication::new(&Participant::Local(participant), &core);
                 self.emit(Out::LocalTrackRepublished {
                     previous_sid: previous_sid.into(),
                     publication,
+                    track: Arc::new(track.into()),
                 });
             }
             RoomEvent::TrackMuted { participant, publication } => {
@@ -337,29 +355,29 @@ impl Inner {
                 };
                 self.emit(Out::TrackUnmuted { publication });
             }
-            RoomEvent::TrackSubscribed { publication, participant, .. } => {
+            RoomEvent::TrackSubscribed { publication, participant, track } => {
                 let Some(publication) = self.publication_record(
                     &Participant::Remote(participant),
                     &TrackPublication::Remote(publication),
                 ) else {
                     return;
                 };
-                self.emit(Out::TrackSubscribed { publication });
+                self.emit(Out::TrackSubscribed { publication, track: Arc::new(track.into()) });
             }
-            RoomEvent::TrackUnsubscribed { publication, participant, .. } => {
+            RoomEvent::TrackUnsubscribed { publication, participant, track } => {
                 let Some(publication) = self.publication_record(
                     &Participant::Remote(participant),
                     &TrackPublication::Remote(publication),
                 ) else {
                     return;
                 };
-                self.emit(Out::TrackUnsubscribed { publication });
+                self.emit(Out::TrackUnsubscribed { publication, track: Arc::new(track.into()) });
             }
             RoomEvent::TrackSubscriptionFailed { participant, error, track_sid } => {
                 self.emit(Out::TrackSubscriptionFailed {
-                    participant_identity: participant.identity().into(),
-                    track_sid: track_sid.into(),
-                    reason: error.to_string(),
+                    participant: Arc::new(Participant::Remote(participant)),
+                    track_sid,
+                    error,
                 });
             }
             RoomEvent::DataReceived { payload, topic, kind, participant } => {
@@ -368,7 +386,7 @@ impl Inner {
                         payload: Arc::unwrap_or_clone(payload),
                         topic,
                         kind,
-                        participant_identity: participant.map(|p| p.identity().into()),
+                        participant: participant.map(|p| Arc::new(Participant::Remote(p))),
                     },
                 });
             }
@@ -376,13 +394,6 @@ impl Inner {
             // The other events belong to parts of the surface that do not exist yet.
             _ => {}
         }
-    }
-
-    /// Handles a change that has no specific event.
-    fn participant_updated(&mut self, participant: &Participant) {
-        let Some(participant) = self.participant_record(participant) else { return };
-        self.revision += 1;
-        self.emit(NativeRoomEvent::ParticipantUpdated { participant });
     }
 }
 
@@ -474,7 +485,7 @@ impl Shared {
             for publication in local.track_publications().into_values() {
                 inner.publications.insert(
                     publication.sid().to_string(),
-                    (local.identity().to_string(), TrackPublication::Local(publication)),
+                    (Participant::Local(local.clone()), TrackPublication::Local(publication)),
                 );
             }
             for (participant, publications) in initial {
@@ -482,7 +493,10 @@ impl Shared {
                 for publication in publications {
                     inner.publications.insert(
                         publication.sid().to_string(),
-                        (identity.clone(), TrackPublication::Remote(publication)),
+                        (
+                            Participant::Remote(participant.clone()),
+                            TrackPublication::Remote(publication),
+                        ),
                     );
                 }
                 inner.remotes.insert(identity, participant);

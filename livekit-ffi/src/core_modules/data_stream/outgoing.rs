@@ -108,7 +108,7 @@ impl lk_common::RemoteParticipantRegistry for ForeignRegistry {
         &self,
         identity: &lk_common::ParticipantIdentity,
     ) -> Vec<lk_common::ClientCapability> {
-        self.0.remote_capabilities(identity.to_string()).into_iter().map(Into::into).collect()
+        self.0.remote_capabilities(identity.to_string())
     }
 
     fn remote_identities(&self) -> Vec<lk_common::ParticipantIdentity> {

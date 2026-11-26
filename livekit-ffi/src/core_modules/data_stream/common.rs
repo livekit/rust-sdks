@@ -74,35 +74,7 @@ impl From<OperationType> for ds_api::OperationType {
     }
 }
 
-/// A capability a participant's client advertises, mirroring [`common::ClientCapability`].
-#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ClientCapability {
-    Unused,
-    PacketTrailer,
-    CompressionDeflateRaw,
-}
-
-impl From<common::ClientCapability> for ClientCapability {
-    fn from(value: common::ClientCapability) -> Self {
-        match value {
-            common::ClientCapability::Unused => Self::Unused,
-            common::ClientCapability::PacketTrailer => Self::PacketTrailer,
-            common::ClientCapability::CompressionDeflateRaw => Self::CompressionDeflateRaw,
-            // `common::ClientCapability` is `#[non_exhaustive]`; treat anything newer as unusable.
-            _ => Self::Unused,
-        }
-    }
-}
-
-impl From<ClientCapability> for common::ClientCapability {
-    fn from(value: ClientCapability) -> Self {
-        match value {
-            ClientCapability::Unused => Self::Unused,
-            ClientCapability::PacketTrailer => Self::PacketTrailer,
-            ClientCapability::CompressionDeflateRaw => Self::CompressionDeflateRaw,
-        }
-    }
-}
+pub use common::ClientCapability;
 
 // MARK: - Info records
 

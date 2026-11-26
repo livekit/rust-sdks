@@ -17,6 +17,7 @@
 //! Core values retain their names; host SDKs qualify generated types at their compatibility boundary.
 
 use super::errors::{NativeRequestFailureCode, NativeRtcFailureKind, NativeSignalFailure};
+use super::{FfiParticipant, FfiTrack, FfiTrackPublication};
 pub use livekit::webrtc::native::frame_cryptor::EncryptionState;
 use std::{collections::HashMap, sync::Arc};
 
@@ -322,188 +323,23 @@ mod permissions {
 }
 pub use permissions::ParticipantPermission;
 
-/// A live participant view. Reads forward to core; retaining it does not retain FfiRoom.
-#[derive(uniffi::Object, Clone, Debug)]
-pub struct FfiParticipant(Participant);
-impl From<&Participant> for FfiParticipant {
-    fn from(p: &Participant) -> Self {
-        Self(p.clone())
-    }
+/// A publication relationship, carrying both original core objects without a snapshot.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiPublication {
+    pub participant: Arc<FfiParticipant>,
+    pub publication: Arc<FfiTrackPublication>,
 }
-impl PartialEq for FfiParticipant {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.sid() == other.0.sid()
-    }
-}
-#[uniffi::export]
-impl FfiParticipant {
-    /// Returns the current core identity.
-    pub fn identity(&self) -> String {
-        self.0.identity().into()
-    }
-    /// Returns the current core sid.
-    pub fn sid(&self) -> String {
-        self.0.sid().into()
-    }
-    /// Returns the current core is local.
-    pub fn is_local(&self) -> bool {
-        matches!(self.0, Participant::Local(_))
-    }
-    /// Returns the current core name.
-    pub fn name(&self) -> String {
-        self.0.name()
-    }
-    /// Returns the current core state.
-    pub fn state(&self) -> ParticipantState {
-        self.0.state()
-    }
-    /// Returns the current core kind.
-    pub fn kind(&self) -> ParticipantKind {
-        self.0.kind()
-    }
-    /// Returns the current core kind details.
-    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
-        self.0.kind_details()
-    }
-    /// Returns the current core metadata.
-    pub fn metadata(&self) -> String {
-        self.0.metadata()
-    }
-    /// Returns the current core attributes.
-    pub fn attributes(&self) -> HashMap<String, String> {
-        self.0.attributes()
-    }
-    /// Returns the current core is speaking.
-    pub fn is_speaking(&self) -> bool {
-        self.0.is_speaking()
-    }
-    /// Returns the current core audio level.
-    pub fn audio_level(&self) -> f32 {
-        self.0.audio_level()
-    }
-    /// Returns the current core connection quality.
-    pub fn connection_quality(&self) -> ConnectionQuality {
-        self.0.connection_quality()
-    }
-    /// Returns the current core joined at.
-    pub fn joined_at(&self) -> i64 {
-        self.0.joined_at()
-    }
-    /// Returns the current core permission.
-    pub fn permission(&self) -> Option<ParticipantPermission> {
-        self.0.permission()
-    }
-    /// Returns the current core is encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        self.0.is_encrypted()
-    }
-    /// Returns the current core disconnect reason.
-    pub fn disconnect_reason(&self) -> DisconnectReason {
-        self.0.disconnect_reason()
-    }
-    /// Returns the current core client protocol.
-    pub fn client_protocol(&self) -> i32 {
-        self.0.client_protocol()
-    }
-    /// Returns the current core capabilities.
-    pub fn capabilities(&self) -> Option<Vec<crate::data_stream::common::ClientCapability>> {
-        match &self.0 {
-            Participant::Remote(p) => Some(p.capabilities().into_iter().map(Into::into).collect()),
-            Participant::Local(_) => None,
-        }
-    }
-}
-
-/// The part of a publication that only a remote track has.
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct NativeRemotePublicationState {
-    pub subscription_status: SubscriptionStatus,
-    pub permission_status: PermissionStatus,
-    /// `false` when the receiver paused the track.
-    pub is_enabled: bool,
-    /// `None` when the track is not subscribed.
-    pub stream_state: Option<StreamState>,
-}
-
-/// A live publication view, retaining the core publication rather than a copied snapshot.
-#[derive(uniffi::Object, Clone, Debug)]
-pub struct FfiTrackPublication {
-    participant_identity: String,
-    core: TrackPublication,
-}
-impl PartialEq for FfiTrackPublication {
-    fn eq(&self, other: &Self) -> bool {
-        self.core.sid() == other.core.sid()
-            && self.participant_identity == other.participant_identity
-    }
-}
-impl FfiTrackPublication {
-    pub(super) fn new(identity: &str, publication: &TrackPublication) -> Arc<Self> {
-        Arc::new(Self { participant_identity: identity.into(), core: publication.clone() })
-    }
-}
-#[uniffi::export]
-impl FfiTrackPublication {
-    /// Returns the current core sid.
-    pub fn sid(&self) -> String {
-        self.core.sid().into()
-    }
-    /// Returns the current core participant identity.
-    pub fn participant_identity(&self) -> String {
-        self.participant_identity.clone()
-    }
-    /// Returns the current core name.
-    pub fn name(&self) -> String {
-        self.core.name()
-    }
-    /// Returns the current core kind.
-    pub fn kind(&self) -> TrackKind {
-        self.core.kind()
-    }
-    /// Returns the current core source.
-    pub fn source(&self) -> TrackSource {
-        self.core.source()
-    }
-    /// Returns the current core is muted.
-    pub fn is_muted(&self) -> bool {
-        self.core.is_muted()
-    }
-    /// Returns the current core simulcasted.
-    pub fn simulcasted(&self) -> bool {
-        self.core.simulcasted()
-    }
-    /// Returns the current core width.
-    pub fn width(&self) -> u32 {
-        self.core.dimension().0
-    }
-    /// Returns the current core height.
-    pub fn height(&self) -> u32 {
-        self.core.dimension().1
-    }
-    /// Returns the current core mime type.
-    pub fn mime_type(&self) -> String {
-        self.core.mime_type()
-    }
-    /// Returns the current core encryption type.
-    pub fn encryption_type(&self) -> EncryptionType {
-        self.core.encryption_type()
-    }
-    /// Returns the current core remote.
-    pub fn remote(&self) -> Option<NativeRemotePublicationState> {
-        match &self.core {
-            TrackPublication::Local(_) => None,
-            TrackPublication::Remote(p) => Some(NativeRemotePublicationState {
-                subscription_status: p.subscription_status(),
-                permission_status: p.permission_status(),
-                is_enabled: p.is_enabled(),
-                stream_state: p.track().map(|t| t.stream_state()),
-            }),
+impl FfiPublication {
+    pub(super) fn new(participant: &Participant, publication: &TrackPublication) -> Self {
+        Self {
+            participant: Arc::new(participant.clone()),
+            publication: Arc::new(publication.clone()),
         }
     }
 }
 
 /// Ordered session membership at a revision, with live core-backed object properties.
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiRoomState {
     /// Remote data track publications known at this revision.
     pub data_tracks: Vec<Arc<crate::data_track::remote::RemoteDataTrack>>,
@@ -518,24 +354,17 @@ pub struct FfiRoomState {
     /// In no particular order.
     pub remote_participants: Vec<Arc<FfiParticipant>>,
     /// Local and remote publications, in no particular order.
-    pub publications: Vec<Arc<FfiTrackPublication>>,
-}
-
-/// One active speaker.
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct NativeSpeaker {
-    pub identity: String,
-    pub audio_level: f32,
+    pub publications: Vec<FfiPublication>,
 }
 
 /// A data packet from a remote participant.
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeDataPacket {
     pub payload: Vec<u8>,
     pub topic: Option<String>,
     pub kind: DataPacketKind,
     /// `None` when the server sent the packet.
-    pub participant_identity: Option<String>,
+    pub participant: Option<Arc<FfiParticipant>>,
 }
 
 /// An ordered room event. Core-backed object properties are read live; owned values
@@ -543,7 +372,7 @@ pub struct NativeDataPacket {
 ///
 /// New variants can appear in a later version, so a consumer must ignore a
 /// variant that it does not know.
-#[derive(uniffi::Enum, Clone, PartialEq)]
+#[derive(uniffi::Enum, Clone)]
 pub enum NativeRoomEvent {
     /// An incoming RPC awaiting a reply before its deadline.
     RpcRequested {
@@ -598,17 +427,21 @@ pub enum NativeRoomEvent {
     ParticipantDisconnected {
         participant: Arc<FfiParticipant>,
     },
-    /// A change that has no specific event. Only the newest value is kept.
-    ParticipantUpdated {
+    ParticipantActive {
         participant: Arc<FfiParticipant>,
+    },
+    ParticipantsUpdated {
+        participants: Vec<Arc<FfiParticipant>>,
     },
     ParticipantMetadataChanged {
         participant: Arc<FfiParticipant>,
         old_metadata: String,
+        metadata: String,
     },
     ParticipantNameChanged {
         participant: Arc<FfiParticipant>,
         old_name: String,
+        name: String,
     },
     ParticipantAttributesChanged {
         participant: Arc<FfiParticipant>,
@@ -616,9 +449,11 @@ pub enum NativeRoomEvent {
     },
     ParticipantPermissionChanged {
         participant: Arc<FfiParticipant>,
+        permission: Option<ParticipantPermission>,
     },
     ParticipantEncryptionStatusChanged {
         participant: Arc<FfiParticipant>,
+        is_encrypted: bool,
     },
     EncryptionStateChanged {
         participant: Arc<FfiParticipant>,
@@ -627,40 +462,48 @@ pub enum NativeRoomEvent {
     /// Only the newest value for each participant is kept.
     ConnectionQualityChanged {
         participant: Arc<FfiParticipant>,
+        quality: ConnectionQuality,
     },
     /// A participant that is absent from `speakers` stopped speaking. Only
     /// the newest value is kept.
     ActiveSpeakersChanged {
-        speakers: Vec<NativeSpeaker>,
+        speakers: Vec<Arc<FfiParticipant>>,
     },
     TrackPublished {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
+    },
+    LocalTrackPublished {
+        publication: FfiPublication,
+        track: Arc<FfiTrack>,
     },
     TrackUnpublished {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
     },
     /// The core published a local track again after a full reconnect. The
     /// publication replaces the one with `previous_sid`.
     LocalTrackRepublished {
         previous_sid: String,
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
+        track: Arc<FfiTrack>,
     },
     TrackMuted {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
     },
     TrackUnmuted {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
     },
     TrackSubscribed {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
+        track: Arc<FfiTrack>,
     },
     TrackUnsubscribed {
-        publication: Arc<FfiTrackPublication>,
+        publication: FfiPublication,
+        track: Arc<FfiTrack>,
     },
     TrackSubscriptionFailed {
-        participant_identity: String,
-        track_sid: String,
-        reason: String,
+        participant: Arc<FfiParticipant>,
+        track_sid: TrackSid,
+        error: TrackError,
     },
     DataReceived {
         packet: NativeDataPacket,
@@ -669,7 +512,7 @@ pub enum NativeRoomEvent {
     DtmfReceived {
         code: u32,
         digit: Option<String>,
-        participant_identity: Option<String>,
+        participant: Option<Arc<FfiParticipant>>,
     },
 }
 
@@ -691,7 +534,8 @@ impl std::fmt::Debug for NativeRoomEvent {
             Self::TokenRefreshed { .. } => "TokenRefreshed",
             Self::ParticipantConnected { .. } => "ParticipantConnected",
             Self::ParticipantDisconnected { .. } => "ParticipantDisconnected",
-            Self::ParticipantUpdated { .. } => "ParticipantUpdated",
+            Self::ParticipantActive { .. } => "ParticipantActive",
+            Self::ParticipantsUpdated { .. } => "ParticipantsUpdated",
             Self::ParticipantMetadataChanged { .. } => "ParticipantMetadataChanged",
             Self::ParticipantNameChanged { .. } => "ParticipantNameChanged",
             Self::ParticipantAttributesChanged { .. } => "ParticipantAttributesChanged",
@@ -701,6 +545,7 @@ impl std::fmt::Debug for NativeRoomEvent {
             Self::ConnectionQualityChanged { .. } => "ConnectionQualityChanged",
             Self::ActiveSpeakersChanged { .. } => "ActiveSpeakersChanged",
             Self::TrackPublished { .. } => "TrackPublished",
+            Self::LocalTrackPublished { .. } => "LocalTrackPublished",
             Self::TrackUnpublished { .. } => "TrackUnpublished",
             Self::LocalTrackRepublished { .. } => "LocalTrackRepublished",
             Self::TrackMuted { .. } => "TrackMuted",
@@ -715,9 +560,42 @@ impl std::fmt::Debug for NativeRoomEvent {
 }
 
 /// A room event with the state revision that includes it.
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeRoomUpdate {
     /// The revision of [`FfiRoomState`] after this event.
     pub revision: u64,
     pub event: NativeRoomEvent,
+}
+
+/// Core publication audio features, without classification loss.
+pub use livekit_protocol::{AudioTrackFeature, PacketTrailerFeature};
+#[uniffi::remote(Enum)]
+pub enum AudioTrackFeature {
+    TfStereo,
+    TfNoDtx,
+    TfAutoGainControl,
+    TfEchoCancellation,
+    TfNoiseSuppression,
+    TfEnhancedNoiseCancellation,
+    TfPreconnectBuffer,
+}
+/// Core packet trailer features.
+#[uniffi::remote(Enum)]
+pub enum PacketTrailerFeature {
+    PtfUserTimestamp,
+    PtfFrameId,
+    PtfUserData,
+}
+
+uniffi::custom_type!(ParticipantSid, String, {
+    remote,
+    lower: |sid| sid.into(),
+    try_lift: |sid| ParticipantSid::try_from(sid).map_err(uniffi::deps::anyhow::Error::msg),
+});
+
+/// Core subscription failure, retaining its structured track SID.
+pub use livekit::track::TrackError;
+#[uniffi::remote(Error)]
+pub enum TrackError {
+    TrackNotFound(TrackSid),
 }

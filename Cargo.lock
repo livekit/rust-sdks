@@ -3937,6 +3937,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uniffi",
+ "uniffi_build",
  "webrtc-sys",
  "webrtc-sys-build",
 ]

@@ -261,7 +261,7 @@ impl FfiRoomOptions {
         track: Arc<FfiTrack>,
         publish_options: TrackPublishOptions,
     ) -> Result<Self, NativeSessionError> {
-        let track = match &track.0 {
+        let track = match track.as_ref() {
             Track::LocalAudio(track) => LocalTrack::Audio(track.clone()),
             Track::LocalVideo(track) => LocalTrack::Video(track.clone()),
             _ => {

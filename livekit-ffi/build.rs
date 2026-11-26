@@ -44,6 +44,7 @@ mod room_apis {
         copy_webrtc_license();
         configure_linker();
         generate_protobuf();
+        uniffi_build::generate_scaffolding("src/core_objects.udl").expect("core object UDL");
     }
 
     fn download_webrtc() {

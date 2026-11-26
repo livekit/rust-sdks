@@ -14,7 +14,7 @@
 
 //! Copied, validated media frames at the foreign boundary.
 
-use super::{NativeSessionError, TrackKind, TrackSource};
+use super::NativeSessionError;
 use livekit::webrtc::{
     audio_frame::AudioFrame,
     video_frame::{
@@ -188,45 +188,7 @@ impl NativeVideoFrame {
     }
 }
 
-/// A live core track view. Retaining it retains the underlying media track.
-#[derive(Clone, Debug, uniffi::Object)]
-pub struct FfiTrack(pub(super) livekit::track::Track);
-impl From<&livekit::track::Track> for FfiTrack {
-    fn from(track: &livekit::track::Track) -> Self {
-        Self(track.clone())
-    }
-}
-#[uniffi::export]
-impl FfiTrack {
-    /// Reads the core sid.
-    pub fn sid(&self) -> String {
-        self.0.sid().into()
-    }
-    /// Reads the core name.
-    pub fn name(&self) -> String {
-        self.0.name()
-    }
-    /// Reads the core kind.
-    pub fn kind(&self) -> TrackKind {
-        self.0.kind()
-    }
-    /// Reads the core source.
-    pub fn source(&self) -> TrackSource {
-        self.0.source()
-    }
-    /// Reads the core is muted.
-    pub fn is_muted(&self) -> bool {
-        self.0.is_muted()
-    }
-    /// Reads the core is enabled.
-    pub fn is_enabled(&self) -> bool {
-        self.0.is_enabled()
-    }
-    /// Reads the core is remote.
-    pub fn is_remote(&self) -> bool {
-        self.0.is_remote()
-    }
-}
+pub use super::core_objects::FfiTrack;
 
 pub(super) fn dimensions(width: u32, height: u32) -> Result<(), NativeSessionError> {
     if !(2..=4096).contains(&width)

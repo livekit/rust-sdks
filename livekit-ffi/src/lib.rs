@@ -111,6 +111,12 @@ pub mod data_track;
 // may exist per crate, which is why the two surfaces are mutually exclusive;
 // they are kept separate so either can pin its own namespace later.
 #[cfg(feature = "__room-surface")]
-uniffi::setup_scaffolding!("livekit_ffi");
+use livekit::prelude::{ParticipantIdentity, ParticipantSid, TrackSid};
+#[cfg(feature = "__room-surface")]
+use livekit_common::ClientCapability;
+#[cfg(feature = "__room-surface")]
+use room_apis::session::{core_objects::*, *};
+#[cfg(feature = "__room-surface")]
+uniffi::include_scaffolding!("core_objects");
 #[cfg(feature = "core-modules")]
 uniffi::setup_scaffolding!("livekit_ffi");

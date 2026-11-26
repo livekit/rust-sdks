@@ -1,0 +1,89 @@
+namespace livekit_ffi {};
+
+// These interfaces export the actual core types, not new Rust wrapper structs.
+[Remote]
+interface FfiParticipant {
+    ParticipantSid sid();
+    ParticipantIdentity identity();
+    string name();
+    ParticipantState state();
+    ParticipantKind kind();
+    sequence<ParticipantKindDetail> kind_details();
+    string metadata();
+    record<string, string> attributes();
+    boolean is_speaking();
+    float audio_level();
+    ConnectionQuality connection_quality();
+    i64 joined_at();
+    ParticipantPermission? permission();
+    boolean is_encrypted();
+    DisconnectReason disconnect_reason();
+    i32 client_protocol();
+    boolean is_local();
+    sequence<ClientCapability>? capabilities();
+    record<string, FfiTrackPublication> publications();
+};
+[Remote]
+interface FfiTrackPublication {
+    TrackSid sid();
+    string name();
+    TrackKind kind();
+    TrackSource source();
+    boolean is_muted();
+    boolean is_remote();
+    boolean simulcasted();
+    string mime_type();
+    EncryptionType encryption_type();
+    sequence<AudioTrackFeature> audio_features();
+    sequence<PacketTrailerFeature> frame_metadata_features();
+    FfiTrackDimension dimensions();
+    FfiTrack? media_track();
+    FfiRemoteTrackPublication? remote();
+    FfiLocalTrackPublication? local();
+};
+[Remote]
+interface FfiTrack {
+    TrackSid sid();
+    string name();
+    TrackKind kind();
+    TrackSource source();
+    StreamState stream_state();
+    boolean is_muted();
+    boolean is_enabled();
+    boolean is_remote();
+    u32? codec_clock_rate();
+};
+[Remote]
+interface FfiTrackDimension { u32 width(); u32 height(); };
+[Remote]
+interface FfiLocalTrackPublication { TrackPublishOptions publish_options(); };
+[Remote]
+interface FfiRemoteTrackPublication {
+    SubscriptionStatus subscription_status();
+    PermissionStatus permission_status();
+    boolean is_subscribed();
+    boolean is_desired();
+    boolean is_allowed();
+    boolean is_enabled();
+    FfiTrack? media_track();
+};
+
+[Custom="livekit_ffi"] typedef string ParticipantSid;
+[Custom="livekit_ffi"] typedef string ParticipantIdentity;
+[Custom="livekit_ffi"] typedef string TrackSid;
+[External="livekit_ffi"] typedef record ParticipantPermission;
+[External="livekit_ffi"] typedef record TrackPublishOptions;
+[External="livekit_common"] typedef enum ClientCapability;
+[External="livekit_ffi"] typedef enum ParticipantState;
+[External="livekit_ffi"] typedef enum ParticipantKind;
+[External="livekit_ffi"] typedef enum ParticipantKindDetail;
+[External="livekit_ffi"] typedef enum ConnectionQuality;
+[External="livekit_ffi"] typedef enum DisconnectReason;
+[External="livekit_ffi"] typedef enum TrackKind;
+[External="livekit_ffi"] typedef enum TrackSource;
+[External="livekit_ffi"] typedef enum EncryptionType;
+[External="livekit_ffi"] typedef enum AudioTrackFeature;
+[External="livekit_ffi"] typedef enum PacketTrailerFeature;
+[External="livekit_ffi"] typedef enum StreamState;
+[External="livekit_ffi"] typedef enum SubscriptionStatus;
+[External="livekit_ffi"] typedef enum PermissionStatus;

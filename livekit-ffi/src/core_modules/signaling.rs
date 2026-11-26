@@ -114,16 +114,6 @@ impl From<SignalOptions> for signaling::SignalOptions {
 
 // MARK: - Enums
 
-impl From<ClientCapability> for proto::client_info::Capability {
-    fn from(capability: ClientCapability) -> Self {
-        match capability {
-            ClientCapability::Unused => Self::CapUnused,
-            ClientCapability::PacketTrailer => Self::CapPacketTrailer,
-            ClientCapability::CompressionDeflateRaw => Self::CapCompressionDeflateRaw,
-        }
-    }
-}
-
 /// Why the client is resuming its session, reported to the server. Mirrors
 /// [`proto::ReconnectReason`].
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]

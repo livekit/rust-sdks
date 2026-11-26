@@ -34,7 +34,7 @@ pub mod cabi;
 pub mod proto;
 pub mod server;
 /// The typed UniFFI room surface. Additive: it shares no state with [`server`].
-mod session;
+pub(crate) mod session;
 
 /// Access tokens. The file is shared with the `core-modules` surface, so both
 /// surfaces export the same names and shapes.

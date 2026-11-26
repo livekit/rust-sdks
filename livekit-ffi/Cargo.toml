@@ -24,6 +24,7 @@ default = ["room-apis", "rustls-tls-native-roots"]
 __room-surface = [
   "dep:livekit",
   "livekit/uniffi",
+  "dep:uniffi-build",
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",
@@ -172,6 +173,7 @@ link-cplusplus = { version = "1", features = ["nothing"] }
 device-info = { workspace = true }
 
 [build-dependencies]
+uniffi-build = { package = "uniffi_build", version = "=0.31.2", optional = true }
 prost-build = { workspace = true, optional = true }
 webrtc-sys-build = { workspace = true, optional = true }
 

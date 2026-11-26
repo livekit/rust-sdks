@@ -1,6 +1,7 @@
 ---
 livekit-ffi: minor
 livekit: patch
+livekit-common: patch
 libwebrtc: patch
 ---
 

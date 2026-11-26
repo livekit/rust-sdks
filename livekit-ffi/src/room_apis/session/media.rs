@@ -15,7 +15,7 @@
 //! Thin session-owned media resources. Foreign handles hold only weak session references.
 
 use super::media_frames::{dimensions, invalid, FfiTrack, NativeAudioFrame, NativeVideoFrame};
-use super::{FfiRoom, FfiTrackPublication, NativeSessionError, Shared};
+use super::{FfiPublication, FfiRoom, NativeSessionError, Shared};
 use futures_util::StreamExt;
 use livekit::{
     options::TrackPublishOptions,
@@ -357,7 +357,7 @@ impl NativeLocalAudioTrack {
     }
     /// Returns the current core track values.
     pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
-        Ok((&Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone())).into())
+        Ok(Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone()))
     }
     /// Mutes/unmutes the core local track, including before publication.
     pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
@@ -424,7 +424,7 @@ impl NativeLocalVideoTrack {
     }
     /// Returns the current core track values.
     pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
-        Ok((&Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone())).into())
+        Ok(Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone()))
     }
     /// Mutes/unmutes the core local track, including before publication.
     pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
@@ -497,8 +497,21 @@ impl NativePublicationHandle {
         statistics(track).await
     }
     /// Returns a value snapshot of the current core publication.
-    pub fn info(&self) -> Result<Arc<FfiTrackPublication>, NativeSessionError> {
-        Ok(FfiTrackPublication::new(&self.identity, &self.current()?.1))
+    pub fn info(&self) -> Result<FfiPublication, NativeSessionError> {
+        let (shared, publication) = self.current()?;
+        let room = shared.room()?;
+        let local = room.local_participant();
+        let participant = if local.identity().as_str() == self.identity {
+            Participant::Local(local)
+        } else {
+            Participant::Remote(
+                room.remote_participants()
+                    .get(&self.identity.clone().into())
+                    .cloned()
+                    .ok_or_else(|| invalid("participant not found"))?,
+            )
+        };
+        Ok(FfiPublication::new(&participant, &publication))
     }
     /// Mutes or unmutes a local publication through core track controls.
     pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
@@ -609,7 +622,7 @@ impl NativeRemoteAudioTrack {
     pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
         let (_, p) = self.publication.remote()?;
         let track = p.track().ok_or_else(|| invalid("track is not subscribed"))?;
-        Ok((&Track::from(track)).into())
+        Ok(Track::from(track))
     }
     /// Attaches a bounded decoded 48 kHz PCM16 sink (1..64 frames, mono/stereo).
     pub async fn frames(
@@ -665,7 +678,7 @@ impl NativeRemoteVideoTrack {
     pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
         let (_, p) = self.publication.remote()?;
         let track = p.track().ok_or_else(|| invalid("track is not subscribed"))?;
-        Ok((&Track::from(track)).into())
+        Ok(Track::from(track))
     }
     /// Attaches a bounded decoded video sink (1..8 frames). Slow consumers lose frames.
     pub async fn frames(

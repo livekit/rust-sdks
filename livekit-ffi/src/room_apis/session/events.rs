@@ -48,7 +48,6 @@ enum CoalesceKey {
     Room,
     Speakers,
     Quality(String),
-    Participant(String),
 }
 
 impl NativeRoomEvent {
@@ -56,11 +55,8 @@ impl NativeRoomEvent {
         match self {
             Self::RoomUpdated { .. } => Some(CoalesceKey::Room),
             Self::ActiveSpeakersChanged { .. } => Some(CoalesceKey::Speakers),
-            Self::ConnectionQualityChanged { participant } => {
-                Some(CoalesceKey::Quality(participant.identity()))
-            }
-            Self::ParticipantUpdated { participant } => {
-                Some(CoalesceKey::Participant(participant.identity()))
+            Self::ConnectionQualityChanged { participant, .. } => {
+                Some(CoalesceKey::Quality(participant.identity().into()))
             }
             _ => None,
         }
