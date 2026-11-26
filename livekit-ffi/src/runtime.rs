@@ -15,7 +15,7 @@
 use tokio::runtime::Runtime;
 
 /// Returns the process-global Tokio runtime: the FFI server's in room-apis.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 pub(crate) fn runtime() -> &'static Runtime {
     &crate::FFI_SERVER.async_runtime
 }

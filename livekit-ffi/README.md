@@ -19,7 +19,14 @@ cargo build -p livekit-ffi --no-default-features --features 'room-apis rustls-tl
 # or: cargo build -p livekit-ffi
 ```
 
-Mode specific source lives in `src/room_apis/`.
+Mode specific source lives in `src/room_apis/`. `room-apis` gates the shared
+surface; select exactly one transport. Defaults and TLS features enable
+`room-apis-bundled-transport`, which preserves the bundled network stack.
+
+If you previously built with only `--no-default-features --features room-apis`,
+use `--no-default-features --features room-apis-bundled-transport` instead.
+Selecting the surface alone now fails with a migration diagnostic. Existing
+TLS-based commands and the host command below are unchanged.
 
 ### `room-apis-host-transport`
 
@@ -33,7 +40,7 @@ exports the UniFFI interface of [_livekit-net_](../livekit-net): `WsClient`,
 cargo build -p livekit-ffi --no-default-features --features room-apis-host-transport
 ```
 
-- Build it alone. `room-apis`, the TLS features, `tracing` and `capture` link
+- Build it alone. `room-apis-bundled-transport`, TLS features, `tracing` and `capture` link
   the bundled stack again, so a `compile_error!` rejects them beside it.
 - Register both clients one time, at startup, before the first connect. The
   registry is process-wide, the first registration stays, and a later one is
@@ -80,10 +87,8 @@ single source of truth, and CI resolves its build flags from it:
   directory, so they need explicit feature flags or they build the default
   livekit-ffi/room-apis and all of libwebrtc. `Makefile.toml` resolves those from
   the table above — do not write them out by hand.
-- **Gate shared room code on `__room-surface`, not `room-apis`.** Both room
-  builds select `__room-surface`. Code gated on `room-apis` is absent from the
-  `room-apis-host-transport` build.
-- **`build.rs` is gated on `__room-surface`.** It downloads libwebrtc, configures the
+- **Gate shared room code on `room-apis`.** Both transport selections imply it.
+- **`build.rs` is gated on `room-apis`.** It downloads libwebrtc, configures the
   linker, and panics on any target it does not recognise — visionOS, tvOS and
   Mac Catalyst among them. That gate is what makes the core-modules Apple
   builds possible.

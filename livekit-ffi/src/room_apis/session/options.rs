@@ -99,6 +99,13 @@ use std::{sync::Arc, time::Duration};
 
 /// Immutable builder over the actual core RoomOptions, including its nested defaults.
 /// Core's non-exhaustive options and private stream limit cannot be remote records.
+// UniFFI 0.31.2 remote Record lifting constructs `Self { fields }`; Rust forbids
+// that outside core for non-exhaustive RoomOptions/RtcConfiguration, and the
+// RoomDataStreamOptions limit is private. An external Object alone would not
+// supply immutable setters over these public fields. Keep the actual RoomOptions
+// initialized by core Default and clone it on update: no second defaults table
+// or dropped fields. Stream limits use checked u64 -> usize conversion. Startup
+// tracks retain core handles; encryption uses the documented policy adapter.
 #[derive(Clone, Debug, uniffi::Object)]
 pub struct FfiRoomOptions(pub(super) RoomOptions);
 

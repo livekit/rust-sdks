@@ -25,6 +25,11 @@ fn rpc_session_error(error: NativeSessionError) -> RpcError {
 }
 
 /// An RPC error that can travel in both directions across UniFFI.
+// Core RpcError is a struct, while UniFFI 0.31.2 Error derives require an enum.
+// A flat error would stringify it and cannot be lifted from a foreign reply.
+// Preserve code/message/data in one variant; name message `reason` because the
+// Kotlin Throwable.message property collides with an exported message field.
+// RpcError::new still applies core's message/data size limits on foreign replies.
 #[derive(uniffi::Error, thiserror::Error, Clone, Debug, PartialEq)]
 pub enum NativeRpcError {
     #[error("RPC {code}: {reason}")]
@@ -43,6 +48,10 @@ impl From<NativeRpcError> for RpcError {
 }
 
 /// Parameters for an outgoing RPC. Timeouts are in milliseconds.
+// Existing wire-policy record, not a necessity: core PerformRpcData could use
+// remote Record with Duration. Retaining this avoids changing existing callers,
+// but u32 milliseconds cannot express all core Duration values or sub-ms time.
+// Defaults are 15s response/7s round trip. No mobile-only error mapping occurs here.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeRpcOptions {
     pub destination_identity: String,
@@ -55,6 +64,9 @@ pub struct NativeRpcOptions {
 }
 
 /// Values describing an incoming RPC and its reply deadline.
+// Adds the registered method to core RpcInvocationData. Identity becomes a
+// lossless String; timeout display truncates sub-ms precision and saturates at
+// u64::MAX ms. The actual reply deadline still uses the original core Duration.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeRpcInvocationInfo {
     pub request_id: String,
@@ -65,6 +77,9 @@ pub struct NativeRpcInvocationInfo {
 }
 
 /// A one-shot reply handle. Dropping it rejects the invocation; late replies return false.
+// Core accepts a Rust closure returning a future, not an external reply object.
+// This adapter owns the oneshot sender needed to answer via the event cursor;
+// it enforces one response and does not copy or replace core RPC routing.
 #[derive(uniffi::Object, Debug)]
 pub struct NativeRpcInvocation {
     info: NativeRpcInvocationInfo,

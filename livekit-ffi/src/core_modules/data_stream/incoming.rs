@@ -151,7 +151,7 @@ pub struct ByteStreamReader {
     /// The core reader, or `None` once the reader was closed.
     inner: Arc<Mutex<Option<ds_api::ByteStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
-    #[cfg(feature = "__room-surface")]
+    #[cfg(feature = "room-apis")]
     completion: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
@@ -163,7 +163,7 @@ impl ByteStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
-            #[cfg(feature = "__room-surface")]
+            #[cfg(feature = "room-apis")]
             completion: Mutex::new(reader.progress_stream().boxed()),
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
@@ -229,7 +229,7 @@ pub struct TextStreamReader {
     /// The core reader, or `None` once the reader was closed.
     inner: Arc<Mutex<Option<ds_api::TextStreamReader>>>,
     progress: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
-    #[cfg(feature = "__room-surface")]
+    #[cfg(feature = "room-apis")]
     completion: Mutex<BoxStream<'static, ds_api::StreamProgress>>,
     closed: CancellationToken,
     /// Ends the stream in the incoming manager, even while a read holds `inner`.
@@ -241,7 +241,7 @@ impl TextStreamReader {
         Self {
             info: reader.info().clone(),
             progress: Mutex::new(reader.progress_stream().boxed()),
-            #[cfg(feature = "__room-surface")]
+            #[cfg(feature = "room-apis")]
             completion: Mutex::new(reader.progress_stream().boxed()),
             closer: reader.closer(),
             inner: Arc::new(Mutex::new(Some(reader))),
@@ -453,33 +453,33 @@ mod tests {
     }
 }
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl PartialEq for ByteStreamReader {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl std::fmt::Debug for ByteStreamReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ByteStreamReader").finish_non_exhaustive()
     }
 }
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl PartialEq for TextStreamReader {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl std::fmt::Debug for TextStreamReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextStreamReader").finish_non_exhaustive()
     }
 }
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 #[uniffi::export(async_runtime = "tokio")]
 impl ByteStreamReader {
     /// Waits until core closes the incoming stream, without consuming data or progress updates.
@@ -491,7 +491,7 @@ impl ByteStreamReader {
     }
 }
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 #[uniffi::export(async_runtime = "tokio")]
 impl TextStreamReader {
     /// Waits until core closes the incoming stream, without consuming data or progress updates.

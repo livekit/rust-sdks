@@ -378,7 +378,7 @@ fn connect_without_host_transport_is_not_configured() {
 // Only with the bundled stack: this test needs a handshake that stays pending
 // on a real socket. The host-transport build has no client in this binary, so
 // its connect fails at once and can end before the cancel.
-#[cfg(feature = "room-apis")]
+#[cfg(feature = "room-apis-bundled-transport")]
 #[test]
 fn cancel_during_connect_returns_at_once() {
     // The listener accepts the TCP connection in its backlog and never
@@ -1542,6 +1542,28 @@ fn video_frame_layout_validation_and_nv12_conversion() {
     let mut invalid = frame;
     invalid.rotation = 45;
     assert!(invalid.into_core().is_err());
+}
+
+#[test]
+fn key_derivation_uses_core_values_and_preserves_wire_tags() {
+    use super::encryption::NativeKeyDerivationAlgorithm as Algorithm;
+    use livekit::e2ee::key_provider::KeyDerivationAlgorithm;
+    use uniffi::FfiConverter;
+
+    // Assigning the core values proves this is an alias, not a converted enum.
+    let values: [Algorithm; 2] = [KeyDerivationAlgorithm::PBKDF2, KeyDerivationAlgorithm::HKDF];
+    for (value, tag) in values.into_iter().zip([1_i32, 2]) {
+        let mut bytes = Vec::new();
+        <Algorithm as FfiConverter<crate::UniFfiTag>>::write(value, &mut bytes);
+        assert_eq!(bytes, tag.to_be_bytes());
+        let decoded = <Algorithm as FfiConverter<crate::UniFfiTag>>::try_read(&mut &bytes[..])
+            .expect("core algorithm roundtrip");
+        assert!(matches!(
+            (value, decoded),
+            (KeyDerivationAlgorithm::PBKDF2, KeyDerivationAlgorithm::PBKDF2)
+                | (KeyDerivationAlgorithm::HKDF, KeyDerivationAlgorithm::HKDF)
+        ));
+    }
 }
 
 #[test]

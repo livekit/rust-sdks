@@ -9,19 +9,13 @@ readme = "README.md"
 publish = false
 
 [features]
-default = ["room-apis", "rustls-tls-native-roots"]
+default = ["room-apis-bundled-transport", "rustls-tls-native-roots"]
 
 # There are two mutually exclusive modes that this crate can be configured
 # in, `room-apis` and `core-modules`.
 
-# Internal. The code and the dependencies of the room surface, with no network
-# stack selected. It exists because Cargo features only add: a build cannot
-# subtract the bundled stack from `room-apis`, so the two room builds below
-# share this base and each adds its own network choice. Every
-# `cfg(feature = "__room-surface")` in the sources gates code that both room
-# builds compile. Do not select it directly: without one of the two features
-# below, the artifact has no network stack and exports no way to register one.
-__room-surface = [
+# Shared room surface, including Rust-owned WebRTC. Select a transport below.
+room-apis = [
   "dep:livekit",
   "livekit/uniffi",
   "dep:uniffi-build",
@@ -45,15 +39,10 @@ __room-surface = [
   "tokio/parking_lot",
 ]
 
-# `room-apis` implements a full, rust owned and managed webrtc stack. This is used by more modern
-# client sdks like python, node, unity, and c++.
-#
-# `livekit/default` is listed because the `livekit` dependency below turns the
-# default features of `livekit` off. That default is `native`: the bundled
-# WebSocket and HTTP stack of livekit-net (tokio-tungstenite and reqwest). With
-# this entry, `room-apis` resolves to the same packages and the same features
-# as before the dependency changed.
-room-apis = ["__room-surface", "livekit/default"]
+# Bundled WebSocket/HTTP transport. Defaults and TLS features select this.
+# Migration: bare `--no-default-features --features room-apis` now needs
+# `--features room-apis-bundled-transport` to retain its previous behavior.
+room-apis-bundled-transport = ["room-apis", "livekit/default"]
 
 # The same room surface as `room-apis`, but the host application supplies the
 # network: the artifact contains no bundled WebSocket, HTTP or TLS client. It
@@ -66,9 +55,8 @@ room-apis = ["__room-surface", "livekit/default"]
 # fallback.
 #
 # Build it alone: `--no-default-features --features room-apis-host-transport`.
-# It excludes `room-apis`, the TLS features and every other feature that
-# implies `room-apis`, because each of them links the bundled stack again.
-room-apis-host-transport = ["__room-surface", "dep:livekit-net", "livekit-net/uniffi"]
+# It excludes the bundled transport and features that imply it.
+room-apis-host-transport = ["room-apis", "dep:livekit-net", "livekit-net/uniffi"]
 
 # `core-modules` implements a set of smaller utility modules in rust to abstract away business
 # logic. This does NOT include `libwebrtc` or `livekit`.
@@ -91,30 +79,30 @@ core-modules = [
   "uniffi/tokio",
 ]
 
-# TLS selection. These imply `room-apis` because they only configure `livekit`:
+# TLS selection. These retain the bundled room transport:
 # .github/workflows/ffi-builds.yml builds several targets with
 # `--no-default-features --features "<tls>"`, which would otherwise select
 # neither surface and produce an empty crate.
-native-tls = ["room-apis", "livekit/native-tls"]
-native-tls-vendored = ["room-apis", "livekit/native-tls-vendored"]
-rustls-tls-native-roots = ["room-apis", "livekit/rustls-tls-native-roots"]
-rustls-tls-webpki-roots = ["room-apis", "livekit/rustls-tls-webpki-roots"]
-__rustls-tls = ["room-apis", "livekit/__rustls-tls"]
+native-tls = ["room-apis-bundled-transport", "livekit/native-tls"]
+native-tls-vendored = ["room-apis-bundled-transport", "livekit/native-tls-vendored"]
+rustls-tls-native-roots = ["room-apis-bundled-transport", "livekit/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["room-apis-bundled-transport", "livekit/rustls-tls-webpki-roots"]
+__rustls-tls = ["room-apis-bundled-transport", "livekit/__rustls-tls"]
 
 # Enable tokio-console to debug tasks
-tracing = ["room-apis", "tokio/tracing", "dep:console-subscriber"]
+tracing = ["room-apis-bundled-transport", "tokio/tracing", "dep:console-subscriber"]
 
 # Capture sources (livekit-capture): publish tracks from server-side
 # producers. This enables the capture scaffolding only; enable a
 # `capture-*` feature to include a specific source.
-capture = ["room-apis", "dep:livekit-capture"]
+capture = ["room-apis-bundled-transport", "dep:livekit-capture"]
 capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 # End-to-end tests against a LiveKit server, as in the `livekit` crate. These
-# drive the room-apis request surface, so they imply it.
-__lk-e2e-test = ["room-apis"]
+# drive the room-apis request surface with bundled transport.
+__lk-e2e-test = ["room-apis-bundled-transport"]
 
 [dependencies]
 # Shared by both surfaces.
@@ -133,7 +121,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 # tree, so gating them costs no source changes.
 # A path dependency, not `workspace = true`: a member cannot turn off default
 # features that the workspace entry leaves on, and the default of `livekit` is
-# `native`. `room-apis` adds `livekit/default` back, and
+# `native`. `room-apis-bundled-transport` adds `livekit/default` back, and
 # `room-apis-host-transport` leaves it off. No version is necessary, because
 # this crate is not published.
 livekit = { path = "../livekit", default-features = false, optional = true }

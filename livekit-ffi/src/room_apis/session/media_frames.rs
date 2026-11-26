@@ -23,6 +23,10 @@ use livekit::webrtc::{
 };
 
 /// Interleaved signed PCM16. This slice accepts 48 kHz, one or two channels, up to 100 ms.
+// Core AudioFrame<'a> contains Cow<'a, [i16]>: a remote record cannot export a
+// borrowed lifetime/Cow through UniFFI 0.31.2. Own the samples in Vec<i16>; sample
+// values and all frame fields survive the copy. The narrower accepted input
+// range is existing source policy, rejected explicitly rather than resampled.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeAudioFrame {
     pub samples: Vec<i16>,
@@ -72,6 +76,12 @@ pub enum NativeVideoPixelFormat {
 /// BGRA8 or NV12 bytes copied from/to a locked CVPixelBuffer (or an equivalent CPU buffer).
 /// Stride includes row padding; timestamps are monotonic microseconds, rotation is 0/90/180/270.
 /// No pointer or CVPixelBuffer ownership crosses UniFFI. HDR, 10-bit and zero-copy are unsupported.
+// Core VideoFrame<Box<dyn VideoBuffer>> carries a trait-object/native buffer with
+// no UniFFI converter, so this owned-byte adapter crosses the foreign boundary.
+// This is not lossless core frame export: output converts to BGRA8, discards
+// frame_metadata and source layout, and input supplies no frame_metadata. Size,
+// timestamp and rotation survive; unsupported formats fail explicitly. Keep
+// these existing media restrictions distinct from the direct core type boundary.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeVideoFrame {
     pub format: NativeVideoPixelFormat,

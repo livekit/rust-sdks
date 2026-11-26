@@ -21,29 +21,33 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 /// Data track published by the remote participant.
+// Retained shared-surface adapter around DataTrack<Remote>: subscription hops to
+// the FFI runtime, frame-stream access is synchronized, and the protobuf bridge
+// needs its legacy handle ID. A direct external core object would remove those
+// behaviors. Core info values remain available; no mobile snapshot is stored.
 #[derive(uniffi::Object)]
 pub struct RemoteDataTrack {
     inner: DataTrack<Remote>,
     // After the migration is complete, this field can be removed.
-    #[cfg(feature = "__room-surface")]
+    #[cfg(feature = "room-apis")]
     handle_id: std::sync::OnceLock<crate::FfiHandleId>,
 }
 // After the migration is complete, this call can be removed.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 crate::migrate_from_ffi!(RemoteDataTrack);
 
 impl RemoteDataTrack {
     pub(crate) fn new(inner: DataTrack<Remote>) -> Self {
         Self {
             inner,
-            #[cfg(feature = "__room-surface")]
+            #[cfg(feature = "room-apis")]
             handle_id: std::sync::OnceLock::new(),
         }
     }
 
     /// The wrapped track, for the room-apis request handlers. After the migration is complete,
     /// this can be removed.
-    #[cfg(feature = "__room-surface")]
+    #[cfg(feature = "room-apis")]
     pub(crate) fn inner(&self) -> &DataTrack<Remote> {
         &self.inner
     }
@@ -189,13 +193,13 @@ impl DataTrackStream {
     }
 }
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl PartialEq for RemoteDataTrack {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 impl std::fmt::Debug for RemoteDataTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RemoteDataTrack").finish_non_exhaustive()

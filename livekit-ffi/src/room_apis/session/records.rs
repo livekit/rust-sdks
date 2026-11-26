@@ -148,6 +148,9 @@ pub enum DataPacketKind {
 /// The lifecycle of a [`FfiRoom`](super::FfiRoom).
 ///
 /// `Disconnected` is final. A new connection needs a new session.
+// This is session state, not a lossy replacement for core ConnectionState (also
+// exported directly below): Idle/Connecting precede any core Room, and terminal
+// Disconnected belongs to the session after the Room has gone away.
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeConnectionState {
     /// The session exists and `connect` was not called.
@@ -240,6 +243,10 @@ pub struct NativeEventCursorOptions {
 }
 
 /// Options for [`FfiRoom::publish_data`](super::FfiRoom::publish_data).
+// Core takes DataPacket including payload; this existing command splits payload
+// into its own argument. Reliable maps to the two DataPacketKind variants and
+// destination strings become ParticipantIdentity without changing their values.
+// A remote DataPacket is possible; retaining this shape is API compatibility.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct NativeDataPublishOptions {
     #[uniffi(default = true)]
@@ -339,6 +346,9 @@ impl FfiPublication {
 }
 
 /// Ordered session membership at a revision, with live core-backed object properties.
+// Core has no cursor-revision record. This aggregates actual RoomInfo and core
+// handles with receiver-ordered membership; it does not copy their properties
+// into mobile snapshots. Live property reads may be newer than this revision.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiRoomState {
     /// Remote data track publications known at this revision.
@@ -370,6 +380,11 @@ pub struct NativeDataPacket {
 /// An ordered room event. Core-backed object properties are read live; owned values
 /// describe the event. Membership ordering is preserved even when properties advance.
 ///
+// Core RoomEvent contains tuple collections, Arc payloads and core stream/media
+// handles without converters for that exact event representation. This cursor
+// protocol also adds RPC requests and session lifecycle events. Preserve owned
+// event fields and actual core entity handles here; mobile snapshot conversion
+// belongs in the consumer. See the error/media adapters for their stated losses.
 /// New variants can appear in a later version, so a consumer must ignore a
 /// variant that it does not know.
 #[derive(uniffi::Enum, Clone)]

@@ -133,6 +133,12 @@ fn publication(
     .ok_or_else(|| invalid("publication is no longer available"))
 }
 
+// These existing command/source/sink handles are not substitutes for the core
+// Track/Publication objects exported by core_objects.rs. Direct core objects
+// cannot carry this session's source ownership, bounded frame queues, explicit
+// cancellation, or weak back-reference. IDs/SIDs resolve live session resources;
+// after teardown commands fail instead of retaining a room. Frame representation
+// restrictions live in media_frames.rs; these handles add no property snapshots.
 /// A local audio track owned by the session, including its source. Release explicitly or disconnect.
 #[derive(uniffi::Object)]
 pub struct NativeLocalAudioTrack {

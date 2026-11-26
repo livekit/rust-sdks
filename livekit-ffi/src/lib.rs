@@ -15,12 +15,7 @@
 // `room-apis` and `core-modules` are two distinct FFI surfaces that ship as
 // separate artifacts to different SDKs, and each sets up its own UniFFI
 // scaffolding below. Selecting both is always a build-configuration mistake.
-//
-// `__room-surface` is the room surface itself. Both room builds select it:
-// `room-apis` with the bundled network stack, and `room-apis-host-transport`
-// with the network that the host registers. The gates in this crate name
-// `__room-surface`, so the two room builds compile the same code.
-#[cfg(all(feature = "__room-surface", feature = "core-modules"))]
+#[cfg(all(feature = "room-apis", feature = "core-modules"))]
 compile_error!(
     "a room feature (`room-apis` or `room-apis-host-transport`) and \
      `core-modules` are mutually exclusive. \
@@ -31,44 +26,48 @@ compile_error!(
 // Both surfaces export `build_version` through the scaffolding below, which
 // only exists when a surface is selected. Failing here beats failing inside
 // the uniffi macro expansion.
-#[cfg(not(any(feature = "__room-surface", feature = "core-modules")))]
+#[cfg(not(any(feature = "room-apis", feature = "core-modules")))]
 compile_error!(
-    "exactly one FFI surface must be selected: enable either `room-apis` \
+    "exactly one FFI surface must be selected: enable either `room-apis-bundled-transport` \
      (the default), `room-apis-host-transport` or `core-modules`."
 );
 
-// `room-apis-host-transport` promises an artifact with no bundled WebSocket,
-// HTTP or TLS client. Cargo features only add, so `room-apis` beside it links
-// that stack again and the host clients become an override, not the only
-// path. The TLS features, `tracing` and `capture` all imply `room-apis`, so
-// one extra feature on the command line is enough to break the promise
-// without a message. Stop the build instead.
-#[cfg(all(feature = "room-apis", feature = "room-apis-host-transport"))]
+// Cargo features add: reject an accidental bundled stack in a host artifact.
+#[cfg(all(feature = "room-apis-bundled-transport", feature = "room-apis-host-transport"))]
 compile_error!(
-    "`room-apis-host-transport` excludes the bundled network stack, and \
-     `room-apis` (or a feature that implies it, such as a TLS feature) links \
-     it again. Build the host-transport artifact with \
+    "`room-apis-host-transport` excludes `room-apis-bundled-transport` and features \
+     that imply it (TLS, tracing, capture). Build with \
      `--no-default-features --features room-apis-host-transport`."
+);
+
+#[cfg(all(
+    feature = "room-apis",
+    not(any(feature = "room-apis-bundled-transport", feature = "room-apis-host-transport"))
+))]
+compile_error!(
+    "`room-apis` requires a transport selection. To retain the previous bundled behavior, \
+     use `--no-default-features --features room-apis-bundled-transport`; \
+     for host-provided clients select `room-apis-host-transport` instead."
 );
 
 // Each surface owns everything specific to it, including its own types and
 // statics; the globs republish it at the crate root. That keeps the public API
 // (`livekit_ffi::{cabi, proto, server, FfiError, FFI_SERVER, ...}`) and the
 // crate-internal `crate::` paths identical to before the modules existed.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 mod migration;
-#[cfg(all(test, feature = "__room-surface"))]
+#[cfg(all(test, feature = "room-apis"))]
 mod migration_tests;
 
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 mod room_apis;
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 pub use room_apis::*;
 
 // `conversion` is not part of the public API, so the glob above does not reach
 // it. Re-export it for this crate, which keeps the `crate::conversion` paths
 // that the surface used before it moved into `room_apis`.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 pub(crate) use room_apis::conversion;
 
 #[cfg(feature = "core-modules")]
@@ -77,7 +76,7 @@ mod core_modules;
 pub use core_modules::*;
 
 // Shared stream value/handle wrappers; the managers remain exclusive to core-modules.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 #[path = "core_modules/data_stream/mod.rs"]
 pub mod data_stream;
 
@@ -110,13 +109,13 @@ pub mod data_track;
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
 // may exist per crate, which is why the two surfaces are mutually exclusive;
 // they are kept separate so either can pin its own namespace later.
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 use livekit::prelude::{ParticipantIdentity, ParticipantSid, TrackSid};
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 use livekit_common::ClientCapability;
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 use room_apis::session::{core_objects::*, *};
-#[cfg(feature = "__room-surface")]
+#[cfg(feature = "room-apis")]
 uniffi::include_scaffolding!("core_objects");
 #[cfg(feature = "core-modules")]
 uniffi::setup_scaffolding!("livekit_ffi");

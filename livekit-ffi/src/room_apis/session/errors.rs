@@ -51,6 +51,15 @@ pub enum NativeHttpFailureSource {
     WebSocketHandshake,
 }
 /// Structured signaling cause. Transport/region strings have already lost their underlying OS/TLS errors in core.
+// Remote Enum requires a Lift/Lower converter for every payload. SignalError
+// includes http::StatusCode and prost::DecodeError, neither exported by this
+// boundary. Preserve HTTP codes as u16, source variants as an explicit tag, and
+// Leave reason/action integers exactly. DecodeError becomes Display text (its
+// structured source chain is lost); future unknown variants likewise retain only
+// Display text. This is a deliberate error-wire adapter, not mobile classification.
+// NativeSessionError additionally represents cursor overflow/cancellation and
+// lifecycle failures absent from RoomError; RTC kind/request codes remain core
+// enums, and Cow<str> engine context becomes an owned String without text loss.
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum NativeSignalFailure {
     UrlParse {

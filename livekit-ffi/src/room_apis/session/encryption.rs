@@ -18,19 +18,36 @@ use super::media_frames::invalid;
 use super::{FfiRoom, NativeSessionError};
 use bytes::Bytes;
 use livekit::e2ee::{
-    key_provider::{KeyDerivationAlgorithm, KeyProvider, KeyProviderOptions},
+    key_provider::{KeyProvider, KeyProviderOptions},
     E2eeOptions, EncryptionType,
 };
 use std::{fmt, sync::Arc};
 
-/// Core key derivation algorithm. This wrapper performs no cryptography itself.
-#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub use livekit::e2ee::key_provider::KeyDerivationAlgorithm as NativeKeyDerivationAlgorithm;
+/// The actual core algorithm, with the existing foreign names retained.
+// UniFFI 0.31.2 supports remote non-exhaustive enums, so no value wrapper is
+// needed. These are all current core variants; names/order preserve the foreign
+// representation and PBKDF2 default. A new core variant must be added here before
+// export: UniFFI's non-exhaustive fallback panics instead of preserving unknowns.
+#[uniffi::remote(Enum)]
+#[non_exhaustive]
 pub enum NativeKeyDerivationAlgorithm {
-    Pbkdf2,
-    Hkdf,
+    #[uniffi(name = "Pbkdf2")]
+    PBKDF2,
+    #[uniffi(name = "Hkdf")]
+    HKDF,
 }
 
 /// Provider settings. Defaults match Swift's shared-key AES128 fixture.
+// Deliberate policy adapter, not a UniFFI limitation on core KeyProviderOptions:
+// core's five public fields could be a remote record. This existing constructor
+// also selects shared/non-shared creation, optional salt, and the SIF trailer.
+// Every core field is forwarded; None salt means LKFrameEncryptionKey. Defaults
+// differ from core only in ratchet_window_size (0 here, 16 in core); shared=true
+// and LK-ROCKS trailer are extra host policy. AES256 and discard-when-not-ready
+// cannot be expressed by core and are rejected, never silently downgraded.
+// These compatibility defaults remain for existing callers; mobile conversion
+// should supply its choices explicitly rather than treating them as core defaults.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeKeyProviderOptions {
     #[uniffi(default = true)]
@@ -59,7 +76,7 @@ impl Default for NativeKeyProviderOptions {
             ratchet_window_size: 0,
             failure_tolerance: -1,
             key_ring_size: 16,
-            key_derivation_algorithm: NativeKeyDerivationAlgorithm::Pbkdf2,
+            key_derivation_algorithm: NativeKeyDerivationAlgorithm::PBKDF2,
             uncrypted_magic_bytes: None,
             discard_frame_when_cryptor_not_ready: false,
             key_size: 128,
@@ -68,6 +85,11 @@ impl Default for NativeKeyProviderOptions {
 }
 
 /// Host-owned core key provider. Keeping it alive never retains a room/session.
+// Deliberate validation adapter: core KeyProvider could be exposed as an external
+// object, but that would bypass the existing index/key bounds and the shared-mode
+// identity check. This object retains the original provider, not copied key state;
+// Vec<u8> becomes Bytes losslessly and core bool rejection becomes an error.
+// latest_key_index is core's data-key index, not a media sender-index override.
 #[derive(uniffi::Object)]
 pub struct NativeKeyProvider {
     pub(super) core: KeyProvider,
@@ -127,10 +149,7 @@ impl NativeKeyProvider {
             ratchet_window_size: options.ratchet_window_size,
             failure_tolerance: options.failure_tolerance,
             key_ring_size: options.key_ring_size,
-            key_derivation_algorithm: match options.key_derivation_algorithm {
-                NativeKeyDerivationAlgorithm::Pbkdf2 => KeyDerivationAlgorithm::PBKDF2,
-                NativeKeyDerivationAlgorithm::Hkdf => KeyDerivationAlgorithm::HKDF,
-            },
+            key_derivation_algorithm: options.key_derivation_algorithm,
         };
         let core = if options.shared_key {
             let key = shared_key.ok_or_else(|| invalid("shared mode requires an initial key"))?;
@@ -220,6 +239,12 @@ fn validate_key(key: &[u8]) -> Result<(), NativeSessionError> {
 }
 
 /// AES-GCM encryption. Default encrypts both data and media; legacy mode encrypts media only.
+// Deliberate constructor adapter: core E2eeOptions contains an EncryptionType
+// and provider, but not the room's choice of e2ee versus encryption field. This
+// record keeps the validated provider and makes that choice via legacy_media_only.
+// It only constructs Gcm; None is represented by absent room encryption options.
+// Core Custom is not offered here. This is an existing restriction, not a UniFFI
+// requirement or a claim of complete core encryption configuration coverage.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeEncryptionOptions {
     pub key_provider: Arc<NativeKeyProvider>,
@@ -236,6 +261,8 @@ impl NativeEncryptionOptions {
 }
 
 /// Current core encryption switches, without exposing key material.
+// An aggregate of two E2eeManager getters, not a converted core record. Both
+// booleans are read unchanged; no key material or synthetic default is included.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct NativeEncryptionStatus {
     pub media_enabled: bool,
