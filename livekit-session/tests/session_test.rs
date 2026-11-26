@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
+use futures_util::StreamExt;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
@@ -37,7 +38,6 @@ use livekit::webrtc::prelude::{AudioSourceOptions, RtcVideoSource, VideoResoluti
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::{SendTextOptions, StreamReader, StreamTextOptions, StreamWriter};
 use livekit_session::*;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::timeout;
 
 use common::*;
@@ -135,11 +135,11 @@ async fn timeout_fires_for_an_agent_stuck_initializing() -> Result<()> {
 }
 
 async fn next_message(
-    events: &mut UnboundedReceiver<SessionEvent>,
+    events: &mut SessionEventStream,
     mut predicate: impl FnMut(&Message) -> bool,
 ) -> Result<Message> {
     timeout(WAIT, async {
-        while let Some(event) = events.recv().await {
+        while let Some(event) = events.next().await {
             if let SessionEvent::MessageUpserted(message) = event {
                 if predicate(&message) {
                     return Ok(message);

@@ -25,12 +25,11 @@ use livekit::{
     ConnectionState, DisconnectReason, StreamReader, StreamResult, TakeCell, TextStreamInfo,
     TextStreamReader,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Sleep;
 
 use crate::agent::{Agent, AgentTracker};
 use crate::constants::{TOPIC_CHAT, TOPIC_TRANSCRIPTION};
-use crate::dispatcher::Dispatcher;
 use crate::messages::{
     Message, MessageOrigin, MessageStore, MessageUpdate, TranscriptAggregator, TranscriptStream,
 };
@@ -45,7 +44,7 @@ pub(crate) struct Shared {
     generation: Mutex<u64>,
     state: watch::Sender<SessionState>,
     messages: Mutex<MessageStore>,
-    events: Dispatcher<SessionEvent>,
+    events: broadcast::Sender<SessionEvent>,
     /// Every state published, so tests can assert on states a `watch`
     /// receiver would skip.
     #[cfg(test)]
@@ -53,12 +52,14 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn new() -> Self {
+    /// Creates the state, keeping up to `event_buffer_size` events for a
+    /// subscriber that falls behind. Panics if it is zero.
+    pub(crate) fn new(event_buffer_size: usize) -> Self {
         Self {
             generation: Mutex::new(0),
             state: watch::Sender::new(SessionState::default()),
             messages: Mutex::default(),
-            events: Dispatcher::default(),
+            events: broadcast::Sender::new(event_buffer_size),
             #[cfg(test)]
             history: Mutex::default(),
         }
@@ -96,8 +97,8 @@ impl Shared {
         self.state.subscribe()
     }
 
-    pub(crate) fn subscribe(&self) -> mpsc::UnboundedReceiver<SessionEvent> {
-        self.events.register()
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.events.subscribe()
     }
 
     /// Adds or updates a message and notifies subscribers. The event is
@@ -106,7 +107,8 @@ impl Shared {
     pub(crate) fn upsert(&self, update: MessageUpdate) -> Message {
         let mut messages = lock(&self.messages);
         let message = messages.upsert(update);
-        self.events.dispatch(&SessionEvent::MessageUpserted(message.clone()));
+        // Fails only when there is no subscriber.
+        _ = self.events.send(SessionEvent::MessageUpserted(message.clone()));
         message
     }
 
@@ -116,7 +118,7 @@ impl Shared {
         let restored = MessageStore::restored(restored);
         let mut messages = lock(&self.messages);
         *messages = restored;
-        self.events.dispatch(&SessionEvent::MessagesRestored);
+        _ = self.events.send(SessionEvent::MessagesRestored);
     }
 
     pub(crate) fn messages(&self) -> Vec<Message> {
@@ -130,7 +132,7 @@ impl Shared {
 
     #[cfg(all(test, feature = "__lk-e2e-test"))]
     pub(crate) fn subscriber_count(&self) -> usize {
-        self.events.len()
+        self.events.receiver_count()
     }
 }
 

@@ -53,6 +53,7 @@ livekit-token-source = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }

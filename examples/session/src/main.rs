@@ -2,6 +2,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use clap::Parser;
+use futures_util::StreamExt;
 use livekit_session::{
     Message, MessageOrigin, Session, SessionEvent, SessionOptions, SessionState,
 };
@@ -104,7 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     break;
                 }
             }
-            Some(event) = events.recv() => {
+            Some(event) = events.next() => {
                 if let SessionEvent::MessageUpserted(message) = event {
                     print_message(&message);
                 }

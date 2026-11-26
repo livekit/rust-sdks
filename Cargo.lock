@@ -4009,6 +4009,7 @@ dependencies = [
  "log",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -6875,6 +6876,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger 0.11.11",
+ "futures-util",
  "livekit-session",
  "livekit-token-source",
  "tokio",

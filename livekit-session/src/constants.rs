@@ -41,3 +41,6 @@ pub(crate) const ATTRIBUTE_TRANSCRIPTION_FINAL: &str = "lk.transcription_final";
 
 /// How long after connecting an agent gets to become conversational.
 pub(crate) const DEFAULT_AGENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How many message feed events are kept for a subscriber that falls behind.
+pub(crate) const DEFAULT_EVENT_BUFFER_SIZE: usize = 256;

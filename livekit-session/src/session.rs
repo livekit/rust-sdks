@@ -12,22 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, TryLockError};
+use std::task::{ready, Context, Poll};
 use std::time::Duration;
 use std::{fmt, mem};
 
+use futures_util::Stream;
 use livekit::prelude::*;
 use livekit::SendTextOptions;
 use livekit_token_source::{
     TokenSourceConfigurable, TokenSourceFetchOptions, TokenSourceFixed, TokenSourceResponse,
     TokenSourceResult,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::actor::{lock, Connection, SessionActor, Shared};
 use crate::agent::AgentState;
-use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, TOPIC_CHAT};
+use crate::constants::{DEFAULT_AGENT_CONNECT_TIMEOUT, DEFAULT_EVENT_BUFFER_SIZE, TOPIC_CHAT};
 use crate::error::{MessageSendError, SessionStartError};
 use crate::messages::{Message, MessageOrigin, MessageUpdate};
 
@@ -78,6 +83,7 @@ pub struct SessionOptions {
     agent_connect_timeout: Duration,
     room_options: RoomOptions,
     platform_audio: bool,
+    event_buffer_size: usize,
 }
 
 impl SessionOptions {
@@ -109,6 +115,7 @@ impl SessionOptions {
             agent_connect_timeout: DEFAULT_AGENT_CONNECT_TIMEOUT,
             room_options: RoomOptions::default(),
             platform_audio: true,
+            event_buffer_size: DEFAULT_EVENT_BUFFER_SIZE,
         }
     }
 
@@ -147,6 +154,19 @@ impl SessionOptions {
         self.platform_audio = platform_audio;
         self
     }
+
+    /// Sets how many message feed events the session keeps for a subscriber
+    /// that falls behind, see [`Session::subscribe`]. Defaults to 256.
+    ///
+    /// Zero is not a valid size, and is clamped to one.
+    pub fn with_event_buffer_size(mut self, mut events: usize) -> Self {
+        if events == 0 {
+            log::warn!("zero is not a valid event buffer size, using one");
+            events = 1;
+        }
+        self.event_buffer_size = events;
+        self
+    }
 }
 
 /// A change to a [`Session`]'s message feed. State changes are observed
@@ -158,6 +178,38 @@ pub enum SessionEvent {
     MessageUpserted(Message),
     /// The feed was replaced by [`Session::restore_messages`].
     MessagesRestored,
+}
+
+/// A stream of [`SessionEvent`]s from a [`Session`], created by
+/// [`Session::subscribe`].
+///
+/// Ends after the session is dropped. Drop the stream to unsubscribe.
+#[derive(Debug)]
+pub struct SessionEventStream {
+    inner: BroadcastStream<SessionEvent>,
+}
+
+impl SessionEventStream {
+    pub(crate) fn new(events: broadcast::Receiver<SessionEvent>) -> Self {
+        Self { inner: BroadcastStream::new(events) }
+    }
+}
+
+impl Stream for SessionEventStream {
+    type Item = SessionEvent;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match ready!(Pin::new(&mut this.inner).poll_next(cx)) {
+                Some(Ok(event)) => return Poll::Ready(Some(event)),
+                Some(Err(BroadcastStreamRecvError::Lagged(missed))) => {
+                    log::warn!("a session event subscriber lagged and missed {missed} events");
+                }
+                None => return Poll::Ready(None),
+            }
+        }
+    }
 }
 
 /// A conversation with a LiveKit agent.
@@ -296,8 +348,8 @@ impl Session {
     pub fn new(options: SessionOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
+                shared: Arc::new(Shared::new(options.event_buffer_size)),
                 options,
-                shared: Arc::new(Shared::new()),
                 lifecycle: Mutex::new(Lifecycle::Idle),
             }),
         }
@@ -475,13 +527,16 @@ impl Session {
         self.inner.shared.restore(messages);
     }
 
-    /// A receiver of changes to the message feed.
+    /// Subscribes to changes to the message feed. The stream yields the
+    /// changes made after this call.
     ///
-    /// Unbounded, like [`Room::subscribe`]: the session must never block on a
-    /// slow subscriber, and the feed's rate is bounded by the conversation.
-    /// Drop the receiver to unsubscribe; it is removed on the next event.
-    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<SessionEvent> {
-        self.inner.shared.subscribe()
+    /// The session never blocks on a slow subscriber. It keeps a bounded
+    /// number of events, set by [`SessionOptions::with_event_buffer_size`]: a
+    /// subscriber that falls further behind loses the oldest ones, and a
+    /// warning is logged. [`messages`](Self::messages) always returns the
+    /// complete feed. Drop the stream to unsubscribe.
+    pub fn subscribe(&self) -> SessionEventStream {
+        SessionEventStream::new(self.inner.shared.subscribe())
     }
 }
 
@@ -557,6 +612,7 @@ mod tests {
     use super::*;
 
     use async_trait::async_trait;
+    use futures_util::StreamExt;
     use livekit_token_source::TokenSourceError;
 
     /// Records the options it is fetched with, then fails.
@@ -603,5 +659,63 @@ mod tests {
 
         let _held = lock(&session.inner.lifecycle);
         assert!(format!("{session:?}").contains("lifecycle: <locked>"));
+    }
+
+    fn update(id: &str, text: &str) -> MessageUpdate {
+        MessageUpdate {
+            id: id.into(),
+            timestamp: chrono::DateTime::UNIX_EPOCH,
+            origin: MessageOrigin::Chat,
+            participant_identity: "remote".to_owned().into(),
+            text: text.into(),
+            is_final: false,
+        }
+    }
+
+    fn upserted_text(event: Option<SessionEvent>) -> String {
+        match event {
+            Some(SessionEvent::MessageUpserted(message)) => message.text,
+            other => panic!("expected an upsert, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn subscriber_gets_events_in_order_until_the_session_is_dropped() {
+        let shared = Shared::new(DEFAULT_EVENT_BUFFER_SIZE);
+        let mut events = SessionEventStream::new(shared.subscribe());
+        shared.upsert(update("a", "Hel"));
+        shared.upsert(update("a", "Hello"));
+        shared.restore([]);
+
+        assert_eq!(upserted_text(events.next().await), "Hel");
+        assert_eq!(upserted_text(events.next().await), "Hello");
+        assert!(matches!(events.next().await, Some(SessionEvent::MessagesRestored)));
+
+        drop(shared);
+        assert!(events.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn lagging_subscriber_continues_with_the_oldest_kept_event() {
+        let shared = Shared::new(4);
+        let mut events = SessionEventStream::new(shared.subscribe());
+        for chunk in 0..6 {
+            shared.upsert(update("a", &format!("chunk {chunk}")));
+        }
+
+        // The two oldest events are lost. The rest arrive, then live events.
+        for chunk in 2..6 {
+            assert_eq!(upserted_text(events.next().await), format!("chunk {chunk}"));
+        }
+        shared.upsert(update("a", "live"));
+        assert_eq!(upserted_text(events.next().await), "live");
+    }
+
+    #[test]
+    fn zero_event_buffer_size_is_clamped_to_one() {
+        let options =
+            SessionOptions::new_fixed_source(livekit_token_source::literal("url", "token"));
+        assert_eq!(options.event_buffer_size, DEFAULT_EVENT_BUFFER_SIZE);
+        assert_eq!(options.with_event_buffer_size(0).event_buffer_size, 1);
     }
 }

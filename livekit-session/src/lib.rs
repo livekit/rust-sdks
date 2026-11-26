@@ -22,7 +22,6 @@
 mod actor;
 mod agent;
 mod constants;
-mod dispatcher;
 mod error;
 mod messages;
 mod session;
@@ -38,4 +37,6 @@ mod e2e_tests;
 pub use agent::{Agent, AgentActivity, AgentFailure, AgentState};
 pub use error::{MessageSendError, SessionStartError};
 pub use messages::{Message, MessageOrigin};
-pub use session::{Session, SessionConnectionState, SessionEvent, SessionOptions, SessionState};
+pub use session::{
+    Session, SessionConnectionState, SessionEvent, SessionEventStream, SessionOptions, SessionState,
+};
