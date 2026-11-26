@@ -14,8 +14,12 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{Ok, Result},
-    common::test_engine,
+    anyhow::{anyhow, bail, Context, Ok, Result},
+    common::{test_engine, TestEnvironment},
+    libwebrtc::{native::create_random_uuid, peer_connection_factory::IceTransportsType},
+    livekit::{Room, RoomOptions},
+    livekit_api::services::room::RoomClient,
+    livekit_token::{AccessToken, VideoGrants},
     std::time::Duration,
     tokio::time::{self, timeout},
 };
@@ -47,5 +51,57 @@ async fn test_drop_without_close_releases_engine() -> Result<()> {
     .is_ok();
 
     assert!(released, "engine internals retained after drop");
+    Ok(())
+}
+
+/// Cancelling `connect` while it waits for the peer connection must end the session.
+///
+/// Nothing was returned to the caller, so nothing can close it afterwards: the dropped
+/// future is the only owner. If signalling outlives it, the signal task keeps answering
+/// pings and the server keeps the participant in the room.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_cancelled_connect_leaves_the_room() -> Result<()> {
+    let test_env = TestEnvironment::from_env_or_defaults();
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
+        .with_grants(VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() })
+        .with_identity("p0")
+        .to_jwt()
+        .context("Failed to generate JWT")?;
+
+    let mut options = RoomOptions::default();
+    // Relay only, and the dev server offers no TURN: ICE can never connect.
+    options.rtc_config.ice_transport_type = IceTransportsType::Relay;
+    options.join_retries = 0;
+    let server_url = test_env.server_url.clone();
+    let connect = tokio::spawn(async move { Room::connect(&server_url, &token, options).await });
+
+    let http_url = test_env.server_url.replacen("ws", "http", 1);
+    let rooms = RoomClient::with_api_key(&http_url, &test_env.api_key, &test_env.api_secret);
+    timeout(Duration::from_secs(10), async {
+        while rooms.list_participants(&room_name).await.unwrap_or_default().is_empty() {
+            time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("the participant never joined"))?;
+    // The server lists the participant before the client has read the join response. Give it
+    // time to, so that the cancel lands on a session that is waiting for ICE.
+    time::sleep(Duration::from_millis(500)).await;
+    if connect.is_finished() {
+        bail!("connect finished before it could be cancelled");
+    }
+    connect.abort();
+    assert!(connect.await.is_err_and(|err| err.is_cancelled()));
+
+    // Well under the time the server takes to give up on a participant on its own.
+    timeout(Duration::from_secs(5), async {
+        while !rooms.list_participants(&room_name).await.unwrap_or_default().is_empty() {
+            time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("participant left behind after the cancelled connect"))?;
     Ok(())
 }

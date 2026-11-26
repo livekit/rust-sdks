@@ -16,6 +16,7 @@ use livekit_protocol as proto;
 use prost::Message as ProtoMessage;
 use std::{sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
+use tokio_util::task::AbortOnDropHandle;
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -39,7 +40,10 @@ enum InternalMessage {
 /// It is replaced by [SignalClient] at each reconnection.
 pub(super) struct SignalStream {
     internal_tx: mpsc::Sender<InternalMessage>,
-    read_handle: JoinHandle<()>,
+    /// Aborted when the stream is dropped without [`close`](Self::close), as when the future
+    /// that owns it is cancelled. The reader holds the last other sender to the writer, so the
+    /// writer then closes the connection and exits on its own.
+    read_handle: AbortOnDropHandle<()>,
     write_handle: JoinHandle<()>,
 }
 
@@ -93,7 +97,11 @@ impl SignalStream {
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
         let write_handle = tokio::spawn(Self::write_task(internal_rx, conn.clone()));
-        let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
+        let read_handle = AbortOnDropHandle::new(tokio::spawn(Self::read_task(
+            internal_tx.clone(),
+            conn,
+            emitter,
+        )));
 
         (Self { internal_tx, read_handle, write_handle }, events)
     }
@@ -243,6 +251,22 @@ mod tests {
         // Both tasks are gone, so nothing still holds the old socket when the
         // caller dials a replacement.
         assert_eq!(Arc::strong_count(&conn), 1, "a stream task still holds the connection");
+    }
+
+    /// A stream dropped without `close`, as when the future that owns it is cancelled, must
+    /// not leave its tasks holding the socket.
+    #[tokio::test]
+    async fn drop_releases_the_connection() {
+        let conn = Arc::new(HalfOpenConn);
+        let (stream, _events) = SignalStream::spawn(conn.clone());
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while Arc::strong_count(&conn) > 1 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("a stream task still holds the connection");
     }
 
     #[tokio::test]

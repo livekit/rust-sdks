@@ -27,10 +27,10 @@ use tokio::{
 pub mod audio;
 pub mod video;
 
-struct TestEnvironment {
-    api_key: String,
-    api_secret: String,
-    server_url: String,
+pub struct TestEnvironment {
+    pub api_key: String,
+    pub api_secret: String,
+    pub server_url: String,
 }
 
 impl TestEnvironment {
