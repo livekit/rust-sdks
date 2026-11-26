@@ -147,13 +147,13 @@ pub enum DataPacketKind {
 
 /// The lifecycle of a [`FfiRoom`](super::FfiRoom).
 ///
-/// `Disconnected` is final. A new connection needs a new session.
-// This is session state, not a lossy replacement for core ConnectionState (also
+/// `Disconnected` is final. A new connection needs a new room.
+// This is room state, not a lossy replacement for core ConnectionState (also
 // exported directly below): Idle/Connecting precede any core Room, and terminal
-// Disconnected belongs to the session after the Room has gone away.
+// Disconnected belongs to the room after the Room has gone away.
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeConnectionState {
-    /// The session exists and `connect` was not called.
+    /// The room exists and `connect` was not called.
     Idle,
     Connecting,
     Connected,
@@ -163,11 +163,11 @@ pub enum NativeConnectionState {
 
 /// The error type of the typed room surface.
 #[derive(uniffi::Error, thiserror::Error, Clone, Debug, PartialEq)]
-pub enum NativeSessionError {
-    /// `cancel` ended the session or the cursor.
+pub enum FfiRoomError {
+    /// `cancel` ended the room or the cursor.
     #[error("cancelled")]
     Cancelled,
-    /// The session ended. The cause is a disconnect or a failed connection.
+    /// The room ended. The cause is a disconnect or a failed connection.
     #[error("closed")]
     Closed,
     /// The call is not legal in the current lifecycle state.
@@ -195,12 +195,12 @@ pub enum NativeSessionError {
     Internal { reason: String },
 }
 
-/// Returns `true` when `error` means that the session or cursor ended.
+/// Returns `true` when `error` means that the room or cursor ended.
 ///
 /// The classification stays in Rust so that every binding agrees on it.
 #[uniffi::export]
-pub fn native_session_error_is_shutdown(error: NativeSessionError) -> bool {
-    matches!(error, NativeSessionError::Cancelled | NativeSessionError::Closed)
+pub fn ffi_room_error_is_shutdown(error: FfiRoomError) -> bool {
+    matches!(error, FfiRoomError::Cancelled | FfiRoomError::Closed)
 }
 
 pub use livekit::webrtc::peer_connection_factory::IceServer;
@@ -345,7 +345,7 @@ impl FfiPublication {
     }
 }
 
-/// Ordered session membership at a revision, with live core-backed object properties.
+/// Ordered room membership at a revision, with live core-backed object properties.
 // Core has no cursor-revision record. This aggregates actual RoomInfo and core
 // handles with receiver-ordered membership; it does not copy their properties
 // into mobile snapshots. Live property reads may be newer than this revision.
@@ -356,7 +356,7 @@ pub struct FfiRoomState {
     /// Position in the ordered event stream; core values are read on demand.
     pub revision: u64,
     pub connection: NativeConnectionState,
-    /// `None` until the session is `Disconnected`.
+    /// `None` until the room is `Disconnected`.
     pub disconnect_reason: Option<DisconnectReason>,
     /// `None` before the first connection.
     pub room: Option<RoomInfo>,
@@ -382,7 +382,7 @@ pub struct NativeDataPacket {
 ///
 // Core RoomEvent contains tuple collections, Arc payloads and core stream/media
 // handles without converters for that exact event representation. This cursor
-// protocol also adds RPC requests and session lifecycle events. Preserve owned
+// protocol also adds RPC requests and room lifecycle events. Preserve owned
 // event fields and actual core entity handles here; mobile snapshot conversion
 // belongs in the consumer. See the error/media adapters for their stated losses.
 /// New variants can appear in a later version, so a consumer must ignore a
@@ -418,7 +418,7 @@ pub enum NativeRoomEvent {
     ConnectionStateChanged {
         state: NativeConnectionState,
     },
-    /// The last event of a session.
+    /// The last event of a room.
     Disconnected {
         reason: DisconnectReason,
     },

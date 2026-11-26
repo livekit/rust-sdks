@@ -15,7 +15,7 @@
 //! Thin core encryption configuration and host-owned key material; no room references.
 
 use super::media_frames::invalid;
-use super::{FfiRoom, NativeSessionError};
+use super::{FfiRoom, FfiRoomError};
 use bytes::Bytes;
 use livekit::e2ee::{
     key_provider::{KeyProvider, KeyProviderOptions},
@@ -84,7 +84,7 @@ impl Default for NativeKeyProviderOptions {
     }
 }
 
-/// Host-owned core key provider. Keeping it alive never retains a room/session.
+/// Host-owned core key provider. Keeping it alive never retains a room/room.
 // Deliberate validation adapter: core KeyProvider could be exposed as an external
 // object, but that would bypass the existing index/key bounds and the shared-mode
 // identity check. This object retains the original provider, not copied key state;
@@ -102,7 +102,7 @@ impl fmt::Debug for NativeKeyProvider {
     }
 }
 impl NativeKeyProvider {
-    fn index(&self, index: i32) -> Result<(), NativeSessionError> {
+    fn index(&self, index: i32) -> Result<(), FfiRoomError> {
         if !(0..self.ring_size).contains(&index) {
             return Err(invalid("key index is outside the key ring"));
         }
@@ -111,7 +111,7 @@ impl NativeKeyProvider {
     fn identity(
         &self,
         identity: Option<String>,
-    ) -> Result<Option<livekit::id::ParticipantIdentity>, NativeSessionError> {
+    ) -> Result<Option<livekit::id::ParticipantIdentity>, FfiRoomError> {
         if self.shared {
             return Ok(None);
         }
@@ -129,7 +129,7 @@ impl NativeKeyProvider {
     pub fn new(
         options: NativeKeyProviderOptions,
         shared_key: Option<Bytes>,
-    ) -> Result<Arc<Self>, NativeSessionError> {
+    ) -> Result<Arc<Self>, FfiRoomError> {
         if options.key_size != 128 || options.discard_frame_when_cryptor_not_ready {
             return Err(invalid("core KeyProviderOptions exposes only AES128 and discardFrameWhenCryptorNotReady=false"));
         }
@@ -175,7 +175,7 @@ impl NativeKeyProvider {
         key: Bytes,
         participant_identity: Option<String>,
         index: i32,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         self.index(index)?;
         validate_key(&key)?;
         match self.identity(participant_identity)? {
@@ -197,7 +197,7 @@ impl NativeKeyProvider {
         &self,
         participant_identity: Option<String>,
         index: i32,
-    ) -> Result<Option<Bytes>, NativeSessionError> {
+    ) -> Result<Option<Bytes>, FfiRoomError> {
         self.index(index)?;
         Ok(match self.identity(participant_identity)? {
             None => self.core.get_shared_key(index),
@@ -210,7 +210,7 @@ impl NativeKeyProvider {
         &self,
         participant_identity: Option<String>,
         index: i32,
-    ) -> Result<Option<Bytes>, NativeSessionError> {
+    ) -> Result<Option<Bytes>, FfiRoomError> {
         self.index(index)?;
         Ok(match self.identity(participant_identity)? {
             None => self.core.ratchet_shared_key(index),
@@ -219,7 +219,7 @@ impl NativeKeyProvider {
         .map(Bytes::from))
     }
     /// Sets core's server-injected-frame trailer; the room may replace it on join.
-    pub fn set_sif_trailer(&self, trailer: Bytes) -> Result<(), NativeSessionError> {
+    pub fn set_sif_trailer(&self, trailer: Bytes) -> Result<(), FfiRoomError> {
         if trailer.len() > 4096 {
             return Err(invalid("SIF trailer exceeds 4096 bytes"));
         }
@@ -231,7 +231,7 @@ impl NativeKeyProvider {
         self.core.get_latest_key_index()
     }
 }
-fn validate_key(key: &[u8]) -> Result<(), NativeSessionError> {
+fn validate_key(key: &[u8]) -> Result<(), FfiRoomError> {
     if key.is_empty() || key.len() > 65536 {
         return Err(invalid("key material must contain 1..65536 bytes"));
     }
@@ -271,7 +271,7 @@ pub struct NativeEncryptionStatus {
 #[uniffi::export]
 impl FfiRoom {
     /// Reads actual room encryption status.
-    pub fn encryption_status(&self) -> Result<NativeEncryptionStatus, NativeSessionError> {
+    pub fn encryption_status(&self) -> Result<NativeEncryptionStatus, FfiRoomError> {
         let room = self.shared.room()?;
         let manager = room.e2ee_manager();
         Ok(NativeEncryptionStatus {
@@ -280,10 +280,7 @@ impl FfiRoom {
         })
     }
     /// Changes media cryptors only. Core does not expose a matching dynamic data-encryption switch.
-    pub async fn set_media_encryption_enabled(
-        &self,
-        enabled: bool,
-    ) -> Result<(), NativeSessionError> {
+    pub async fn set_media_encryption_enabled(&self, enabled: bool) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         if room.e2ee_manager().key_provider().is_none() {
             return Err(invalid("encryption was not configured at connect"));

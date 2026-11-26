@@ -71,13 +71,13 @@ struct Inner {
     remotes: HashMap<String, RemoteParticipant>,
     publications: HashMap<String, (Participant, TrackPublication)>,
     data_tracks: HashMap<String, Arc<crate::data_track::remote::RemoteDataTrack>>,
-    /// Why the session accepts no more work. Set one time.
-    terminal: Option<NativeSessionError>,
-    /// `true` when no task of this session runs any more.
+    /// Why the room accepts no more work. Set one time.
+    terminal: Option<FfiRoomError>,
+    /// `true` when no task of this room runs any more.
     finished: bool,
     room: Option<Arc<Room>>,
     events: Option<Arc<EventQueue>>,
-    connect_result: Option<Result<FfiRoomState, NativeSessionError>>,
+    connect_result: Option<Result<FfiRoomState, FfiRoomError>>,
 }
 
 impl Inner {
@@ -158,10 +158,10 @@ impl Inner {
         self.emit(NativeRoomEvent::Disconnected { reason });
     }
 
-    /// Releases everything that the session owns. No task runs after this.
+    /// Releases everything that the room owns. No task runs after this.
     fn finish(&mut self) {
         self.disconnected(DisconnectReason::UnknownReason);
-        self.terminal.get_or_insert(NativeSessionError::Closed);
+        self.terminal.get_or_insert(FfiRoomError::Closed);
         self.room = None;
         if let Some(queue) = self.events.take() {
             queue.finish();
@@ -189,7 +189,7 @@ impl Inner {
             }
             RoomEvent::Disconnected { reason } => {
                 self.disconnected(reason.into());
-                self.terminal.get_or_insert(NativeSessionError::Closed);
+                self.terminal.get_or_insert(FfiRoomError::Closed);
             }
             RoomEvent::RoomMetadataChanged { old_metadata, metadata } => {
                 let Some(mut room) = self.room.as_deref().map(Room::info) else { return };
@@ -426,14 +426,14 @@ impl Shared {
         result
     }
 
-    /// Ends the session. Never blocks. The task of the session does the
+    /// Ends the room. Never blocks. The task of the room does the
     /// teardown when one exists.
-    fn terminate(self: &Arc<Self>, error: NativeSessionError) {
+    fn terminate(self: &Arc<Self>, error: FfiRoomError) {
         self.update(|inner| {
-            let cancelled = error == NativeSessionError::Cancelled;
+            let cancelled = error == FfiRoomError::Cancelled;
             // Read this first: a cancel moves the state away from `Idle`.
             let idle = inner.connection == NativeConnectionState::Idle && inner.terminal.is_none();
-            let disconnect_idle = idle && error == NativeSessionError::Closed;
+            let disconnect_idle = idle && error == FfiRoomError::Closed;
             if cancelled {
                 inner.terminal = Some(error);
             } else {
@@ -441,7 +441,7 @@ impl Shared {
             }
             if cancelled {
                 if let Some(queue) = inner.events.take() {
-                    queue.fail(NativeSessionError::Cancelled);
+                    queue.fail(FfiRoomError::Cancelled);
                 }
                 inner.disconnected(DisconnectReason::ClientInitiated);
             } else if disconnect_idle {
@@ -460,12 +460,12 @@ impl Shared {
         });
     }
 
-    fn room(&self) -> Result<Arc<Room>, NativeSessionError> {
+    fn room(&self) -> Result<Arc<Room>, FfiRoomError> {
         let inner = self.inner.lock();
         if let Some(error) = &inner.terminal {
             return Err(error.clone());
         }
-        inner.room.clone().ok_or_else(|| NativeSessionError::InvalidState {
+        inner.room.clone().ok_or_else(|| FfiRoomError::InvalidState {
             reason: "the session is not connected".to_owned(),
         })
     }
@@ -474,7 +474,7 @@ impl Shared {
         wait_for(&self.changed, || self.inner.lock().terminal.is_some().then_some(()))
     }
 
-    /// Stores the first snapshot. Does nothing when the session ended while
+    /// Stores the first snapshot. Does nothing when the room ended while
     /// the connection was in progress.
     fn install(&self, room: &Arc<Room>, initial: InitialParticipants) {
         self.update(|inner| {
@@ -508,7 +508,7 @@ impl Shared {
         });
     }
 
-    /// The one task of a session: connects, then drains the core events until
+    /// The one task of a room: connects, then drains the core events until
     /// the core releases the channel.
     async fn run(self: Arc<Self>, url: String, token: String, options: RoomOptions) {
         // Runs on every exit, a panic included, so `disconnect` cannot wait forever.
@@ -560,7 +560,7 @@ impl Shared {
                 _ = self.terminated() => break,
                 event = events.recv() => match event {
                     Some(event) => self.apply(event),
-                    None => { self.terminate(NativeSessionError::Closed); break; },
+                    None => { self.terminate(FfiRoomError::Closed); break; },
                 },
                 // The core has no event for a room identifier that arrives late.
                 sid = room.sid(), if !sid_known => {
@@ -586,7 +586,7 @@ impl Shared {
 
     fn update_sid(&self, sid: RoomSid) {
         self.update(|inner| {
-            if inner.terminal == Some(NativeSessionError::Cancelled) {
+            if inner.terminal == Some(FfiRoomError::Cancelled) {
                 return;
             }
             let Some(mut room) = inner.room.as_deref().map(Room::info) else { return };
@@ -599,7 +599,7 @@ impl Shared {
     fn apply(&self, event: RoomEvent) {
         self.update(|inner| {
             // A cancel released the backlog and froze the state.
-            if inner.terminal != Some(NativeSessionError::Cancelled) {
+            if inner.terminal != Some(FfiRoomError::Cancelled) {
                 match &event {
                     RoomEvent::TrackUnsubscribed { publication, .. }
                     | RoomEvent::TrackUnpublished { publication, .. } => {
@@ -615,11 +615,11 @@ impl Shared {
 
 /// One connection to a room.
 ///
-/// Create the session, get the event cursor, then connect. The session exists
+/// Create the room, get the event cursor, then connect. The room exists
 /// before the connection, so [`cancel`](Self::cancel) can stop a connection
-/// that is in progress. A session connects one time.
+/// that is in progress. A room connects one time.
 ///
-/// To release the session without a call to [`cancel`](Self::cancel) has the
+/// To release the room without a call to [`cancel`](Self::cancel) has the
 /// same effect as the call.
 #[derive(uniffi::Object)]
 pub struct FfiRoom {
@@ -659,21 +659,21 @@ impl FfiRoom {
     /// Every event of the cursor comes after this snapshot. Read the cursor
     /// only after this call returns, so that the snapshot is in place first.
     ///
-    /// Fails with [`NativeSessionError::Cancelled`] or
-    /// [`NativeSessionError::Closed`] when the session ended first.
+    /// Fails with [`FfiRoomError::Cancelled`] or
+    /// [`FfiRoomError::Closed`] when the room ended first.
     pub async fn connect(
         &self,
         url: String,
         token: String,
         options: Arc<FfiRoomOptions>,
-    ) -> Result<FfiRoomState, NativeSessionError> {
+    ) -> Result<FfiRoomState, FfiRoomError> {
         let shared = &self.shared;
         shared.update(|inner| {
             if let Some(error) = &inner.terminal {
                 return Err(error.clone());
             }
             if inner.connection != NativeConnectionState::Idle {
-                return Err(NativeSessionError::InvalidState {
+                return Err(FfiRoomError::InvalidState {
                     reason: "connect was already called".to_owned(),
                 });
             }
@@ -691,12 +691,12 @@ impl FfiRoom {
         .await
     }
 
-    /// Disconnects and waits until every task of the session ended.
+    /// Disconnects and waits until every task of the room ended.
     ///
     /// The cursor delivers the events that remain, then ends. Safe to call
     /// more than once and in every state.
     pub async fn disconnect(&self) {
-        self.shared.terminate(NativeSessionError::Closed);
+        self.shared.terminate(FfiRoomError::Closed);
         let task = self.shared.task.lock().take();
         if let Some(task) = task {
             let _ = task.await;
@@ -706,9 +706,9 @@ impl FfiRoom {
         self.shared.media.lock().clear();
     }
 
-    /// Ends the session at once and does not wait.
+    /// Ends the room at once and does not wait.
     ///
-    /// Wakes every pending wait with [`NativeSessionError::Cancelled`],
+    /// Wakes every pending wait with [`FfiRoomError::Cancelled`],
     /// refuses later commands, releases the event backlog and starts the
     /// teardown. A connection that completes later is closed. Safe to call
     /// more than once. [`disconnect`](Self::disconnect) waits for the teardown.
@@ -716,7 +716,7 @@ impl FfiRoom {
     /// With UniFFI 0.31, do not call this from a Swift `onCancel` handler.
     /// The call wakes a pending future, and that can deadlock in the handler.
     pub fn cancel(&self) {
-        self.shared.terminate(NativeSessionError::Cancelled);
+        self.shared.terminate(FfiRoomError::Cancelled);
     }
 
     /// Returns the current snapshot.
@@ -724,10 +724,10 @@ impl FfiRoom {
         self.shared.inner.lock().snapshot()
     }
 
-    /// Returns the event cursor of this session.
+    /// Returns the event cursor of this room.
     ///
     /// Events are kept only while a cursor exists, so get the cursor before
-    /// [`connect`](Self::connect). A session has one cursor: a new cursor
+    /// [`connect`](Self::connect). A room has one cursor: a new cursor
     /// cancels the previous one only when its limits are valid.
     ///
     /// The cursor holds the snapshot from the moment of this call, and every
@@ -743,12 +743,12 @@ impl FfiRoom {
             return NativeRoomEventCursor::new(queue, self.state());
         }
         let start = self.shared.update(|inner| {
-            if inner.terminal == Some(NativeSessionError::Cancelled) {
-                queue.fail(NativeSessionError::Cancelled);
+            if inner.terminal == Some(FfiRoomError::Cancelled) {
+                queue.fail(FfiRoomError::Cancelled);
             } else if inner.finished {
                 queue.finish();
             } else if let Some(previous) = inner.events.replace(queue.clone()) {
-                previous.fail(NativeSessionError::Cancelled);
+                previous.fail(FfiRoomError::Cancelled);
             }
             inner.snapshot()
         });
@@ -760,7 +760,7 @@ impl FfiRoom {
         &self,
         payload: Vec<u8>,
         options: NativeDataPublishOptions,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         on_runtime(async move {
             let packet = DataPacket {
@@ -779,13 +779,13 @@ impl FfiRoom {
     }
 
     /// Sets the metadata of the local participant.
-    pub async fn set_metadata(&self, metadata: String) -> Result<(), NativeSessionError> {
+    pub async fn set_metadata(&self, metadata: String) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         on_runtime(async move { Ok(room.local_participant().set_metadata(metadata).await?) }).await
     }
 
     /// Sets the name of the local participant.
-    pub async fn set_name(&self, name: String) -> Result<(), NativeSessionError> {
+    pub async fn set_name(&self, name: String) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         on_runtime(async move { Ok(room.local_participant().set_name(name).await?) }).await
     }
@@ -794,7 +794,7 @@ impl FfiRoom {
     pub async fn set_attributes(
         &self,
         attributes: HashMap<String, String>,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         on_runtime(async move { Ok(room.local_participant().set_attributes(attributes).await?) })
             .await

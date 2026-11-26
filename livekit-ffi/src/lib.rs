@@ -114,7 +114,7 @@ use livekit::prelude::{ParticipantIdentity, ParticipantSid, TrackSid};
 #[cfg(feature = "room-apis")]
 use livekit_common::ClientCapability;
 #[cfg(feature = "room-apis")]
-use room_apis::session::{core_objects::*, *};
+use room_apis::native_room::{core_objects::*, *};
 #[cfg(feature = "room-apis")]
 uniffi::include_scaffolding!("core_objects");
 #[cfg(feature = "core-modules")]

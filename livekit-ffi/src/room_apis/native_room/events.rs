@@ -20,8 +20,8 @@ use parking_lot::Mutex;
 use tokio::sync::Notify;
 
 use super::records::{
-    DataPacketKind, FfiRoomState, NativeEventCursorOptions, NativeRoomEvent, NativeRoomUpdate,
-    NativeSessionError,
+    DataPacketKind, FfiRoomError, FfiRoomState, NativeEventCursorOptions, NativeRoomEvent,
+    NativeRoomUpdate,
 };
 
 /// Waits until `check` returns a value. `notify` must fire after each change
@@ -78,9 +78,9 @@ impl NativeRoomEvent {
 }
 
 enum End {
-    /// The session ended. Items that remain are still delivered.
+    /// The room ended. Items that remain are still delivered.
     Finished,
-    Failed(NativeSessionError),
+    Failed(FfiRoomError),
 }
 
 #[derive(Default)]
@@ -102,7 +102,7 @@ impl EventQueue {
     pub(super) fn new(limits: NativeEventCursorOptions) -> Self {
         let queue = Self { backlog: Mutex::default(), changed: Notify::new(), limits };
         if limits.max_items == 0 || limits.max_bytes == 0 {
-            queue.fail(NativeSessionError::InvalidState {
+            queue.fail(FfiRoomError::InvalidState {
                 reason: "event cursor limits must both be greater than zero".into(),
             });
         }
@@ -113,7 +113,7 @@ impl EventQueue {
     ///
     /// When the backlog is full, a lossy data packet is dropped and counted.
     /// Any other event fails the queue with
-    /// [`NativeSessionError::Overflow`], because a silent drop would corrupt
+    /// [`FfiRoomError::Overflow`], because a silent drop would corrupt
     /// the consumer's view of the room.
     pub(super) fn push(&self, update: NativeRoomUpdate) {
         let mut backlog = self.backlog.lock();
@@ -148,7 +148,7 @@ impl EventQueue {
             return;
         }
         if full {
-            let error = NativeSessionError::Overflow {
+            let error = FfiRoomError::Overflow {
                 items: backlog.items.len() as u32,
                 bytes: backlog.bytes as u64,
             };
@@ -164,13 +164,13 @@ impl EventQueue {
         self.changed.notify_waiters();
     }
 
-    /// Marks the end of the session. Items that remain are still delivered.
+    /// Marks the end of the room. Items that remain are still delivered.
     pub(super) fn finish(&self) {
         self.end(End::Finished);
     }
 
     /// Releases the backlog and fails every current and later `next` call.
-    pub(super) fn fail(&self, error: NativeSessionError) {
+    pub(super) fn fail(&self, error: FfiRoomError) {
         self.end(End::Failed(error));
     }
 
@@ -188,9 +188,7 @@ impl EventQueue {
         self.changed.notify_waiters();
     }
 
-    fn next(
-        &self,
-    ) -> impl Future<Output = Result<Option<NativeRoomUpdate>, NativeSessionError>> + '_ {
+    fn next(&self) -> impl Future<Output = Result<Option<NativeRoomUpdate>, FfiRoomError>> + '_ {
         wait_for(&self.changed, || {
             let mut backlog = self.backlog.lock();
             if let Some(End::Failed(error)) = &backlog.end {
@@ -205,7 +203,7 @@ impl EventQueue {
     }
 }
 
-/// An ordered cursor over the events of one room session.
+/// An ordered cursor over the events of one room room.
 ///
 /// Get it from [`FfiRoom::events`](super::FfiRoom::events).
 /// To release the cursor without a call to [`cancel`](Self::cancel) has the
@@ -230,20 +228,20 @@ impl NativeRoomEventCursor {
 
 #[uniffi::export]
 impl NativeRoomEventCursor {
-    /// Returns the next event, or `None` after the last event of the session.
+    /// Returns the next event, or `None` after the last event of the room.
     ///
-    /// Fails with [`NativeSessionError::Cancelled`] after a cancel, and with
-    /// [`NativeSessionError::Overflow`] when the consumer was too slow. Both
-    /// are final for this cursor. The session stays usable after an overflow:
+    /// Fails with [`FfiRoomError::Cancelled`] after a cancel, and with
+    /// [`FfiRoomError::Overflow`] when the consumer was too slow. Both
+    /// are final for this cursor. The room stays usable after an overflow:
     /// get a new cursor and start again from its
     /// [`start_state`](Self::start_state).
-    pub async fn next(&self) -> Result<Option<NativeRoomUpdate>, NativeSessionError> {
+    pub async fn next(&self) -> Result<Option<NativeRoomUpdate>, FfiRoomError> {
         self.queue.next().await
     }
 
     /// Returns the snapshot from the moment the cursor was created.
     ///
-    /// For a connected session, subsequent events follow this snapshot. A cursor
+    /// For a connected room, subsequent events follow this snapshot. A cursor
     /// created before connect starts at Idle: consume the snapshot returned by
     /// `connect` before reading events; initial entities are not replayed here.
     pub fn start_state(&self) -> FfiRoomState {
@@ -256,7 +254,7 @@ impl NativeRoomEventCursor {
     /// With UniFFI 0.31, do not call this from a Swift `onCancel` handler.
     /// The call wakes a pending future, and that can deadlock in the handler.
     pub fn cancel(&self) {
-        self.queue.fail(NativeSessionError::Cancelled);
+        self.queue.fail(FfiRoomError::Cancelled);
     }
 
     /// Number of lossy data packets that were dropped because the backlog was full.

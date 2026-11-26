@@ -92,7 +92,7 @@ pub fn default_track_publish_options() -> TrackPublishOptions {
 
 use super::{
     encryption::NativeEncryptionOptions, media_frames::FfiTrack, ContinualGatheringPolicy,
-    IceServer, IceTransportPolicy, NativeSessionError,
+    FfiRoomError, IceServer, IceTransportPolicy,
 };
 use livekit::{prelude::*, webrtc::peer_connection_factory::RtcConfiguration};
 use std::{sync::Arc, time::Duration};
@@ -230,15 +230,12 @@ impl FfiRoomOptions {
         self.0.sdk_options.other_sdks.clone()
     }
     /// Sets the core stream limit; None restores its default. Checked for the target pointer width.
-    pub fn with_max_stream_payload_bytes(
-        &self,
-        value: Option<u64>,
-    ) -> Result<Self, NativeSessionError> {
+    pub fn with_max_stream_payload_bytes(&self, value: Option<u64>) -> Result<Self, FfiRoomError> {
         let mut options = self.clone();
         options.0.data_stream = match value {
             None => Default::default(),
             Some(value) => livekit::RoomDataStreamOptions::default().with_max_payload_byte_length(
-                usize::try_from(value).map_err(|_| NativeSessionError::InvalidState {
+                usize::try_from(value).map_err(|_| FfiRoomError::InvalidState {
                     reason: "stream limit exceeds target address space".into(),
                 })?,
             ),
@@ -267,12 +264,12 @@ impl FfiRoomOptions {
         &self,
         track: Arc<FfiTrack>,
         publish_options: TrackPublishOptions,
-    ) -> Result<Self, NativeSessionError> {
+    ) -> Result<Self, FfiRoomError> {
         let track = match track.as_ref() {
             Track::LocalAudio(track) => LocalTrack::Audio(track.clone()),
             Track::LocalVideo(track) => LocalTrack::Video(track.clone()),
             _ => {
-                return Err(NativeSessionError::InvalidState {
+                return Err(FfiRoomError::InvalidState {
                     reason: "only local tracks can be published while connecting".into(),
                 })
             }

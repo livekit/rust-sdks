@@ -31,10 +31,10 @@ use thiserror::Error;
 pub(crate) mod conversion;
 
 pub mod cabi;
+/// The typed UniFFI room surface. Additive: it shares no state with [`server`].
+pub(crate) mod native_room;
 pub mod proto;
 pub mod server;
-/// The typed UniFFI room surface. Additive: it shares no state with [`server`].
-pub(crate) mod session;
 
 /// Access tokens. The file is shared with the `core-modules` surface, so both
 /// surfaces export the same names and shapes.

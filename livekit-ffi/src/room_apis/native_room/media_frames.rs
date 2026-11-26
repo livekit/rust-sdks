@@ -14,7 +14,7 @@
 
 //! Copied, validated media frames at the foreign boundary.
 
-use super::NativeSessionError;
+use super::FfiRoomError;
 use livekit::webrtc::{
     audio_frame::AudioFrame,
     video_frame::{
@@ -35,7 +35,7 @@ pub struct NativeAudioFrame {
     pub samples_per_channel: u32,
 }
 impl NativeAudioFrame {
-    pub(super) fn validate(&self) -> Result<(), NativeSessionError> {
+    pub(super) fn validate(&self) -> Result<(), FfiRoomError> {
         if self.sample_rate != 48_000
             || !(1..=2).contains(&self.num_channels)
             || self.samples_per_channel == 0
@@ -96,7 +96,7 @@ pub struct NativeVideoFrame {
     pub rotation: u16,
 }
 impl NativeVideoFrame {
-    pub(super) fn into_core(self) -> Result<BoxVideoFrame, NativeSessionError> {
+    pub(super) fn into_core(self) -> Result<BoxVideoFrame, FfiRoomError> {
         dimensions(self.width, self.height)?;
         let bytes_per_pixel = if self.format == NativeVideoPixelFormat::Bgra { 4 } else { 1 };
         let uv_stride = self.chroma_stride.unwrap_or(self.stride);
@@ -156,7 +156,7 @@ impl NativeVideoFrame {
         Ok(VideoFrame { rotation, timestamp_us: self.timestamp_us, frame_metadata: None, buffer })
     }
 
-    pub(super) fn from_core(frame: BoxVideoFrame) -> Result<Self, NativeSessionError> {
+    pub(super) fn from_core(frame: BoxVideoFrame) -> Result<Self, FfiRoomError> {
         // Decoded frames may be odd-sized or portrait. Bound the BGRA allocation,
         // not the local capture format; conversion below handles chroma rounding.
         let bytes =
@@ -200,7 +200,7 @@ impl NativeVideoFrame {
 
 pub use super::core_objects::FfiTrack;
 
-pub(super) fn dimensions(width: u32, height: u32) -> Result<(), NativeSessionError> {
+pub(super) fn dimensions(width: u32, height: u32) -> Result<(), FfiRoomError> {
     if !(2..=4096).contains(&width)
         || !(2..=2160).contains(&height)
         || !width.is_multiple_of(2)
@@ -210,6 +210,6 @@ pub(super) fn dimensions(width: u32, height: u32) -> Result<(), NativeSessionErr
     }
     Ok(())
 }
-pub(super) fn invalid(reason: &str) -> NativeSessionError {
-    NativeSessionError::InvalidState { reason: reason.to_owned() }
+pub(super) fn invalid(reason: &str) -> FfiRoomError {
+    FfiRoomError::InvalidState { reason: reason.to_owned() }
 }

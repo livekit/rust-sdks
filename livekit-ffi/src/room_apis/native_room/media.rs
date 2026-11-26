@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Thin session-owned media resources. Foreign handles hold only weak session references.
+//! Thin room-owned media resources. Foreign handles hold only weak room references.
 
 use super::media_frames::{dimensions, invalid, FfiTrack, NativeAudioFrame, NativeVideoFrame};
-use super::{FfiPublication, FfiRoom, NativeSessionError, Shared};
+use super::{FfiPublication, FfiRoom, FfiRoomError, Shared};
 use futures_util::StreamExt;
 use livekit::{
     options::TrackPublishOptions,
@@ -39,7 +39,7 @@ const MAX_RESOURCES: usize = 64;
 
 struct OwnedTrack {
     track: LocalTrack,
-    // The platform ADM lives as long as this session-owned device track.
+    // The platform ADM lives as long as this room-owned device track.
     _device: Option<PlatformAudio>,
 }
 struct AudioSink {
@@ -64,7 +64,7 @@ impl Media {
     pub(super) fn is_empty(&self) -> bool {
         self.local.is_empty() && self.audio.is_empty() && self.video.is_empty()
     }
-    fn id(&mut self) -> Result<u64, NativeSessionError> {
+    fn id(&mut self) -> Result<u64, FfiRoomError> {
         if self.local.len() + self.audio.len() + self.video.len() >= MAX_RESOURCES {
             return Err(invalid("session media resource limit reached (64)"));
         }
@@ -102,21 +102,17 @@ impl Media {
     }
 }
 
-fn session(weak: &Weak<Shared>) -> Result<Arc<Shared>, NativeSessionError> {
-    let shared = weak.upgrade().ok_or(NativeSessionError::Closed)?;
+fn session(weak: &Weak<Shared>) -> Result<Arc<Shared>, FfiRoomError> {
+    let shared = weak.upgrade().ok_or(FfiRoomError::Closed)?;
     if let Some(error) = &shared.inner.lock().terminal {
         return Err(error.clone());
     }
     Ok(shared)
 }
-fn local(shared: &Shared, id: u64) -> Result<Arc<OwnedTrack>, NativeSessionError> {
+fn local(shared: &Shared, id: u64) -> Result<Arc<OwnedTrack>, FfiRoomError> {
     shared.media.lock().local.get(&id).cloned().ok_or_else(|| invalid("local track was released"))
 }
-fn publication(
-    room: &Room,
-    identity: &str,
-    sid: &str,
-) -> Result<TrackPublication, NativeSessionError> {
+fn publication(room: &Room, identity: &str, sid: &str) -> Result<TrackPublication, FfiRoomError> {
     let sid = sid.to_owned().try_into().map_err(|_| invalid("invalid publication SID"))?;
     if room.local_participant().identity().as_str() == identity {
         room.local_participant()
@@ -135,17 +131,17 @@ fn publication(
 
 // These existing command/source/sink handles are not substitutes for the core
 // Track/Publication objects exported by core_objects.rs. Direct core objects
-// cannot carry this session's source ownership, bounded frame queues, explicit
-// cancellation, or weak back-reference. IDs/SIDs resolve live session resources;
+// cannot carry this room's source ownership, bounded frame queues, explicit
+// cancellation, or weak back-reference. IDs/SIDs resolve live room resources;
 // after teardown commands fail instead of retaining a room. Frame representation
 // restrictions live in media_frames.rs; these handles add no property snapshots.
-/// A local audio track owned by the session, including its source. Release explicitly or disconnect.
+/// A local audio track owned by the room, including its source. Release explicitly or disconnect.
 #[derive(uniffi::Object)]
 pub struct NativeLocalAudioTrack {
     session: Weak<Shared>,
     id: u64,
 }
-/// A local video track owned by the session, including its BGRA source.
+/// A local video track owned by the room, including its BGRA source.
 #[derive(uniffi::Object)]
 pub struct NativeLocalVideoTrack {
     session: Weak<Shared>,
@@ -168,13 +164,13 @@ pub struct NativeRemoteAudioTrack {
 pub struct NativeRemoteVideoTrack {
     publication: NativePublicationHandle,
 }
-/// Bounded decoded PCM. The session owns the sink until cancel/drop or disconnect.
+/// Bounded decoded PCM. The room owns the sink until cancel/drop or disconnect.
 #[derive(uniffi::Object)]
 pub struct NativeAudioFrames {
     session: Weak<Shared>,
     id: u64,
 }
-/// Bounded decoded BGRA. The session owns the sink until cancel/drop or disconnect.
+/// Bounded decoded BGRA. The room owns the sink until cancel/drop or disconnect.
 #[derive(uniffi::Object)]
 pub struct NativeVideoFrames {
     session: Weak<Shared>,
@@ -182,7 +178,7 @@ pub struct NativeVideoFrames {
 }
 
 impl FfiRoom {
-    fn store_local(&self, track: OwnedTrack) -> Result<u64, NativeSessionError> {
+    fn store_local(&self, track: OwnedTrack) -> Result<u64, FfiRoomError> {
         let inner = self.shared.inner.lock();
         if let Some(error) = &inner.terminal {
             return Err(error.clone());
@@ -203,7 +199,7 @@ impl FfiRoom {
         &self,
         name: String,
         channels: u32,
-    ) -> Result<Arc<NativeLocalAudioTrack>, NativeSessionError> {
+    ) -> Result<Arc<NativeLocalAudioTrack>, FfiRoomError> {
         if !(1..=2).contains(&channels) {
             return Err(invalid("audio channels must be 1 or 2"));
         }
@@ -231,7 +227,7 @@ impl FfiRoom {
         &self,
         name: String,
         device_id: Option<String>,
-    ) -> Result<Arc<NativeLocalAudioTrack>, NativeSessionError> {
+    ) -> Result<Arc<NativeLocalAudioTrack>, FfiRoomError> {
         if let Some(error) = &self.shared.inner.lock().terminal {
             return Err(error.clone());
         }
@@ -244,7 +240,7 @@ impl FfiRoom {
             }
             let track = LocalAudioTrack::create_audio_track(&name, device.rtc_source());
             device.start_recording().map_err(|e| invalid(&e.to_string()))?;
-            Ok::<_, NativeSessionError>(OwnedTrack {
+            Ok::<_, FfiRoomError>(OwnedTrack {
                 track: LocalTrack::Audio(track),
                 _device: Some(device),
             })
@@ -260,7 +256,7 @@ impl FfiRoom {
         width: u32,
         height: u32,
         screencast: bool,
-    ) -> Result<Arc<NativeLocalVideoTrack>, NativeSessionError> {
+    ) -> Result<Arc<NativeLocalVideoTrack>, FfiRoomError> {
         dimensions(width, height)?;
         if let Some(error) = &self.shared.inner.lock().terminal {
             return Err(error.clone());
@@ -284,7 +280,7 @@ impl FfiRoom {
         &self,
         identity: String,
         sid: String,
-    ) -> Result<Arc<NativePublicationHandle>, NativeSessionError> {
+    ) -> Result<Arc<NativePublicationHandle>, FfiRoomError> {
         publication(self.shared.room()?.as_ref(), &identity, &sid)?;
         Ok(Arc::new(NativePublicationHandle {
             session: Arc::downgrade(&self.shared),
@@ -294,7 +290,7 @@ impl FfiRoom {
     }
 }
 
-async fn statistics(track: Track) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+async fn statistics(track: Track) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
     super::on_runtime(async move {
         track
             .get_stats()
@@ -309,14 +305,14 @@ async fn publish(
     weak: &Weak<Shared>,
     id: u64,
     options: TrackPublishOptions,
-) -> Result<Arc<NativePublicationHandle>, NativeSessionError> {
+) -> Result<Arc<NativePublicationHandle>, FfiRoomError> {
     let shared = session(weak)?;
     let room = shared.room()?;
     let owned = local(&shared, id)?;
     let publication = super::on_runtime(async move {
         let publication =
             room.local_participant().publish_track(owned.track.clone(), options).await?;
-        Ok::<_, NativeSessionError>((
+        Ok::<_, FfiRoomError>((
             room.local_participant().identity().to_string(),
             publication.sid().to_string(),
         ))
@@ -328,7 +324,7 @@ async fn publish(
         sid: publication.1,
     }))
 }
-async fn release(weak: &Weak<Shared>, id: u64) -> Result<(), NativeSessionError> {
+async fn release(weak: &Weak<Shared>, id: u64) -> Result<(), FfiRoomError> {
     let shared = session(weak)?;
     let owner = shared.clone();
     super::on_runtime(async move {
@@ -356,17 +352,17 @@ async fn release(weak: &Weak<Shared>, id: u64) -> Result<(), NativeSessionError>
 impl NativeLocalAudioTrack {
     /// Samples core track statistics. Numeric values, microsecond timestamps and RTP groups are preserved.
     /// The host owns periodic sampling and previous-sample calculations.
-    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
         let shared = session(&self.session)?;
         let owned = local(&shared, self.id)?;
         statistics(owned.track.clone().into()).await
     }
     /// Returns the current core track values.
-    pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
+    pub fn info(&self) -> Result<FfiTrack, FfiRoomError> {
         Ok(Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone()))
     }
     /// Mutes/unmutes the core local track, including before publication.
-    pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
+    pub async fn set_muted(&self, muted: bool) -> Result<(), FfiRoomError> {
         let shared = session(&self.session)?;
         let owned = local(&shared, self.id)?;
         super::on_runtime(async move {
@@ -383,11 +379,11 @@ impl NativeLocalAudioTrack {
     pub async fn publish(
         &self,
         options: TrackPublishOptions,
-    ) -> Result<Arc<NativePublicationHandle>, NativeSessionError> {
+    ) -> Result<Arc<NativePublicationHandle>, FfiRoomError> {
         publish(&self.session, self.id, options).await
     }
     /// Queues PCM on a manual source. Device microphone sources reject manual injection.
-    pub async fn capture_frame(&self, frame: NativeAudioFrame) -> Result<(), NativeSessionError> {
+    pub async fn capture_frame(&self, frame: NativeAudioFrame) -> Result<(), FfiRoomError> {
         frame.validate()?;
         let shared = session(&self.session)?;
         let LocalTrack::Audio(track) = local(&shared, self.id)?.track.clone() else {
@@ -405,7 +401,7 @@ impl NativeLocalAudioTrack {
         .await
     }
     /// Discards the queued PCM on a manual source.
-    pub fn clear_buffer(&self) -> Result<(), NativeSessionError> {
+    pub fn clear_buffer(&self) -> Result<(), FfiRoomError> {
         let shared = session(&self.session)?;
         if let LocalTrack::Audio(track) = local(&shared, self.id)?.track.clone() {
             if let RtcAudioSource::Native(source) = track.rtc_source() {
@@ -415,7 +411,7 @@ impl NativeLocalAudioTrack {
         Ok(())
     }
     /// Releases an unpublished source. Published tracks must be unpublished first.
-    pub async fn release(&self) -> Result<(), NativeSessionError> {
+    pub async fn release(&self) -> Result<(), FfiRoomError> {
         release(&self.session, self.id).await
     }
 }
@@ -423,17 +419,17 @@ impl NativeLocalAudioTrack {
 impl NativeLocalVideoTrack {
     /// Samples core track statistics. Numeric values, microsecond timestamps and RTP groups are preserved.
     /// The host owns periodic sampling and previous-sample calculations.
-    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
         let shared = session(&self.session)?;
         let owned = local(&shared, self.id)?;
         statistics(owned.track.clone().into()).await
     }
     /// Returns the current core track values.
-    pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
+    pub fn info(&self) -> Result<FfiTrack, FfiRoomError> {
         Ok(Track::from(local(session(&self.session)?.as_ref(), self.id)?.track.clone()))
     }
     /// Mutes/unmutes the core local track, including before publication.
-    pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
+    pub async fn set_muted(&self, muted: bool) -> Result<(), FfiRoomError> {
         let shared = session(&self.session)?;
         let owned = local(&shared, self.id)?;
         super::on_runtime(async move {
@@ -450,11 +446,11 @@ impl NativeLocalVideoTrack {
     pub async fn publish(
         &self,
         options: TrackPublishOptions,
-    ) -> Result<Arc<NativePublicationHandle>, NativeSessionError> {
+    ) -> Result<Arc<NativePublicationHandle>, FfiRoomError> {
         publish(&self.session, self.id, options).await
     }
     /// Converts copied BGRA/NV12 and offers it to the core; false means frame adaptation dropped it.
-    pub async fn capture_frame(&self, frame: NativeVideoFrame) -> Result<bool, NativeSessionError> {
+    pub async fn capture_frame(&self, frame: NativeVideoFrame) -> Result<bool, FfiRoomError> {
         let shared = session(&self.session)?;
         let LocalTrack::Video(track) = local(&shared, self.id)?.track.clone() else {
             return Err(invalid("not a video track"));
@@ -463,23 +459,23 @@ impl NativeLocalVideoTrack {
             return Err(invalid("unsupported video source"));
         };
         super::on_runtime(async move {
-            Ok::<_, NativeSessionError>(source.capture_frame(&frame.into_core()?))
+            Ok::<_, FfiRoomError>(source.capture_frame(&frame.into_core()?))
         })
         .await
     }
     /// Releases an unpublished source. Published tracks must be unpublished first.
-    pub async fn release(&self) -> Result<(), NativeSessionError> {
+    pub async fn release(&self) -> Result<(), FfiRoomError> {
         release(&self.session, self.id).await
     }
 }
 
 impl NativePublicationHandle {
-    fn current(&self) -> Result<(Arc<Shared>, TrackPublication), NativeSessionError> {
+    fn current(&self) -> Result<(Arc<Shared>, TrackPublication), FfiRoomError> {
         let shared = session(&self.session)?;
         let p = publication(shared.room()?.as_ref(), &self.identity, &self.sid)?;
         Ok((shared, p))
     }
-    fn remote(&self) -> Result<(Arc<Shared>, RemoteTrackPublication), NativeSessionError> {
+    fn remote(&self) -> Result<(Arc<Shared>, RemoteTrackPublication), FfiRoomError> {
         let (shared, publication) = self.current()?;
         let TrackPublication::Remote(p) = publication else {
             return Err(invalid("operation requires a remote publication"));
@@ -490,7 +486,7 @@ impl NativePublicationHandle {
 #[uniffi::export]
 impl NativePublicationHandle {
     /// Samples this publication's current local or subscribed remote track.
-    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
         let (_shared, publication) = self.current()?;
         let track: Track = match publication {
             TrackPublication::Local(p) => {
@@ -503,7 +499,7 @@ impl NativePublicationHandle {
         statistics(track).await
     }
     /// Returns a value snapshot of the current core publication.
-    pub fn info(&self) -> Result<FfiPublication, NativeSessionError> {
+    pub fn info(&self) -> Result<FfiPublication, FfiRoomError> {
         let (shared, publication) = self.current()?;
         let room = shared.room()?;
         let local = room.local_participant();
@@ -520,7 +516,7 @@ impl NativePublicationHandle {
         Ok(FfiPublication::new(&participant, &publication))
     }
     /// Mutes or unmutes a local publication through core track controls.
-    pub async fn set_muted(&self, muted: bool) -> Result<(), NativeSessionError> {
+    pub async fn set_muted(&self, muted: bool) -> Result<(), FfiRoomError> {
         let (_shared, p) = self.current()?;
         let TrackPublication::Local(p) = p else {
             return Err(invalid("only local publications can be muted"));
@@ -535,8 +531,8 @@ impl NativePublicationHandle {
         .await;
         Ok(())
     }
-    /// Unpublishes a local track. The source remains available until release or session teardown.
-    pub async fn unpublish(&self) -> Result<(), NativeSessionError> {
+    /// Unpublishes a local track. The source remains available until release or room teardown.
+    pub async fn unpublish(&self) -> Result<(), FfiRoomError> {
         let (shared, p) = self.current()?;
         if !matches!(p, TrackPublication::Local(_)) {
             return Err(invalid("only local publications can be unpublished"));
@@ -549,7 +545,7 @@ impl NativePublicationHandle {
     }
     /// Sets core subscription desire, not an SFU acknowledgment. Core emits unsubscribe locally;
     /// an immediate false->true flip may coalesce signaling and never emit a new subscribed event.
-    pub async fn set_subscribed(&self, subscribed: bool) -> Result<(), NativeSessionError> {
+    pub async fn set_subscribed(&self, subscribed: bool) -> Result<(), FfiRoomError> {
         let (_shared, p) = self.remote()?;
         super::on_runtime(async move {
             p.set_subscribed(subscribed);
@@ -558,7 +554,7 @@ impl NativePublicationHandle {
         Ok(())
     }
     /// Enables/disables receiving a subscribed remote publication.
-    pub async fn set_enabled(&self, enabled: bool) -> Result<(), NativeSessionError> {
+    pub async fn set_enabled(&self, enabled: bool) -> Result<(), FfiRoomError> {
         let (_shared, p) = self.remote()?;
         super::on_runtime(async move {
             p.set_enabled(enabled);
@@ -570,7 +566,7 @@ impl NativePublicationHandle {
     pub async fn set_video_quality(
         &self,
         quality: super::VideoQuality,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let (_shared, p) = self.remote()?;
         if p.kind() != TrackKind::Video {
             return Err(invalid("not a video publication"));
@@ -582,11 +578,7 @@ impl NativePublicationHandle {
         Ok(())
     }
     /// Requests remote video dimensions. Core has no preferred-FPS control.
-    pub async fn set_video_dimensions(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> Result<(), NativeSessionError> {
+    pub async fn set_video_dimensions(&self, width: u32, height: u32) -> Result<(), FfiRoomError> {
         dimensions(width, height)?;
         let (_shared, p) = self.remote()?;
         if p.kind() != TrackKind::Video {
@@ -599,17 +591,13 @@ impl NativePublicationHandle {
         Ok(())
     }
     /// Returns a typed audio handle if this remote publication is currently subscribed to audio.
-    pub fn remote_audio_track(
-        &self,
-    ) -> Result<Option<Arc<NativeRemoteAudioTrack>>, NativeSessionError> {
+    pub fn remote_audio_track(&self) -> Result<Option<Arc<NativeRemoteAudioTrack>>, FfiRoomError> {
         let (_, p) = self.remote()?;
         Ok(matches!(p.track(), Some(RemoteTrack::Audio(_)))
             .then(|| Arc::new(NativeRemoteAudioTrack { publication: self.clone() })))
     }
     /// Returns a typed video handle if this remote publication is currently subscribed to video.
-    pub fn remote_video_track(
-        &self,
-    ) -> Result<Option<Arc<NativeRemoteVideoTrack>>, NativeSessionError> {
+    pub fn remote_video_track(&self) -> Result<Option<Arc<NativeRemoteVideoTrack>>, FfiRoomError> {
         let (_, p) = self.remote()?;
         Ok(matches!(p.track(), Some(RemoteTrack::Video(_)))
             .then(|| Arc::new(NativeRemoteVideoTrack { publication: self.clone() })))
@@ -619,13 +607,13 @@ impl NativePublicationHandle {
 #[uniffi::export]
 impl NativeRemoteAudioTrack {
     /// Samples the subscribed core track without a native timer or cached statistics.
-    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
         let (_shared, publication) = self.publication.remote()?;
         let track = publication.track().ok_or_else(|| invalid("track is not subscribed"))?;
         statistics(track.into()).await
     }
     /// Returns values for the currently subscribed core track.
-    pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
+    pub fn info(&self) -> Result<FfiTrack, FfiRoomError> {
         let (_, p) = self.publication.remote()?;
         let track = p.track().ok_or_else(|| invalid("track is not subscribed"))?;
         Ok(Track::from(track))
@@ -635,7 +623,7 @@ impl NativeRemoteAudioTrack {
         &self,
         channels: u32,
         capacity: u32,
-    ) -> Result<Arc<NativeAudioFrames>, NativeSessionError> {
+    ) -> Result<Arc<NativeAudioFrames>, FfiRoomError> {
         if !(1..=2).contains(&channels) || !(1..=64).contains(&capacity) {
             return Err(invalid("channels must be 1..2 and capacity 1..64"));
         }
@@ -675,22 +663,19 @@ impl NativeRemoteAudioTrack {
 #[uniffi::export]
 impl NativeRemoteVideoTrack {
     /// Samples the subscribed core track without a native timer or cached statistics.
-    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, NativeSessionError> {
+    pub async fn get_statistics(&self) -> Result<Vec<crate::proto::RtcStats>, FfiRoomError> {
         let (_shared, publication) = self.publication.remote()?;
         let track = publication.track().ok_or_else(|| invalid("track is not subscribed"))?;
         statistics(track.into()).await
     }
     /// Returns values for the currently subscribed core track.
-    pub fn info(&self) -> Result<FfiTrack, NativeSessionError> {
+    pub fn info(&self) -> Result<FfiTrack, FfiRoomError> {
         let (_, p) = self.publication.remote()?;
         let track = p.track().ok_or_else(|| invalid("track is not subscribed"))?;
         Ok(Track::from(track))
     }
     /// Attaches a bounded decoded video sink (1..8 frames). Slow consumers lose frames.
-    pub async fn frames(
-        &self,
-        capacity: u32,
-    ) -> Result<Arc<NativeVideoFrames>, NativeSessionError> {
+    pub async fn frames(&self, capacity: u32) -> Result<Arc<NativeVideoFrames>, FfiRoomError> {
         if !(1..=8).contains(&capacity) {
             return Err(invalid("video capacity must be 1..8"));
         }
@@ -727,8 +712,8 @@ impl NativeRemoteVideoTrack {
 }
 #[uniffi::export]
 impl NativeAudioFrames {
-    /// Waits for decoded PCM. Cancel returns None; session teardown returns a session error.
-    pub async fn next(&self) -> Result<Option<NativeAudioFrame>, NativeSessionError> {
+    /// Waits for decoded PCM. Cancel returns None; room teardown returns a room error.
+    pub async fn next(&self) -> Result<Option<NativeAudioFrame>, FfiRoomError> {
         let shared = session(&self.session)?;
         let Some(sink) = shared.media.lock().audio.get(&self.id).cloned() else {
             return Ok(None);
@@ -759,7 +744,7 @@ impl Drop for NativeAudioFrames {
 #[uniffi::export]
 impl NativeVideoFrames {
     /// Waits for a decoded frame converted to copied BGRA bytes.
-    pub async fn next(&self) -> Result<Option<NativeVideoFrame>, NativeSessionError> {
+    pub async fn next(&self) -> Result<Option<NativeVideoFrame>, FfiRoomError> {
         let shared = session(&self.session)?;
         let Some(sink) = shared.media.lock().video.get(&self.id).cloned() else {
             return Ok(None);

@@ -14,7 +14,7 @@
 
 //! Room-owned stream, data track and schema commands.
 
-use super::{FfiRoom, NativeSessionError};
+use super::{FfiRoom, FfiRoomError};
 use crate::data_stream::{
     common::{
         ByteStreamInfo, DataStreamError, StreamByteOptions, StreamTextOptions, TextStreamInfo,
@@ -27,11 +27,11 @@ use crate::data_track::{
 };
 use bytes::Bytes;
 
-fn stream_session_error(error: NativeSessionError) -> DataStreamError {
+fn stream_room_error(error: FfiRoomError) -> DataStreamError {
     match error {
-        NativeSessionError::Cancelled => DataStreamError::Cancelled,
-        NativeSessionError::Closed => DataStreamError::AlreadyClosed,
-        NativeSessionError::InvalidState { reason } => DataStreamError::InvalidState { reason },
+        FfiRoomError::Cancelled => DataStreamError::Cancelled,
+        FfiRoomError::Closed => DataStreamError::AlreadyClosed,
+        FfiRoomError::InvalidState { reason } => DataStreamError::InvalidState { reason },
         _ => DataStreamError::Internal,
     }
 }
@@ -52,7 +52,7 @@ impl FfiRoom {
         text: String,
         options: StreamTextOptions,
     ) -> Result<TextStreamInfo, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
+        let room = self.shared.room().map_err(stream_room_error)?;
         super::on_runtime(async move {
             Ok(room.local_participant().send_text(&text, options.into()).await?.into())
         })
@@ -65,7 +65,7 @@ impl FfiRoom {
         data: Bytes,
         options: StreamByteOptions,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
+        let room = self.shared.room().map_err(stream_room_error)?;
         super::on_runtime(async move {
             Ok(room.local_participant().send_bytes(data, options.into()).await?.into())
         })
@@ -78,7 +78,7 @@ impl FfiRoom {
         path: String,
         options: StreamByteOptions,
     ) -> Result<ByteStreamInfo, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
+        let room = self.shared.room().map_err(stream_room_error)?;
         super::on_runtime(async move {
             Ok(room.local_participant().send_file(path, options.into()).await?.into())
         })
@@ -90,7 +90,7 @@ impl FfiRoom {
         &self,
         options: StreamTextOptions,
     ) -> Result<TextStreamWriter, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
+        let room = self.shared.room().map_err(stream_room_error)?;
         super::on_runtime(async move {
             Ok(TextStreamWriter(room.local_participant().stream_text(options.into()).await?))
         })
@@ -102,7 +102,7 @@ impl FfiRoom {
         &self,
         options: StreamByteOptions,
     ) -> Result<ByteStreamWriter, DataStreamError> {
-        let room = self.shared.room().map_err(stream_session_error)?;
+        let room = self.shared.room().map_err(stream_room_error)?;
         super::on_runtime(async move {
             Ok(ByteStreamWriter(room.local_participant().stream_bytes(options.into()).await?))
         })
@@ -115,15 +115,13 @@ impl FfiRoom {
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, livekit_datatrack::api::PublishError> {
         use livekit_datatrack::api::PublishError;
-        let session_error = |error: NativeSessionError| match error {
-            NativeSessionError::Closed | NativeSessionError::Cancelled => {
-                PublishError::Disconnected
-            }
+        let room_error = |error: FfiRoomError| match error {
+            FfiRoomError::Closed | FfiRoomError::Cancelled => PublishError::Disconnected,
             other => {
                 PublishError::Internal(uniffi::deps::anyhow::Error::msg(other.to_string()).into())
             }
         };
-        let room = self.shared.room().map_err(session_error)?;
+        let room = self.shared.room().map_err(room_error)?;
         super::on_runtime(async move {
             room.local_participant().publish_data_track(options).await.map(LocalDataTrack::new)
         })
@@ -135,7 +133,7 @@ impl FfiRoom {
         &self,
         id: DataTrackSchemaId,
         definition: String,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         super::on_runtime(async move {
             Ok(room.local_participant().define_schema(id.into(), definition).await?)
@@ -148,7 +146,7 @@ impl FfiRoom {
         &self,
         id: DataTrackSchemaId,
         participant: String,
-    ) -> Result<String, NativeSessionError> {
+    ) -> Result<String, FfiRoomError> {
         let room = self.shared.room()?;
         super::on_runtime(async move {
             Ok(room.local_participant().get_schema(id.into(), participant.into()).await?)

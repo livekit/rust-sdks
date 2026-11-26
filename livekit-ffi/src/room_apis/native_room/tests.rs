@@ -76,12 +76,12 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
 }
 
 impl FfiRoom {
-    async fn state_changed(&self, after: u64) -> Result<FfiRoomState, NativeSessionError> {
+    async fn state_changed(&self, after: u64) -> Result<FfiRoomState, FfiRoomError> {
         wait_for(&self.shared.changed, || {
             let inner = self.shared.inner.lock();
             if inner.revision > after {
                 Some(Ok(inner.snapshot()))
-            } else if inner.terminal == Some(NativeSessionError::Cancelled) || inner.finished {
+            } else if inner.terminal == Some(FfiRoomError::Cancelled) || inner.finished {
                 inner.terminal.clone().map(Err)
             } else {
                 None
@@ -143,7 +143,7 @@ fn cursor_over(queue: &Arc<EventQueue>) -> Arc<NativeRoomEventCursor> {
     NativeRoomEventCursor::new(queue.clone(), FfiRoom::new().state())
 }
 
-fn next(cursor: &NativeRoomEventCursor) -> Result<Option<NativeRoomEvent>, NativeSessionError> {
+fn next(cursor: &NativeRoomEventCursor) -> Result<Option<NativeRoomEvent>, FfiRoomError> {
     block_on(cursor.next()).map(|update| update.map(|update| update.event))
 }
 
@@ -157,11 +157,11 @@ fn item_overflow_fails_the_cursor() {
 
     // The failure replaces the backlog, so the consumer cannot read a
     // sequence with a hole in it.
-    let overflow = NativeSessionError::Overflow { items: 2, bytes: 0 };
+    let overflow = FfiRoomError::Overflow { items: 2, bytes: 0 };
     assert_eq!(next(&cursor).unwrap_err(), overflow.clone());
     queue.push(update(2, token_event("d")));
     assert_eq!(next(&cursor).unwrap_err(), overflow.clone());
-    assert!(!native_session_error_is_shutdown(overflow));
+    assert!(!ffi_room_error_is_shutdown(overflow));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn byte_overflow_fails_for_reliable_and_drops_lossy() {
     // The read released the bytes.
     queue.push(update(1, data_event(DataPacketKind::Reliable, 8)));
     queue.push(update(1, data_event(DataPacketKind::Reliable, 8)));
-    assert_eq!(next(&cursor).unwrap_err(), NativeSessionError::Overflow { items: 1, bytes: 8 });
+    assert_eq!(next(&cursor).unwrap_err(), FfiRoomError::Overflow { items: 1, bytes: 8 });
 }
 
 #[test]
@@ -249,11 +249,11 @@ fn cancel_wakes_a_pending_next() {
     let started = Instant::now();
     cursor.cancel();
     cursor.cancel();
-    assert_eq!(waiter.join().expect("waiter").unwrap_err(), NativeSessionError::Cancelled);
+    assert_eq!(waiter.join().expect("waiter").unwrap_err(), FfiRoomError::Cancelled);
     assert!(started.elapsed() < Duration::from_secs(1));
 
     queue.push(update(1, token_event("late")));
-    assert_eq!(next(&cursor).unwrap_err(), NativeSessionError::Cancelled);
+    assert_eq!(next(&cursor).unwrap_err(), FfiRoomError::Cancelled);
 }
 
 #[test]
@@ -266,12 +266,12 @@ fn cancel_before_connect_is_terminal() {
     session.cancel();
     session.cancel();
 
-    let cancelled = NativeSessionError::Cancelled;
+    let cancelled = FfiRoomError::Cancelled;
     assert_eq!(next(&cursor).unwrap_err(), cancelled);
     assert_eq!(
         block_on(session.connect("ws://127.0.0.1:1".to_owned(), String::new(), connect_options()))
             .unwrap_err(),
-        NativeSessionError::Cancelled
+        FfiRoomError::Cancelled
     );
     assert_eq!(
         block_on(session.publish_data(
@@ -282,7 +282,7 @@ fn cancel_before_connect_is_terminal() {
                 destination_identities: Vec::new()
             }
         )),
-        Err(NativeSessionError::Cancelled)
+        Err(FfiRoomError::Cancelled)
     );
 
     // The cancel is a change, so a waiter sees the last snapshot one time.
@@ -290,10 +290,10 @@ fn cancel_before_connect_is_terminal() {
     assert_eq!(last.connection, NativeConnectionState::Disconnected);
     assert_eq!(
         block_on(session.state_changed(last.revision)).unwrap_err(),
-        NativeSessionError::Cancelled
+        FfiRoomError::Cancelled
     );
 
-    // Regression: a session that never connected has no task to finish it.
+    // Regression: a room that never connected has no task to finish it.
     block_on(session.disconnect());
     assert_eq!(next(&session.events(cursor_options())).unwrap_err(), cancelled);
 }
@@ -313,9 +313,9 @@ fn disconnect_before_connect_ends_the_cursor() {
     assert_eq!(
         block_on(session.connect("ws://127.0.0.1:1".to_owned(), String::new(), connect_options()))
             .unwrap_err(),
-        NativeSessionError::Closed
+        FfiRoomError::Closed
     );
-    assert_eq!(block_on(session.state_changed(u64::MAX)).unwrap_err(), NativeSessionError::Closed);
+    assert_eq!(block_on(session.state_changed(u64::MAX)).unwrap_err(), FfiRoomError::Closed);
 }
 
 #[test]
@@ -328,10 +328,7 @@ fn connect_failure_reports_the_cause_and_finishes() {
     let result =
         block_on(session.connect(format!("ws://127.0.0.1:{port}"), "t".into(), connect_options()));
     assert!(
-        matches!(
-            result,
-            Err(NativeSessionError::Connection { .. } | NativeSessionError::Signal { .. })
-        ),
+        matches!(result, Err(FfiRoomError::Connection { .. } | FfiRoomError::Signal { .. })),
         "{result:?}"
     );
 
@@ -370,7 +367,7 @@ fn connect_without_host_transport_is_not_configured() {
         block_on(session.connect("ws://127.0.0.1:1".to_owned(), "t".into(), connect_options()));
     assert_eq!(
         result.unwrap_err(),
-        NativeSessionError::Signal { failure: NativeSignalFailure::TransportNotConfigured }
+        FfiRoomError::Signal { failure: NativeSignalFailure::TransportNotConfigured }
     );
     block_on(session.disconnect());
 }
@@ -405,8 +402,8 @@ fn cancel_during_connect_returns_at_once() {
 
     let started = Instant::now();
     session.cancel();
-    assert_eq!(connect.join().expect("connect").unwrap_err(), NativeSessionError::Cancelled);
-    assert_eq!(next(&cursor).unwrap_err(), NativeSessionError::Cancelled);
+    assert_eq!(connect.join().expect("connect").unwrap_err(), FfiRoomError::Cancelled);
+    assert_eq!(next(&cursor).unwrap_err(), FfiRoomError::Cancelled);
     let last = state_waiter.join().expect("state waiter").expect("last snapshot");
     assert_eq!(last.connection, NativeConnectionState::Disconnected);
     assert!(started.elapsed() < Duration::from_secs(1), "cancel waited for the connect");
@@ -573,7 +570,7 @@ impl Peer {
     }
 
     /// Disconnects, reads the cursor to its end and checks that nothing of
-    /// the session stays alive. Returns every event that the peer read.
+    /// the room stays alive. Returns every event that the peer read.
     fn leave(mut self) -> Vec<NativeRoomEvent> {
         block_on(self.session.disconnect());
         let reason = DisconnectReason::ClientInitiated;
@@ -588,7 +585,7 @@ impl Peer {
         assert_eq!(state.connection, NativeConnectionState::Disconnected);
         assert_eq!(state.disconnect_reason, Some(reason));
         assert!(state.remote_participants.is_empty() && state.publications.is_empty());
-        // The first snapshot is a value. The session did not change it.
+        // The first snapshot is a value. The room did not change it.
         assert_eq!(self.first.connection, NativeConnectionState::Connected);
 
         let shared = Arc::downgrade(&self.session.shared);
@@ -770,10 +767,10 @@ fn slow_consumer_overflows_and_starts_again() {
         thread::sleep(Duration::from_millis(20));
     }
     let error = block_on(bob.cursor.next()).expect_err("the backlog failed");
-    assert!(matches!(error, NativeSessionError::Overflow { .. }), "{error:?}");
+    assert!(matches!(error, FfiRoomError::Overflow { .. }), "{error:?}");
     assert_eq!(block_on(bob.cursor.next()).unwrap_err(), error);
 
-    // The session did not end. A new cursor starts from its own snapshot.
+    // The room did not end. A new cursor starts from its own snapshot.
     assert_eq!(bob.session.state().connection, NativeConnectionState::Connected);
     bob.cursor = bob.session.events(cursor_options());
     let start = bob.cursor.start_state();
@@ -824,17 +821,17 @@ fn cancel_races_a_real_connect() {
         match connect.join().expect("connect") {
             // The connection completed before the cancel.
             Ok(state) => assert_eq!(state.connection, NativeConnectionState::Connected),
-            Err(error) => assert_eq!(error, NativeSessionError::Cancelled),
+            Err(error) => assert_eq!(error, FfiRoomError::Cancelled),
         }
         assert_eq!(victim.state().connection, NativeConnectionState::Disconnected);
-        // The join of the session task: a room that connected late is closed here.
+        // The join of the room task: a room that connected late is closed here.
         block_on(victim.disconnect());
         let shared = Arc::downgrade(&victim.shared);
         drop((victim, cursor));
         assert!(shared.upgrade().is_none(), "round {round} leaked its session");
     }
 
-    // Every room that the cancelled sessions opened is closed, so the server
+    // Every room that the cancelled rooms opened is closed, so the server
     // reports no other participant.
     let mut state = observer.session.state();
     let deadline = Instant::now() + LIMIT;
@@ -854,7 +851,7 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
     let session = FfiRoom::new();
     // Deterministic driver state: a close is pending and has not marked finished.
     session.shared.update(|inner| inner.connection = NativeConnectionState::Connecting);
-    session.shared.terminate(NativeSessionError::Closed);
+    session.shared.terminate(FfiRoomError::Closed);
     let mut wait = Box::pin(session.state_changed(session.state().revision));
     assert!(poll_for(Duration::from_millis(10), &mut wait).is_none());
     session.cancel();
@@ -862,7 +859,7 @@ fn cancel_supersedes_closed_during_stalled_teardown() {
     let _ = block_on(wait);
     assert_eq!(
         block_on(session.state_changed(frozen.revision)).unwrap_err(),
-        NativeSessionError::Cancelled
+        FfiRoomError::Cancelled
     );
     session.shared.apply(RoomEvent::TokenRefreshed { token: "late".into() });
     session.shared.apply(RoomEvent::ConnectionStateChanged(ConnectionState::Connected));
@@ -1184,16 +1181,16 @@ fn media_validation_and_child_handles_do_not_retain_session() {
     session.cancel();
     assert!(matches!(
         block_on(session.create_audio_track("closed".into(), 1)),
-        Err(NativeSessionError::Cancelled)
+        Err(FfiRoomError::Cancelled)
     ));
     assert!(matches!(
         block_on(session.create_video_track("closed".into(), 640, 480, false)),
-        Err(NativeSessionError::Cancelled)
+        Err(FfiRoomError::Cancelled)
     ));
     // This must reject before touching PlatformAudio or selecting a device.
     assert!(matches!(
         block_on(session.create_microphone_track("closed".into(), Some("invalid-device".into()))),
-        Err(NativeSessionError::Cancelled)
+        Err(FfiRoomError::Cancelled)
     ));
     let weak = Arc::downgrade(&session.shared);
     block_on(session.disconnect());
@@ -1677,13 +1674,13 @@ fn connect_core_options_preserve_nested_values_and_defaults() {
 fn structured_error_codes_are_not_derived_from_text() {
     use super::errors::*;
     use livekit_signaling::SignalError;
-    let http = NativeSessionError::from(SignalError::Client(
+    let http = FfiRoomError::from(SignalError::Client(
         401.try_into().unwrap(),
         "not a classification string".into(),
     ));
     assert!(matches!(
         http,
-        NativeSessionError::Signal {
+        FfiRoomError::Signal {
             failure: NativeSignalFailure::Http {
                 source: NativeHttpFailureSource::ClientValidation,
                 status: 401,
@@ -1691,11 +1688,10 @@ fn structured_error_codes_are_not_derived_from_text() {
             }
         }
     ));
-    let handshake =
-        NativeSessionError::from(SignalError::Handshake { status: 403.try_into().unwrap() });
+    let handshake = FfiRoomError::from(SignalError::Handshake { status: 403.try_into().unwrap() });
     assert!(matches!(
         handshake,
-        NativeSessionError::Signal {
+        FfiRoomError::Signal {
             failure: NativeSignalFailure::Http {
                 source: NativeHttpFailureSource::WebSocketHandshake,
                 status: 403,
@@ -1704,19 +1700,19 @@ fn structured_error_codes_are_not_derived_from_text() {
         }
     ));
     assert!(matches!(
-        NativeSessionError::from(RoomError::Request {
+        FfiRoomError::from(RoomError::Request {
             reason: livekit_protocol::request_response::Reason::NotAllowed,
             message: "401 timeout unrelated text".into()
         }),
-        NativeSessionError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
+        FfiRoomError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
     ));
     assert!(matches!(
-        NativeSessionError::from(SignalError::Timeout("403".into())),
-        NativeSessionError::Signal { failure: NativeSignalFailure::Timeout { .. } }
+        FfiRoomError::from(SignalError::Timeout("403".into())),
+        FfiRoomError::Signal { failure: NativeSignalFailure::Timeout { .. } }
     ));
     assert!(matches!(
-        NativeSessionError::from(SignalError::Connection("401 unauthorized".into())),
-        NativeSessionError::Signal { failure: NativeSignalFailure::Transport { .. } }
+        FfiRoomError::from(SignalError::Connection("401 unauthorized".into())),
+        FfiRoomError::Signal { failure: NativeSignalFailure::Transport { .. } }
     ));
 }
 
@@ -1736,7 +1732,7 @@ fn real_structured_connection_and_stream_errors() {
     assert!(
         matches!(
             error,
-            NativeSessionError::Signal {
+            FfiRoomError::Signal {
                 failure: NativeSignalFailure::Http {
                     status: 401,
                     source: NativeHttpFailureSource::ClientValidation,
@@ -1771,7 +1767,7 @@ fn real_structured_connection_and_stream_errors() {
     assert!(
         matches!(
             error,
-            NativeSessionError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
+            FfiRoomError::RequestFailure { code: NativeRequestFailureCode::NotAllowed, .. }
         ),
         "{error:?}"
     );
@@ -1809,7 +1805,7 @@ fn invalid_cursor_limits_fail_without_an_event() {
         let session = FfiRoom::new();
         let valid = session.events(cursor_options());
         let cursor = session.events(options);
-        assert!(matches!(next(&cursor), Err(NativeSessionError::InvalidState { .. })));
+        assert!(matches!(next(&cursor), Err(FfiRoomError::InvalidState { .. })));
         session.shared.apply(RoomEvent::TokenRefreshed { token: "still-delivered".into() });
         assert!(
             matches!(next(&valid).unwrap(), Some(NativeRoomEvent::TokenRefreshed { token }) if token == "still-delivered")
@@ -1880,7 +1876,7 @@ fn real_receive_then_pcm_does_not_request_platform_audio() {
     });
     receive_then_pcm_privacy_checkpoint(1);
     // The previously unsafe ordering: receive first, then publish manual PCM in
-    // the receiving session and a different session. Do not create PlatformAudio
+    // the receiving room and a different room. Do not create PlatformAudio
     // even to query it: its constructor itself enables capture globally.
     let local =
         block_on(receiver.session.create_audio_track("late PCM same room session".into(), 1))
@@ -1983,6 +1979,6 @@ fn real_public_core_controls() {
     sender.leave();
     assert!(matches!(
         block_on(remote.set_video_quality(VideoQuality::Low)),
-        Err(NativeSessionError::Closed)
+        Err(FfiRoomError::Closed)
     ));
 }

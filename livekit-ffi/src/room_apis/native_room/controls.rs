@@ -1,5 +1,5 @@
 //! Thin commands supported by the public core; no signaling or media backend is recreated.
-use super::{FfiRoom, NativeSessionError};
+use super::{FfiRoom, FfiRoomError};
 
 use livekit::id::{ParticipantIdentity, TrackSid};
 pub use livekit::participant::ParticipantTrackPermission;
@@ -30,7 +30,7 @@ impl FfiRoom {
         code: u32,
         digit: String,
         destination_identities: Vec<String>,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         super::on_runtime(async move {
             room.local_participant()
@@ -53,7 +53,7 @@ impl FfiRoom {
         &self,
         all_participants_allowed: bool,
         permissions: Vec<ParticipantTrackPermission>,
-    ) -> Result<(), NativeSessionError> {
+    ) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         super::on_runtime(async move {
             room.local_participant()

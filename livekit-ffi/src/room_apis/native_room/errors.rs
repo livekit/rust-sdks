@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Exact public core error causes. Display text is context, never a classification input.
-use super::NativeSessionError;
+use super::FfiRoomError;
 use livekit::{rtc_engine::EngineError, RoomError};
 use livekit_signaling::SignalError;
 
@@ -57,7 +57,7 @@ pub enum NativeHttpFailureSource {
 // Leave reason/action integers exactly. DecodeError becomes Display text (its
 // structured source chain is lost); future unknown variants likewise retain only
 // Display text. This is a deliberate error-wire adapter, not mobile classification.
-// NativeSessionError additionally represents cursor overflow/cancellation and
+// FfiRoomError additionally represents cursor overflow/cancellation and
 // lifecycle failures absent from RoomError; RTC kind/request codes remain core
 // enums, and Cow<str> engine context becomes an owned String without text loss.
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
@@ -98,7 +98,7 @@ pub enum NativeSignalFailure {
         reason: String,
     },
 }
-impl From<SignalError> for NativeSessionError {
+impl From<SignalError> for FfiRoomError {
     fn from(error: SignalError) -> Self {
         use NativeHttpFailureSource as H;
         use NativeSignalFailure as F;
@@ -135,7 +135,7 @@ impl From<SignalError> for NativeSessionError {
         Self::Signal { failure: cause }
     }
 }
-impl From<RoomError> for NativeSessionError {
+impl From<RoomError> for FfiRoomError {
     fn from(error: RoomError) -> Self {
         match error {
             RoomError::Engine(EngineError::Signal(error)) => error.into(),

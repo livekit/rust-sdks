@@ -14,13 +14,13 @@
 
 //! Deadline-bound RPC calls and replies through the room's core RPC transport.
 
-use super::{FfiRoom, NativeRoomEvent, NativeSessionError};
+use super::{FfiRoom, FfiRoomError, NativeRoomEvent};
 use livekit::participant::{PerformRpcData, RpcError, RpcErrorCode};
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
-fn rpc_session_error(error: NativeSessionError) -> RpcError {
+fn rpc_room_error(error: FfiRoomError) -> RpcError {
     RpcError::built_in(RpcErrorCode::SendFailed, Some(error.to_string()))
 }
 
@@ -119,7 +119,7 @@ impl NativeRpcInvocation {
 impl FfiRoom {
     /// Performs an RPC on the core transport, preserving its error code and data.
     pub async fn perform_rpc(&self, options: NativeRpcOptions) -> Result<String, NativeRpcError> {
-        let room = self.shared.room().map_err(rpc_session_error)?;
+        let room = self.shared.room().map_err(rpc_room_error)?;
         super::on_runtime(async move {
             let data = PerformRpcData {
                 destination_identity: options.destination_identity,
@@ -137,8 +137,8 @@ impl FfiRoom {
     }
 
     /// Registers an RPC method. Requests arrive on the ordered room event cursor.
-    /// At most 64 incoming invocations can wait for foreign replies per session.
-    pub async fn register_rpc_method(&self, method: String) -> Result<(), NativeSessionError> {
+    /// At most 64 incoming invocations can wait for foreign replies per room.
+    pub async fn register_rpc_method(&self, method: String) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         let weak = Arc::downgrade(&self.shared);
         let _runtime = crate::FFI_SERVER.async_runtime.enter();
@@ -191,7 +191,7 @@ impl FfiRoom {
     }
 
     /// Stops accepting new invocations of this method; pending replies keep their deadline.
-    pub async fn unregister_rpc_method(&self, method: String) -> Result<(), NativeSessionError> {
+    pub async fn unregister_rpc_method(&self, method: String) -> Result<(), FfiRoomError> {
         let room = self.shared.room()?;
         super::on_runtime(async move {
             room.local_participant().unregister_rpc_method(method);
