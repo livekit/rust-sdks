@@ -60,12 +60,21 @@ bool NvidiaH265DecoderImpl::Configure(const Settings& settings) {
     return false;
   }
 
+  return CreateDecoder();
+}
+
+bool NvidiaH265DecoderImpl::CreateDecoder() {
   int maxWidth = 4096;
   int maxHeight = 4096;
 
-  decoder_ = std::make_unique<NvDecoder>(
-      cu_context_, false, cudaVideoCodec_HEVC, true, false, nullptr, nullptr,
-      false, maxWidth, maxHeight);
+  try {
+    decoder_ = std::make_unique<NvDecoder>(
+        cu_context_, false, cudaVideoCodec_HEVC, true, false, nullptr,
+        nullptr, false, maxWidth, maxHeight);
+  } catch (const NVDECException& e) {
+    RTC_LOG(LS_ERROR) << "NVDEC failed to start: " << e.what();
+    return false;
+  }
   return true;
 }
 
@@ -77,6 +86,8 @@ int32_t NvidiaH265DecoderImpl::RegisterDecodeCompleteCallback(
 
 int32_t NvidiaH265DecoderImpl::Release() {
   buffer_pool_.Release();
+  decoder_.reset();
+  is_configured_decoder_ = false;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -101,13 +112,34 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
     RTC_LOG(LS_ERROR) << "decode failed: input image is null";
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
+  if (!decoder_ && !CreateDecoder()) {
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
 
+  // Each access unit once, marked complete, so the parser outputs its picture now rather than
+  // when the next one starts. Feeding it again until a frame came out left every frame one
+  // behind, and never ended for an access unit without a picture. This low-latency path
+  // assumes complete access units without frame reordering.
   int nFrameReturned = 0;
-  do {
+  try {
+    // A key frame may start another size, as when the sender switches layers. NVDEC
+    // otherwise kept the first size and scaled every later picture up or down to it.
+    if (is_configured_decoder_ &&
+        input_image._frameType == webrtc::VideoFrameType::kVideoFrameKey) {
+      decoder_->setReconfigParams(nullptr, nullptr);
+    }
     nFrameReturned = decoder_->Decode(
         input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
-  } while (nFrameReturned == 0);
+        CUVID_PKT_TIMESTAMP | CUVID_PKT_ENDOFPICTURE, input_image.RtpTimestamp());
+  } catch (const NVDECException& e) {
+    // A driver or GPU failure; the sender is asked for a key frame. NvDecoder keeps the size of
+    // a failed decoder creation and would never create one again, so the next frame starts a
+    // new one.
+    RTC_LOG(LS_ERROR) << "NVDEC decode failed: " << e.what();
+    decoder_.reset();
+    is_configured_decoder_ = false;
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
 
   is_configured_decoder_ = true;
 

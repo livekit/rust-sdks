@@ -70,9 +70,14 @@ bool NvidiaH264DecoderImpl::Configure(const Settings& settings) {
   int maxHeight = 4096;
 
   // bUseDeviceFrame: allocate in memory or cuda device memory
-  decoder_ = std::make_unique<NvDecoder>(
-      cu_context_, false, cudaVideoCodec_H264, true, false, nullptr, nullptr,
-      false, maxWidth, maxHeight);
+  try {
+    decoder_ = std::make_unique<NvDecoder>(
+        cu_context_, false, cudaVideoCodec_H264, true, false, nullptr,
+        nullptr, false, maxWidth, maxHeight);
+  } catch (const NVDECException& e) {
+    RTC_LOG(LS_ERROR) << "NVDEC failed to start: " << e.what();
+    return false;
+  }
   return true;
 }
 
@@ -84,6 +89,10 @@ int32_t NvidiaH264DecoderImpl::RegisterDecodeCompleteCallback(
 
 int32_t NvidiaH264DecoderImpl::Release() {
   buffer_pool_.Release();
+  // Frees the GPU decoder too, also when the software fallback takes over; Configure makes a
+  // new one.
+  decoder_.reset();
+  is_configured_decoder_ = false;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -93,12 +102,12 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
   CUcontext current;
   if (!ck(cuCtxGetCurrent(&current))) {
     RTC_LOG(LS_ERROR) << "decode failed on cuCtxGetCurrent is failed";
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
   }
   if (current != cu_context_) {
     RTC_LOG(LS_ERROR)
         << "decode failed on not match current context and hold context";
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
   }
   if (decoded_complete_callback_ == nullptr) {
     RTC_LOG(LS_ERROR) << "decode failed on not set m_decodedCompleteCallback";
@@ -121,12 +130,20 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
     }
   }
 
+  // Each access unit once, marked complete, so the parser outputs its picture now rather than
+  // when the next one starts. Feeding it again until a frame came out left every frame one
+  // behind, and never ended for an access unit without a picture. This low-latency path
+  // assumes complete access units without frame reordering.
   int nFrameReturnd = 0;
-  do {
+  try {
     nFrameReturnd = decoder_->Decode(
         input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
-  } while (nFrameReturnd == 0);
+        CUVID_PKT_TIMESTAMP | CUVID_PKT_ENDOFPICTURE, input_image.RtpTimestamp());
+  } catch (const NVDECException& e) {
+    // A driver or GPU failure; the software decoder takes over.
+    RTC_LOG(LS_ERROR) << "NVDEC decode failed: " << e.what();
+    return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
+  }
 
   is_configured_decoder_ = true;
 

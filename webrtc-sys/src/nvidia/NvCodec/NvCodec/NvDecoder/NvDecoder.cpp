@@ -503,7 +503,7 @@ int NvDecoder::setReconfigParams(const Rect *pCropRect, const Dim *pResizeDim)
         }
         else
         {
-            delete pFrame;
+            delete[] pFrame;
         }
     }
 
@@ -762,6 +762,9 @@ NvDecoder::~NvDecoder() {
     cuCtxPushCurrent(m_cuContext);
     if (m_hDecoder) {
         cuvidDestroyDecoder(m_hDecoder);
+    }
+    if (m_cuvidStream) {
+        cuStreamDestroy(m_cuvidStream);
     }
 
     std::lock_guard<std::mutex> lock(m_mtxVPFrame);
