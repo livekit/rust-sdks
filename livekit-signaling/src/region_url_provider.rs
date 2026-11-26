@@ -72,6 +72,26 @@ fn first_cached_region(host: &str) -> Option<String> {
     }
 }
 
+/// Requests the root of `region_url` once, so that its host name is resolved before a connect
+/// dials it, as the JS SDK does with a `HEAD`. The WebSocket opens its own connection, so only
+/// the system's DNS cache carries over. Best effort: the response is ignored. A `GET`, because
+/// [`livekit_net::HttpMethod`] has no `HEAD` and host SDKs implement it.
+async fn resolve_region_host(region_url: &str) {
+    let Ok(mut url) = url::Url::parse(region_url) else { return };
+    let scheme = match url.scheme() {
+        "wss" => "https",
+        "ws" => "http",
+        other => other,
+    }
+    .to_owned();
+    if url.set_scheme(&scheme).is_err() {
+        return;
+    }
+    url.set_path("/");
+    let Ok(http) = super::require_http_client() else { return };
+    let _ = tokio::time::timeout(REGION_FETCH_TIMEOUT, http.get(url.to_string(), vec![])).await;
+}
+
 fn region_host(url: &str) -> SignalResult<String> {
     let parsed = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
     parsed
@@ -170,8 +190,11 @@ impl RegionUrlProvider {
         let host = region_host(url)?;
         let (url, token) = (url.to_owned(), token.to_owned());
         let refresh = tokio::spawn(async move { Self::keep_fresh(&url, || token.clone()).await });
-        if let Some(replaced) = prepared_refreshes().lock().insert(host, refresh) {
+        if let Some(replaced) = prepared_refreshes().lock().insert(host.clone(), refresh) {
             replaced.abort();
+        }
+        if let Some(region_url) = first_cached_region(&host) {
+            resolve_region_host(&region_url).await;
         }
         Ok(())
     }
@@ -561,6 +584,24 @@ mod tests {
 
         assert_eq!(fetches(), 1, "the refresh kept running after the cancel");
         assert_eq!(RegionUrlProvider::take_prepared(URL), None, "the prepare was not undone");
+    }
+
+    /// `prepare` requests the root of the region it picks, so that the region host is resolved
+    /// before the connect dials it.
+    #[tokio::test]
+    async fn prepare_resolves_the_region_host() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://prepare-dns.livekit.cloud";
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("prepare");
+        RegionUrlProvider::cancel_prepared(URL);
+
+        let contacted = crate::test_transport::HTTP_REQUESTS
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|url| url == "https://us-mock.livekit.cloud/");
+        assert!(contacted, "prepare did not contact the region host");
     }
 
     /// A second `prepare` for a host replaces the first refresh instead of adding one.

@@ -418,10 +418,12 @@ impl SignalClient {
             ))
         };
 
-        // A connect after `RegionUrlProvider::prepare` stops its refresh, and dials the best
-        // region unless the caller runs its own failover or names a region itself.
-        let prepared_url =
-            RegionUrlProvider::take_prepared(url).filter(|_| options.region_failover);
+        // A connect after `RegionUrlProvider::prepare` stops its refresh and dials the best region.
+        // A connect that names its first region, like a full reconnect, or runs no failover leaves
+        // the prepare for the next connect.
+        let prepared_url = (options.region_failover && options.initial_region_url.is_none())
+            .then(|| RegionUrlProvider::take_prepared(url))
+            .flatten();
         let first_url =
             options.initial_region_url.as_deref().or(prepared_url.as_deref()).unwrap_or(url);
 
@@ -2643,6 +2645,48 @@ mod tests {
 
         let result = connect.await.expect("connect task panicked");
         assert!(matches!(result, Err(SignalError::Cancelled)), "got {:?}", result.err());
+    }
+
+    /// A connect without failover leaves a prepare for the next connect.
+    #[tokio::test]
+    async fn prepare_survives_a_connect_without_failover() {
+        use crate::test_transport::install_mock_transport;
+        install_mock_transport();
+        let url = "wss://prepare-nofailover.livekit.cloud";
+
+        RegionUrlProvider::prepare(url, "tok").await.expect("prepare");
+        let options = SignalOptions { region_failover: false, ..Default::default() };
+        let _ = SignalClient::connect(url, "tok", options, None).await;
+
+        assert!(
+            RegionUrlProvider::take_prepared(url).is_some(),
+            "a connect without failover took the prepare"
+        );
+    }
+
+    /// A connect that names its first region, like a full reconnect, leaves a prepare for the
+    /// next connect. Its failover empties the cached list, so the test watches the refresh.
+    #[tokio::test(start_paused = true)]
+    async fn prepare_survives_a_connect_that_names_a_region() {
+        use crate::test_transport::{install_mock_transport, HTTP_REQUESTS};
+        install_mock_transport();
+        // The mock serves this host with a zero max-age, so every refresh fetches.
+        const HOST: &str = "maxage0-prepare-named.livekit.cloud";
+        let url = format!("wss://{HOST}");
+        let endpoint = format!("https://{HOST}/settings/regions");
+        let fetches = || HTTP_REQUESTS.lock().unwrap().iter().filter(|u| **u == endpoint).count();
+
+        RegionUrlProvider::prepare(&url, "tok").await.expect("prepare");
+        let options = SignalOptions {
+            initial_region_url: Some("wss://us-mock.livekit.cloud".into()),
+            ..Default::default()
+        };
+        let _ = SignalClient::connect(&url, "tok", options, None).await;
+        let after_connect = fetches();
+        sleep(livekit_region::RegionCache::DEFAULT_TTL * 2).await;
+
+        assert!(fetches() > after_connect, "the prepare's refresh stopped");
+        RegionUrlProvider::cancel_prepared(&url);
     }
 
     /// With `initial_region_url` set, the connect dials that region instead of its `url`. When the region

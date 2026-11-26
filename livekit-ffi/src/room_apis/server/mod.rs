@@ -193,7 +193,9 @@ impl FfiServer {
         self.logger.set_capture_logs(false);
 
         // Wait for each prepare to finish (its region fetch times out), so that none starts a
-        // refresh after this, then stop the refreshes they started.
+        // refresh after this, then stop the refreshes they started. Aborting would not stop
+        // one: the tracked handle is the `watch_panic` wrapper, and aborting it only detaches
+        // the prepare task. The tasks run in parallel, so this waits for the slowest one.
         let prepared = std::mem::take(&mut *self.prepared_connections.lock());
         for (url, task) in prepared {
             let _ = task.await;
