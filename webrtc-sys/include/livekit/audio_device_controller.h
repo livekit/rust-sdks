@@ -17,6 +17,8 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
+#include <string>
 
 #include "api/scoped_refptr.h"
 #include "livekit/adm_proxy.h"
@@ -44,6 +46,17 @@ class AudioDeviceController {
   bool set_recording_device(uint16_t index) const;
   bool set_playout_device_by_guid(rust::String guid) const;
   bool set_recording_device_by_guid(rust::String guid) const;
+
+  // The device last selected successfully, as a token the matching restore
+  // call accepts: the device's GUID (or "index:<n>" where the platform has no
+  // GUIDs), "windows:<type>" for a Windows default device, or empty if none
+  // was selected and the platform default is in use.
+  rust::String playout_device_selection() const;
+  rust::String recording_device_selection() const;
+  // Selects the device a token from *_device_selection() names, looking a GUID
+  // up in the current device list. An empty token selects the platform default.
+  bool restore_playout_device_selection(rust::String selection) const;
+  bool restore_recording_device_selection(rust::String selection) const;
 
   // Recording control
   bool stop_recording() const;
@@ -80,6 +93,14 @@ class AudioDeviceController {
   bool is_platform_adm_active() const;
 
  private:
+  // Select a device and remember it. The caller holds selection_mutex_.
+  bool select_playout_device(uint16_t index) const;
+  bool select_recording_device(uint16_t index) const;
+  // Select a device by GUID, "index:<n>" ID or name. The caller holds
+  // selection_mutex_.
+  bool select_playout_device_by_id(const std::string& target_guid) const;
+  bool select_recording_device_by_id(const std::string& target_guid) const;
+
   // The AdmProxy marshals its calls onto the runtime's worker thread, keep
   // the runtime (and its threads) alive as long as Rust can reach the proxy.
   // Declaration order matters: rtc_runtime_ must be declared before
@@ -87,6 +108,17 @@ class AudioDeviceController {
   // the worker thread, which must still be running at that point.
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
+
+  // The last successful selections, kept as stable identities (see
+  // *_device_selection()) so they survive devices being added or removed.
+  // selection_mutex_ is held across each selection, from the native call to
+  // remembering its result, so concurrent selections can't remember a device
+  // other than the one selected. Holding it while the proxy blocks on the
+  // worker thread is safe: the worker never calls back into this controller
+  // (see AdmProxy).
+  mutable std::mutex selection_mutex_;
+  mutable std::string playout_selection_;
+  mutable std::string recording_selection_;
 };
 
 }  // namespace livekit_ffi

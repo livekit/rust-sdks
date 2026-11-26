@@ -166,6 +166,32 @@ impl LkRuntime {
         self.pc_factory.set_recording_device_by_guid(guid)
     }
 
+    /// The playout device last selected, as a token `restore_playout_device_selection`
+    /// accepts. Empty if none was selected and the platform default is in use.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn playout_device_selection(&self) -> String {
+        self.pc_factory.playout_device_selection()
+    }
+
+    /// The recording device last selected, as a token `restore_recording_device_selection`
+    /// accepts. Empty if none was selected and the platform default is in use.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn recording_device_selection(&self) -> String {
+        self.pc_factory.recording_device_selection()
+    }
+
+    /// Select the playout device a token from `playout_device_selection` names
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn restore_playout_device_selection(&self, selection: &str) -> bool {
+        self.pc_factory.restore_playout_device_selection(selection)
+    }
+
+    /// Select the recording device a token from `recording_device_selection` names
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn restore_recording_device_selection(&self, selection: &str) -> bool {
+        self.pc_factory.restore_recording_device_selection(selection)
+    }
+
     /// Stop recording (clears initialized state, allowing device switch)
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn stop_recording(&self) -> bool {

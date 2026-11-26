@@ -109,6 +109,7 @@
 //!
 //! [`NativeAudioSource`]: crate::webrtc::audio_source::native::NativeAudioSource
 
+mod device_switch;
 mod error;
 mod processing;
 
@@ -310,6 +311,11 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
+    // Held for a whole device switch and for each selection, so a selection can't
+    // land between a switch's steps and one switch's rollback can't undo another
+    // selection.
+    recording_switch: Mutex<()>,
+    playout_switch: Mutex<()>,
 }
 
 impl Drop for PlatformAdmHandle {
@@ -489,7 +495,11 @@ impl PlatformAudio {
             playout_count
         );
 
-        let handle = Arc::new(PlatformAdmHandle { runtime });
+        let handle = Arc::new(PlatformAdmHandle {
+            runtime,
+            recording_switch: Mutex::new(()),
+            playout_switch: Mutex::new(()),
+        });
         *handle_ref = Arc::downgrade(&handle);
 
         let audio = Self { handle };
@@ -707,6 +717,7 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
 
+        let _switching = self.handle.recording_switch.lock();
         let guid = id.as_str();
         let success = if let Some(idx_str) = guid.strip_prefix("index:") {
             if let Ok(idx) = idx_str.parse::<u16>() {
@@ -796,6 +807,7 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
 
+        let _switching = self.handle.playout_switch.lock();
         let runtime = &self.handle.runtime;
         let guid = id.as_str();
         let success = if let Some(idx_str) = guid.strip_prefix("index:") {
@@ -860,6 +872,8 @@ impl PlatformAudio {
     ///
     /// Unlike [`set_recording_device`], this method handles the stop/change/restart
     /// sequence required when recording is already active.
+    /// If any step fails after recording has stopped, recording resumes on the
+    /// previously selected device.
     ///
     /// # Arguments
     ///
@@ -883,41 +897,8 @@ impl PlatformAudio {
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
 
-        let runtime = &self.handle.runtime;
-        let was_initialized = runtime.recording_is_initialized();
-
-        if was_initialized {
-            if !runtime.stop_recording() {
-                return Err(AudioError::OperationFailed("stop_recording failed".to_string()));
-            }
-        }
-
-        let guid = id.as_str();
-        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
-            if let Ok(idx) = idx_str.parse::<u16>() {
-                runtime.set_recording_device(idx)
-            } else {
-                runtime.set_recording_device_by_guid(guid)
-            }
-        } else {
-            runtime.set_recording_device_by_guid(guid)
-        };
-
-        if !success {
-            return Err(AudioError::DeviceNotFound);
-        }
-
-        if was_initialized {
-            if !runtime.init_recording() {
-                return Err(AudioError::OperationFailed("init_recording failed".to_string()));
-            }
-
-            if !runtime.start_recording() {
-                return Err(AudioError::OperationFailed("start_recording failed".to_string()));
-            }
-        }
-
-        Ok(())
+        let _switching = self.handle.recording_switch.lock();
+        device_switch::switch_device(&RecordingSwitch(&self.handle.runtime), id.as_str())
     }
 
     /// Switches the recording device by index while audio is active (hot-swap).
@@ -954,6 +935,8 @@ impl PlatformAudio {
     ///
     /// Unlike [`set_playout_device`], this method handles the stop/change/restart
     /// sequence required when playout is already active.
+    /// If any step fails after playout has stopped, playout resumes on the
+    /// previously selected device.
     ///
     /// # Arguments
     ///
@@ -974,41 +957,17 @@ impl PlatformAudio {
     ///
     /// [`set_playout_device`]: Self::set_playout_device
     pub fn switch_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
-        let runtime = &self.handle.runtime;
-        let was_initialized = runtime.playout_is_initialized();
+        // Accept everything the selection below resolves: a listed ID, an index-based
+        // ID (`PlayoutDeviceId::from_index`) or a device name
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.playout_devices(), |device| {
+            &device.id == id
+                || PlayoutDeviceId::from_index(device.index) == *id
+                || device.name == id.as_str()
+        })?;
 
-        if was_initialized {
-            if !runtime.stop_playout() {
-                return Err(AudioError::OperationFailed("stop_playout failed".to_string()));
-            }
-        }
-
-        let guid = id.as_str();
-        let success = if let Some(idx_str) = guid.strip_prefix("index:") {
-            if let Ok(idx) = idx_str.parse::<u16>() {
-                runtime.set_playout_device(idx)
-            } else {
-                runtime.set_playout_device_by_guid(guid)
-            }
-        } else {
-            runtime.set_playout_device_by_guid(guid)
-        };
-
-        if !success {
-            return Err(AudioError::DeviceNotFound);
-        }
-
-        if was_initialized {
-            if !runtime.init_playout() {
-                return Err(AudioError::OperationFailed("init_playout failed".to_string()));
-            }
-
-            if !runtime.start_playout() {
-                return Err(AudioError::OperationFailed("start_playout failed".to_string()));
-            }
-        }
-
-        Ok(())
+        let _switching = self.handle.playout_switch.lock();
+        device_switch::switch_device(&PlayoutSwitch(&self.handle.runtime), id.as_str())
     }
 
     /// Switches the playout device by index while audio is active (hot-swap).
@@ -1419,9 +1378,114 @@ pub fn reset_platform_audio() {
     *handle_ref = Weak::new();
 }
 
+/// Device switching steps for recording, backed by the runtime.
+struct RecordingSwitch<'a>(&'a LkRuntime);
+
+impl device_switch::DeviceSwitchSteps for RecordingSwitch<'_> {
+    fn direction(&self) -> &'static str {
+        "recording"
+    }
+
+    fn is_initialized(&self) -> bool {
+        self.0.recording_is_initialized()
+    }
+
+    fn current_selection(&self) -> String {
+        self.0.recording_device_selection()
+    }
+
+    fn stop(&self) -> bool {
+        self.0.stop_recording()
+    }
+
+    fn select(&self, device_id: &str) -> bool {
+        match device_id.strip_prefix("index:").and_then(|index| index.parse::<u16>().ok()) {
+            Some(index) => self.0.set_recording_device(index),
+            None => self.0.set_recording_device_by_guid(device_id),
+        }
+    }
+
+    fn restore(&self, selection: &str) -> bool {
+        self.0.restore_recording_device_selection(selection)
+    }
+
+    fn init(&self) -> bool {
+        self.0.init_recording()
+    }
+
+    fn start(&self) -> bool {
+        self.0.start_recording()
+    }
+}
+
+/// Device switching steps for playout, backed by the runtime.
+struct PlayoutSwitch<'a>(&'a LkRuntime);
+
+impl device_switch::DeviceSwitchSteps for PlayoutSwitch<'_> {
+    fn direction(&self) -> &'static str {
+        "playout"
+    }
+
+    fn is_initialized(&self) -> bool {
+        self.0.playout_is_initialized()
+    }
+
+    fn current_selection(&self) -> String {
+        self.0.playout_device_selection()
+    }
+
+    fn stop(&self) -> bool {
+        self.0.stop_playout()
+    }
+
+    fn select(&self, device_id: &str) -> bool {
+        match device_id.strip_prefix("index:").and_then(|index| index.parse::<u16>().ok()) {
+            Some(index) => self.0.set_playout_device(index),
+            None => self.0.set_playout_device_by_guid(device_id),
+        }
+    }
+
+    fn restore(&self, selection: &str) -> bool {
+        self.0.restore_playout_device_selection(selection)
+    }
+
+    fn init(&self) -> bool {
+        self.0.init_playout()
+    }
+
+    fn start(&self) -> bool {
+        self.0.start_playout()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Device switching rolls back to the remembered selection, so it must name the
+    /// device that was accepted, by its GUID rather than its index.
+    #[test_log::test(tokio::test)]
+    #[serial_test::serial]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    async fn remembers_the_accepted_recording_device_by_identity() {
+        reset_platform_audio();
+        let Ok(audio) = PlatformAudio::new() else {
+            return;
+        };
+        let Some(device) = audio.recording_devices().next() else {
+            return;
+        };
+        let runtime = &audio.handle.runtime;
+
+        assert!(runtime.set_recording_device(device.index as u16));
+        assert_eq!(runtime.recording_device_selection(), device.id.as_str());
+
+        assert!(!runtime.set_recording_device_by_guid("__livekit_missing_recording_device__"));
+        assert_eq!(runtime.recording_device_selection(), device.id.as_str());
+
+        assert!(runtime.restore_recording_device_selection(device.id.as_str()));
+        assert_eq!(runtime.recording_device_selection(), device.id.as_str());
+    }
 
     #[test]
     fn rtc_audio_source_device_variant() {

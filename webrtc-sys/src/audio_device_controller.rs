@@ -39,6 +39,17 @@ pub mod ffi {
         fn set_playout_device_by_guid(self: &AudioDeviceController, guid: String) -> bool;
         fn set_recording_device_by_guid(self: &AudioDeviceController, guid: String) -> bool;
 
+        fn playout_device_selection(self: &AudioDeviceController) -> String;
+        fn recording_device_selection(self: &AudioDeviceController) -> String;
+        fn restore_playout_device_selection(
+            self: &AudioDeviceController,
+            selection: String,
+        ) -> bool;
+        fn restore_recording_device_selection(
+            self: &AudioDeviceController,
+            selection: String,
+        ) -> bool;
+
         fn stop_recording(self: &AudioDeviceController) -> bool;
         fn init_recording(self: &AudioDeviceController) -> bool;
         fn start_recording(self: &AudioDeviceController) -> bool;
@@ -117,5 +128,45 @@ mod tests {
 
         assert!(audio.platform_adm_ref_count() >= 0);
         let _ = audio.is_platform_adm_active();
+    }
+
+    #[test]
+    fn test_device_selection_round_trip() {
+        let _guard = TEST_MUTEX.lock().expect("test mutex poisoned");
+        let factory = create_peer_connection_factory();
+        let audio = factory.audio_device();
+
+        assert!(audio.restore_recording_device_selection(String::new()));
+        assert_eq!(audio.recording_device_selection(), "");
+
+        assert!(!audio.set_recording_device_by_guid("__livekit_missing_device__".to_string()));
+        assert_eq!(audio.recording_device_selection(), "");
+
+        for malformed in ["windows:x", "windows:7", "windows:+1", "windows:-1 ", "windows:"] {
+            assert!(
+                !audio.restore_recording_device_selection(malformed.to_string()),
+                "{malformed}"
+            );
+        }
+        assert_eq!(audio.recording_device_selection(), "");
+
+        if cfg!(windows) {
+            assert!(audio.restore_playout_device_selection("windows:-1".to_string()));
+            assert_eq!(audio.playout_device_selection(), "windows:-1");
+        }
+
+        // Before the platform ADM exists, index selections are deferred and
+        // must still round trip.
+        assert!(audio.set_recording_device(0));
+        let first_recording = audio.recording_device_selection();
+        assert!(audio.set_recording_device(1));
+        assert!(audio.restore_recording_device_selection(first_recording.clone()));
+        assert_eq!(audio.recording_device_selection(), first_recording);
+
+        assert!(audio.set_playout_device(0));
+        let first_playout = audio.playout_device_selection();
+        assert!(audio.set_playout_device(1));
+        assert!(audio.restore_playout_device_selection(first_playout.clone()));
+        assert_eq!(audio.playout_device_selection(), first_playout);
     }
 }

@@ -225,6 +225,28 @@ impl PeerConnectionFactory {
         self.sys_handle.audio_device().set_recording_device_by_guid(guid.to_string())
     }
 
+    /// The playout device last selected, as a token `restore_playout_device_selection`
+    /// accepts. Empty if none was selected and the platform default is in use.
+    pub fn playout_device_selection(&self) -> String {
+        self.sys_handle.audio_device().playout_device_selection()
+    }
+
+    /// The recording device last selected, as a token `restore_recording_device_selection`
+    /// accepts. Empty if none was selected and the platform default is in use.
+    pub fn recording_device_selection(&self) -> String {
+        self.sys_handle.audio_device().recording_device_selection()
+    }
+
+    /// Select the playout device a token from `playout_device_selection` names
+    pub fn restore_playout_device_selection(&self, selection: &str) -> bool {
+        self.sys_handle.audio_device().restore_playout_device_selection(selection.to_string())
+    }
+
+    /// Select the recording device a token from `recording_device_selection` names
+    pub fn restore_recording_device_selection(&self, selection: &str) -> bool {
+        self.sys_handle.audio_device().restore_recording_device_selection(selection.to_string())
+    }
+
     /// Stop recording (clears initialized state, allowing device switch)
     pub fn stop_recording(&self) -> bool {
         self.sys_handle.audio_device().stop_recording()

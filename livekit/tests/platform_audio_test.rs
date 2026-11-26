@@ -358,6 +358,12 @@ async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Res
         PlayoutDeviceId::from_unchecked_guid("__livekit_missing_playout_device__");
     assert_eq!(audio.set_playout_device(&invalid_playout_id), Err(AudioError::DeviceNotFound));
 
+    assert_eq!(
+        audio.switch_recording_device(&invalid_recording_id),
+        Err(AudioError::DeviceNotFound)
+    );
+    assert_eq!(audio.switch_playout_device(&invalid_playout_id), Err(AudioError::DeviceNotFound));
+
     drop(audio);
     Ok(())
 }
@@ -386,6 +392,12 @@ async fn test_platform_audio_device_selection_by_index() -> Result<()> {
     if let Some(device) = playout_devices.first() {
         audio.set_playout_device_by_index(device.index)?;
         log::info!("Selected playout device by index {}: {}", device.index, device.name);
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    if let Some(device) = playout_devices.first() {
+        use livekit::PlayoutDeviceId;
+        audio.switch_playout_device(&PlayoutDeviceId::from_index(device.index))?;
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
