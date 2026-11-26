@@ -205,7 +205,7 @@ pub struct SignalOptions {
     /// returns. A failed dial marks the region failed, and the failover skips it.
     ///
     /// Defaults to `None`. A full reconnect sets it to the region the session ran in.
-    pub region_url: Option<String>,
+    pub initial_region_url: Option<String>,
     /// Signal protocol version sent to the server. Defaults to [`PROTOCOL_VERSION`].
     ///
     /// Lower it when the caller's media stack does not implement what a newer version implies.
@@ -244,7 +244,7 @@ impl Default for SignalOptions {
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             region_failover: true,
-            region_url: None,
+            initial_region_url: None,
             protocol_version: PROTOCOL_VERSION,
             client_capabilities: CLIENT_CAPABILITIES.to_vec(),
             client_protocol: CLIENT_PROTOCOL_VERSION,
@@ -418,7 +418,7 @@ impl SignalClient {
             ))
         };
 
-        let first_url = options.region_url.as_deref().unwrap_or(url);
+        let first_url = options.initial_region_url.as_deref().unwrap_or(url);
 
         // Fetch the region list next to the first attempt, so a failover does not wait for it.
         // The fetch is dropped when the attempt succeeds.
@@ -1022,7 +1022,11 @@ async fn signal_task(
                         }) => {
                             // The server sends its region list with a leave, so the reconnect
                             // that follows can fail over without a fetch.
-                            RegionUrlProvider::set_server_regions(&inner.project_url, regions);
+                            RegionUrlProvider::set_server_regions(
+                                &inner.project_url,
+                                &inner.url,
+                                regions,
+                            );
                         }
                         proto::signal_response::Message::PongResp(ref pong) => {
                             // Reset the ping_timeout if we received a pong
@@ -2580,7 +2584,7 @@ mod tests {
         assert!(matches!(result, Err(SignalError::Cancelled)), "got {:?}", result.err());
     }
 
-    /// With `region_url` set, the connect dials that region instead of its `url`. When the region
+    /// With `initial_region_url` set, the connect dials that region instead of its `url`. When the region
     /// fails, the failover uses the regions of the `url`, without the failed one.
     #[tokio::test]
     async fn connect_dials_the_region_url_first() {
@@ -2589,7 +2593,7 @@ mod tests {
         let dialed = |host: &str| WS_CONNECTS.lock().unwrap().iter().any(|u| u.contains(host));
 
         let options = SignalOptions {
-            region_url: Some("wss://dial-first-region.livekit.cloud".into()),
+            initial_region_url: Some("wss://dial-first-region.livekit.cloud".into()),
             ..Default::default()
         };
         // The mock regions close before a join response, so the connect fails.

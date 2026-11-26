@@ -1028,7 +1028,7 @@ impl EngineInner {
         // regions of the project URL, which keys the region cache.
         let mut restart_options = self.options.clone();
         if url != project_url {
-            restart_options.signal_options.region_url = Some(url);
+            restart_options.signal_options.initial_region_url = Some(url);
         }
 
         // Lifecycle notifications are emitted once per mode: Resuming the first

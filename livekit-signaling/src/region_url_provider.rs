@@ -51,6 +51,11 @@ fn fetch_lock(host: &str) -> Arc<AsyncMutex<()>> {
         .clone()
 }
 
+/// Whether a signal URL connects over TLS: `wss`, or `https`, which the connect turns into `wss`.
+fn uses_tls(url: &str) -> bool {
+    url.starts_with("wss://") || url.starts_with("https://")
+}
+
 fn region_host(url: &str) -> SignalResult<String> {
     let parsed = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
     parsed
@@ -146,21 +151,26 @@ impl RegionUrlProvider {
         }
     }
 
-    /// Caches the region list that the server sent for `url`'s host, for the
-    /// default TTL. Ignores a host outside LiveKit Cloud and an empty list.
+    /// Caches the region list that the server sent on the session to
+    /// `session_url` for `project_url`'s host, for the default TTL. Ignores a
+    /// host outside LiveKit Cloud and an empty list.
     ///
-    /// Only a `wss` session is trusted, and only its `wss` region URLs: the cache
-    /// is keyed by host, so a list planted on a plaintext session would reach a
-    /// later `wss` connect to the same host, which sends its token there.
-    pub(crate) fn set_server_regions(url: &str, settings: &proto::RegionSettings) {
-        if !url.starts_with("wss://") {
+    /// Only a TLS session is trusted, and only its TLS region URLs: the cache is
+    /// keyed by host, so a list planted on a plaintext session would reach a
+    /// later TLS connect to the same host, which sends its token there.
+    pub(crate) fn set_server_regions(
+        project_url: &str,
+        session_url: &str,
+        settings: &proto::RegionSettings,
+    ) {
+        if !uses_tls(session_url) {
             return;
         }
-        let Ok(host) = region_host(url) else { return };
+        let Ok(host) = region_host(project_url) else { return };
         let urls: Vec<String> = settings
             .regions
             .iter()
-            .filter(|region| region.url.starts_with("wss://"))
+            .filter(|region| uses_tls(&region.url))
             .map(|region| region.url.clone())
             .collect();
         if is_cloud_host(&host) && !urls.is_empty() {
@@ -453,17 +463,28 @@ mod tests {
             Cached::Miss => vec![],
         };
 
+        // A TLS project URL over a plaintext session.
         RegionUrlProvider::set_server_regions(
-            "ws://plain-regions.livekit.cloud",
+            "wss://plain-regions.livekit.cloud",
+            "ws://region.plain-regions.livekit.cloud",
             &settings(&["wss://planted.livekit.cloud"]),
         );
         assert!(cached("plain-regions.livekit.cloud").is_empty(), "trusted a plaintext session");
 
         RegionUrlProvider::set_server_regions(
             "wss://tls-regions.livekit.cloud",
+            "wss://tls-regions.livekit.cloud",
             &settings(&["ws://plain.livekit.cloud", "wss://secure.livekit.cloud"]),
         );
         assert_eq!(cached("tls-regions.livekit.cloud"), vec!["wss://secure.livekit.cloud"]);
+
+        // An `https` URL connects over `wss`.
+        RegionUrlProvider::set_server_regions(
+            "https://https-regions.livekit.cloud",
+            "https://https-regions.livekit.cloud",
+            &settings(&["https://secure.livekit.cloud"]),
+        );
+        assert_eq!(cached("https-regions.livekit.cloud"), vec!["https://secure.livekit.cloud"]);
     }
 
     #[tokio::test]
