@@ -35,6 +35,7 @@ pub struct TokenSourceFetchOptions {
     pub(crate) agent_name: Option<String>,
     pub(crate) agent_metadata: Option<String>,
     pub(crate) deployment: Option<String>,
+    pub(crate) thread_id: Option<String>,
 }
 
 impl TokenSourceFetchOptions {
@@ -108,6 +109,13 @@ impl TokenSourceFetchOptions {
         self.deployment = Some(value.into());
         self
     }
+
+    /// Sets the id of the agent thread that the dispatched agent continues. Leave unset
+    /// to start the agent without a thread, so its conversation is not saved.
+    pub fn with_thread_id(mut self, value: impl Into<String>) -> Self {
+        self.thread_id = Some(value.into());
+        self
+    }
 }
 
 /// The JSON body posted to the token endpoint. Built from [`TokenSourceFetchOptions`];
@@ -142,6 +150,8 @@ struct AgentDispatch {
     metadata: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deployment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_id: Option<String>,
 }
 
 impl From<&TokenSourceFetchOptions> for TokenSourceRequest {
@@ -150,12 +160,14 @@ impl From<&TokenSourceFetchOptions> for TokenSourceRequest {
         let room_config = if options.agent_name.is_some()
             || options.agent_metadata.is_some()
             || options.deployment.is_some()
+            || options.thread_id.is_some()
         {
             Some(RoomConfig {
                 agents: vec![AgentDispatch {
                     agent_name: options.agent_name.clone(),
                     metadata: options.agent_metadata.clone(),
                     deployment: options.deployment.clone(),
+                    thread_id: options.thread_id.clone(),
                 }],
             })
         } else {
@@ -170,5 +182,38 @@ impl From<&TokenSourceFetchOptions> for TokenSourceRequest {
             participant_attributes: options.participant_attributes.clone(),
             room_config,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(options: &TokenSourceFetchOptions) -> serde_json::Value {
+        serde_json::to_value(TokenSourceRequest::from(options)).unwrap()
+    }
+
+    #[test]
+    fn thread_id_goes_into_the_agent_dispatch() {
+        let options =
+            TokenSourceFetchOptions::new().with_agent_name("agent").with_thread_id("AT_1");
+        assert_eq!(
+            body(&options)["room_config"]["agents"],
+            serde_json::json!([{ "agent_name": "agent", "thread_id": "AT_1" }])
+        );
+    }
+
+    #[test]
+    fn thread_id_alone_creates_a_dispatch() {
+        let options = TokenSourceFetchOptions::new().with_thread_id("AT_1");
+        assert_eq!(
+            body(&options)["room_config"]["agents"],
+            serde_json::json!([{ "thread_id": "AT_1" }])
+        );
+    }
+
+    #[test]
+    fn no_agent_fields_means_no_room_config() {
+        assert!(body(&TokenSourceFetchOptions::new()).get("room_config").is_none());
     }
 }
