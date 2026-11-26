@@ -37,8 +37,19 @@ tag = "{package}/v{version}"
 registry = "crates"
 command = "cargo publish --no-verify"
 
+# The API check of `verwalter check`. For each package that a PR changes and
+# a changeset covers, cargo-semver-checks compares the public API with the
+# base of the PR. The PR fails if the changeset level is below what the
+# change needs. On a 0.x version, a breaking change needs `minor`. The
+# script has the details.
+[check]
+api = "\"$VERWALTER_ROOT/.github/scripts/api_check.sh\""
+
 [packages.livekit-ffi]
 path = "livekit-ffi"
+# No API check: the contract of this package is the FFI protocol and the
+# UniFFI bindings, not its Rust API.
+check.api = "true"
 versioning.files = [
   "Cargo.toml",
   "../livekit-ffi-node-bindings/package.json",
