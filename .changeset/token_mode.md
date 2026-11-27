@@ -1,12 +1,12 @@
 ---
 livekit: patch
-livekit-api: patch
+livekit-api: minor
 livekit-capture: patch
 livekit-common: patch
 livekit-data-stream: patch
 livekit-datatrack: patch
 livekit-ffi: patch
-livekit-protocol: patch
+livekit-protocol: minor
 livekit-rpc: patch
 livekit-signaling: patch
 livekit-telemetry: patch
