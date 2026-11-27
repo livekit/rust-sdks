@@ -2163,3 +2163,67 @@ async fn late_connect_success_is_closed_without_installing_or_emitting_connected
         assert!(owner.upgrade().is_none());
     }
 }
+
+#[test]
+fn state_observers_are_independent_and_terminal_without_a_runtime() {
+    let first_room = FfiRoom::new();
+    let second_room = FfiRoom::new();
+    let first = first_room.clone().observe_state();
+    let sibling = first_room.clone().observe_state();
+    let other = second_room.clone().observe_state();
+    let other_sibling = second_room.clone().observe_state();
+    let initial = block_on(first.state_did_change(None)).unwrap();
+    let other_initial = block_on(other.state_did_change(None)).unwrap();
+    assert_eq!(initial.values.connection, NativeConnectionState::Idle);
+    assert!(poll_for(Duration::from_millis(10), sibling.state_did_change(Some(initial.revision)))
+        .is_none());
+    first.cancel();
+    assert!(block_on(first.state_did_change(Some(initial.revision))).is_none());
+    assert_eq!(first_room.state().connection, NativeConnectionState::Idle);
+    first_room.cancel();
+    let terminal = block_on(sibling.state_did_change(Some(initial.revision))).unwrap();
+    assert!(terminal.terminal);
+    assert_eq!(terminal.values.connection, NativeConnectionState::Disconnected);
+    assert!(block_on(sibling.state_did_change(Some(terminal.revision))).is_none());
+    assert!(poll_for(
+        Duration::from_millis(10),
+        other.state_did_change(Some(other_initial.revision))
+    )
+    .is_none());
+    second_room.cancel();
+    assert!(block_on(other.state_did_change(Some(other_initial.revision))).unwrap().terminal);
+    assert!(
+        block_on(other_sibling.state_did_change(Some(other_initial.revision))).unwrap().terminal
+    );
+    drop(first);
+    drop(sibling);
+    drop(other);
+    drop(other_sibling);
+    assert_eq!(Arc::strong_count(&first_room), 1);
+    assert_eq!(Arc::strong_count(&second_room), 1);
+}
+
+#[test]
+fn track_state_is_immutable_coalesces_and_observer_cancel_is_local() {
+    use super::core_objects::TrackView;
+    let room = FfiRoom::new();
+    let audio = block_on(room.create_audio_track("observed".into(), 1)).unwrap();
+    let track = audio.info().unwrap();
+    let first = track.observe_state();
+    let sibling = track.observe_state();
+    let initial = block_on(first.state_did_change(None)).unwrap();
+    assert!(!initial.values.muted);
+    block_on(audio.set_muted(true)).unwrap();
+    block_on(audio.set_muted(false)).unwrap();
+    block_on(audio.set_muted(true)).unwrap();
+    let latest = block_on(first.state_did_change(Some(initial.revision))).unwrap();
+    assert!(latest.values.muted);
+    assert!(!initial.values.muted);
+    assert!(latest.revision > initial.revision);
+    first.cancel();
+    assert!(block_on(first.state_did_change(Some(latest.revision))).is_none());
+    assert!(block_on(sibling.state_did_change(Some(initial.revision))).unwrap().values.muted);
+    room.cancel();
+    // A local track is reusable, not terminal merely because its creating room ended.
+    assert!(!sibling.state().terminal);
+}

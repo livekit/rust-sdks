@@ -23,7 +23,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 
 #[derive(Clone)]
 pub struct LocalAudioTrack {
-    inner: Arc<TrackInner>,
+    pub(super) inner: Arc<TrackInner>,
     source: RtcAudioSource,
     /// The runtime whose factory created the native track. Its threads must outlive the track,
     /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
@@ -168,7 +168,10 @@ impl LocalAudioTrack {
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.info.write().transceiver = transceiver;
+        let mut info = self.inner.info.write();
+        if !self.inner.revision.is_terminal() {
+            info.transceiver = transceiver;
+        }
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {

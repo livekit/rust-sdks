@@ -364,9 +364,9 @@ pub struct FfiRoomState {
     /// `None` before the first connection.
     pub room: Option<RoomInfo>,
     pub local_participant: Option<Arc<FfiParticipant>>,
-    /// In no particular order.
+    /// Ordered by participant identity.
     pub remote_participants: Vec<Arc<FfiParticipant>>,
-    /// Local and remote publications, in no particular order.
+    /// Local and remote publications, ordered by track SID.
     pub publications: Vec<FfiPublication>,
 }
 

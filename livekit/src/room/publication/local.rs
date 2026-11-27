@@ -15,20 +15,13 @@
 use std::{fmt::Debug, sync::Arc};
 
 use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
-use parking_lot::Mutex;
 
 use super::TrackPublicationInner;
 use crate::{e2ee::EncryptionType, options::TrackPublishOptions, prelude::*};
 
-#[derive(Default)]
-struct LocalInfo {
-    publish_options: Mutex<TrackPublishOptions>,
-}
-
 #[derive(Clone)]
 pub struct LocalTrackPublication {
-    inner: Arc<TrackPublicationInner>,
-    local: Arc<LocalInfo>,
+    pub(super) inner: Arc<TrackPublicationInner>,
 }
 
 impl Debug for LocalTrackPublication {
@@ -43,10 +36,9 @@ impl Debug for LocalTrackPublication {
 
 impl LocalTrackPublication {
     pub(crate) fn new(info: proto::TrackInfo, track: LocalTrack) -> Self {
-        Self {
-            inner: super::new_inner(info, Some(track.into())),
-            local: Arc::new(LocalInfo::default()),
-        }
+        let inner = super::new_inner(info, Some(track.into()));
+        inner.info.write().publish_options = Some(TrackPublishOptions::default());
+        Self { inner }
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
@@ -71,11 +63,14 @@ impl LocalTrackPublication {
     }
 
     pub(crate) fn update_publish_options(&self, opts: TrackPublishOptions) {
-        *self.local.publish_options.lock() = opts;
+        let mut info = self.inner.info.write();
+        if !self.inner.revision.is_terminal() {
+            info.publish_options = Some(opts);
+        }
     }
 
     pub fn publish_options(&self) -> TrackPublishOptions {
-        self.local.publish_options.lock().clone()
+        self.inner.info.read().publish_options.clone().unwrap_or_default()
     }
 
     pub fn mute(&self) {

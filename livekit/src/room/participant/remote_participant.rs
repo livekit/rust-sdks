@@ -58,7 +58,7 @@ struct RemoteInfo {
 
 #[derive(Clone)]
 pub struct RemoteParticipant {
-    inner: Arc<ParticipantInner>,
+    pub(super) inner: Arc<ParticipantInner>,
     remote: Arc<RemoteInfo>,
 }
 
@@ -139,9 +139,12 @@ impl RemoteParticipant {
             self.remove_publication_inner(&sid);
             if let Some(track) = publication.track() {
                 track.disable();
+                Track::from(track).finish_observation();
             }
             publication.set_track(None);
+            TrackPublication::Remote(publication).finish_observation();
         }
+        Participant::Remote(self.clone()).finish_observation();
     }
 
     /// Test-only: returns a probe that reports whether this participant's state has been
@@ -261,9 +264,11 @@ impl RemoteParticipant {
             if let Some(track) = publication.track() {
                 track.disable();
                 publication.set_track(None); // This will fire TrackUnsubscribed on the publication
+                Track::from(track).finish_observation();
             }
 
             self.remove_publication_inner(sid);
+            TrackPublication::Remote(publication.clone()).finish_observation();
 
             if let Some(track_unpublished) = self.remote.events.track_unpublished.lock().as_ref() {
                 track_unpublished(self.clone(), publication);
@@ -653,7 +658,7 @@ impl RemoteParticipant {
     }
 
     pub fn is_encrypted(&self) -> bool {
-        *self.inner.is_encrypted.read()
+        self.inner.info.read().is_encrypted
     }
 
     #[doc(hidden)]

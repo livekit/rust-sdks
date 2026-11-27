@@ -26,11 +26,15 @@ use livekit_common::ClientCapability;
 use std::{collections::HashMap, sync::Arc};
 
 pub(crate) trait ParticipantView {
+    fn observe_state(&self) -> Arc<super::NativeParticipantObserver>;
     fn is_local(&self) -> bool;
     fn capabilities(&self) -> Option<Vec<ClientCapability>>;
     fn publications(&self) -> HashMap<String, Arc<FfiTrackPublication>>;
 }
 impl ParticipantView for FfiParticipant {
+    fn observe_state(&self) -> Arc<super::NativeParticipantObserver> {
+        super::NativeParticipantObserver::new(Arc::new(self.clone()))
+    }
     fn is_local(&self) -> bool {
         matches!(self, Self::Local(_))
     }
@@ -46,12 +50,16 @@ impl ParticipantView for FfiParticipant {
 }
 
 pub(crate) trait PublicationView {
+    fn observe_state(&self) -> Arc<super::NativePublicationObserver>;
     fn dimensions(&self) -> Arc<FfiTrackDimension>;
     fn media_track(&self) -> Option<Arc<FfiTrack>>;
     fn remote(&self) -> Option<Arc<FfiRemoteTrackPublication>>;
     fn local(&self) -> Option<Arc<FfiLocalTrackPublication>>;
 }
 impl PublicationView for FfiTrackPublication {
+    fn observe_state(&self) -> Arc<super::NativePublicationObserver> {
+        super::NativePublicationObserver::new(Arc::new(self.clone()))
+    }
     fn dimensions(&self) -> Arc<FfiTrackDimension> {
         Arc::new(self.dimension())
     }
@@ -91,5 +99,14 @@ pub(crate) trait RemotePublicationView {
 impl RemotePublicationView for FfiRemoteTrackPublication {
     fn media_track(&self) -> Option<Arc<FfiTrack>> {
         self.track().map(|t| Arc::new(t.into()))
+    }
+}
+
+pub(crate) trait TrackView {
+    fn observe_state(&self) -> Arc<super::NativeTrackObserver>;
+}
+impl TrackView for FfiTrack {
+    fn observe_state(&self) -> Arc<super::NativeTrackObserver> {
+        super::NativeTrackObserver::new(Arc::new(self.clone()))
     }
 }

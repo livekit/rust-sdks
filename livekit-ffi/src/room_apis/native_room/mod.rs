@@ -20,8 +20,10 @@
 //! One driver task owns the event receiver that [`Room::connect`] returns. It
 //! retains core handles for ordered membership and feeds the bounded backlog
 //! of [`NativeRoomEventCursor`]. Membership snapshots carry core-backed handles.
-//! Core values can be newer than the event that carries them; host observation
-//! and delegate snapshots belong to the host compatibility layer.
+//! `observe_state` returns typed, independently cancellable core observations.
+//! Values are owned, while child handles remain live and independently observed.
+//! Native WebRTC properties stay Rust-mediated live queries outside revisions.
+//! The event cursor remains the ordered transition/transient path for v2 delegates.
 
 use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 
@@ -34,6 +36,8 @@ use tokio::{
 
 pub(crate) mod core_objects;
 pub use core_objects::{FfiParticipant, FfiTrack, FfiTrackPublication};
+mod observation;
+pub use observation::*;
 mod options;
 pub use options::*;
 mod controls;
@@ -66,6 +70,9 @@ type InitialParticipants = Vec<(RemoteParticipant, Vec<RemoteTrackPublication>)>
 struct Inner {
     connection: NativeConnectionState,
     revision: u64,
+    retired_core_revision: u64,
+    /// One immutable terminal value, retained only to release the live core room at shutdown.
+    final_room_info: Option<RoomInfo>,
     disconnect_reason: Option<DisconnectReason>,
     remotes: HashMap<String, RemoteParticipant>,
     publications: HashMap<String, (Participant, TrackPublication)>,
@@ -83,6 +90,12 @@ struct Inner {
 
 impl Inner {
     fn snapshot(&self) -> FfiRoomState {
+        let mut remotes: Vec<_> = self.remotes.iter().collect();
+        remotes.sort_by(|a, b| a.0.cmp(b.0));
+        let mut publications: Vec<_> = self.publications.iter().collect();
+        publications.sort_by(|a, b| a.0.cmp(b.0));
+        let mut data_tracks: Vec<_> = self.data_tracks.iter().collect();
+        data_tracks.sort_by(|a, b| a.0.cmp(b.0));
         FfiRoomState {
             revision: self.revision,
             connection: self.connection,
@@ -92,17 +105,15 @@ impl Inner {
                 .room
                 .as_ref()
                 .map(|room| Arc::new(Participant::Local(room.local_participant()))),
-            remote_participants: self
-                .remotes
-                .values()
-                .map(|p| Arc::new(Participant::Remote(p.clone())))
+            remote_participants: remotes
+                .into_iter()
+                .map(|(_, p)| Arc::new(Participant::Remote(p.clone())))
                 .collect(),
-            publications: self
-                .publications
-                .values()
-                .map(|(identity, p)| FfiPublication::new(identity, p))
+            publications: publications
+                .into_iter()
+                .map(|(_, (participant, p))| FfiPublication::new(participant, p))
                 .collect(),
-            data_tracks: self.data_tracks.values().cloned().collect(),
+            data_tracks: data_tracks.into_iter().map(|(_, track)| track.clone()).collect(),
         }
     }
 
@@ -161,9 +172,17 @@ impl Inner {
 
     /// Finalizes local ownership and closes the event backlog after the driver exits.
     fn finish(&mut self) {
+        if self.finished {
+            return;
+        }
         self.disconnected(DisconnectReason::UnknownReason);
         self.terminal.get_or_insert(FfiRoomError::Closed);
-        self.room = None;
+        if let Some(room) = self.room.take() {
+            let final_state = room.observed_state();
+            self.retired_core_revision = final_state.revision;
+            self.final_room_info = Some(final_state.value.info);
+        }
+        self.revision += 1;
         if let Some(queue) = self.events.take() {
             queue.finish();
         }
@@ -689,6 +708,8 @@ impl FfiRoom {
         let inner = Inner {
             connection: NativeConnectionState::Idle,
             revision: 0,
+            retired_core_revision: 0,
+            final_room_info: None,
             disconnect_reason: None,
             remotes: HashMap::new(),
             publications: HashMap::new(),

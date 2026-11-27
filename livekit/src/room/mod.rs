@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use crate::e2ee::EncryptionType;
+use crate::observation::{Observed, StateRevision, StateSnapshot};
+
 pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
@@ -34,7 +36,7 @@ use livekit_rpc::backend::{
 use livekit_signaling::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
 use std::{
@@ -528,12 +530,13 @@ impl Default for DataChannelOptions {
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
     sid_promise: Promise<RoomSid>,
-    info: RwLock<RoomInfo>,
+    revision: Arc<StateRevision>,
+    info: Observed<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
     options: RoomOptions,
-    active_speakers: RwLock<Vec<Participant>>,
+    active_speakers: Observed<Vec<Participant>>,
     local_participant: LocalParticipant,
-    remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
+    remote_participants: Observed<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     incoming_data_stream_input: ds::incoming::ManagerInput,
     pub(crate) outgoing_stream_manager: ds::outgoing::Manager,
@@ -815,25 +818,30 @@ impl Room {
         let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();
+        let revision = Arc::new(StateRevision::default());
         let inner = Arc::new(RoomSession {
             sid_promise: Promise::new(),
-            info: RwLock::new(RoomInfo {
-                sid: room_info.sid.try_into().ok(),
-                name: room_info.name,
-                metadata: room_info.metadata,
-                empty_timeout: room_info.empty_timeout,
-                departure_timeout: room_info.departure_timeout,
-                max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time_ms,
-                num_publishers: room_info.num_publishers,
-                num_participants: room_info.num_participants,
-                active_recording: room_info.active_recording,
-                state: ConnectionState::Disconnected,
-                lossy_dc_options: Default::default(),
-                reliable_dc_options: Default::default(),
-            }),
-            remote_participants: Default::default(),
-            active_speakers: Default::default(),
+            info: Observed::new(
+                RoomInfo {
+                    sid: room_info.sid.try_into().ok(),
+                    name: room_info.name,
+                    metadata: room_info.metadata,
+                    empty_timeout: room_info.empty_timeout,
+                    departure_timeout: room_info.departure_timeout,
+                    max_participants: room_info.max_participants,
+                    creation_time: room_info.creation_time_ms,
+                    num_publishers: room_info.num_publishers,
+                    num_participants: room_info.num_participants,
+                    active_recording: room_info.active_recording,
+                    state: ConnectionState::Disconnected,
+                    lossy_dc_options: Default::default(),
+                    reliable_dc_options: Default::default(),
+                },
+                &revision,
+            ),
+            remote_participants: Observed::new(HashMap::new(), &revision),
+            active_speakers: Observed::new(Vec::new(), &revision),
+            revision,
             options: options.clone(),
             rtc_engine: rtc_engine.clone(),
             local_participant,
@@ -1096,6 +1104,33 @@ impl Room {
     }
 
     /// Returns a coherent snapshot of the current room information.
+    /// Coherent core-owned room values and membership. Child values are independent.
+    pub fn observed_state(&self) -> StateSnapshot<RoomObservation> {
+        let info = self.inner.info.read();
+        let participants = self.inner.remote_participants.read();
+        let speakers = self.inner.active_speakers.read();
+        let mut ordered: Vec<_> =
+            participants.iter().map(|(identity, p)| (identity.clone(), p.clone())).collect();
+        ordered.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        self.inner.revision.snapshot(RoomObservation {
+            info: info.clone(),
+            remote_participants: ordered,
+            active_speakers: speakers.clone(),
+        })
+    }
+
+    /// Independent revision wait without a background task or subscriber queue.
+    pub async fn state_did_change(
+        &self,
+        since: Option<u64>,
+    ) -> Option<StateSnapshot<RoomObservation>> {
+        if self.inner.revision.wait(since).await {
+            Some(self.observed_state())
+        } else {
+            None
+        }
+    }
+
     pub fn info(&self) -> RoomInfo {
         self.inner.info.read().clone()
     }
@@ -1404,6 +1439,9 @@ impl RoomSession {
         let _ = handle.remote_dt_task.await;
         let _ = handle.room_handle.await;
 
+        self.active_speakers.write().clear();
+        Participant::Local(self.local_participant.clone()).finish_observation();
+        self.revision.finish();
         self.dispatcher.clear();
         Ok(())
     }
@@ -1421,6 +1459,7 @@ impl RoomSession {
         }
 
         info.state = state;
+        drop(info);
         self.dispatcher.dispatch(&RoomEvent::ConnectionStateChanged(state));
         true
     }
@@ -1838,12 +1877,9 @@ impl RoomSession {
         let mut info = self.info.write();
         let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
         let mut updated = false;
-        if old_metadata != room.metadata {
+        let metadata_changed = old_metadata != room.metadata;
+        if metadata_changed {
             updated = true;
-            self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
-                old_metadata,
-                metadata: info.metadata.clone(),
-            });
         }
         if !room.sid.is_empty() {
             let sid = room.sid.try_into().ok();
@@ -1881,8 +1917,16 @@ impl RoomSession {
             info.active_recording = room.active_recording;
         }
         info.creation_time = room.creation_time_ms;
+        let current = info.clone();
+        drop(info);
+        if metadata_changed {
+            self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
+                old_metadata,
+                metadata: current.metadata.clone(),
+            });
+        }
         if updated {
-            self.dispatcher.dispatch(&RoomEvent::RoomUpdated { room: info.clone() });
+            self.dispatcher.dispatch(&RoomEvent::RoomUpdated { room: current });
         }
     }
 
@@ -2093,6 +2137,7 @@ impl RoomSession {
         // Update participant's data encryption status for regular data messages
         if let Some(ref p) = participant {
             use crate::e2ee::EncryptionType;
+
             let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
             p.update_data_encryption_status(is_encrypted);
         }
@@ -2178,6 +2223,7 @@ impl RoomSession {
             self.remote_participants.read().get(&participant_identity.clone().into()).cloned()
         {
             use crate::e2ee::EncryptionType;
+
             let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
             participant.update_data_encryption_status(is_encrypted);
         }
@@ -2251,6 +2297,7 @@ impl RoomSession {
                 info.reliable_dc_options.buffered_amount_low_threshold = threshold;
             }
         }
+        drop(info);
         let event = RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold };
         self.dispatcher.dispatch(&event);
     }
@@ -2546,6 +2593,7 @@ impl RoomSession {
         // its full response timeout and reports ResponseTimeout instead of a disconnect.
         self.rpc_client.handle_participant_disconnected(&remote_participant.identity());
 
+        remote_participant.teardown();
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
@@ -2788,4 +2836,13 @@ fn unpack_stream_id(stream_id: &str) -> Option<(&str, &str)> {
     } else {
         None
     }
+}
+
+/// Core-owned room information and deterministic live participant membership.
+#[derive(Clone, Debug)]
+pub struct RoomObservation {
+    pub info: RoomInfo,
+    pub remote_participants: Vec<(ParticipantIdentity, RemoteParticipant)>,
+    /// Speaker ordering is significant; individual activity values belong to participants.
+    pub active_speakers: Vec<Participant>,
 }

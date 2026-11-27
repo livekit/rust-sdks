@@ -3,6 +3,7 @@ namespace livekit_ffi {};
 // These interfaces export the actual core types, not new Rust wrapper structs.
 [Remote]
 interface FfiParticipant {
+    NativeParticipantObserver observe_state();
     ParticipantSid sid();
     ParticipantIdentity identity();
     string name();
@@ -25,6 +26,7 @@ interface FfiParticipant {
 };
 [Remote]
 interface FfiTrackPublication {
+    NativePublicationObserver observe_state();
     TrackSid sid();
     string name();
     TrackKind kind();
@@ -43,6 +45,7 @@ interface FfiTrackPublication {
 };
 [Remote]
 interface FfiTrack {
+    NativeTrackObserver observe_state();
     TrackSid sid();
     string name();
     TrackKind kind();
@@ -87,3 +90,9 @@ interface FfiRemoteTrackPublication {
 [External="livekit_ffi"] typedef enum StreamState;
 [External="livekit_ffi"] typedef enum SubscriptionStatus;
 [External="livekit_ffi"] typedef enum PermissionStatus;
+
+[External="livekit_ffi"] typedef interface NativeParticipantObserver;
+
+[External="livekit_ffi"] typedef interface NativePublicationObserver;
+
+[External="livekit_ffi"] typedef interface NativeTrackObserver;

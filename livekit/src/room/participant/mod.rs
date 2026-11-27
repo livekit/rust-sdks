@@ -18,7 +18,11 @@ use libwebrtc::enum_dispatch;
 use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 
-use crate::{prelude::*, rtc_engine::RtcEngine};
+use crate::{
+    observation::{Observed, StateRevision, StateSnapshot},
+    prelude::*,
+    rtc_engine::RtcEngine,
+};
 
 mod local_participant;
 mod remote_participant;
@@ -123,6 +127,52 @@ impl Participant {
         pub(crate) fn update_data_encryption_status(self: &Self, is_encrypted: bool) -> ();
     );
 
+    fn observation_inner(&self) -> &ParticipantInner {
+        match self {
+            Self::Local(p) => &p.inner,
+            Self::Remote(p) => &p.inner,
+        }
+    }
+
+    /// Captures core values and membership under their authoritative locks.
+    /// Publications are live handles; their values have independent revisions.
+    pub fn observed_state(&self) -> StateSnapshot<ParticipantObservation> {
+        let inner = self.observation_inner();
+        // Match update_encryption_status: membership precedes participant values.
+        let publications = inner.track_publications.read();
+        let info = inner.info.read();
+        let mut ordered: Vec<_> =
+            publications.iter().map(|(sid, p)| (sid.clone(), p.clone())).collect();
+        ordered.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        inner
+            .revision
+            .snapshot(ParticipantObservation { info: info.clone(), publications: ordered })
+    }
+
+    /// Returns initial/latest core state, then waits independently from `since`.
+    pub async fn state_did_change(
+        &self,
+        since: Option<u64>,
+    ) -> Option<StateSnapshot<ParticipantObservation>> {
+        if self.observation_inner().revision.wait(since).await {
+            Some(self.observed_state())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn finish_observation(&self) {
+        let inner = self.observation_inner();
+        let publications = inner.track_publications.read();
+        let info = inner.info.read();
+        let changed = inner.revision.mark_finished();
+        drop(info);
+        drop(publications);
+        if changed {
+            inner.revision.notify();
+        }
+    }
+
     pub fn track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
         match self {
             Participant::Local(p) => p.internal_track_publications(),
@@ -131,7 +181,10 @@ impl Participant {
     }
 }
 
-struct ParticipantInfo {
+/// Owned core participant values. Child publications are observed separately.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticipantInfo {
+    pub is_encrypted: bool,
     pub sid: ParticipantSid,
     pub identity: ParticipantIdentity,
     pub name: String,
@@ -172,10 +225,10 @@ struct ParticipantEvents {
 
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
-    info: RwLock<ParticipantInfo>,
-    track_publications: RwLock<HashMap<TrackSid, TrackPublication>>,
+    revision: Arc<StateRevision>,
+    info: Observed<ParticipantInfo>,
+    track_publications: Observed<HashMap<TrackSid, TrackPublication>>,
     events: Arc<ParticipantEvents>,
-    is_encrypted: RwLock<bool>,
     is_data_encrypted: RwLock<Option<bool>>,
 }
 
@@ -201,29 +254,34 @@ pub(super) fn new_inner(
     client_protocol: i32,
     capabilities: Vec<ClientCapability>,
 ) -> Arc<ParticipantInner> {
+    let revision = Arc::new(StateRevision::default());
     Arc::new(ParticipantInner {
         rtc_engine,
-        info: RwLock::new(ParticipantInfo {
-            sid,
-            identity,
-            name,
-            state,
-            metadata,
-            attributes,
-            kind,
-            kind_details,
-            speaking: false,
-            audio_level: 0.0,
-            connection_quality: ConnectionQuality::Excellent,
-            disconnect_reason: DisconnectReason::UnknownReason,
-            joined_at,
-            permission,
-            client_protocol,
-            capabilities,
-        }),
-        track_publications: Default::default(),
+        info: Observed::new(
+            ParticipantInfo {
+                is_encrypted: false,
+                sid,
+                identity,
+                name,
+                state,
+                metadata,
+                attributes,
+                kind,
+                kind_details,
+                speaking: false,
+                audio_level: 0.0,
+                connection_quality: ConnectionQuality::Excellent,
+                disconnect_reason: DisconnectReason::UnknownReason,
+                joined_at,
+                permission,
+                client_protocol,
+                capabilities,
+            },
+            &revision,
+        ),
+        track_publications: Observed::new(HashMap::new(), &revision),
+        revision,
         events: Default::default(),
-        is_encrypted: RwLock::new(false),
         is_data_encrypted: RwLock::new(None),
     })
 }
@@ -234,6 +292,9 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    if inner.revision.is_terminal() {
+        return;
+    }
     info.state = new_info.state().into();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
@@ -243,38 +304,35 @@ pub(super) fn update_info(
     info.joined_at = new_info.joined_at_ms;
 
     let old_name = std::mem::replace(&mut info.name, new_info.name.clone());
+    let old_metadata = std::mem::replace(&mut info.metadata, new_info.metadata.clone());
+    let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
+    let changed_attributes =
+        crate::utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
+    let old_permission = std::mem::replace(&mut info.permission, new_info.permission.clone());
+    info.client_protocol = new_info.client_protocol;
+    info.capabilities =
+        new_info.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect();
+    drop(info);
     if old_name != new_info.name {
         if let Some(cb) = inner.events.name_changed.lock().as_ref() {
             cb(participant.clone(), old_name, new_info.name);
         }
     }
-
-    let old_metadata = std::mem::replace(&mut info.metadata, new_info.metadata.clone());
     if old_metadata != new_info.metadata {
         if let Some(cb) = inner.events.metadata_changed.lock().as_ref() {
             cb(participant.clone(), old_metadata, new_info.metadata);
         }
     }
-
-    let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
-    let changed_attributes =
-        crate::utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
-    if changed_attributes.len() != 0 {
+    if !changed_attributes.is_empty() {
         if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
             cb(participant.clone(), changed_attributes);
         }
     }
-
-    let old_permission = std::mem::replace(&mut info.permission, new_info.permission.clone());
     if old_permission != new_info.permission {
         if let Some(cb) = inner.events.permission_changed.lock().as_ref() {
-            cb(participant.clone(), new_info.permission.clone());
+            cb(participant.clone(), new_info.permission);
         }
     }
-
-    info.client_protocol = new_info.client_protocol;
-    info.capabilities =
-        new_info.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect();
 }
 
 pub(super) fn set_speaking(
@@ -282,7 +340,10 @@ pub(super) fn set_speaking(
     _participant: &Participant,
     speaking: bool,
 ) {
-    inner.info.write().speaking = speaking;
+    let mut info = inner.info.write();
+    if !inner.revision.is_terminal() {
+        info.speaking = speaking;
+    }
 }
 
 pub(super) fn set_audio_level(
@@ -290,7 +351,10 @@ pub(super) fn set_audio_level(
     _participant: &Participant,
     audio_level: f32,
 ) {
-    inner.info.write().audio_level = audio_level;
+    let mut info = inner.info.write();
+    if !inner.revision.is_terminal() {
+        info.audio_level = audio_level;
+    }
 }
 
 pub(super) fn set_connection_quality(
@@ -298,7 +362,10 @@ pub(super) fn set_connection_quality(
     _participant: &Participant,
     quality: ConnectionQuality,
 ) {
-    inner.info.write().connection_quality = quality;
+    let mut info = inner.info.write();
+    if !inner.revision.is_terminal() {
+        info.connection_quality = quality;
+    }
 }
 
 pub(super) fn on_track_muted(
@@ -366,12 +433,16 @@ pub(super) fn update_encryption_status(inner: &Arc<ParticipantInner>, participan
         None => tracks_encrypted, // No data messages yet, only consider tracks
     };
 
-    let mut current_status = inner.is_encrypted.write();
-    if *current_status != is_encrypted {
-        *current_status = is_encrypted;
-        drop(current_status);
+    let mut current_status = inner.info.write();
+    if inner.revision.is_terminal() {
+        return;
+    }
+    if current_status.is_encrypted != is_encrypted {
+        current_status.is_encrypted = is_encrypted;
+        // Release the other locks before the observed write guard wakes readers.
         drop(track_publications);
         drop(data_encryption_status);
+        drop(current_status);
 
         if let Some(cb) = inner.events.encryption_status_changed.lock().as_ref() {
             cb(participant.clone(), is_encrypted);
@@ -420,6 +491,9 @@ pub(super) fn remove_publication(
     sid: &TrackSid,
 ) -> Option<TrackPublication> {
     let mut tracks = inner.track_publications.write();
+    if inner.revision.is_terminal() {
+        return None;
+    }
     let publication = tracks.remove(sid);
     if let Some(publication) = publication.clone() {
         // remove events
@@ -443,6 +517,9 @@ pub(super) fn add_publication(
     publication: TrackPublication,
 ) {
     let mut tracks = inner.track_publications.write();
+    if inner.revision.is_terminal() {
+        return;
+    }
     tracks.insert(publication.sid(), publication.clone());
 
     publication.on_muted({
@@ -500,4 +577,132 @@ pub(super) fn add_publication(
 
     // Update encryption status after adding publication
     update_encryption_status(inner, participant);
+}
+
+/// Participant values and ordered live publication membership, deliberately not deep-equatable.
+#[derive(Clone, Debug)]
+pub struct ParticipantObservation {
+    /// Immutable value content, compared independently from revision.
+    pub info: ParticipantInfo,
+    /// Stable keys and live objects; observe each child independently.
+    pub publications: Vec<(TrackSid, TrackPublication)>,
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+    use livekit_token::{AccessToken, VideoGrants};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires a local LiveKit server"]
+    async fn core_owned_mutation_coverage_and_callbacks_outside_locks() {
+        let token = AccessToken::with_api_key("devkey", "secret")
+            .with_identity("core-observer")
+            .with_grants(VideoGrants {
+                room_join: true,
+                room: format!("observation-{}", libwebrtc::native::create_random_uuid()),
+                ..Default::default()
+            })
+            .to_jwt()
+            .unwrap();
+        let url = std::env::var("LK_TEST_URL").unwrap_or_else(|_| "ws://127.0.0.1:7880".into());
+        let (room, _events) = crate::Room::connect(&url, &token, Default::default()).await.unwrap();
+        let participant = Participant::Local(room.local_participant());
+        let initial = participant.observed_state();
+        let (sent, received) = std::sync::mpsc::channel();
+        if let Participant::Local(local) = &participant {
+            local.on_name_changed(move |p, _, _| {
+                // A callback may read a complete observation. It must not run under info.write().
+                sent.send(p.observed_state().value.info).unwrap();
+            });
+        }
+        participant.update_info(proto::ParticipantInfo {
+            sid: initial.value.info.sid.to_string(),
+            identity: initial.value.info.identity.to_string(),
+            name: "changed name".into(),
+            metadata: "changed metadata".into(),
+            attributes: HashMap::from([("key".into(), "value".into())]),
+            state: proto::participant_info::State::Active as i32,
+            kind: proto::participant_info::Kind::Agent as i32,
+            joined_at_ms: 123456789,
+            client_protocol: 42,
+            permission: Some(proto::ParticipantPermission {
+                can_publish: true,
+                can_subscribe: true,
+                ..Default::default()
+            }),
+            capabilities: vec![ClientCapability::PacketTrailer as i32],
+            ..Default::default()
+        });
+        let callback = received.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(callback.metadata, "changed metadata");
+        assert_eq!(callback.attributes["key"], "value");
+        participant.set_audio_level(0.75);
+        participant.set_speaking(true);
+        participant.set_connection_quality(ConnectionQuality::Poor);
+        let changed = participant.state_did_change(Some(initial.revision)).await.unwrap();
+        let info = changed.value.info;
+        assert_eq!(info.name, "changed name");
+        assert_eq!(info.state, ParticipantState::Active);
+        assert_eq!(info.kind, ParticipantKind::Agent);
+        assert_eq!(info.joined_at, 123456789);
+        assert_eq!(info.client_protocol, 42);
+        assert_eq!(info.capabilities, [ClientCapability::PacketTrailer]);
+        assert!(info.permission.unwrap().can_publish);
+        assert!(info.speaking);
+        assert_eq!(info.audio_level, 0.75);
+        assert_eq!(info.connection_quality, ConnectionQuality::Poor);
+        assert_ne!(initial.value.info.name, info.name);
+
+        let before = room.observed_state();
+        room.inner.handle_room_update(proto::Room {
+            name: "updated room".into(),
+            metadata: "room metadata".into(),
+            empty_timeout: 12,
+            departure_timeout: 13,
+            max_participants: 14,
+            num_participants: 15,
+            num_publishers: 16,
+            creation_time_ms: 17,
+            active_recording: true,
+            ..Default::default()
+        });
+        room.inner.handle_data_channel_buffered_low_threshold_change(
+            crate::DataPacketKind::Reliable,
+            1234,
+        );
+        let changed = room.state_did_change(Some(before.revision)).await.unwrap();
+        let info = changed.value.info;
+        assert_eq!(
+            (info.empty_timeout, info.departure_timeout, info.max_participants),
+            (12, 13, 14)
+        );
+        assert_eq!((info.num_participants, info.num_publishers, info.creation_time), (15, 16, 17));
+        assert_eq!(info.name, "updated room");
+        assert_eq!(info.metadata, "room metadata");
+        assert!(info.active_recording);
+        assert_eq!(info.reliable_dc_options.buffered_amount_low_threshold, 1234);
+        assert_ne!(before.value.info.name, info.name);
+        room.inner.update_connection_state(crate::ConnectionState::Reconnecting);
+        let reconnecting = room.observed_state();
+        assert!(!reconnecting.terminal);
+        room.inner.update_connection_state(crate::ConnectionState::Connected);
+        assert!(room.observed_state().revision > reconnecting.revision);
+        room.close().await.unwrap();
+        assert!(room.observed_state().terminal);
+        assert!(participant.observed_state().terminal);
+        let terminal = participant.observed_state();
+        let late = RemoteTrackPublication::new(
+            proto::TrackInfo { sid: "TR_late".into(), ..Default::default() },
+            None,
+            true,
+        );
+        add_publication(
+            &room.local_participant().inner,
+            &participant,
+            TrackPublication::Remote(late),
+        );
+        assert_eq!(participant.observed_state().revision, terminal.revision);
+        assert!(participant.observed_state().value.publications.is_empty());
+    }
 }

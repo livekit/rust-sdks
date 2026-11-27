@@ -103,7 +103,7 @@ impl Display for PublishingLayerQuality {
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
-    inner: Arc<TrackInner>,
+    pub(super) inner: Arc<TrackInner>,
     source: RtcVideoSource,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
@@ -344,7 +344,10 @@ impl LocalVideoTrack {
         if transceiver.is_none() {
             *self.subscribed_qualities.lock() = None;
         }
-        self.inner.info.write().transceiver = transceiver;
+        let mut info = self.inner.info.write();
+        if !self.inner.revision.is_terminal() {
+            info.transceiver = transceiver;
+        }
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {

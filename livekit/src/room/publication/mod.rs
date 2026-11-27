@@ -14,9 +14,13 @@
 
 use std::sync::Arc;
 
+use crate::{
+    observation::{Observed, StateRevision, StateSnapshot},
+    options::TrackPublishOptions,
+};
 use libwebrtc::enum_dispatch;
 use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
 use super::track::TrackDimension;
 use crate::{e2ee::EncryptionType, prelude::*, track::Track};
@@ -68,6 +72,61 @@ impl TrackPublication {
         pub(crate) fn update_info(self: &Self, info: proto::TrackInfo) -> ();
     );
 
+    fn observation_inner(&self) -> &TrackPublicationInner {
+        match self {
+            Self::Local(p) => &p.inner,
+            Self::Remote(p) => &p.inner,
+        }
+    }
+
+    /// Owns publication values, but retains its track as an independently observed live child.
+    pub fn observed_state(&self) -> StateSnapshot<PublicationObservation> {
+        let inner = self.observation_inner();
+        let info = inner.info.read();
+        inner.revision.snapshot(PublicationObservation {
+            values: PublicationValues {
+                sid: info.sid.clone(),
+                name: info.name.clone(),
+                kind: info.kind,
+                source: info.source,
+                simulcasted: info.simulcasted,
+                dimension: info.dimension,
+                mime_type: info.mime_type.clone(),
+                // Stored publication mute; effective local mute belongs to the live child track.
+                muted: info.muted,
+                encryption_type: info.encryption_type,
+                audio_features: info.audio_features.clone(),
+                frame_metadata_features: info.frame_metadata_features.clone(),
+                desired: info.desired,
+                allowed: info.allowed,
+                publish_options: info.publish_options.clone(),
+            },
+            track: info.track.clone(),
+        })
+    }
+
+    /// Returns initial/latest state or EOF after the terminal revision was consumed.
+    pub async fn state_did_change(
+        &self,
+        since: Option<u64>,
+    ) -> Option<StateSnapshot<PublicationObservation>> {
+        if self.observation_inner().revision.wait(since).await {
+            Some(self.observed_state())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn finish_observation(&self) {
+        let inner = self.observation_inner();
+        let info = inner.info.read();
+        let changed = inner.revision.mark_finished();
+        drop(info);
+        if changed {
+            inner.revision.notify();
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) fn set_track(&self, track: Option<Track>) {
         match self {
@@ -85,6 +144,9 @@ impl TrackPublication {
 }
 
 struct PublicationInfo {
+    desired: Option<bool>,
+    allowed: Option<bool>,
+    publish_options: Option<TrackPublishOptions>,
     pub track: Option<Track>,
     pub name: String,
     pub sid: TrackSid,
@@ -110,7 +172,8 @@ struct PublicationEvents {
 }
 
 pub(super) struct TrackPublicationInner {
-    info: RwLock<PublicationInfo>,
+    revision: Arc<StateRevision>,
+    info: Observed<PublicationInfo>,
     events: Arc<PublicationEvents>,
 }
 
@@ -128,7 +191,11 @@ pub(super) fn new_inner(
     info: proto::TrackInfo,
     track: Option<Track>,
 ) -> Arc<TrackPublicationInner> {
+    let revision = Arc::new(StateRevision::default());
     let info = PublicationInfo {
+        desired: None,
+        allowed: None,
+        publish_options: None,
         track,
         simulcasted: is_simulcasted(&info),
         proto_info: info.clone(),
@@ -152,7 +219,11 @@ pub(super) fn new_inner(
             .collect(),
     };
 
-    Arc::new(TrackPublicationInner { info: RwLock::new(info), events: Default::default() })
+    Arc::new(TrackPublicationInner {
+        info: Observed::new(info, &revision),
+        revision,
+        events: Default::default(),
+    })
 }
 
 pub(super) fn update_info(
@@ -161,6 +232,10 @@ pub(super) fn update_info(
     new_info: proto::TrackInfo,
 ) {
     let mut info = inner.info.write();
+    if inner.revision.is_terminal() {
+        return;
+    }
+    info.muted = new_info.muted;
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
     info.encryption_type = new_info.encryption().into();
@@ -184,7 +259,11 @@ pub(super) fn set_track(
     track: Option<Track>,
 ) {
     let mut info = inner.info.write();
-    if let Some(prev_track) = info.track.as_ref() {
+    if inner.revision.is_terminal() {
+        return;
+    }
+    let previous = info.track.clone();
+    if let Some(prev_track) = previous.as_ref() {
         prev_track.on_muted(|_| {});
         prev_track.on_unmuted(|_| {});
     }
@@ -213,5 +292,86 @@ pub(super) fn set_track(
                 }
             }
         });
+    }
+    drop(info);
+    if let Some(previous) = previous {
+        if !track.as_ref().is_some_and(|next| previous.same_instance(next)) {
+            previous.finish_observation();
+        }
+    }
+}
+
+/// Immutable publication-owned values. Child mute/enabled values belong to track observation.
+#[derive(Clone, Debug)]
+pub struct PublicationValues {
+    pub sid: TrackSid,
+    pub name: String,
+    pub kind: TrackKind,
+    pub source: TrackSource,
+    pub simulcasted: bool,
+    pub dimension: TrackDimension,
+    pub mime_type: String,
+    pub muted: bool,
+    pub encryption_type: EncryptionType,
+    pub audio_features: Vec<AudioTrackFeature>,
+    pub frame_metadata_features: Vec<PacketTrailerFeature>,
+    pub desired: Option<bool>,
+    pub allowed: Option<bool>,
+    pub publish_options: Option<TrackPublishOptions>,
+}
+
+/// Values and live child membership; not deep-equatable.
+#[derive(Clone, Debug)]
+pub struct PublicationObservation {
+    pub values: PublicationValues,
+    pub track: Option<Track>,
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn publication_mutations_are_owned_observed_and_terminal() {
+        let remote = RemoteTrackPublication::new(
+            proto::TrackInfo {
+                sid: "TR_observed".into(),
+                name: "before".into(),
+                ..Default::default()
+            },
+            None,
+            true,
+        );
+        let publication = TrackPublication::Remote(remote.clone());
+        let initial = publication.observed_state();
+        remote.set_subscribed(false);
+        let desired = publication.state_did_change(Some(initial.revision)).await.unwrap();
+        assert_eq!(initial.value.values.desired, Some(true));
+        assert_eq!(desired.value.values.desired, Some(false));
+        remote.update_info(proto::TrackInfo {
+            sid: "TR_observed".into(),
+            name: "after".into(),
+            width: 640,
+            height: 480,
+            mime_type: "video/VP8".into(),
+            muted: true,
+            source: proto::TrackSource::Camera as i32,
+            r#type: proto::TrackType::Video as i32,
+            ..Default::default()
+        });
+        let changed = publication.state_did_change(Some(desired.revision)).await.unwrap();
+        assert_eq!(changed.value.values.name, "after");
+        assert_eq!(changed.value.values.dimension, TrackDimension(640, 480));
+        assert_eq!(changed.value.values.source, TrackSource::Camera);
+        assert_eq!(changed.value.values.kind, TrackKind::Video);
+        assert_eq!(changed.value.values.mime_type, "video/VP8");
+        assert!(changed.value.values.muted);
+        assert_eq!(initial.value.values.name, "before");
+        publication.finish_observation();
+        let terminal = publication.state_did_change(Some(changed.revision)).await.unwrap();
+        assert!(terminal.terminal);
+        remote.set_subscribed(true);
+        assert!(publication.state_did_change(Some(terminal.revision)).await.is_none());
+        assert_eq!(publication.observed_state().value.values.desired, Some(false));
     }
 }
