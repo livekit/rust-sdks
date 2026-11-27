@@ -330,7 +330,7 @@ mod tests {
     use log::trace;
     use tokio::sync::mpsc;
 
-    use crate::{peer_connection::*, peer_connection_factory::*};
+    use crate::{peer_connection::*, peer_connection_factory::*, session_description::SdpType};
 
     #[tokio::test]
     async fn create_pc() {
@@ -350,6 +350,8 @@ mod tests {
 
         let bob = factory.create_peer_connection(config.clone()).unwrap();
         let alice = factory.create_peer_connection(config.clone()).unwrap();
+        assert!(bob.current_local_description().is_none());
+        assert!(bob.current_remote_description().is_none());
 
         let (bob_ice_tx, mut bob_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
         let (alice_ice_tx, mut alice_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
@@ -378,6 +380,8 @@ mod tests {
         trace!("Alice answer: {:?}", answer);
         alice.set_local_description(answer.clone()).await.unwrap();
         bob.set_remote_description(answer).await.unwrap();
+        let local_description = bob.current_local_description().unwrap();
+        let remote_description = bob.current_remote_description().unwrap();
 
         let bob_ice = bob_ice_rx.recv().await.unwrap();
         let alice_ice = alice_ice_rx.recv().await.unwrap();
@@ -396,5 +400,8 @@ mod tests {
 
         alice.close();
         bob.close();
+        drop(bob);
+        assert_eq!(local_description.sdp_type(), SdpType::Offer);
+        assert_eq!(remote_description.sdp_type(), SdpType::Answer);
     }
 }
