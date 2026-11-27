@@ -55,6 +55,9 @@ use tokio::sync::Mutex as AsyncMutex;
 /// to the test.
 pub static HTTP_REQUESTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// Every URL the mock's WebSocket client dialed. Shared like [`HTTP_REQUESTS`].
+pub static WS_CONNECTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 // ---------------------------------------------------------------------------
 // MockConn: yields one canned Pong frame then None
 // ---------------------------------------------------------------------------
@@ -162,6 +165,7 @@ impl WsClient for MockTransport {
         _headers: Vec<Header>,
         _timeout_ms: u64,
     ) -> Result<WsConnectResult, TransportError> {
+        WS_CONNECTS.lock().unwrap().push(url.clone());
         if url.contains("silent") {
             return Ok(WsConnectResult { connection: Arc::new(SilentConn::new(url)) });
         }

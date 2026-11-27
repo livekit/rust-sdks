@@ -24,7 +24,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
-use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use super::{proto, SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
@@ -49,6 +49,11 @@ fn fetch_lock(host: &str) -> Arc<AsyncMutex<()>> {
         .entry(host.to_string())
         .or_insert_with(|| Arc::new(AsyncMutex::new(())))
         .clone()
+}
+
+/// Whether a signal URL connects over TLS: `wss`, or `https`, which the connect turns into `wss`.
+fn uses_tls(url: &str) -> bool {
+    url.starts_with("wss://") || url.starts_with("https://")
 }
 
 fn region_host(url: &str) -> SignalResult<String> {
@@ -143,6 +148,33 @@ impl RegionUrlProvider {
     pub fn mark_failed(url: &str, failed_url: &str) {
         if let Ok(host) = region_host(url) {
             region_cache().mark_failed(&host, failed_url);
+        }
+    }
+
+    /// Caches the region list that the server sent on the session to
+    /// `session_url` for `project_url`'s host, for the default TTL. Ignores a
+    /// host outside LiveKit Cloud and an empty list.
+    ///
+    /// Only a TLS session is trusted, and only its TLS region URLs: the cache is
+    /// keyed by host, so a list planted on a plaintext session would reach a
+    /// later TLS connect to the same host, which sends its token there.
+    pub(crate) fn set_server_regions(
+        project_url: &str,
+        session_url: &str,
+        settings: &proto::RegionSettings,
+    ) {
+        if !uses_tls(session_url) {
+            return;
+        }
+        let Ok(host) = region_host(project_url) else { return };
+        let urls: Vec<String> = settings
+            .regions
+            .iter()
+            .filter(|region| uses_tls(&region.url))
+            .map(|region| region.url.clone())
+            .collect();
+        if is_cloud_host(&host) && !urls.is_empty() {
+            region_cache().insert(host, urls, None);
         }
     }
 
@@ -415,6 +447,44 @@ mod tests {
             matches!(result, Err(SignalError::Client(http::StatusCode::UNAUTHORIZED, _))),
             "expected a 401, got {result:?}"
         );
+    }
+
+    /// Server regions are taken only from a `wss` session, and only `wss` ones.
+    #[test]
+    fn server_regions_need_tls() {
+        let settings = |urls: &[&str]| proto::RegionSettings {
+            regions: urls
+                .iter()
+                .map(|url| proto::RegionInfo { url: url.to_string(), ..Default::default() })
+                .collect(),
+        };
+        let cached = |host: &str| match region_cache().get(host) {
+            Cached::Fresh(urls) | Cached::Stale(urls) => urls,
+            Cached::Miss => vec![],
+        };
+
+        // A TLS project URL over a plaintext session.
+        RegionUrlProvider::set_server_regions(
+            "wss://plain-regions.livekit.cloud",
+            "ws://region.plain-regions.livekit.cloud",
+            &settings(&["wss://planted.livekit.cloud"]),
+        );
+        assert!(cached("plain-regions.livekit.cloud").is_empty(), "trusted a plaintext session");
+
+        RegionUrlProvider::set_server_regions(
+            "wss://tls-regions.livekit.cloud",
+            "wss://tls-regions.livekit.cloud",
+            &settings(&["ws://plain.livekit.cloud", "wss://secure.livekit.cloud"]),
+        );
+        assert_eq!(cached("tls-regions.livekit.cloud"), vec!["wss://secure.livekit.cloud"]);
+
+        // An `https` URL connects over `wss`.
+        RegionUrlProvider::set_server_regions(
+            "https://https-regions.livekit.cloud",
+            "https://https-regions.livekit.cloud",
+            &settings(&["https://secure.livekit.cloud"]),
+        );
+        assert_eq!(cached("https-regions.livekit.cloud"), vec!["https://secure.livekit.cloud"]);
     }
 
     #[tokio::test]
