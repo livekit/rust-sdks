@@ -1,0 +1,79 @@
+#:schema https://raw.githubusercontent.com/livekit/verwalter/main/schemas/v1.json
+[workspace]
+members = [
+  "device-info",
+  "imgproc",
+  "libwebrtc",
+  "livekit",
+  "livekit-api",
+  "livekit-capture",
+  "livekit-common",
+  "livekit-data-stream",
+  "livekit-datatrack",
+  "livekit-ffi",
+  "livekit-net",
+  "livekit-protocol",
+  "livekit-region",
+  "livekit-rpc",
+  "livekit-signaling",
+  "livekit-telemetry",
+  "livekit-token",
+  "livekit-token-source",
+  "livekit-wakeword",
+  "soxr-sys",
+  "webrtc-sys",
+  "webrtc-sys/build",
+  "yuv-sys",
+]
+pin_files = ["Cargo.toml"]
+
+[versioning]
+files = ["Cargo.toml"]
+
+[release]
+tag = "{package}/v{version}"
+
+[publish]
+registry = "crates"
+command = "cargo publish --no-verify"
+
+# The API check of `verwalter check`. For each package that a PR changes and
+# a changeset covers, cargo-semver-checks compares the public API with the
+# base of the PR. The PR fails if the changeset level is below what the
+# change needs. On a 0.x version, a breaking change needs `minor`. The
+# script has the details.
+[check]
+api = "\"$VERWALTER_ROOT/.github/scripts/api_check.sh\""
+
+[packages.livekit-ffi]
+path = "livekit-ffi"
+# No API check: the contract of this package is the FFI protocol and the
+# UniFFI bindings, not its Rust API.
+check.api = "true"
+versioning.files = [
+  "Cargo.toml",
+  "../livekit-ffi-node-bindings/package.json",
+  "../livekit-ffi-node-bindings/npm/darwin-arm64/package.json",
+  "../livekit-ffi-node-bindings/npm/darwin-x64/package.json",
+  "../livekit-ffi-node-bindings/npm/linux-arm64-gnu/package.json",
+  "../livekit-ffi-node-bindings/npm/linux-x64-gnu/package.json",
+  "../livekit-ffi-node-bindings/npm/win32-x64-msvc/package.json",
+]
+release.draft = true
+# The release is not made public without these files. Keep the list equal to
+# the `name` of each build target in ffi-builds.yml, plus the Python bindings.
+release.required_assets = [
+  "ffi-android-arm64.zip",
+  "ffi-android-armv7.zip",
+  "ffi-android-x86_64.zip",
+  "ffi-ios-arm64.zip",
+  "ffi-ios-sim-arm64.zip",
+  "ffi-linux-arm64.zip",
+  "ffi-linux-x86_64.zip",
+  "ffi-macos-arm64.zip",
+  "ffi-macos-x86_64.zip",
+  "ffi-python-bindings.zip",
+  "ffi-windows-arm64.zip",
+  "ffi-windows-x86_64.zip",
+]
+publish.registry = "none"
