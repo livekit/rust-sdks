@@ -57,6 +57,7 @@ mod token_provider_test;
 pub const LIVEKIT_PACKAGE: &str = "livekit";
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ServiceError {
     #[error("invalid environment: {0}")]
     Env(#[from] std::env::VarError),
