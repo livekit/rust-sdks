@@ -18,7 +18,7 @@ use crate::observation::{Observed, StateRevision, StateSnapshot};
 use libwebrtc::enum_dispatch;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol::{self as proto};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 
 use crate::prelude::*;
@@ -225,7 +225,6 @@ struct TrackInfo {
     pub source: TrackSource,
     pub stream_state: StreamState,
     pub muted: bool,
-    pub transceiver: Option<RtpTransceiver>,
     pub audio_features: Vec<proto::AudioTrackFeature>,
 }
 
@@ -233,6 +232,8 @@ pub(super) struct TrackInner {
     revision: Arc<StateRevision>,
     info: Observed<TrackInfo>,
     rtc_track: MediaStreamTrack,
+    // Native resource ownership is independent of value revisions and terminal state.
+    transceiver: RwLock<Option<RtpTransceiver>>,
     events: Mutex<TrackEvents>,
 }
 
@@ -252,13 +253,13 @@ pub(super) fn new_inner(
                 source: TrackSource::Unknown,
                 stream_state: StreamState::Active,
                 muted: false,
-                transceiver: None,
                 audio_features: Vec::new(),
             },
             &revision,
         ),
         revision,
         rtc_track,
+        transceiver: RwLock::new(None),
         events: Default::default(),
     }
 }

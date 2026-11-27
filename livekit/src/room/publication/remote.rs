@@ -150,11 +150,13 @@ impl RemoteTrackPublication {
     }
 
     pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
-        if self.inner.revision.is_terminal() {
+        let Some(muted) = super::update_info(
+            &self.inner,
+            &TrackPublication::Remote(self.clone()),
+            new_info.clone(),
+        ) else {
             return;
-        }
-        let muted = self.inner.info.read().muted;
-        super::update_info(&self.inner, &TrackPublication::Remote(self.clone()), new_info.clone());
+        };
 
         // For remote tracks, the publication need to manually fire the muted/unmuted events
         // (they are not being fired for the tracks)

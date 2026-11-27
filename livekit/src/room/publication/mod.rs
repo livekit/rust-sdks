@@ -228,14 +228,19 @@ pub(super) fn new_inner(
 
 pub(super) fn update_info(
     inner: &TrackPublicationInner,
-    _publication: &TrackPublication,
+    publication: &TrackPublication,
     new_info: proto::TrackInfo,
-) {
+) -> Option<bool> {
     let mut info = inner.info.write();
     if inner.revision.is_terminal() {
-        return;
+        return None;
     }
-    info.muted = new_info.muted;
+    // Remote mute transitions must use the value replaced by this same write.
+    // Local mute is owned by the local track, with the original publication fallback.
+    let previous_muted = info.muted;
+    if publication.is_remote() {
+        info.muted = new_info.muted;
+    }
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
     info.encryption_type = new_info.encryption().into();
@@ -251,6 +256,7 @@ pub(super) fn update_info(
         .iter()
         .filter_map(|v| PacketTrailerFeature::try_from(*v).ok())
         .collect();
+    Some(previous_muted)
 }
 
 pub(super) fn set_track(
@@ -330,6 +336,69 @@ pub struct PublicationObservation {
 #[cfg(test)]
 mod observation_tests {
     use super::*;
+
+    #[test]
+    fn remote_mute_commit_is_atomic_and_local_fallback_is_preserved() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Barrier,
+        };
+        let remote = RemoteTrackPublication::new(
+            proto::TrackInfo { sid: "TR_atomic".into(), ..Default::default() },
+            None,
+            true,
+        );
+        let muted = Arc::new(AtomicUsize::new(0));
+        remote.on_muted({
+            let muted = muted.clone();
+            move |publication| {
+                // Reentrant snapshot capture must be outside the publication write lock.
+                assert!(publication.observed_state().value.values.muted);
+                muted.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        let barrier = Barrier::new(3);
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                let remote = remote.clone();
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    for _ in 0..100 {
+                        barrier.wait();
+                        remote.update_info(proto::TrackInfo {
+                            sid: "TR_atomic".into(),
+                            muted: true,
+                            ..Default::default()
+                        });
+                        barrier.wait();
+                    }
+                });
+            }
+            for _ in 0..100 {
+                remote.update_info(proto::TrackInfo {
+                    sid: "TR_atomic".into(),
+                    muted: false,
+                    ..Default::default()
+                });
+                barrier.wait();
+                barrier.wait();
+            }
+        });
+        assert_eq!(muted.load(Ordering::SeqCst), 100);
+        let local = LocalTrackPublication {
+            inner: new_inner(
+                proto::TrackInfo { sid: "TR_local".into(), muted: true, ..Default::default() },
+                None,
+            ),
+        };
+        local.update_info(proto::TrackInfo {
+            sid: "TR_local".into(),
+            muted: false,
+            ..Default::default()
+        });
+        assert!(local.is_muted());
+        assert!(TrackPublication::Local(local).observed_state().value.values.muted);
+    }
 
     #[tokio::test]
     async fn publication_mutations_are_owned_observed_and_terminal() {

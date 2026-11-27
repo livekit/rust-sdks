@@ -1103,9 +1103,10 @@ impl Room {
         sid.unwrap()
     }
 
-    /// Returns a coherent snapshot of the current room information.
     /// Coherent core-owned room values and membership. Child values are independent.
     pub fn observed_state(&self) -> StateSnapshot<RoomObservation> {
+        // Room lock order: info -> remote_participants -> active_speakers -> revision.
+        // Writers hold only one room value lock, releasing it before callbacks/child teardown.
         let info = self.inner.info.read();
         let participants = self.inner.remote_participants.read();
         let speakers = self.inner.active_speakers.read();
@@ -1131,6 +1132,7 @@ impl Room {
         }
     }
 
+    /// Returns a coherent snapshot of the current room information.
     pub fn info(&self) -> RoomInfo {
         self.inner.info.read().clone()
     }
@@ -1441,7 +1443,17 @@ impl RoomSession {
 
         self.active_speakers.write().clear();
         Participant::Local(self.local_participant.clone()).finish_observation();
-        self.revision.finish();
+        // Serialize the terminal stamp against every room writer, in snapshot lock order.
+        let info = self.info.read();
+        let participants = self.remote_participants.read();
+        let speakers = self.active_speakers.read();
+        let changed = self.revision.mark_finished();
+        drop(speakers);
+        drop(participants);
+        drop(info);
+        if changed {
+            self.revision.notify();
+        }
         self.dispatcher.clear();
         Ok(())
     }
@@ -1451,7 +1463,10 @@ impl RoomSession {
     /// Returns true if the state changed
     fn update_connection_state(&self, state: ConnectionState) -> bool {
         let mut info = self.info.write();
-        if info.state == state || self.disconnected.load(Ordering::Relaxed) {
+        if self.revision.is_terminal()
+            || info.state == state
+            || self.disconnected.load(Ordering::Relaxed)
+        {
             return false;
         }
         if state == ConnectionState::Disconnected {
@@ -1688,7 +1703,13 @@ impl RoomSession {
         }
 
         speakers.sort_by(|a, b| a.audio_level().partial_cmp(&b.audio_level()).unwrap());
-        *self.active_speakers.write() = speakers.clone();
+        {
+            let mut active = self.active_speakers.write();
+            if self.revision.is_terminal() || self.closing.load(Ordering::Relaxed) {
+                return;
+            }
+            *active = speakers.clone();
+        }
 
         self.dispatcher.dispatch(&RoomEvent::ActiveSpeakersChanged { speakers });
     }
@@ -1792,7 +1813,8 @@ impl RoomSession {
         };
 
         let mut track_sids = Vec::new();
-        for (_, participant) in self.remote_participants.read().clone() {
+        let participants = self.remote_participants.read().clone();
+        for (_, participant) in participants {
             for (track_sid, track) in participant.track_publications() {
                 if track.is_desired() != auto_subscribe {
                     track_sids.push(track_sid.to_string());
@@ -1875,19 +1897,22 @@ impl RoomSession {
 
     fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
         let mut info = self.info.write();
+        if self.revision.is_terminal() {
+            return;
+        }
         let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
         let mut updated = false;
         let metadata_changed = old_metadata != room.metadata;
         if metadata_changed {
             updated = true;
         }
-        if !room.sid.is_empty() {
+        let sid_to_resolve = if !room.sid.is_empty() {
             let sid = room.sid.try_into().ok();
             info.sid = sid.clone();
-            if let Some(sid) = sid {
-                let _ = self.sid_promise.resolve(sid);
-            }
-        }
+            sid
+        } else {
+            None
+        };
         if info.name != room.name {
             updated = true;
             info.name = room.name;
@@ -1919,6 +1944,9 @@ impl RoomSession {
         info.creation_time = room.creation_time_ms;
         let current = info.clone();
         drop(info);
+        if let Some(sid) = sid_to_resolve {
+            let _ = self.sid_promise.resolve(sid);
+        }
         if metadata_changed {
             self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
                 old_metadata,
@@ -1947,8 +1975,8 @@ impl RoomSession {
         if let Some(room) = moved.room {
             self.handle_room_update(room);
         }
-        let info = self.info.read();
-        self.dispatcher.dispatch(&RoomEvent::Moved { room: info.clone() });
+        let info = self.info.read().clone();
+        self.dispatcher.dispatch(&RoomEvent::Moved { room: info });
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
@@ -2289,6 +2317,9 @@ impl RoomSession {
         threshold: u64,
     ) {
         let mut info = self.info.write();
+        if self.revision.is_terminal() {
+            return;
+        }
         match kind {
             DataPacketKind::Lossy => {
                 info.lossy_dc_options.buffered_amount_low_threshold = threshold;
@@ -2580,7 +2611,11 @@ impl RoomSession {
         }
 
         let mut participants = self.remote_participants.write();
-        participants.remove(&remote_participant.identity());
+        // A late disconnect must still tear down the child/RPC/streams below, but
+        // cannot mutate room membership after the terminal revision.
+        if !self.revision.is_terminal() {
+            participants.remove(&remote_participant.identity());
+        }
         drop(participants);
 
         // Terminate any data streams this participant was still sending; otherwise their

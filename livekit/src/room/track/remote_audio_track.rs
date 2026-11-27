@@ -108,15 +108,12 @@ impl RemoteAudioTrack {
 
     #[allow(dead_code)]
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.info.read().transceiver.clone()
+        self.inner.transceiver.read().clone()
     }
 
     #[allow(dead_code)]
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        let mut info = self.inner.info.write();
-        if !self.inner.revision.is_terminal() {
-            info.transceiver = transceiver;
-        }
+        *self.inner.transceiver.write() = transceiver;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {

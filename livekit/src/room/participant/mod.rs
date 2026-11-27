@@ -688,7 +688,50 @@ mod observation_tests {
         assert!(!reconnecting.terminal);
         room.inner.update_connection_state(crate::ConnectionState::Connected);
         assert!(room.observed_state().revision > reconnecting.revision);
+        // Real writer paths contend with the three-lock snapshot. No writer may
+        // retain one room lock while acquiring another in reverse order.
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for _ in 0..200 {
+                    room.inner.handle_room_update(proto::Room::default());
+                }
+            });
+            scope.spawn(|| {
+                for _ in 0..200 {
+                    room.inner.handle_speakers_changed(Vec::new());
+                }
+            });
+            scope.spawn(|| {
+                for _ in 0..200 {
+                    room.inner.handle_participant_update(vec![proto::ParticipantInfo {
+                        sid: "PA_lock".into(),
+                        identity: "lock-probe".into(),
+                        ..Default::default()
+                    }]);
+                    if let Some(remote) =
+                        room.inner.get_participant_by_identity(&"lock-probe".into())
+                    {
+                        room.inner.clone().handle_participant_disconnect(remote);
+                    }
+                }
+            });
+            for _ in 0..200 {
+                let _ = room.observed_state();
+            }
+        });
         room.close().await.unwrap();
+        let final_room = room.observed_state();
+        room.inner
+            .handle_room_update(proto::Room { name: "too late".into(), ..Default::default() });
+        room.inner.handle_data_channel_buffered_low_threshold_change(
+            crate::DataPacketKind::Reliable,
+            999,
+        );
+        room.inner.handle_speakers_changed(Vec::new());
+        assert!(!room.inner.update_connection_state(crate::ConnectionState::Connected));
+        assert_eq!(room.observed_state().revision, final_room.revision);
+        assert_eq!(room.observed_state().value.info, final_room.value.info);
+        assert!(room.state_did_change(Some(final_room.revision)).await.is_none());
         assert!(room.observed_state().terminal);
         assert!(participant.observed_state().terminal);
         let terminal = participant.observed_state();

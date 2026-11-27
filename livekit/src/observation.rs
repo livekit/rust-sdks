@@ -78,7 +78,8 @@ impl StateRevision {
     pub(crate) fn is_terminal(&self) -> bool {
         self.stamp.lock().terminal
     }
-    pub(crate) fn finish(&self) {
+    #[cfg(test)]
+    fn finish(&self) {
         if self.mark_finished() {
             self.notify();
         }
