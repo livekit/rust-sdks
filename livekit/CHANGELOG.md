@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.2
+
+### Patch Changes
+
+- Fix a cancelled `Room::connect` leaving its signalling connection open: dropping a `SignalClient`, or a connect that is still waiting for the server, now closes the WebSocket instead of leaving the participant in the room until the server gives up on it. - [#1745](https://github.com/livekit/rust-sdks/pull/1745) ([@MaxHeimbrock](https://github.com/MaxHeimbrock))
+- Add `Room::prepare_connection` and the FFI `PrepareConnectionRequest`, which pick the best region of a LiveKit Cloud project before connecting and keep the region list fresh until then, so that the next connect to the same URL dials that region directly; `Room::cancel_prepared_connection` undoes it, and `livekit-signaling` adds `RegionUrlProvider::prepare` and `RegionUrlProvider::cancel_prepared` for the same purpose. - [#1711](https://github.com/livekit/rust-sdks/pull/1711) ([@lukasIO](https://github.com/lukasIO))
+- The region list that a LiveKit Cloud server sends with a leave request now goes into the region cache, and a full reconnect fails over through the regions of the project URL, so the reconnect that follows a leave can fail over without fetching the list first; `livekit-signaling` adds `SignalOptions::initial_region_url` and `SignalClient::project_url` for this. - [#1709](https://github.com/livekit/rust-sdks/pull/1709) ([@lukasIO](https://github.com/lukasIO))
+- Updated dependencies: livekit-api@0.11.1, livekit-signaling@0.4.0
+
 ## 0.12.1
 
 ### Patch Changes

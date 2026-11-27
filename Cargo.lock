@@ -3762,7 +3762,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -3898,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3971,7 +3971,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-region"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
@@ -3995,7 +3995,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4055,7 +4055,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-token-source"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.21.7",

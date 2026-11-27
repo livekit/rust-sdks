@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.17.0
+
+### Minor Changes
+
+- Add `Room::prepare_connection` and the FFI `PrepareConnectionRequest`, which pick the best region of a LiveKit Cloud project before connecting and keep the region list fresh until then, so that the next connect to the same URL dials that region directly; `Room::cancel_prepared_connection` undoes it, and `livekit-signaling` adds `RegionUrlProvider::prepare` and `RegionUrlProvider::cancel_prepared` for the same purpose. - [#1711](https://github.com/livekit/rust-sdks/pull/1711) ([@lukasIO](https://github.com/lukasIO))
+
+### Patch Changes
+
+- Updated dependencies: livekit@0.12.2, livekit-capture@0.3.2, livekit-signaling@0.4.0
+
 ## 0.16.0
 
 ### Minor Changes
