@@ -352,6 +352,27 @@ use std::sync::{
 use super::{FfiConfig, FfiHandle};
 use crate::{FfiHandleId, FFI_SERVER};
 
+/// `dispose` waits for every prepare request and forgets them. Undoing the prepare in the
+/// region cache is tested in `livekit-signaling`.
+#[serial_test::serial]
+#[test]
+fn dispose_waits_for_prepare_requests() {
+    let finished = Arc::new(AtomicBool::new(false));
+    let task = FFI_SERVER.async_runtime.spawn({
+        let finished = finished.clone();
+        async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            finished.store(true, Ordering::SeqCst);
+        }
+    });
+    FFI_SERVER.track_prepared_connection("ws://localhost:7880".into(), task);
+
+    FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
+
+    assert!(finished.load(Ordering::SeqCst), "dispose did not wait for the prepare");
+    assert!(FFI_SERVER.prepared_connections.lock().is_empty());
+}
+
 struct DropsHandle {
     handle: FfiHandleId,
     did_attempt_drop: Arc<AtomicBool>,

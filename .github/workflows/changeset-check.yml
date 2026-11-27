@@ -32,13 +32,27 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - run: .github/scripts/check_crates_published.sh
 
-  # Fails a PR that changes a package of verwalter.toml without a changeset.
+  # Fails a PR that changes a package of verwalter.toml without a changeset,
+  # or with a changeset level below what the change of the public API needs.
   # The `internal` label exempts a PR. The release PR is exempt by its branch.
   check-changeset:
     name: Check for changeset
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 # the API check compares with the base of the PR
+          submodules: true # yuv-sys builds from its submodule
+
+      # For the API check (`[check].api` in verwalter.toml).
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+          rustflags: ""
+      - uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
+        with: { tool: cargo-semver-checks }
+
       - uses: livekit/verwalter@39e3d7c57c2b6d96cf2d4b7771f3ab199490faba # v0.31.0
         with:
           command: check
