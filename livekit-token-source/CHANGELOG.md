@@ -4,6 +4,12 @@
 
 - Add an opt-in decoded HTTP response limit, used by telemetry export, that reports an oversized response as the new `TransportError::ResponseTooLarge` variant. Code that matches `TransportError` exhaustively, in Rust or in the generated Swift and Kotlin bindings, needs a case for it.
 
+## 0.2.1
+
+### Patch Changes
+
+- Add `TokenSourceFetchOptions::with_thread_id`, which names the agent thread that the dispatched agent continues, in the `thread_id` field of the agent dispatch. - [#1733](https://github.com/livekit/rust-sdks/pull/1733) ([@MaxHeimbrock](https://github.com/MaxHeimbrock))
+
 ## 0.1.4 (2026-10-20)
 
 ### Fixes
