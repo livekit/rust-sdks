@@ -287,56 +287,64 @@ rust::Vec<RtpTransceiverPtr> PeerConnection::get_transceivers() const {
   return vec;
 }
 
+namespace {
+
+using DescriptionGetter = const webrtc::SessionDescriptionInterface* (
+    webrtc::PeerConnectionInterface::*)() const;
+
+std::unique_ptr<SessionDescription> clone_session_description(
+    webrtc::Thread* signaling_thread,
+    const webrtc::PeerConnectionInterface* peer_connection,
+    DescriptionGetter getter) {
+  // WebRTC may replace the borrowed description on the signaling thread.
+  return signaling_thread->BlockingCall([&] {
+    const auto* description = (peer_connection->*getter)();
+    return description
+               ? std::make_unique<SessionDescription>(description->Clone())
+               : nullptr;
+  });
+}
+
+}  // namespace
+
 std::unique_ptr<SessionDescription> PeerConnection::current_local_description()
     const {
-  auto local_description = peer_connection_->current_local_description();
-  if (local_description)
-    return std::make_unique<SessionDescription>(local_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::current_local_description);
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::current_remote_description()
     const {
-  auto remote_description = peer_connection_->current_remote_description();
-  if (remote_description)
-    return std::make_unique<SessionDescription>(remote_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::current_remote_description);
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::pending_local_description()
     const {
-  auto local_description = peer_connection_->pending_local_description();
-  if (local_description)
-    return std::make_unique<SessionDescription>(local_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::pending_local_description);
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::pending_remote_description()
     const {
-  auto remote_description = peer_connection_->pending_remote_description();
-  if (remote_description)
-    return std::make_unique<SessionDescription>(remote_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::pending_remote_description);
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::local_description() const {
-  auto local_description = peer_connection_->local_description();
-  if (local_description)
-    return std::make_unique<SessionDescription>(local_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::local_description);
 }
 
 std::unique_ptr<SessionDescription> PeerConnection::remote_description() const {
-  auto remote_description = peer_connection_->remote_description();
-  if (remote_description)
-    return std::make_unique<SessionDescription>(remote_description->Clone());
-
-  return nullptr;
+  return clone_session_description(
+      rtc_runtime_->signaling_thread(), peer_connection_.get(),
+      &webrtc::PeerConnectionInterface::remote_description);
 }
 
 PeerConnectionState PeerConnection::connection_state() const {
