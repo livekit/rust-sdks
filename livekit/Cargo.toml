@@ -13,6 +13,9 @@ default = ["native"]
 
 native = ["livekit-signaling/native"]
 
+# Optional binding metadata for core types that cannot be constructed by remote derives.
+uniffi = ["dep:uniffi", "libwebrtc/uniffi"]
+
 # Back-compat alias from when this also selected a runtime.
 tokio = ["native"]
 
@@ -49,9 +52,12 @@ check = [
     ["native", "rustls-tls-webpki-roots"],
     ["native", "rustls-tls-webpki-roots", "glib-main-loop"],
     ["native", "__lk-internal"],
+    ["native", "uniffi"],
+    ["uniffi"],
 ]
 
 [dependencies]
+uniffi = { workspace = true, optional = true }
 livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }

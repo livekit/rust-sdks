@@ -1,6 +1,6 @@
 # Swift packaging
 
-Details for the `cargo make swift-package*` tasks. Both modes write to `./packages/swift/LiveKitFFI/`.
+Details for the `cargo make swift-package*` and `swift-room*-package` tasks. All modes write to `./packages/swift/LiveKitFFI/`.
 
 ## Modes
 
@@ -27,6 +27,26 @@ SPM_VERSION=0.1.0 cargo make --profile release swift-package
 ```
 
 `SPM_HOSTING_REPO` defaults to `livekit/livekit-ffi-xcframework`; override it if forking.
+
+## Room packages
+
+`cargo make swift-room-package` bundles WebSocket/HTTP transport and webpki TLS
+roots. `cargo make swift-room-host-package` exports the same room API plus
+`WsClient`/`HttpClient`; register both host clients before connecting.
+Both reuse the flow above and support macOS 11 (ARM64/x86_64) and iOS 14
+(ARM64 device/simulator) only, matching the released WebRTC prebuilts. Their larger
+Rust-owned WebRTC binary is excluded from the core package size budget.
+
+For a local macOS ARM64 package:
+
+```sh
+CARGO_BUILD_JOBS=2 SPM_PLATFORMS=macos SPM_TARGET_FLAG="--target aarch64-apple-darwin" cargo make swift-room-host-package
+```
+
+Omit `SPM_TARGET_FLAG` for all architectures of the selected platforms. A room
+package replaces the same output directory as a core package; preserve a copy
+before switching surfaces or transports. The shared manifest templates retain
+Swift 5 language mode for UniFFI 0.31.1 callbacks.
 
 ## Local dependencies
 

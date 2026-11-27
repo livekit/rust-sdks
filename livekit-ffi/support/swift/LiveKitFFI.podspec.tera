@@ -10,8 +10,13 @@ Pod::Spec.new do |spec|
   spec.homepage = "https://github.com/{{ SPM_HOSTING_REPO }}"
   spec.author = "LiveKit"
 
+{% if LK_PLATFORM is defined and LK_PLATFORM != "swift" %}
+  spec.ios.deployment_target = "14.0"
+  spec.osx.deployment_target = "11.0"
+{% else %}
   spec.ios.deployment_target = "13.0"
   spec.osx.deployment_target = "10.15"
+{% endif %}
   spec.swift_versions = ['5.0']
 
   spec.source = {

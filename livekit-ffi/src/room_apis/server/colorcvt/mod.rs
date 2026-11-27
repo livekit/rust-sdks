@@ -54,6 +54,12 @@ impl FrameBuffer {
         }
         self.bytes.as_mut_slice()
     }
+
+    /// Takes the converted pixels out without copying them, for a caller that
+    /// keeps one frame and has no stream to hand the buffer back to.
+    pub(crate) fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 
 /// Read-only by design: writes go through [`FrameBuffer::fit`].

@@ -130,6 +130,7 @@ impl From<EncryptionType> for i32 {
 /// enum.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum ClientCapability {
     Unused,
     PacketTrailer,
@@ -151,17 +152,19 @@ impl TryFrom<i32> for ClientCapability {
     }
 }
 
+impl From<ClientCapability> for proto::client_info::Capability {
+    fn from(capability: ClientCapability) -> Self {
+        match capability {
+            ClientCapability::Unused => Self::CapUnused,
+            ClientCapability::PacketTrailer => Self::CapPacketTrailer,
+            ClientCapability::CompressionDeflateRaw => Self::CapCompressionDeflateRaw,
+        }
+    }
+}
+
 impl From<ClientCapability> for i32 {
     fn from(value: ClientCapability) -> Self {
-        match value {
-            ClientCapability::Unused => proto::client_info::Capability::CapUnused as i32,
-            ClientCapability::PacketTrailer => {
-                proto::client_info::Capability::CapPacketTrailer as i32
-            }
-            ClientCapability::CompressionDeflateRaw => {
-                proto::client_info::Capability::CapCompressionDeflateRaw as i32
-            }
-        }
+        proto::client_info::Capability::from(value) as i32
     }
 }
 

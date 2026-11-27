@@ -14,6 +14,10 @@
 
 #![doc = include_str!("../README.md")]
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
+pub mod observation;
 mod plugin;
 pub mod proto;
 mod room;

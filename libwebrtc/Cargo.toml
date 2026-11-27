@@ -8,6 +8,7 @@ description = "Livekit safe bindings to libwebrtc"
 repository.workspace = true
 
 [features]
+uniffi = ["dep:uniffi"]
 default = []
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
@@ -22,6 +23,7 @@ glib-main-loop = [ "dep:glib" ]
 mode = "powerset"
 
 [dependencies]
+uniffi = { workspace = true, optional = true }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

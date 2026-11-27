@@ -9,18 +9,23 @@ readme = "README.md"
 publish = false
 
 [features]
-default = ["room-apis", "rustls-tls-native-roots"]
+default = ["room-apis-bundled-transport", "rustls-tls-native-roots"]
 
 # There are two mutually exclusive modes that this crate can be configured
 # in, `room-apis` and `core-modules`.
 
-# `room-apis` implements a full, rust owned and managed webrtc stack. This is used by more modern
-# client sdks like python, node, unity, and c++.
+# Shared room surface, including Rust-owned WebRTC. Select a transport below.
 room-apis = [
   "dep:livekit",
+  "livekit/uniffi",
+  "dep:uniffi-build",
   "dep:webrtc-sys",
   "dep:soxr-sys",
   "dep:imgproc",
+  # The typed surface exports the same access token helpers as `core-modules`.
+  "dep:livekit-token",
+  "dep:livekit-signaling", # typed SignalError causes from the authoritative room
+  "dep:livekit-data-stream",
   "dep:prost",
   "dep:dashmap",
   "dep:downcast-rs",
@@ -33,6 +38,25 @@ room-apis = [
   "tokio/full",
   "tokio/parking_lot",
 ]
+
+# Bundled WebSocket/HTTP transport. Defaults and TLS features select this.
+# Migration: bare `--no-default-features --features room-apis` now needs
+# `--features room-apis-bundled-transport` to retain its previous behavior.
+room-apis-bundled-transport = ["room-apis", "livekit/default"]
+
+# The same room surface as `room-apis`, but the host application supplies the
+# network: the artifact contains no bundled WebSocket, HTTP or TLS client. It
+# also exports the existing UniFFI interface of livekit-net (`WsClient`,
+# `HttpClient`, `set_ws_client`, `set_http_client`), so the host registers its
+# clients through generated bindings. WebRTC media stays in Rust.
+#
+# The host must register both clients before the first connect. Without them,
+# connect fails with `NativeSignalFailure::TransportNotConfigured`. There is no
+# fallback.
+#
+# Build it alone: `--no-default-features --features room-apis-host-transport`.
+# It excludes the bundled transport and features that imply it.
+room-apis-host-transport = ["room-apis", "dep:livekit-net", "livekit-net/uniffi"]
 
 # `core-modules` implements a set of smaller utility modules in rust to abstract away business
 # logic. This does NOT include `libwebrtc` or `livekit`.
@@ -55,30 +79,30 @@ core-modules = [
   "uniffi/tokio",
 ]
 
-# TLS selection. These imply `room-apis` because they only configure `livekit`:
+# TLS selection. These retain the bundled room transport:
 # .github/workflows/ffi-builds.yml builds several targets with
 # `--no-default-features --features "<tls>"`, which would otherwise select
 # neither surface and produce an empty crate.
-native-tls = ["room-apis", "livekit/native-tls"]
-native-tls-vendored = ["room-apis", "livekit/native-tls-vendored"]
-rustls-tls-native-roots = ["room-apis", "livekit/rustls-tls-native-roots"]
-rustls-tls-webpki-roots = ["room-apis", "livekit/rustls-tls-webpki-roots"]
-__rustls-tls = ["room-apis", "livekit/__rustls-tls"]
+native-tls = ["room-apis-bundled-transport", "livekit/native-tls"]
+native-tls-vendored = ["room-apis-bundled-transport", "livekit/native-tls-vendored"]
+rustls-tls-native-roots = ["room-apis-bundled-transport", "livekit/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["room-apis-bundled-transport", "livekit/rustls-tls-webpki-roots"]
+__rustls-tls = ["room-apis-bundled-transport", "livekit/__rustls-tls"]
 
 # Enable tokio-console to debug tasks
-tracing = ["room-apis", "tokio/tracing", "dep:console-subscriber"]
+tracing = ["room-apis-bundled-transport", "tokio/tracing", "dep:console-subscriber"]
 
 # Capture sources (livekit-capture): publish tracks from server-side
 # producers. This enables the capture scaffolding only; enable a
 # `capture-*` feature to include a specific source.
-capture = ["room-apis", "dep:livekit-capture"]
+capture = ["room-apis-bundled-transport", "dep:livekit-capture"]
 capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 # End-to-end tests against a LiveKit server, as in the `livekit` crate. These
-# drive the room-apis request surface, so they imply it.
-__lk-e2e-test = ["room-apis"]
+# drive the room-apis request surface with bundled transport.
+__lk-e2e-test = ["room-apis-bundled-transport"]
 
 [dependencies]
 # Shared by both surfaces.
@@ -91,15 +115,23 @@ log = { workspace = true }
 thiserror = { workspace = true }
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # room-apis only. Each of these is referenced solely from the `room_apis` module
 # tree, so gating them costs no source changes.
-livekit = { workspace = true, optional = true }
+# A path dependency, not `workspace = true`: a member cannot turn off default
+# features that the workspace entry leaves on, and the default of `livekit` is
+# `native`. `room-apis-bundled-transport` adds `livekit/default` back, and
+# `room-apis-host-transport` leaves it off. No version is necessary, because
+# this crate is not published.
+livekit = { path = "../livekit", default-features = false, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 
-# core-modules only.
+# Both surfaces: access tokens.
 livekit-token = { workspace = true, optional = true }
+
+# core-modules only, except livekit-net: `room-apis-host-transport` also
+# selects it, for its UniFFI exports.
 livekit-net = { workspace = true, optional = true }
 livekit-telemetry = { workspace = true, optional = true }
 livekit-data-stream = { workspace = true, optional = true }
@@ -129,6 +161,7 @@ link-cplusplus = { version = "1", features = ["nothing"] }
 device-info = { workspace = true }
 
 [build-dependencies]
+uniffi-build = { workspace = true, optional = true }
 prost-build = { workspace = true, optional = true }
 webrtc-sys-build = { workspace = true, optional = true }
 
@@ -170,6 +203,10 @@ ffi-desktop = { no-default-features = true, features = ["room-apis", "rustls-tls
 ffi-ios = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"], crate-type = "staticlib" }
 ffi-android = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"], crate-type = "cdylib" }
 ffi-windows-arm64 = { no-default-features = true, features = ["room-apis", "native-tls"], crate-type = "cdylib" } # ring 0.16 is incompatible with win aarch64
+
+# Complete room Swift packages; cargo-swift chooses the output crate type.
+swift-room = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"] }
+swift-room-host = { no-default-features = true, features = ["room-apis", "room-apis-host-transport"] }
 
 # core-modules -- SDKs that already include their own WebRTC stack and consume
 # this crate purely over UniFFI.

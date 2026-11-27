@@ -1,0 +1,294 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Thin core encryption configuration and host-owned key material; no room references.
+
+use super::media_frames::invalid;
+use super::{FfiRoom, FfiRoomError};
+use bytes::Bytes;
+use livekit::e2ee::{
+    key_provider::{KeyProvider, KeyProviderOptions},
+    E2eeOptions, EncryptionType,
+};
+use std::{fmt, sync::Arc};
+
+pub use livekit::e2ee::key_provider::KeyDerivationAlgorithm as NativeKeyDerivationAlgorithm;
+/// The actual core algorithm, with the existing foreign names retained.
+// UniFFI 0.31.2 supports remote non-exhaustive enums, so no value wrapper is
+// needed. These are all current core variants; names/order preserve the foreign
+// representation and PBKDF2 default. A new core variant must be added here before
+// export: UniFFI's non-exhaustive fallback panics instead of preserving unknowns.
+#[uniffi::remote(Enum)]
+#[non_exhaustive]
+pub enum NativeKeyDerivationAlgorithm {
+    #[uniffi(name = "Pbkdf2")]
+    PBKDF2,
+    #[uniffi(name = "Hkdf")]
+    HKDF,
+}
+
+/// Provider settings. Defaults match Swift's shared-key AES128 fixture.
+// Deliberate policy adapter, not a UniFFI limitation on core KeyProviderOptions:
+// core's five public fields could be a remote record. This existing constructor
+// also selects shared/non-shared creation, optional salt, and the SIF trailer.
+// Every core field is forwarded; None salt means LKFrameEncryptionKey. Defaults
+// differ from core only in ratchet_window_size (0 here, 16 in core); shared=true
+// and LK-ROCKS trailer are extra host policy. AES256 and discard-when-not-ready
+// cannot be expressed by core and are rejected, never silently downgraded.
+// These compatibility defaults remain for existing callers; mobile conversion
+// should supply its choices explicitly rather than treating them as core defaults.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeKeyProviderOptions {
+    #[uniffi(default = true)]
+    pub shared_key: bool,
+    #[uniffi(default = None)]
+    pub ratchet_salt: Option<Bytes>,
+    #[uniffi(default = 0)]
+    pub ratchet_window_size: i32,
+    #[uniffi(default = -1)]
+    pub failure_tolerance: i32,
+    #[uniffi(default = 16)]
+    pub key_ring_size: i32,
+    pub key_derivation_algorithm: NativeKeyDerivationAlgorithm,
+    #[uniffi(default = None)]
+    pub uncrypted_magic_bytes: Option<Bytes>,
+    #[uniffi(default = false)]
+    pub discard_frame_when_cryptor_not_ready: bool,
+    #[uniffi(default = 128)]
+    pub key_size: u16,
+}
+impl Default for NativeKeyProviderOptions {
+    fn default() -> Self {
+        Self {
+            shared_key: true,
+            ratchet_salt: None,
+            ratchet_window_size: 0,
+            failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: NativeKeyDerivationAlgorithm::PBKDF2,
+            uncrypted_magic_bytes: None,
+            discard_frame_when_cryptor_not_ready: false,
+            key_size: 128,
+        }
+    }
+}
+
+/// Host-owned core key provider. Keeping it alive never retains a room/room.
+// Deliberate validation adapter: core KeyProvider could be exposed as an external
+// object, but that would bypass the existing index/key bounds and the shared-mode
+// identity check. This object retains the original provider, not copied key state;
+// Vec<u8> becomes Bytes losslessly and core bool rejection becomes an error.
+// latest_key_index is core's data-key index, not a media sender-index override.
+#[derive(uniffi::Object)]
+pub struct NativeKeyProvider {
+    pub(super) core: KeyProvider,
+    shared: bool,
+    ring_size: i32,
+}
+impl fmt::Debug for NativeKeyProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NativeKeyProvider").field("shared", &self.shared).finish_non_exhaustive()
+    }
+}
+impl NativeKeyProvider {
+    fn index(&self, index: i32) -> Result<(), FfiRoomError> {
+        if !(0..self.ring_size).contains(&index) {
+            return Err(invalid("key index is outside the key ring"));
+        }
+        Ok(())
+    }
+    fn identity(
+        &self,
+        identity: Option<String>,
+    ) -> Result<Option<livekit::id::ParticipantIdentity>, FfiRoomError> {
+        if self.shared {
+            return Ok(None);
+        }
+        identity
+            .filter(|s| !s.is_empty())
+            .map(|s| Some(s.into()))
+            .ok_or_else(|| invalid("participant identity is required for a non-shared key"))
+    }
+}
+#[uniffi::export]
+impl NativeKeyProvider {
+    /// Shared mode requires an initial nonempty key. Core has no empty shared-provider constructor.
+    /// Unsupported AES256/discard-when-not-ready settings fail explicitly, never downgrade.
+    #[uniffi::constructor]
+    pub fn new(
+        options: NativeKeyProviderOptions,
+        shared_key: Option<Bytes>,
+    ) -> Result<Arc<Self>, FfiRoomError> {
+        if options.key_size != 128 || options.discard_frame_when_cryptor_not_ready {
+            return Err(invalid("core KeyProviderOptions exposes only AES128 and discardFrameWhenCryptorNotReady=false"));
+        }
+        if !(1..=255).contains(&options.key_ring_size)
+            || !(0..=255).contains(&options.ratchet_window_size)
+            || options.failure_tolerance < -1
+        {
+            return Err(invalid("invalid key ring, ratchet window or failure tolerance"));
+        }
+        let salt =
+            options.ratchet_salt.unwrap_or_else(|| Bytes::from_static(b"LKFrameEncryptionKey"));
+        if salt.is_empty() || salt.len() > 4096 {
+            return Err(invalid("ratchet salt must contain 1..4096 bytes"));
+        }
+        let core_options = KeyProviderOptions {
+            ratchet_salt: salt.to_vec(),
+            ratchet_window_size: options.ratchet_window_size,
+            failure_tolerance: options.failure_tolerance,
+            key_ring_size: options.key_ring_size,
+            key_derivation_algorithm: options.key_derivation_algorithm,
+        };
+        let core = if options.shared_key {
+            let key = shared_key.ok_or_else(|| invalid("shared mode requires an initial key"))?;
+            validate_key(&key)?;
+            KeyProvider::with_shared_key(core_options, key.to_vec())
+        } else {
+            if shared_key.is_some() {
+                return Err(invalid("shared key supplied for non-shared mode"));
+            }
+            KeyProvider::new(core_options)
+        };
+        let provider =
+            Arc::new(Self { core, shared: options.shared_key, ring_size: options.key_ring_size });
+        provider.set_sif_trailer(
+            options.uncrypted_magic_bytes.unwrap_or_else(|| Bytes::from_static(b"LK-ROCKS")),
+        )?;
+        Ok(provider)
+    }
+    /// Sets key material through core. Core also updates its latest data-packet key index.
+    /// Existing media cryptors do not switch index; this is not Swift setCurrentKeyIndex parity.
+    pub fn set_key(
+        &self,
+        key: Bytes,
+        participant_identity: Option<String>,
+        index: i32,
+    ) -> Result<(), FfiRoomError> {
+        self.index(index)?;
+        validate_key(&key)?;
+        match self.identity(participant_identity)? {
+            None => {
+                if !self.core.set_shared_key(key.to_vec(), index) {
+                    return Err(invalid("core rejected shared key"));
+                }
+            }
+            Some(identity) => {
+                if !self.core.set_key(&identity, index, key.to_vec()) {
+                    return Err(invalid("core rejected participant key"));
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Exports original key material using core's provider API.
+    pub fn export_key(
+        &self,
+        participant_identity: Option<String>,
+        index: i32,
+    ) -> Result<Option<Bytes>, FfiRoomError> {
+        self.index(index)?;
+        Ok(match self.identity(participant_identity)? {
+            None => self.core.get_shared_key(index),
+            Some(identity) => self.core.get_key(&identity, index),
+        }
+        .map(Bytes::from))
+    }
+    /// Ratchets key material through core; no algorithm is duplicated in FFI.
+    pub fn ratchet_key(
+        &self,
+        participant_identity: Option<String>,
+        index: i32,
+    ) -> Result<Option<Bytes>, FfiRoomError> {
+        self.index(index)?;
+        Ok(match self.identity(participant_identity)? {
+            None => self.core.ratchet_shared_key(index),
+            Some(identity) => self.core.ratchet_key(&identity, index),
+        }
+        .map(Bytes::from))
+    }
+    /// Sets core's server-injected-frame trailer; the room may replace it on join.
+    pub fn set_sif_trailer(&self, trailer: Bytes) -> Result<(), FfiRoomError> {
+        if trailer.len() > 4096 {
+            return Err(invalid("SIF trailer exceeds 4096 bytes"));
+        }
+        self.core.set_sif_trailer(trailer.to_vec());
+        Ok(())
+    }
+    /// Core's latest key-material index; not an independent media sender-index setting.
+    pub fn latest_key_index(&self) -> i32 {
+        self.core.get_latest_key_index()
+    }
+}
+fn validate_key(key: &[u8]) -> Result<(), FfiRoomError> {
+    if key.is_empty() || key.len() > 65536 {
+        return Err(invalid("key material must contain 1..65536 bytes"));
+    }
+    Ok(())
+}
+
+/// AES-GCM encryption. Default encrypts both data and media; legacy mode encrypts media only.
+// Deliberate constructor adapter: core E2eeOptions contains an EncryptionType
+// and provider, but not the room's choice of e2ee versus encryption field. This
+// record keeps the validated provider and makes that choice via legacy_media_only.
+// It only constructs Gcm; None is represented by absent room encryption options.
+// Core Custom is not offered here. This is an existing restriction, not a UniFFI
+// requirement or a claim of complete core encryption configuration coverage.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeEncryptionOptions {
+    pub key_provider: Arc<NativeKeyProvider>,
+    #[uniffi(default = false)]
+    pub legacy_media_only: bool,
+}
+impl NativeEncryptionOptions {
+    pub(super) fn core(&self) -> E2eeOptions {
+        E2eeOptions {
+            encryption_type: EncryptionType::Gcm,
+            key_provider: self.key_provider.core.clone(),
+        }
+    }
+}
+
+/// Current core encryption switches, without exposing key material.
+// An aggregate of two E2eeManager getters, not a converted core record. Both
+// booleans are read unchanged; no key material or synthetic default is included.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NativeEncryptionStatus {
+    pub media_enabled: bool,
+    pub data_enabled: bool,
+}
+#[uniffi::export]
+impl FfiRoom {
+    /// Reads actual room encryption status.
+    pub fn encryption_status(&self) -> Result<NativeEncryptionStatus, FfiRoomError> {
+        let room = self.shared.room()?;
+        let manager = room.e2ee_manager();
+        Ok(NativeEncryptionStatus {
+            media_enabled: manager.enabled(),
+            data_enabled: manager.is_dc_encryption_enabled(),
+        })
+    }
+    /// Changes media cryptors only. Core does not expose a matching dynamic data-encryption switch.
+    pub async fn set_media_encryption_enabled(&self, enabled: bool) -> Result<(), FfiRoomError> {
+        let room = self.shared.room()?;
+        if room.e2ee_manager().key_provider().is_none() {
+            return Err(invalid("encryption was not configured at connect"));
+        }
+        super::on_runtime(async move {
+            room.e2ee_manager().set_enabled(enabled);
+        })
+        .await;
+        Ok(())
+    }
+}

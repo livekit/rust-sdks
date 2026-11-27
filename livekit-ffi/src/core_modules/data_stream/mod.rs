@@ -28,7 +28,8 @@
 pub mod common;
 pub mod incoming;
 pub mod outgoing;
+#[cfg(feature = "core-modules")]
 pub mod polled;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "core-modules"))]
 mod tests;

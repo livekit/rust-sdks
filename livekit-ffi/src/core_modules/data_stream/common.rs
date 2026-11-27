@@ -22,40 +22,25 @@
 use std::{collections::HashMap, sync::Arc};
 
 use livekit_common as common;
-use livekit_data_stream::{api as ds_api, backend as ds};
+use livekit_data_stream::api as ds_api;
+#[cfg(feature = "core-modules")]
+use livekit_data_stream::backend as ds;
+#[cfg(feature = "core-modules")]
 use livekit_protocol as proto;
+#[cfg(feature = "core-modules")]
 use prost::Message;
 
 use super::outgoing::StreamProgressDelegate;
 
 // MARK: - Enums
 
-/// Encryption applied to a data stream, mirroring [`common::EncryptionType`].
-#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub use common::EncryptionType;
+/// Core encryption applied to a data stream or media track.
+#[uniffi::remote(Enum)]
 pub enum EncryptionType {
     None,
     Gcm,
     Custom,
-}
-
-impl From<common::EncryptionType> for EncryptionType {
-    fn from(value: common::EncryptionType) -> Self {
-        match value {
-            common::EncryptionType::None => Self::None,
-            common::EncryptionType::Gcm => Self::Gcm,
-            common::EncryptionType::Custom => Self::Custom,
-        }
-    }
-}
-
-impl From<EncryptionType> for common::EncryptionType {
-    fn from(value: EncryptionType) -> Self {
-        match value {
-            EncryptionType::None => Self::None,
-            EncryptionType::Gcm => Self::Gcm,
-            EncryptionType::Custom => Self::Custom,
-        }
-    }
 }
 
 /// Operation type for text streams, mirroring [`ds_api::OperationType`].
@@ -89,35 +74,7 @@ impl From<OperationType> for ds_api::OperationType {
     }
 }
 
-/// A capability a participant's client advertises, mirroring [`common::ClientCapability`].
-#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ClientCapability {
-    Unused,
-    PacketTrailer,
-    CompressionDeflateRaw,
-}
-
-impl From<common::ClientCapability> for ClientCapability {
-    fn from(value: common::ClientCapability) -> Self {
-        match value {
-            common::ClientCapability::Unused => Self::Unused,
-            common::ClientCapability::PacketTrailer => Self::PacketTrailer,
-            common::ClientCapability::CompressionDeflateRaw => Self::CompressionDeflateRaw,
-            // `common::ClientCapability` is `#[non_exhaustive]`; treat anything newer as unusable.
-            _ => Self::Unused,
-        }
-    }
-}
-
-impl From<ClientCapability> for common::ClientCapability {
-    fn from(value: ClientCapability) -> Self {
-        match value {
-            ClientCapability::Unused => Self::Unused,
-            ClientCapability::PacketTrailer => Self::PacketTrailer,
-            ClientCapability::CompressionDeflateRaw => Self::CompressionDeflateRaw,
-        }
-    }
-}
+pub use common::ClientCapability;
 
 // MARK: - Info records
 
@@ -146,7 +103,7 @@ impl From<ds_api::ByteStreamInfo> for ByteStreamInfo {
             attributes,
             mime_type: info.mime_type,
             name: info.name,
-            encryption_type: info.encryption_type.into(),
+            encryption_type: info.encryption_type,
         }
     }
 }
@@ -184,7 +141,7 @@ impl From<ds_api::TextStreamInfo> for TextStreamInfo {
             reply_to_stream_id: info.reply_to_stream_id,
             attached_stream_ids: info.attached_stream_ids,
             generated: info.generated,
-            encryption_type: info.encryption_type.into(),
+            encryption_type: info.encryption_type,
         }
     }
 }
@@ -377,6 +334,17 @@ pub enum DataStreamError {
     #[error("I/O error: {reason}")]
     Io { reason: String },
 
+    #[cfg(feature = "room-apis")]
+    /// Typed filesystem cause; the previous Io(reason) case remains constructible.
+    #[error("I/O error: {kind:?}: {reason}")]
+    IoFailure { kind: StreamIoErrorKind, raw_os_error: Option<i32>, reason: String },
+    #[cfg(feature = "room-apis")]
+    #[error("stream command cancelled")]
+    Cancelled,
+    #[cfg(feature = "room-apis")]
+    #[error("stream command invalid state: {reason}")]
+    InvalidState { reason: String },
+
     #[error("internal error")]
     Internal,
 
@@ -394,6 +362,101 @@ pub enum DataStreamError {
 
     #[error("file name must be a plain file name without path separators or '..'")]
     InvalidFileName,
+}
+
+/// Stable std::io error categories, kept separate from human-readable context.
+/// Unknown represents future or nightly-only ErrorKind variants; raw_os_error is still preserved.
+#[cfg(feature = "room-apis")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum StreamIoErrorKind {
+    NotFound,
+    PermissionDenied,
+    ConnectionRefused,
+    ConnectionReset,
+    HostUnreachable,
+    NetworkUnreachable,
+    ConnectionAborted,
+    NotConnected,
+    AddrInUse,
+    AddrNotAvailable,
+    NetworkDown,
+    BrokenPipe,
+    AlreadyExists,
+    WouldBlock,
+    NotADirectory,
+    IsADirectory,
+    DirectoryNotEmpty,
+    ReadOnlyFilesystem,
+    StaleNetworkFileHandle,
+    InvalidInput,
+    InvalidData,
+    TimedOut,
+    WriteZero,
+    StorageFull,
+    NotSeekable,
+    QuotaExceeded,
+    FileTooLarge,
+    ResourceBusy,
+    ExecutableFileBusy,
+    Deadlock,
+    CrossesDevices,
+    TooManyLinks,
+    InvalidFilename,
+    ArgumentListTooLong,
+    Interrupted,
+    Unsupported,
+    UnexpectedEof,
+    OutOfMemory,
+    Other,
+    Unknown,
+}
+#[cfg(feature = "room-apis")]
+impl From<std::io::ErrorKind> for StreamIoErrorKind {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        use std::io::ErrorKind as K;
+        match kind {
+            K::NotFound => Self::NotFound,
+            K::PermissionDenied => Self::PermissionDenied,
+            K::ConnectionRefused => Self::ConnectionRefused,
+            K::ConnectionReset => Self::ConnectionReset,
+            K::HostUnreachable => Self::HostUnreachable,
+            K::NetworkUnreachable => Self::NetworkUnreachable,
+            K::ConnectionAborted => Self::ConnectionAborted,
+            K::NotConnected => Self::NotConnected,
+            K::AddrInUse => Self::AddrInUse,
+            K::AddrNotAvailable => Self::AddrNotAvailable,
+            K::NetworkDown => Self::NetworkDown,
+            K::BrokenPipe => Self::BrokenPipe,
+            K::AlreadyExists => Self::AlreadyExists,
+            K::WouldBlock => Self::WouldBlock,
+            K::NotADirectory => Self::NotADirectory,
+            K::IsADirectory => Self::IsADirectory,
+            K::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            K::ReadOnlyFilesystem => Self::ReadOnlyFilesystem,
+            K::StaleNetworkFileHandle => Self::StaleNetworkFileHandle,
+            K::InvalidInput => Self::InvalidInput,
+            K::InvalidData => Self::InvalidData,
+            K::TimedOut => Self::TimedOut,
+            K::WriteZero => Self::WriteZero,
+            K::StorageFull => Self::StorageFull,
+            K::NotSeekable => Self::NotSeekable,
+            K::QuotaExceeded => Self::QuotaExceeded,
+            K::FileTooLarge => Self::FileTooLarge,
+            K::ResourceBusy => Self::ResourceBusy,
+            K::ExecutableFileBusy => Self::ExecutableFileBusy,
+            K::Deadlock => Self::Deadlock,
+            K::CrossesDevices => Self::CrossesDevices,
+            K::TooManyLinks => Self::TooManyLinks,
+            K::InvalidFilename => Self::InvalidFilename,
+            K::ArgumentListTooLong => Self::ArgumentListTooLong,
+            K::Interrupted => Self::Interrupted,
+            K::Unsupported => Self::Unsupported,
+            K::UnexpectedEof => Self::UnexpectedEof,
+            K::OutOfMemory => Self::OutOfMemory,
+            K::Other => Self::Other,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 /// A foreign transport failed to deliver outbound packets; thrown by hosts from
@@ -433,13 +496,17 @@ impl From<ds_api::StreamError> for DataStreamError {
             ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
             ds_api::StreamError::Incomplete => Self::Incomplete,
             ds_api::StreamError::SendFailed => Self::SendFailed,
+            #[cfg(feature = "core-modules")]
             ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
+            #[cfg(feature = "room-apis")]
+            ds_api::StreamError::Io(error) => Self::IoFailure {
+                kind: error.kind().into(),
+                raw_os_error: error.raw_os_error(),
+                reason: error.to_string(),
+            },
             ds_api::StreamError::Internal => Self::Internal,
             ds_api::StreamError::EncryptionTypeMismatch { expected, received } => {
-                Self::EncryptionTypeMismatch {
-                    expected: expected.into(),
-                    received: received.into(),
-                }
+                Self::EncryptionTypeMismatch { expected, received }
             }
             ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
             ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
@@ -460,6 +527,7 @@ impl From<ds_api::StreamError> for DataStreamError {
 /// traffic replaces it with the decrypted stream header/chunk/trailer — by the time these bytes
 /// arrive, the field is absent from the wire format. Hosts without E2EE pass
 /// [`common::EncryptionType::None`].
+#[cfg(feature = "core-modules")]
 pub(crate) fn decode_data_packet(
     bytes: &[u8],
     encryption_type: common::EncryptionType,
@@ -488,4 +556,22 @@ fn progress_callback(
     progress.map(|progress| {
         ds_api::StreamProgressCallback::new(move |p| progress.on_progress(p.into()))
     })
+}
+
+#[cfg(test)]
+mod io_mapping_tests {
+    use super::*;
+    #[test]
+    fn io_error_preserves_feature_contract() {
+        let error = DataStreamError::from(ds_api::StreamError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing-file-marker",
+        )));
+        #[cfg(feature = "core-modules")]
+        assert!(matches!(error, DataStreamError::Io { reason } if reason == "missing-file-marker"));
+        #[cfg(feature = "room-apis")]
+        assert!(
+            matches!(error, DataStreamError::IoFailure { kind: StreamIoErrorKind::NotFound, reason, .. } if reason == "missing-file-marker")
+        );
+    }
 }

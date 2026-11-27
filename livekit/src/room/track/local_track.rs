@@ -80,7 +80,7 @@ impl TryFrom<Track> for LocalTrack {
 }
 
 pub(super) async fn get_stats(inner: &Arc<TrackInner>) -> RoomResult<Vec<RtcStats>> {
-    let transceiver = inner.info.read().transceiver.clone();
+    let transceiver = inner.transceiver.read().clone();
     let Some(transceiver) = transceiver.as_ref() else {
         return Err(RoomError::Internal("no transceiver found for track".into()));
     };

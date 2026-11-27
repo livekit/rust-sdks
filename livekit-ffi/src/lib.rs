@@ -17,7 +17,8 @@
 // scaffolding below. Selecting both is always a build-configuration mistake.
 #[cfg(all(feature = "room-apis", feature = "core-modules"))]
 compile_error!(
-    "the `room-apis` and `core-modules` features are mutually exclusive. \
+    "a room feature (`room-apis` or `room-apis-host-transport`) and \
+     `core-modules` are mutually exclusive. \
      Build livekit-ffi/core-modules with \
      `--no-default-features --features core-modules`."
 );
@@ -27,8 +28,26 @@ compile_error!(
 // the uniffi macro expansion.
 #[cfg(not(any(feature = "room-apis", feature = "core-modules")))]
 compile_error!(
-    "exactly one FFI surface must be selected: enable either `room-apis` \
-     (the default) or `core-modules`."
+    "exactly one FFI surface must be selected: enable either `room-apis-bundled-transport` \
+     (the default), `room-apis-host-transport` or `core-modules`."
+);
+
+// Cargo features add: reject an accidental bundled stack in a host artifact.
+#[cfg(all(feature = "room-apis-bundled-transport", feature = "room-apis-host-transport"))]
+compile_error!(
+    "`room-apis-host-transport` excludes `room-apis-bundled-transport` and features \
+     that imply it (TLS, tracing, capture). Build with \
+     `--no-default-features --features room-apis-host-transport`."
+);
+
+#[cfg(all(
+    feature = "room-apis",
+    not(any(feature = "room-apis-bundled-transport", feature = "room-apis-host-transport"))
+))]
+compile_error!(
+    "`room-apis` requires a transport selection. To retain the previous bundled behavior, \
+     use `--no-default-features --features room-apis-bundled-transport`; \
+     for host-provided clients select `room-apis-host-transport` instead."
 );
 
 // Each surface owns everything specific to it, including its own types and
@@ -56,6 +75,11 @@ mod core_modules;
 #[cfg(feature = "core-modules")]
 pub use core_modules::*;
 
+// Shared stream value/handle wrappers; the managers remain exclusive to core-modules.
+#[cfg(feature = "room-apis")]
+#[path = "core_modules/data_stream/mod.rs"]
+pub mod data_stream;
+
 /// Information about the build such as version.
 ///
 /// Compiled under both the `room-apis` and `core-modules` features, and
@@ -76,11 +100,22 @@ pub(crate) mod runtime;
 /// track and stream objects whichever FFI surface they build against.
 pub mod data_track;
 
+// The host-transport build needs no `extern crate livekit_net` here, unlike
+// `core_modules`. livekit-net is linked through `livekit`, and its UniFFI
+// symbols and metadata reach the artifact without a path that names it.
+// Checked on the macos-arm64 cdylib: 31 `uniffi_livekit_net_*` exports.
+
 // Must sit at the crate root: this defines `crate::UniFfiTag`, which every
 // `#[uniffi::export]` in the surface modules resolves against. Only one call
 // may exist per crate, which is why the two surfaces are mutually exclusive;
 // they are kept separate so either can pin its own namespace later.
 #[cfg(feature = "room-apis")]
-uniffi::setup_scaffolding!("livekit_ffi");
+use livekit::prelude::{ParticipantIdentity, ParticipantSid, TrackSid};
+#[cfg(feature = "room-apis")]
+use livekit_common::ClientCapability;
+#[cfg(feature = "room-apis")]
+use room_apis::native_room::{core_objects::*, *};
+#[cfg(feature = "room-apis")]
+uniffi::include_scaffolding!("core_objects");
 #[cfg(feature = "core-modules")]
 uniffi::setup_scaffolding!("livekit_ffi");

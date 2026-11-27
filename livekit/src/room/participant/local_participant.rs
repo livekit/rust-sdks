@@ -227,7 +227,7 @@ struct LocalInfo {
 
 #[derive(Clone)]
 pub struct LocalParticipant {
-    inner: Arc<ParticipantInner>,
+    pub(super) inner: Arc<ParticipantInner>,
     local: Arc<LocalInfo>,
 }
 
@@ -753,6 +753,7 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
+            TrackPublication::Local(publication.clone()).finish_observation();
             if remove_result.is_ok() {
                 self.inner.rtc_engine.publisher_negotiation_needed();
             }
@@ -1110,7 +1111,7 @@ impl LocalParticipant {
     }
 
     pub fn is_encrypted(&self) -> bool {
-        *self.inner.is_encrypted.read()
+        self.inner.info.read().is_encrypted
     }
 
     #[doc(hidden)]

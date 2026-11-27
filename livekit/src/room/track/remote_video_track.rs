@@ -38,7 +38,7 @@ const SUBSCRIBE_TIMING_BUFFER: usize = 256;
 
 #[derive(Clone)]
 pub struct RemoteVideoTrack {
-    inner: Arc<TrackInner>,
+    pub(super) inner: Arc<TrackInner>,
     subscribe_timing_tx: Arc<Mutex<Option<broadcast::Sender<SubscribeTimingEvent>>>>,
 }
 
@@ -216,11 +216,11 @@ impl RemoteVideoTrack {
     }
 
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.info.read().transceiver.clone()
+        self.inner.transceiver.read().clone()
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.info.write().transceiver = transceiver;
+        *self.inner.transceiver.write() = transceiver;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {

@@ -90,6 +90,7 @@ pub struct AudioPreset {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct FrameMetadataFeatures {
     pub user_timestamp: bool,
     pub frame_id: bool,

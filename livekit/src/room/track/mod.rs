@@ -14,6 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use crate::observation::{Observed, StateRevision, StateSnapshot};
 use libwebrtc::enum_dispatch;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol::{self as proto};
@@ -123,6 +124,56 @@ pub enum Track {
 impl Track {
     track_dispatch!([LocalAudio, LocalVideo, RemoteAudio, RemoteVideo]);
 
+    fn observation_inner(&self) -> &TrackInner {
+        match self {
+            Self::LocalAudio(t) => &t.inner,
+            Self::LocalVideo(t) => &t.inner,
+            Self::RemoteAudio(t) => &t.inner,
+            Self::RemoteVideo(t) => &t.inner,
+        }
+    }
+
+    /// Core-owned values only. Enabled/codec parameters remain Rust-mediated live native queries.
+    pub fn observed_state(&self) -> StateSnapshot<TrackValues> {
+        let inner = self.observation_inner();
+        let info = inner.info.read();
+        inner.revision.snapshot(TrackValues {
+            sid: info.sid.clone(),
+            name: info.name.clone(),
+            kind: info.kind,
+            source: info.source,
+            stream_state: info.stream_state,
+            muted: info.muted,
+            audio_features: info.audio_features.clone(),
+        })
+    }
+
+    /// Waits independently for core-owned state; reconnect does not reset its revision.
+    pub async fn state_did_change(&self, since: Option<u64>) -> Option<StateSnapshot<TrackValues>> {
+        if self.observation_inner().revision.wait(since).await {
+            Some(self.observed_state())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        std::ptr::eq(self.observation_inner(), other.observation_inner())
+    }
+
+    pub(crate) fn finish_observation(&self) {
+        // Local tracks can be republished in another room and retain their lifetime/revision.
+        if self.is_remote() {
+            let inner = self.observation_inner();
+            let info = inner.info.read();
+            let changed = inner.revision.mark_finished();
+            drop(info);
+            if changed {
+                inner.revision.notify();
+            }
+        }
+    }
+
     pub fn rtc_track(&self) -> MediaStreamTrack {
         match self {
             Self::LocalAudio(track) => track.rtc_track().into(),
@@ -174,13 +225,15 @@ struct TrackInfo {
     pub source: TrackSource,
     pub stream_state: StreamState,
     pub muted: bool,
-    pub transceiver: Option<RtpTransceiver>,
     pub audio_features: Vec<proto::AudioTrackFeature>,
 }
 
 pub(super) struct TrackInner {
-    info: RwLock<TrackInfo>,
+    revision: Arc<StateRevision>,
+    info: Observed<TrackInfo>,
     rtc_track: MediaStreamTrack,
+    // Native resource ownership is independent of value revisions and terminal state.
+    transceiver: RwLock<Option<RtpTransceiver>>,
     events: Mutex<TrackEvents>,
 }
 
@@ -190,18 +243,23 @@ pub(super) fn new_inner(
     kind: TrackKind,
     rtc_track: MediaStreamTrack,
 ) -> TrackInner {
+    let revision = Arc::new(StateRevision::default());
     TrackInner {
-        info: RwLock::new(TrackInfo {
-            sid,
-            name,
-            kind,
-            source: TrackSource::Unknown,
-            stream_state: StreamState::Active,
-            muted: false,
-            transceiver: None,
-            audio_features: Vec::new(),
-        }),
+        info: Observed::new(
+            TrackInfo {
+                sid,
+                name,
+                kind,
+                source: TrackSource::Unknown,
+                stream_state: StreamState::Active,
+                muted: false,
+                audio_features: Vec::new(),
+            },
+            &revision,
+        ),
+        revision,
         rtc_track,
+        transceiver: RwLock::new(None),
         events: Default::default(),
     }
 }
@@ -220,7 +278,13 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
         inner.rtc_track.set_enabled(true);
     }
 
-    inner.info.write().muted = muted;
+    {
+        let mut info = inner.info.write();
+        if inner.revision.is_terminal() {
+            return;
+        }
+        info.muted = muted;
+    }
 
     if muted {
         if let Some(on_mute) = inner.events.lock().muted.as_ref() {
@@ -233,10 +297,25 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
 
 pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: proto::TrackInfo) {
     let mut info = inner.info.write();
+    if inner.revision.is_terminal() {
+        return;
+    }
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
     info.name = new_info.name.clone();
     info.sid = new_info.sid.clone().try_into().unwrap();
     info.audio_features =
         new_info.audio_features().into_iter().map(|item| item.try_into().unwrap()).collect();
+}
+
+/// Immutable core track values; native media state is deliberately queried separately.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackValues {
+    pub sid: TrackSid,
+    pub name: String,
+    pub kind: TrackKind,
+    pub source: TrackSource,
+    pub stream_state: StreamState,
+    pub muted: bool,
+    pub audio_features: Vec<proto::AudioTrackFeature>,
 }

@@ -22,7 +22,7 @@ use crate::prelude::*;
 
 #[derive(Clone)]
 pub struct RemoteAudioTrack {
-    inner: Arc<TrackInner>,
+    pub(super) inner: Arc<TrackInner>,
 }
 
 impl Debug for RemoteAudioTrack {
@@ -108,12 +108,12 @@ impl RemoteAudioTrack {
 
     #[allow(dead_code)]
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.info.read().transceiver.clone()
+        self.inner.transceiver.read().clone()
     }
 
     #[allow(dead_code)]
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.info.write().transceiver = transceiver;
+        *self.inner.transceiver.write() = transceiver;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {

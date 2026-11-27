@@ -23,7 +23,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 
 #[derive(Clone)]
 pub struct LocalAudioTrack {
-    inner: Arc<TrackInner>,
+    pub(super) inner: Arc<TrackInner>,
     source: RtcAudioSource,
     /// The runtime whose factory created the native track. Its threads must outlive the track,
     /// which can be created before any room exists, e.g. for `RoomOptions::publish_tracks`.
@@ -164,11 +164,11 @@ impl LocalAudioTrack {
     }
 
     pub(crate) fn transceiver(&self) -> Option<RtpTransceiver> {
-        self.inner.info.read().transceiver.clone()
+        self.inner.transceiver.read().clone()
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
-        self.inner.info.write().transceiver = transceiver;
+        *self.inner.transceiver.write() = transceiver;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
@@ -181,6 +181,44 @@ mod tests {
     use libwebrtc::audio_source::{native::NativeAudioSource, AudioSourceOptions};
 
     use super::*;
+
+    #[test]
+    fn terminal_remote_track_still_releases_transceiver_without_value_revision() {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 100);
+        let local = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source));
+        let remote = RemoteAudioTrack::new(
+            "TR_native".to_owned().try_into().unwrap(),
+            "remote".into(),
+            local.rtc_track(),
+        );
+        let track = Track::RemoteAudio(remote.clone());
+        let pc = local
+            ._runtime
+            .pc_factory()
+            .create_peer_connection(RtcConfiguration::default())
+            .unwrap();
+        let transceiver = pc
+            .add_transceiver_for_media(
+                MediaType::Audio,
+                RtpTransceiverInit {
+                    direction: RtpTransceiverDirection::RecvOnly,
+                    stream_ids: vec![],
+                    send_encodings: vec![],
+                },
+            )
+            .unwrap();
+        let initial = track.observed_state();
+        remote.set_transceiver(Some(transceiver));
+        assert!(remote.transceiver().is_some());
+        assert_eq!(track.observed_state().revision, initial.revision);
+        track.finish_observation();
+        let terminal = track.observed_state();
+        remote.set_transceiver(None);
+        assert!(remote.transceiver().is_none());
+        assert_eq!(track.observed_state().revision, terminal.revision);
+        assert_eq!(track.observed_state().value, terminal.value);
+        pc.close();
+    }
 
     /// A track created before any room exists must keep its runtime, so the room reuses it
     /// instead of a new one whose threads the track does not belong to.

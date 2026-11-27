@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
 use crate::{e2ee::EncryptionType, prelude::*, track::VideoQuality};
@@ -43,20 +43,13 @@ struct RemoteEvents {
     video_quality_changed: Mutex<Option<VideoQualityChangedHandler>>,
 }
 
-#[derive(Debug)]
-struct RemoteInfo {
-    subscribed: bool,
-    allowed: bool,
-}
-
 struct RemoteInner {
-    info: RwLock<RemoteInfo>,
     events: RemoteEvents,
 }
 
 #[derive(Clone)]
 pub struct RemoteTrackPublication {
-    inner: Arc<TrackPublicationInner>,
+    pub(super) inner: Arc<TrackPublicationInner>,
     remote: Arc<RemoteInner>,
 }
 
@@ -83,13 +76,13 @@ impl RemoteTrackPublication {
         track: Option<RemoteTrack>,
         auto_subscribe: bool,
     ) -> Self {
-        Self {
-            inner: super::new_inner(info, track.map(Into::into)),
-            remote: Arc::new(RemoteInner {
-                info: RwLock::new(RemoteInfo { subscribed: auto_subscribe, allowed: true }),
-                events: Default::default(),
-            }),
+        let inner = super::new_inner(info, track.map(Into::into));
+        {
+            let mut info = inner.info.write();
+            info.desired = Some(auto_subscribe);
+            info.allowed = Some(true);
         }
+        Self { inner, remote: Arc::new(RemoteInner { events: Default::default() }) }
     }
 
     /// This is called by the RemoteParticipant when it successfully subscribe to the track or when
@@ -157,12 +150,13 @@ impl RemoteTrackPublication {
     }
 
     pub(crate) fn update_info(&self, new_info: proto::TrackInfo) {
-        super::update_info(&self.inner, &TrackPublication::Remote(self.clone()), new_info.clone());
-
-        let mut info = self.inner.info.write();
-        let muted = info.muted;
-        info.muted = new_info.muted;
-        drop(info);
+        let Some(muted) = super::update_info(
+            &self.inner,
+            &TrackPublication::Remote(self.clone()),
+            new_info.clone(),
+        ) else {
+            return;
+        };
 
         // For remote tracks, the publication need to manually fire the muted/unmuted events
         // (they are not being fired for the tracks)
@@ -246,11 +240,14 @@ impl RemoteTrackPublication {
         let old_permission_state = self.permission_status();
 
         {
-            let mut info = self.remote.info.write();
-            info.subscribed = subscribed;
+            let mut info = self.inner.info.write();
+            if self.inner.revision.is_terminal() {
+                return;
+            }
+            info.desired = Some(subscribed);
 
             if subscribed {
-                info.allowed = true;
+                info.allowed = Some(true);
             }
         }
 
@@ -325,7 +322,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn subscription_status(&self) -> SubscriptionStatus {
-        if !self.remote.info.read().subscribed {
+        if !self.inner.info.read().desired.unwrap_or(false) {
             return SubscriptionStatus::Unsubscribed;
         }
 
@@ -349,11 +346,11 @@ impl RemoteTrackPublication {
     }
 
     pub fn is_desired(&self) -> bool {
-        self.remote.info.read().subscribed
+        self.inner.info.read().desired.unwrap_or(false)
     }
 
     pub fn is_allowed(&self) -> bool {
-        self.remote.info.read().allowed
+        self.inner.info.read().allowed.unwrap_or(false)
     }
 
     pub fn is_enabled(&self) -> bool {

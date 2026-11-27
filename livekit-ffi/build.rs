@@ -22,6 +22,10 @@ fn main() {
     // `webrtc-sys-build` are optional build-dependencies gated on the same
     // feature, so under core-modules the paths that this code names do not
     // resolve at all.
+    //
+    // The gate is `room-apis`, the base of both room builds: the
+    // host-transport build links the same libwebrtc and generates the same
+    // protobuf code as the bundled build.
     #[cfg(feature = "room-apis")]
     if std::env::var("DOCS_RS").is_err() {
         room_apis::run_build_steps();
@@ -40,6 +44,7 @@ mod room_apis {
         copy_webrtc_license();
         configure_linker();
         generate_protobuf();
+        uniffi_build::generate_scaffolding("src/core_objects.udl").expect("core object UDL");
     }
 
     fn download_webrtc() {
@@ -86,7 +91,8 @@ mod room_apis {
         for path in &paths {
             println!("cargo:rerun-if-changed={}", path.display());
         }
-        prost_build::Config::new()
+        let mut config = prost_build::Config::new();
+        config
             .derive_from_variants("livekit.proto.FfiRequest.message")
             .derive_from_variants("livekit.proto.FfiResponse.message")
             .derive_from_variants("livekit.proto.FfiEvent.message")
@@ -96,9 +102,37 @@ mod room_apis {
             .derive_from_variants("livekit.proto.AudioStreamEvent.message")
             .derive_from_variants("livekit.proto.TextStreamReaderEvent.detail")
             .derive_from_variants("livekit.proto.ByteStreamReaderEvent.detail")
-            .derive_from_variants("livekit.proto.DataTrackStreamEvent.detail")
-            .compile_protos(&paths, &[PROTO_SRC_DIR])
-            .expect("Protobuf generation failed");
+            .derive_from_variants("livekit.proto.DataTrackStreamEvent.detail");
+        let descriptors = config.load_fds(&paths, &[PROTO_SRC_DIR]).expect("Protobuf descriptors");
+        // Export the existing stats representation, not a second hand-maintained field mapping.
+        // This adds UniFFI metadata only; protobuf field numbers and the C callback stay unchanged.
+        let stats = descriptors
+            .file
+            .iter()
+            .find(|file| file.name() == "stats.proto")
+            .expect("stats.proto descriptor");
+        for message in &stats.message_type {
+            // message_attribute also covers nested messages.
+            config.message_attribute(
+                format!(".{}.{}", stats.package(), message.name()),
+                "#[derive(uniffi::Record)]",
+            );
+        }
+        // Protobuf nesting is flattened by UniFFI. Prefix its generic payload names so
+        // Track/Stream/Codec cannot shadow the host SDK's existing public types.
+        for message in &stats.message_type {
+            for nested in &message.nested_type {
+                config.message_attribute(
+                    format!(".{}.{}.{}", stats.package(), message.name(), nested.name()),
+                    format!("#[uniffi(name = \"RtcStats{}\")]", nested.name()),
+                );
+            }
+        }
+        config.enum_attribute(
+            ".livekit.proto.RtcStats.stats",
+            "#[derive(uniffi::Enum)]\n#[uniffi(name = \"RtcStatsKind\")]",
+        );
+        config.compile_fds(descriptors).expect("Protobuf generation failed");
     }
 
     trait ProstConfigExt {

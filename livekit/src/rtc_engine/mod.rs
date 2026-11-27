@@ -30,7 +30,7 @@ use tokio::sync::{
 };
 use tokio::task::JoinHandle;
 
-pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
+pub use self::rtc_session::{PendingTrack, SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
 use crate::prelude::ParticipantIdentity;
 use crate::{
     id::ParticipantSid,
@@ -335,12 +335,7 @@ impl RtcEngine {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
         publish_tracks: &[(LocalTrack, TrackPublishOptions)],
-    ) -> EngineResult<(
-        Self,
-        proto::JoinResponse,
-        EngineEvents,
-        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
-    )> {
+    ) -> EngineResult<(Self, proto::JoinResponse, EngineEvents, Vec<(String, PendingTrack)>)> {
         let (inner, join_response, engine_events, pre_publish_receivers) =
             EngineInner::connect(url, token, options, e2ee_manager, publish_tracks).await?;
         Ok((Self { inner }, join_response, engine_events, pre_publish_receivers))
@@ -421,8 +416,7 @@ impl RtcEngine {
     /// must be published again.
     pub(crate) async fn complete_join_track(
         &self,
-        cid: String,
-        rx: oneshot::Receiver<EngineResult<proto::TrackInfo>>,
+        rx: PendingTrack,
         complete: impl FnOnce(proto::TrackInfo),
     ) -> EngineResult<bool> {
         let (session, _r_lock) = {
@@ -432,7 +426,7 @@ impl RtcEngine {
         if !Weak::ptr_eq(&self.inner.join_session, &Arc::downgrade(&session)) {
             return Ok(false);
         }
-        complete(session.wait_track_published_by_cid(cid, rx).await?);
+        complete(session.wait_track_published_by_cid(rx).await?);
         Ok(true)
     }
 
@@ -531,12 +525,8 @@ impl EngineInner {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
         publish_tracks: &[(LocalTrack, TrackPublishOptions)],
-    ) -> EngineResult<(
-        Arc<Self>,
-        proto::JoinResponse,
-        EngineEvents,
-        Vec<(String, oneshot::Receiver<EngineResult<proto::TrackInfo>>)>,
-    )> {
+    ) -> EngineResult<(Arc<Self>, proto::JoinResponse, EngineEvents, Vec<(String, PendingTrack)>)>
+    {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
 

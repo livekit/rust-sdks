@@ -6,10 +6,15 @@ import PackageDescription
 let package = Package(
     name: "{{ SPM_NAME }}",
     platforms: [
+{%- if LK_PLATFORM is defined and LK_PLATFORM != "swift" %}
+        .iOS(.v14),
+        .macOS(.v11),
+{%- else %}
         .iOS(.v13),
         .macOS(.v10_15),
         .macCatalyst(.v14),
         .tvOS(.v17),
+{%- endif %}
     ],
     products: [
         .library(
