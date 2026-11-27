@@ -100,16 +100,13 @@ thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
 tokio-util = "0.7.19"
-# Test on a 64-bit ARM device before you change this version.
-#
-# The Kotlin bindings from uniffi 0.31.2 and 0.32.0 compare each checksum incorrectly on 64-bit
-# ARM. Every affected method then fails. See https://github.com/mozilla/uniffi-rs/pull/2897, which
-# introduced the defect. Version 0.31.1 has a related defect on 32-bit ARM, and it also does not
-# build here, because uniffi-dart requires 0.31.2 or later. mozilla/uniffi-rs#2935 corrects both
-# defects, but no release (as of mid august 2026) contains that change.
-#
-# For this reason, livekit-ffi sets `omit_checksums` for Kotlin. See livekit-ffi/uniffi.toml.
-uniffi = "0.31"
+# Match cargo-swift's UniFFI 0.31.1 runtime and metadata. Use the upstream
+# release source so Cargo can resolve uniffi-dart's separate registry 0.31.2
+# tooling dependency without upgrading the runtime (even optional deps resolve).
+# Test on ARM before changing this pin. Kotlin checksum checks remain disabled
+# (0.31.1 has the 32-bit ARM defect); see livekit-ffi/uniffi.toml.
+uniffi = { version = "=0.31.1", git = "https://github.com/mozilla/uniffi-rs", rev = "ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a" }
+uniffi-build = { package = "uniffi_build", version = "=0.31.1", git = "https://github.com/mozilla/uniffi-rs", rev = "ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a" }
 
 # For examples
 eframe = { version = "0.35.0", default-features = false }

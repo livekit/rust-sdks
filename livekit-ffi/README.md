@@ -120,19 +120,21 @@ See [support/swift/README.md](./support/swift/README.md) for debugging vs.
 release modes, consumer integration, and prerequisites (Xcode, Rust Apple
 targets).
 
-Combine an existing room-apis Swift package and matching, already-built iOS frameworks
-without rebuilding native code (all three must have verified matching metadata):
+Build the complete room package (Rust-owned WebRTC) through the same pipeline:
 
 ```sh
-sh livekit-ffi/support/swift/package-room-apple.sh /path/to/mac-package \
-  /path/to/device/RustLiveKitFFI.framework /path/to/sim/RustLiveKitFFI.framework \
-  /path/to/new-output
+cargo make swift-room-package       # bundled WebSocket/HTTP and webpki TLS roots
+cargo make swift-room-host-package  # host registers WsClient and HttpClient
 ```
 
-This preserves macOS framework symlinks, guards the known manifest minimums before
-setting iOS14/macOS11, and strictly verifies all three signatures before and after zip
-extraction. The output directory must not exist; it receives the package and `LiveKitFFI.zip`.
-
+Room packages support macOS 11 and iOS 14 (ARM64 device and simulator). They do not
+use the core-only size budget or include Catalyst, tvOS, or visionOS.
+For a single local slice, use
+`SPM_PLATFORMS=macos SPM_TARGET_FLAG="--target aarch64-apple-darwin" cargo make swift-room-host-package`.
+The output is `packages/swift/LiveKitFFI`, including bindings, XCFramework,
+privacy manifest, and package manifests. Each invocation replaces that output;
+copy it elsewhere before building another transport. Release builds use the same
+`--profile release`, `SPM_VERSION`, and `SPM_HOSTING_REPO` options as core builds.
 
 ### Android
 

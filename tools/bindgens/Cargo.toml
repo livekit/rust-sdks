@@ -13,9 +13,10 @@ publish = false
 # `--library`, so they never depend on the crates they generate for.
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
-# Dart binding generator. Not published to crates.io, so pinned by git rev. The
-# rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
-# above, or it cannot read the compiled metadata.
+# Dart binding generator. Not published to crates.io, so pinned by git rev.
+# Dart keeps its own registry UniFFI 0.31.2 tooling dependency; the workspace
+# runtime and stock bindgen use the upstream 0.31.1 release source to match
+# cargo-swift. Dart library-mode compatibility must be validated separately.
 #
 # Pinned to upstream main rather than a release: the newest release
 # (v0.2.1+v0.31.2) predates the three fixes this needs -- custom types leaking

@@ -270,6 +270,8 @@ CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profil
 # here so `swift-package-debug` keeps its promise regardless of the workspace
 # default.
 CARGO_PROFILE_DEV_DEBUG = { value = "full", condition = { profiles = ["development"] } }
+# Optional `--target <triple>` for a single-architecture package.
+SPM_TARGET_FLAG = { value = "", condition = { env_not_set = ["SPM_TARGET_FLAG"] } }
 # Space-separated platform list, overridable for partial builds (e.g. the
 # macos-only debug flow below).
 SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
@@ -278,6 +280,8 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 private = true
 script_runner = "@shell"
 script = """
+set -e
+
 # Not cargo-make's install_crate: that only probes `cargo-swift --help`, so a
 # cached binary from an older rev passes. `cargo install` compares the recorded
 # source+rev: fast no-op on a match, reinstall on a mismatch.
@@ -288,13 +292,31 @@ cargo install --git https://github.com/livekit/cargo-swift.git --rev c92be034d15
 
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
 export MACOSX_DEPLOYMENT_TARGET=10.15
-export TVOS_DEPLOYMENT_TARGET=17.0
-export XROS_DEPLOYMENT_TARGET=26.0
-export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
-export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
+if [ "${LK_PLATFORM}" = "swift" ]; then
+  export TVOS_DEPLOYMENT_TARGET=17.0
+  export XROS_DEPLOYMENT_TARGET=26.0
+  export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
+  export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
+else
+  # libyuv's Clang bindgen rejects conflicting Apple deployment targets.
+  unset TVOS_DEPLOYMENT_TARGET XROS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET
+  export IPHONEOS_DEPLOYMENT_TARGET=14.0
+  export MACOSX_DEPLOYMENT_TARGET=11.0
+fi
 
 platform_flags=""
+# Released WebRTC prebuilts support Apple Silicon iOS simulators only.
+if [ "${LK_PLATFORM}" != "swift" ]; then
+  platform_flags="--exclude-arch x86_64-apple-ios"
+fi
 for p in ${SPM_PLATFORMS}; do
+  if [ "${LK_PLATFORM}" != "swift" ]; then
+    case "$p" in
+      macos|macos@11|macos@11.0) p=macos@11 ;;
+      ios|ios@14|ios@14.0) p=ios@14 ;;
+      *) echo "Room packages support macos@11 and ios@14 only" >&2; exit 1 ;;
+    esac
+  fi
   platform_flags="$platform_flags --platforms $p"
 done
 
@@ -302,6 +324,7 @@ FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_f
 
 cargo swift package \
 --accept-all \
+${SPM_TARGET_FLAG} \
 ${FLAGS} \
 --name ${SPM_NAME} \
 $platform_flags \
@@ -310,6 +333,15 @@ $platform_flags \
 --exclude-arch x86_64-apple-tvos \
 ${SWIFT_RELEASE_FLAG} \
 ${SWIFT_DSYMS_FLAG}
+
+# cargo-swift rewrites the dylib install name but does not seal the framework.
+# Ad-hoc signing makes local room packages loadable; apps re-sign on embedding.
+if [ "${LK_PLATFORM}" != "swift" ]; then
+  for framework in ${SPM_NAME}/Rust${SPM_NAME}.xcframework/*/*.framework; do
+    codesign --force --sign - "$framework"
+    codesign --verify --deep --strict "$framework"
+  done
+fi
 """
 
 # Format the generated bindings with swiftformat's default rules. UniFFI's
@@ -331,7 +363,7 @@ swiftformat ${SPM_NAME}/Sources --swiftversion 6.0 --quiet
 # per-crate attribution; without it bloaty still prints sections + symbols.
 [tasks.swift-bloat]
 private = true
-condition = { profiles = ["release"] }
+condition = { profiles = ["release"], env = { LK_PLATFORM = "swift" } }
 script_runner = "@shell"
 script = """
 bin="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
@@ -372,7 +404,7 @@ SPM_SIZE_LIMIT_BYTES = { value = "2752512", condition = { env_not_set = ["SPM_SI
 
 [tasks.swift-check-size]
 private = true
-condition = { profiles = ["release"] }
+condition = { profiles = ["release"], env = { LK_PLATFORM = "swift" } }
 script_runner = "@shell"
 script = """
 binary="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
@@ -472,6 +504,25 @@ dependencies = [
 [tasks.swift-package]
 description = "Generate Swift package using cargo-swift"
 env = { LANG = "swift", LK_PLATFORM = "swift" }
+run_task = "swift-package-flow"
+
+# Same package layout and flow; room builds include Rust-owned WebRTC.
+[tasks.swift-room-package.env]
+LANG = "swift"
+LK_PLATFORM = "swift-room"
+SPM_PLATFORMS = { value = "macos ios", condition = { env_not_set = ["SPM_PLATFORMS"] } }
+
+[tasks.swift-room-package]
+description = "Generate room Swift package with bundled transport"
+run_task = "swift-package-flow"
+
+[tasks.swift-room-host-package.env]
+LANG = "swift"
+LK_PLATFORM = "swift-room-host"
+SPM_PLATFORMS = { value = "macos ios", condition = { env_not_set = ["SPM_PLATFORMS"] } }
+
+[tasks.swift-room-host-package]
+description = "Generate room Swift package with host-provided transport"
 run_task = "swift-package-flow"
 
 # Same flow as `swift-package`, restricted to macos by default — a debug
