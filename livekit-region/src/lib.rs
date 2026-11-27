@@ -113,6 +113,12 @@ impl RegionCache {
         }
     }
 
+    /// How long the entry for `host` stays fresh: zero when it is stale or missing.
+    pub fn fresh_for(&self, host: &str) -> Duration {
+        let entries = self.entries.lock().unwrap();
+        entries.get(host).map_or(Duration::ZERO, |e| e.ttl.saturating_sub(e.fetched_at.elapsed()))
+    }
+
     /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
     /// (`max_age`) as the entry's TTL and falling back to [`Self::DEFAULT_TTL`]
     /// when the header is absent.
@@ -220,6 +226,24 @@ mod tests {
             matches!(cache.get(host), Cached::Stale(u) if u == urls),
             "max-age=0 entry is immediately stale despite the long default TTL"
         );
+    }
+
+    #[test]
+    fn region_cache_reports_how_long_an_entry_stays_fresh() {
+        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
+        let host = "fresh-for.livekit.cloud";
+        assert_eq!(cache.fresh_for(host), Duration::ZERO, "a missing entry");
+
+        cache.insert(
+            host.to_string(),
+            vec!["wss://r1.livekit.cloud".into()],
+            Some(Duration::from_secs(60)),
+        );
+        let left = cache.fresh_for(host);
+        assert!(left > Duration::from_secs(59) && left <= Duration::from_secs(60), "{left:?}");
+
+        cache.insert(host.to_string(), vec!["wss://r1.livekit.cloud".into()], Some(Duration::ZERO));
+        assert_eq!(cache.fresh_for(host), Duration::ZERO, "a stale entry");
     }
 
     #[test]
