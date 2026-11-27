@@ -20,7 +20,7 @@ use std::{
 };
 
 use parking_lot::Mutex;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::{sync::Mutex as AsyncMutex, task::JoinHandle};
 
 use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
@@ -54,6 +54,42 @@ fn fetch_lock(host: &str) -> Arc<AsyncMutex<()>> {
 /// Whether a signal URL connects over TLS: `wss`, or `https`, which the connect turns into `wss`.
 fn uses_tls(url: &str) -> bool {
     url.starts_with("wss://") || url.starts_with("https://")
+}
+
+/// The region refresh that [`RegionUrlProvider::prepare`] started, keyed by host. It runs until
+/// the next connect to the host takes it, a later `prepare` replaces it, or the server
+/// rejects the token, which happens once the token expires.
+fn prepared_refreshes() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
+    static PREPARED: OnceLock<Mutex<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
+    PREPARED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The first region cached for `host`, fresh or stale.
+fn first_cached_region(host: &str) -> Option<String> {
+    match region_cache().get(host) {
+        Cached::Fresh(urls) | Cached::Stale(urls) => urls.into_iter().next(),
+        Cached::Miss => None,
+    }
+}
+
+/// Requests the root of `region_url` once, so that its host name is resolved before a connect
+/// dials it, as the JS SDK does with a `HEAD`. The WebSocket opens its own connection, so only
+/// the system's DNS cache carries over. Best effort: the response is ignored. A `GET`, because
+/// [`livekit_net::HttpMethod`] has no `HEAD` and host SDKs implement it.
+async fn resolve_region_host(region_url: &str) {
+    let Ok(mut url) = url::Url::parse(region_url) else { return };
+    let scheme = match url.scheme() {
+        "wss" => "https",
+        "ws" => "http",
+        other => other,
+    }
+    .to_owned();
+    if url.set_scheme(&scheme).is_err() {
+        return;
+    }
+    url.set_path("/");
+    let Ok(http) = super::require_http_client() else { return };
+    let _ = tokio::time::timeout(REGION_FETCH_TIMEOUT, http.get(url.to_string(), vec![])).await;
 }
 
 fn region_host(url: &str) -> SignalResult<String> {
@@ -139,6 +175,45 @@ impl RegionUrlProvider {
                 None => Err(err),
             },
         }
+    }
+
+    /// Fetches the region list for a LiveKit Cloud `url` and keeps it fresh, so that the next
+    /// [`SignalClient::connect`](crate::SignalClient::connect) to it dials the best region
+    /// directly instead of the project URL. Does nothing for other URLs.
+    ///
+    /// The refresh runs until that connect takes it over, a later `prepare` for the same host
+    /// replaces it, or the server rejects `token`, for example once it expires.
+    pub async fn prepare(url: &str, token: &str) -> SignalResult<()> {
+        if Self::fetch_region_urls(url, token).await?.is_empty() {
+            return Ok(());
+        }
+        let host = region_host(url)?;
+        let (url, token) = (url.to_owned(), token.to_owned());
+        let refresh = tokio::spawn(async move { Self::keep_fresh(&url, || token.clone()).await });
+        if let Some(replaced) = prepared_refreshes().lock().insert(host.clone(), refresh) {
+            replaced.abort();
+        }
+        if let Some(region_url) = first_cached_region(&host) {
+            resolve_region_host(&region_url).await;
+        }
+        Ok(())
+    }
+
+    /// Undoes [`Self::prepare`] for `url`'s host: stops its refresh, and the next connect starts
+    /// at `url`.
+    pub fn cancel_prepared(url: &str) {
+        let Ok(host) = region_host(url) else { return };
+        if let Some(refresh) = prepared_refreshes().lock().remove(&host) {
+            refresh.abort();
+        }
+    }
+
+    /// Stops the refresh that [`Self::prepare`] started for `url`'s host, and returns the first
+    /// cached region, which the connect dials first. `None` when `url` was not prepared.
+    pub(crate) fn take_prepared(url: &str) -> Option<String> {
+        let host = region_host(url).ok()?;
+        prepared_refreshes().lock().remove(&host)?.abort();
+        first_cached_region(&host)
     }
 
     /// Reports that `failed_url` (a region URL previously returned for `url`'s
@@ -473,6 +548,88 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(fetched(), "did not refetch the stale list");
         refresh.abort();
+    }
+
+    /// `prepare` keeps the region list fresh until a connect takes the prepared region.
+    #[tokio::test(start_paused = true)]
+    async fn prepare_refreshes_until_a_connect_takes_over() {
+        crate::test_transport::install_mock_transport();
+        // The mock serves this host with a zero max-age, so every refresh fetches.
+        const URL: &str = "wss://maxage0-prepare-refresh.livekit.cloud";
+        let fetches = fetch_counter("maxage0-prepare-refresh.livekit.cloud");
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("prepare");
+        assert_eq!(fetches(), 1);
+        tokio::time::sleep(RegionCache::DEFAULT_TTL + Duration::from_secs(1)).await;
+        assert_eq!(fetches(), 2, "prepare did not refresh the region list");
+
+        assert_eq!(
+            RegionUrlProvider::take_prepared(URL).as_deref(),
+            Some("wss://us-mock.livekit.cloud")
+        );
+        tokio::time::sleep(RegionCache::DEFAULT_TTL * 4).await;
+        assert_eq!(fetches(), 2, "the refresh kept running after the connect took over");
+    }
+
+    /// `cancel_prepared` stops the refresh, and the next connect starts at the project URL.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_prepared_stops_the_refresh() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://maxage0-prepare-cancel.livekit.cloud";
+        let fetches = fetch_counter("maxage0-prepare-cancel.livekit.cloud");
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("prepare");
+        RegionUrlProvider::cancel_prepared(URL);
+        tokio::time::sleep(RegionCache::DEFAULT_TTL * 4).await;
+
+        assert_eq!(fetches(), 1, "the refresh kept running after the cancel");
+        assert_eq!(RegionUrlProvider::take_prepared(URL), None, "the prepare was not undone");
+    }
+
+    /// `prepare` requests the root of the region it picks, so that the region host is resolved
+    /// before the connect dials it.
+    #[tokio::test]
+    async fn prepare_resolves_the_region_host() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://prepare-dns.livekit.cloud";
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("prepare");
+        RegionUrlProvider::cancel_prepared(URL);
+
+        let contacted = crate::test_transport::HTTP_REQUESTS
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|url| url == "https://us-mock.livekit.cloud/");
+        assert!(contacted, "prepare did not contact the region host");
+    }
+
+    /// A second `prepare` for a host replaces the first refresh instead of adding one.
+    #[tokio::test(start_paused = true)]
+    async fn a_second_prepare_replaces_the_refresh() {
+        crate::test_transport::install_mock_transport();
+        const URL: &str = "wss://maxage0-prepare-twice.livekit.cloud";
+        let fetches = fetch_counter("maxage0-prepare-twice.livekit.cloud");
+
+        RegionUrlProvider::prepare(URL, "tok").await.expect("first prepare");
+        RegionUrlProvider::prepare(URL, "tok").await.expect("second prepare");
+        assert_eq!(fetches(), 2);
+        tokio::time::sleep(RegionCache::DEFAULT_TTL + Duration::from_secs(1)).await;
+        assert_eq!(fetches(), 3, "expected one refresh, not two");
+        RegionUrlProvider::take_prepared(URL);
+    }
+
+    /// Counts the region fetches for `host` that the mock served.
+    fn fetch_counter(host: &str) -> impl Fn() -> usize {
+        let endpoint = format!("https://{host}/settings/regions");
+        move || {
+            crate::test_transport::HTTP_REQUESTS
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|url| **url == endpoint)
+                .count()
+        }
     }
 
     /// The refresh stops when the server rejects the token.
