@@ -231,7 +231,8 @@ pub struct SignalOptions {
     /// dropped. Unlike [`SignalClient::close`], which leaves the session resumable with
     /// [`SignalClient::restart`].
     ///
-    /// The default token is never cancelled.
+    /// The default token is never cancelled. A [`SignalClient`] runs on a child of this
+    /// token, which it cancels when dropped.
     pub cancellation_token: CancellationToken,
 }
 
@@ -384,6 +385,15 @@ pub struct SignalClient {
     handle: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// Ends the session when the client is dropped without [`close`](SignalClient::close), as
+/// when the future that owns it is cancelled: the signal task holds the transport and would
+/// otherwise keep it, and the session on the server, alive.
+impl Drop for SignalClient {
+    fn drop(&mut self) {
+        self.inner.options.cancellation_token.cancel();
+    }
+}
+
 impl Debug for SignalClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignalClient")
@@ -401,6 +411,10 @@ impl SignalClient {
         options: SignalOptions,
         initial_publish: Option<InitialPublish>,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
+        // A token of the client's own, so that dropping the client ends this session without
+        // cancelling whatever else shares the caller's token.
+        let mut options = options;
+        options.cancellation_token = options.cancellation_token.child_token();
         let cancel = options.cancellation_token.clone();
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
             let (emitter, events) = mpsc::unbounded_channel();
@@ -2088,6 +2102,41 @@ mod tests {
 
         drop(client);
         assert!(inner.upgrade().is_none(), "the signal client outlived its cancel");
+    }
+
+    /// Dropping a connect that is waiting on the server closes the transport it opened: the
+    /// stream is owned by the dropped future, so nothing else can.
+    #[tokio::test]
+    async fn dropping_a_connect_waiting_on_the_server_closes_its_transport() {
+        use crate::test_transport::{install_mock_transport, silent_conns};
+        install_mock_transport();
+        const URL: &str = "wss://silent-drop.example.com";
+
+        let connect = tokio::spawn(SignalClient::connect(URL, "t", SignalOptions::default(), None));
+        eventually(|| silent_conns(URL) == 1, "connect opened its transport").await;
+        connect.abort();
+        assert!(connect.await.is_err_and(|err| err.is_cancelled()), "connect was not dropped");
+        eventually(|| silent_conns(URL) == 0, "a dropped connect closed its transport").await;
+    }
+
+    /// Dropping a connected client without `close` ends its session: the signal task closes
+    /// the transport and stops, so nothing keeps the client or its socket alive.
+    #[tokio::test]
+    async fn dropping_a_connected_client_closes_its_transport() {
+        crate::test_transport::install_mock_transport();
+        let conn = Arc::new(RecordingConn { sent: Mutex::new(Vec::new()) });
+        let (client, mut events) = client_over(conn.clone());
+        let inner = Arc::downgrade(&client.inner);
+        let signal_task = client.handle.lock().take().expect("the signal task is running");
+
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(5), signal_task)
+            .await
+            .expect("the signal task should end when its client is dropped")
+            .expect("the signal task panicked");
+        assert!(inner.upgrade().is_none(), "the signal client outlived its handle");
+        assert!(events.try_recv().is_err(), "a dropped client reported a Close");
+        eventually(|| Arc::strong_count(&conn) == 1, "the stream released the connection").await;
     }
 
     /// A connection whose writes never complete, as on a peer that stopped reading.
