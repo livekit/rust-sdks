@@ -19,7 +19,8 @@ use livekit_token::get_env_keys;
 
 use super::{ServiceBase, ServiceResult};
 use crate::public_api::{
-    call, next_cursor, opt, page_size, thread_grants, types, PublicApi, PROJECT,
+    call, next_cursor, opt, page_size, thread_grants, thread_scope_grants, thread_update_grants,
+    types, PublicApi, PROJECT,
 };
 
 /// Agent threads of the project: conversations whose chat items, tasks and
@@ -72,13 +73,13 @@ impl ThreadClient {
             idle_ttl: req.idle_ttl,
             scope: opt(&req.scope).map(str::to_owned),
         };
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_scope_grants(&req.scope, |g| g.create = true)).await?;
         let res = call(client.thread_service_create_thread(PROJECT, &body)).await?;
         Ok(res.thread.unwrap_or_default())
     }
 
     pub async fn get(&self, thread_id: &str) -> ServiceResult<agent_thread::Thread> {
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_grants(thread_id, |g| g.read = true)).await?;
         let res = call(client.thread_service_get_thread(PROJECT, thread_id)).await?;
         Ok(res.thread.unwrap_or_default())
     }
@@ -88,7 +89,7 @@ impl ThreadClient {
         &self,
         req: agent_thread::ListRequest,
     ) -> ServiceResult<agent_thread::ListResponse> {
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_scope_grants(&req.scope, |g| g.list = true)).await?;
         let res = call(client.thread_service_list_threads(
             PROJECT,
             opt(&req.page_token),
@@ -110,14 +111,14 @@ impl ThreadClient {
             attributes: req.attributes,
             idle_ttl: req.idle_ttl,
         };
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_update_grants()).await?;
         let res = call(client.thread_service_update_thread(PROJECT, &req.thread_id, &body)).await?;
         Ok(res.thread.unwrap_or_default())
     }
 
     /// Deletes the thread and its database.
     pub async fn delete(&self, thread_id: &str) -> ServiceResult<()> {
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_grants(thread_id, |g| g.delete = true)).await?;
         call(client.thread_service_delete_thread(PROJECT, thread_id)).await?;
         Ok(())
     }
@@ -136,7 +137,7 @@ impl ThreadClient {
             }
             _ => None,
         };
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_grants(&req.thread_id, |g| g.read = true)).await?;
         let res = call(client.thread_service_get_thread_items(
             PROJECT,
             &req.thread_id,
@@ -158,7 +159,7 @@ impl ThreadClient {
         req: agent_task::GetTasksRequest,
     ) -> ServiceResult<agent_task::GetTasksResponse> {
         let status = req.status.and_then(|s| agent_task::Status::try_from(s).ok());
-        let client = self.api.client(thread_grants()).await?;
+        let client = self.api.client(thread_grants(&req.thread_id, |g| g.read = true)).await?;
         let res = call(client.thread_service_get_thread_tasks(
             PROJECT,
             &req.thread_id,

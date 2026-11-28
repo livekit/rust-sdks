@@ -106,17 +106,30 @@ impl PublicApi {
     }
 }
 
-/// The grants of every thread call.
-pub(crate) fn thread_grants() -> TokenGrants {
-    let agent_thread = AgentThreadGrants {
-        all: true,
-        list: true,
-        create: true,
-        write: true,
-        read: true,
-        delete: true,
-        ..Default::default()
-    };
+/// The grants of a call on one thread: `action` sets the one action, and only `thread_id` is named.
+///
+/// Example: `thread_grants("AT_1", |g| g.read = true)` asks for
+/// `{"read": true, "threadIds": ["AT_1"]}`.
+pub(crate) fn thread_grants(thread_id: &str, action: fn(&mut AgentThreadGrants)) -> TokenGrants {
+    let mut agent_thread =
+        AgentThreadGrants { thread_ids: vec![thread_id.to_owned()], ..Default::default() };
+    action(&mut agent_thread);
+    TokenGrants { agent_thread, ..Default::default() }
+}
+
+/// The grants of a call on the threads of one scope (create, list).
+///
+/// With no scope the call is on every scope of the project, and the server needs `all` for that.
+pub(crate) fn thread_scope_grants(scope: &str, action: fn(&mut AgentThreadGrants)) -> TokenGrants {
+    let mut agent_thread =
+        AgentThreadGrants { all: scope.is_empty(), scope: scope.to_owned(), ..Default::default() };
+    action(&mut agent_thread);
+    TokenGrants { agent_thread, ..Default::default() }
+}
+
+/// The grants to update a thread. The server lets only a project-wide grant do this.
+pub(crate) fn thread_update_grants() -> TokenGrants {
+    let agent_thread = AgentThreadGrants { all: true, write: true, ..Default::default() };
     TokenGrants { agent_thread, ..Default::default() }
 }
 
@@ -226,7 +239,10 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use super::{database_read_grants, public_api_url, thread_grants};
+    use super::{
+        database_read_grants, public_api_url, thread_grants, thread_scope_grants,
+        thread_update_grants,
+    };
 
     #[test]
     fn database_reads_carry_only_their_grant() {
@@ -236,8 +252,24 @@ mod tests {
         let c = database_read_grants("AT_t");
         assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
         assert!(!c.agent_database.can_read("AT_t"));
-        let c = thread_grants();
-        assert!(c.agent_thread.can_read("AT_t") && !c.agent_database.can_list());
+    }
+
+    #[test]
+    fn thread_calls_carry_only_their_grant() {
+        let t = thread_grants("AT_1", |g| g.read = true).agent_thread;
+        assert!(t.can_read("AT_1") && !t.can_read("AT_2"));
+        assert!(!t.all && !t.can_delete("AT_1") && !t.can_write("AT_1"));
+
+        let t = thread_scope_grants("support", |g| g.list = true).agent_thread;
+        assert!(t.can_list("support") && !t.can_list("sales") && !t.can_list(""));
+        assert!(!t.all && !t.can_create("support"));
+
+        // no scope: every scope of the project
+        let t = thread_scope_grants("", |g| g.create = true).agent_thread;
+        assert!(t.all && t.can_create("") && !t.can_list(""));
+
+        let t = thread_update_grants().agent_thread;
+        assert!(t.can_update() && !t.can_delete("AT_1") && !t.can_read("AT_1"));
     }
 
     #[test]
