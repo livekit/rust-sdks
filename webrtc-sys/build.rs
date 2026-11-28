@@ -152,6 +152,14 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dwmapi");
             println!("cargo:rustc-link-lib=dylib=shcore");
 
+            // Media Foundation hardware H264 (Intel QuickSync, AMD VCN,
+            // NVIDIA NVENC via the driver-registered MFT). mfplat.dll is
+            // loaded dynamically at runtime so Windows N editions without
+            // the Media Feature Pack still load and fall back to software;
+            // only static GUID libraries are linked here.
+            println!("cargo:rustc-link-lib=dylib=mfuuid");
+            println!("cargo:rustc-link-lib=dylib=dxguid");
+
             //let path = env::current_dir().unwrap();
             //println!("cargo:rustc-link-search=native={}/vaapi-windows/x64/lib", path.display());
             //println!("cargo:rustc-link-lib=dylib=va");
@@ -165,6 +173,12 @@ fn main() {
                 //.file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
                 //.file("src/vaapi/vaapi_encoder_factory.cpp")
                 //.file("src/vaapi/h264_encoder_impl.cpp")
+                .file("src/mf/mf_common.cpp")
+                .file("src/mf/mf_encoder_factory.cpp")
+                .file("src/mf/mf_decoder_factory.cpp")
+                .file("src/mf/h264_encoder_impl.cpp")
+                .file("src/mf/h264_decoder_impl.cpp")
+                .flag("/DUSE_MF_VIDEO_CODEC=1")
                 .flag("/std:c++20")
                 //.flag("/wd4819")
                 //.flag("/wd4068")
