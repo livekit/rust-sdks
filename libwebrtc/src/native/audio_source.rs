@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{future::Future, sync::Arc};
+
 use cxx::SharedPtr;
+use parking_lot::Mutex;
 use tokio::sync::oneshot;
 use webrtc_sys::audio_track as sys_at;
 
@@ -24,6 +27,9 @@ pub struct NativeAudioSource {
     sample_rate: u32,
     num_channels: u32,
     queue_size_samples: u32,
+    /// Bumped by every clear_buffer. A capture remembers the value it started with and stops
+    /// queueing once it changes; the lock makes "check, then queue a chunk" atomic with a clear.
+    clears: Arc<Mutex<u64>>,
 }
 
 impl NativeAudioSource {
@@ -62,7 +68,8 @@ impl NativeAudioSource {
         );
 
         let queue_size_samples = (queue_size_ms * sample_rate * num_channels) / 1000;
-        Self { sys_handle, sample_rate, num_channels, queue_size_samples }
+        let clears = Arc::new(Mutex::new(0));
+        Self { sys_handle, sample_rate, num_channels, queue_size_samples, clears }
     }
 
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
@@ -85,11 +92,33 @@ impl NativeAudioSource {
         self.num_channels
     }
 
+    /// Drops the queued audio and the rest of every capture started before this call.
     pub fn clear_buffer(&self) {
+        let mut clears = self.clears.lock();
+        *clears += 1;
         self.sys_handle.clear_buffer();
     }
 
-    pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
+    /// Queues `frame`. A frame longer than the queue is fed one queue-sized chunk at a time;
+    /// a [`clear_buffer`](Self::clear_buffer) after this call drops the chunks not queued yet.
+    pub fn capture_frame<'a>(
+        &self,
+        frame: &'a AudioFrame<'a>,
+    ) -> impl Future<Output = Result<(), RtcError>> + Send + 'a {
+        let (source, cleared) = (self.clone(), *self.clears.lock());
+        async move { source.capture(cleared, frame).await }
+    }
+
+    /// [`capture_frame`](Self::capture_frame) with an owned frame, so the future can be spawned.
+    pub fn capture_owned_frame(
+        &self,
+        frame: AudioFrame<'static>,
+    ) -> impl Future<Output = Result<(), RtcError>> + Send + 'static {
+        let (source, cleared) = (self.clone(), *self.clears.lock());
+        async move { source.capture(cleared, &frame).await }
+    }
+
+    async fn capture(&self, cleared: u64, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
         if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
             return Err(RtcError {
                 error_type: RtcErrorType::InvalidState,
@@ -157,23 +186,31 @@ impl NativeAudioSource {
         for chunk in frame.data.chunks(self.queue_size_samples as usize) {
             let nb_frames = chunk.len() / self.num_channels as usize;
             let (tx, rx) = oneshot::channel::<()>();
-            let ctx = Box::new(tx);
-            let ctx_ptr = Box::into_raw(ctx) as *const sys_at::SourceContext;
+            // Checked and queued under the lock: a clear lands before this chunk (which is then
+            // dropped) or after it (and empties it).
+            {
+                let clears = self.clears.lock();
+                if *clears != cleared {
+                    return Ok(());
+                }
+                let ctx = Box::new(tx);
+                let ctx_ptr = Box::into_raw(ctx) as *const sys_at::SourceContext;
 
-            unsafe {
-                // In the fast path, C++ never store / invoke on_complete / ctx.
-                if !self.sys_handle.capture_frame(
-                    chunk,
-                    self.sample_rate,
-                    self.num_channels,
-                    nb_frames,
-                    ctx_ptr,
-                    sys_at::CompleteCallback(lk_audio_source_complete),
-                ) {
-                    return Err(RtcError {
-                        error_type: RtcErrorType::InvalidState,
-                        message: "failed to capture frame".to_owned(),
-                    });
+                unsafe {
+                    // In the fast path, C++ never store / invoke on_complete / ctx.
+                    if !self.sys_handle.capture_frame(
+                        chunk,
+                        self.sample_rate,
+                        self.num_channels,
+                        nb_frames,
+                        ctx_ptr,
+                        sys_at::CompleteCallback(lk_audio_source_complete),
+                    ) {
+                        return Err(RtcError {
+                            error_type: RtcErrorType::InvalidState,
+                            message: "failed to capture frame".to_owned(),
+                        });
+                    }
                 }
             }
 
