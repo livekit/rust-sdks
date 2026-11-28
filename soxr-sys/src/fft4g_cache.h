@@ -3,38 +3,31 @@
 
 static int * LSX_FFT_BR;
 static DFT_FLOAT * LSX_FFT_SC;
-static int FFT_LEN = -1;
-static ccrw2_t FFT_CACHE_CCRW;
+static int FFT_LEN;
+static ccrw2_t FFT_CACHE_CCRW = CCRW2_INITIALIZER;
 
 void LSX_INIT_FFT_CACHE(void)
 {
-  if (FFT_LEN >= 0)
-    return;
-  assert(LSX_FFT_BR == NULL);
-  assert(LSX_FFT_SC == NULL);
-  assert(FFT_LEN == -1);
-  ccrw2_init(FFT_CACHE_CCRW);
-  FFT_LEN = 0;
+  /* The empty cache and its lock are initialized statically. */
 }
 
 void LSX_CLEAR_FFT_CACHE(void)
 {
-  assert(FFT_LEN >= 0);
-  ccrw2_clear(FFT_CACHE_CCRW);
+  ccrw2_become_writer(FFT_CACHE_CCRW);
   free(LSX_FFT_BR);
   free(LSX_FFT_SC);
   LSX_FFT_SC = NULL;
   LSX_FFT_BR = NULL;
-  FFT_LEN = -1;
+  FFT_LEN = 0;
+  ccrw2_cease_writing(FFT_CACHE_CCRW);
 }
 
 static bool UPDATE_FFT_CACHE(int len)
 {
-  LSX_INIT_FFT_CACHE();
   assert(lsx_is_power_of_2(len));
-  assert(FFT_LEN >= 0);
   ccrw2_become_reader(FFT_CACHE_CCRW);
-  if (len > FFT_LEN) {
+  /* An RDFT may need to initialize the cosine table after a CDFT. */
+  if (len > FFT_LEN || len > (LSX_FFT_BR[0] << 2) || len > (LSX_FFT_BR[1] << 2)) {
     ccrw2_cease_reading(FFT_CACHE_CCRW);
     ccrw2_become_writer(FFT_CACHE_CCRW);
     if (len > FFT_LEN) {
@@ -43,15 +36,14 @@ static bool UPDATE_FFT_CACHE(int len)
       LSX_FFT_BR = realloc(LSX_FFT_BR, dft_br_len(FFT_LEN) * sizeof(*LSX_FFT_BR));
       LSX_FFT_SC = realloc(LSX_FFT_SC, dft_sc_len(FFT_LEN) * sizeof(*LSX_FFT_SC));
       if (!old_n) {
-        LSX_FFT_BR[0] = 0;
+        LSX_FFT_BR[0] = LSX_FFT_BR[1] = 0;
 #if SOXR_LIB
         atexit(LSX_CLEAR_FFT_CACHE);
 #endif
       }
-      return true;
     }
-    ccrw2_cease_writing(FFT_CACHE_CCRW);
-    ccrw2_become_reader(FFT_CACHE_CCRW);
+    /* Keep the writer lock until the transform has initialized the tables. */
+    return true;
   }
   return false;
 }
