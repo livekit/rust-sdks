@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -21,7 +22,10 @@ use livekit::webrtc::{
     audio_stream::native::{NativeAudioStream, NativeAudioStreamOptions},
     prelude::*,
 };
-use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
+use livekit::{
+    registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterPlugin, AudioFilterSession,
+    AudioFilterStreamInfo,
+};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::AudioStreamKind;
@@ -116,63 +120,63 @@ impl FfiAudioStream {
                         output_sample_rate
                     };
 
-                // Create the filter session (if requested) before the sink,
-                // so the sink's rate can depend on whether the filter is
-                // actually available.
                 let audio_filter_options = new_stream.audio_filter_options.unwrap_or_default();
-                let filter_session = match &audio_filter {
-                    Some(audio_filter) => {
-                        let session = audio_filter.clone().new_session(
-                            input_sample_rate,
-                            output_sample_rate,
-                            &audio_filter_options,
-                            info.as_ref().map(|i| i.stream_info.clone()).unwrap(),
-                        );
-                        if session.is_none() {
-                            log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
-                        }
-                        session
-                    }
-                    None => None,
-                };
+                let track_dropped_rx = server.watch_handle_dropped(new_stream.track_handle);
+                let frame_size_ms = new_stream.frame_size_ms;
 
-                // Without a live filter session (none requested, or creation
-                // failed) the sink must run at the requested output rate
-                // directly — otherwise codec-rate audio would be forwarded
-                // mislabeled as the output rate, dilating it downstream.
-                let sink_rate =
-                    if filter_session.is_some() { input_sample_rate } else { output_sample_rate };
-                let native_stream = NativeAudioStream::with_options(
-                    rtc_track,
-                    sink_rate as i32,
-                    num_channels as i32,
-                    options,
-                );
-
-                let stream = match filter_session {
-                    Some(session) => AudioStreamKind::Filtered(AudioFilterAudioStream::new(
-                        native_stream,
-                        session,
-                        Duration::from_millis(10),
+                // Without a filter the sink attaches before the request returns, so a frame
+                // captured right after it still reaches the stream. With a filter the sink waits
+                // for the session, which loads the filter's model, and the caller must not.
+                let ready_stream = match audio_filter {
+                    Some(audio_filter) => Err(audio_filter),
+                    None => Ok(Self::audio_stream_kind(
+                        rtc_track.clone(),
+                        None,
                         input_sample_rate,
                         output_sample_rate,
                         num_channels,
+                        options.clone(),
                     )),
-                    None => AudioStreamKind::Native(native_stream),
                 };
 
-                let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
-                    server,
-                    handle_id,
-                    stream,
-                    self_dropped_rx,
-                    server.watch_handle_dropped(new_stream.track_handle),
-                    true,
-                    info,
-                    new_stream.frame_size_ms,
-                    output_sample_rate.try_into().unwrap(),
-                    num_channels.try_into().unwrap(),
-                ));
+                let handle = server.async_runtime.spawn(async move {
+                    let stream = match ready_stream {
+                        Ok(stream) => stream,
+                        Err(audio_filter) => {
+                            let session = Self::new_filter_session(
+                                server,
+                                audio_filter,
+                                input_sample_rate,
+                                output_sample_rate,
+                                audio_filter_options,
+                                info.as_ref().map(|i| i.stream_info.clone()).unwrap_or_default(),
+                            )
+                            .await;
+                            Self::audio_stream_kind(
+                                rtc_track,
+                                session,
+                                input_sample_rate,
+                                output_sample_rate,
+                                num_channels,
+                                options,
+                            )
+                        }
+                    };
+
+                    Self::native_audio_stream_task(
+                        server,
+                        handle_id,
+                        stream,
+                        self_dropped_rx,
+                        track_dropped_rx,
+                        true,
+                        info,
+                        frame_size_ms,
+                        output_sample_rate,
+                        num_channels,
+                    )
+                    .await;
+                });
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
             }
@@ -303,7 +307,7 @@ impl FfiAudioStream {
                         output_sample_rate
                     };
 
-                let (mut audio_filter_session, info) = match &filter {
+                let (audio_filter_session, info) = match &filter {
                     Some(filter) => match &request.audio_filter_options {
                         Some(options) => {
                             let stream_info = AudioFilterStreamInfo {
@@ -320,15 +324,15 @@ impl FfiAudioStream {
                                 room_handle: ffi_participant.room.handle_id,
                             };
 
-                            let session = filter.clone().new_session(
+                            let session = Self::new_filter_session(
+                                server,
+                                filter.clone(),
                                 input_sample_rate as u32,
                                 output_sample_rate as u32,
-                                &options,
+                                options.clone(),
                                 info.stream_info.clone(),
-                            );
-                            if session.is_none() {
-                                log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
-                            }
+                            )
+                            .await;
                             (session, Some(info))
                         }
                         None => (None, None),
@@ -336,31 +340,14 @@ impl FfiAudioStream {
                     None => (None, None),
                 };
 
-                // Without a live filter session (none requested, or creation
-                // failed) the sink must run at the requested output rate
-                // directly — otherwise codec-rate audio would be forwarded
-                // mislabeled as the output rate, dilating it downstream.
-                let sink_rate = if audio_filter_session.is_some() {
-                    input_sample_rate
-                } else {
-                    output_sample_rate
-                };
-                let native_stream =
-                    NativeAudioStream::with_options(rtc_track, sink_rate, num_channels, options);
-
-                let stream = if let Some(session) = audio_filter_session.take() {
-                    let stream = AudioFilterAudioStream::new(
-                        native_stream,
-                        session,
-                        Duration::from_millis(10),
-                        input_sample_rate as u32,
-                        output_sample_rate as u32,
-                        num_channels as u32,
-                    );
-                    AudioStreamKind::Filtered(stream)
-                } else {
-                    AudioStreamKind::Native(native_stream)
-                };
+                let stream = Self::audio_stream_kind(
+                    rtc_track,
+                    audio_filter_session,
+                    input_sample_rate as u32,
+                    output_sample_rate as u32,
+                    num_channels as u32,
+                    options,
+                );
 
                 server.async_runtime.spawn(async move {
                     Self::native_audio_stream_task(
@@ -401,6 +388,64 @@ impl FfiAudioStream {
         ) {
             log::warn!("failed to send audio eos: {}", err);
         }
+    }
+
+    /// Attaches the sink to the track, behind the filter session when there is one.
+    fn audio_stream_kind(
+        rtc_track: RtcAudioTrack,
+        session: Option<AudioFilterSession>,
+        input_sample_rate: u32,
+        output_sample_rate: u32,
+        num_channels: u32,
+        options: NativeAudioStreamOptions,
+    ) -> AudioStreamKind {
+        // Without a live filter session (none requested, or creation
+        // failed) the sink must run at the requested output rate
+        // directly — otherwise codec-rate audio would be forwarded
+        // mislabeled as the output rate, dilating it downstream.
+        let sink_rate = if session.is_some() { input_sample_rate } else { output_sample_rate };
+        let native_stream = NativeAudioStream::with_options(
+            rtc_track,
+            sink_rate as i32,
+            num_channels as i32,
+            options,
+        );
+        match session {
+            Some(session) => AudioStreamKind::Filtered(AudioFilterAudioStream::new(
+                native_stream,
+                session,
+                Duration::from_millis(10),
+                input_sample_rate,
+                output_sample_rate,
+                num_channels,
+            )),
+            None => AudioStreamKind::Native(native_stream),
+        }
+    }
+
+    /// Creates a filter session on the blocking pool, since the plugin loads its model inside it.
+    async fn new_filter_session(
+        server: &'static server::FfiServer,
+        filter: Arc<AudioFilterPlugin>,
+        input_sample_rate: u32,
+        output_sample_rate: u32,
+        options: String,
+        stream_info: AudioFilterStreamInfo,
+    ) -> Option<AudioFilterSession> {
+        let session = server
+            .async_runtime
+            .spawn_blocking(move || {
+                filter.new_session(input_sample_rate, output_sample_rate, options, stream_info)
+            })
+            .await
+            .ok()
+            .flatten();
+        if session.is_none() {
+            log::error!(
+                "failed to initialize the audio filter. it will not be enabled for this session."
+            );
+        }
+        session
     }
 
     async fn native_audio_stream_task(
