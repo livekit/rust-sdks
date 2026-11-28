@@ -14,11 +14,14 @@
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::future::Future;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
-use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
+use livekit_token::{AccessToken, AccessTokenError, Claims, SIPGrants, VideoGrants};
 
 pub use crate::public_api::public_api_url;
 pub use livekit_api::LiveKitApi;
@@ -48,10 +51,13 @@ mod twirp_client;
 
 #[cfg(all(test, feature = "services"))]
 mod api_test;
+#[cfg(all(test, feature = "services"))]
+mod token_provider_test;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ServiceError {
     #[error("invalid environment: {0}")]
     Env(#[from] std::env::VarError),
@@ -59,9 +65,53 @@ pub enum ServiceError {
     AccessToken(#[from] AccessTokenError),
     #[error("server error: {0}")]
     Twirp(#[from] ServerError),
+    #[error("token provider failed: {0}")]
+    TokenProvider(TokenProviderError),
+    #[error("the token is not a valid header value")]
+    InvalidToken,
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
+
+/// The grants that a request needs. A [`TokenProvider`] receives them and returns a token that
+/// carries them.
+///
+/// A provider normally sends the grants to a server that signs the token. Use
+/// [`Claims::to_claims_json`] to get the grants in the form that the server reads.
+pub type TokenGrants = Claims;
+
+/// The error a [`TokenProvider`] returns when it cannot get a token.
+pub type TokenProviderError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Supplies the token for each request, for a process that has no API secret.
+///
+/// [`LiveKitApi`] calls [`token`](Self::token) before each request, with the grants that the
+/// request needs. The provider returns a token that carries those grants. It may cache tokens.
+///
+/// To implement it on your own type, use [`async_trait`](https://docs.rs/async-trait).
+/// An async closure is a provider:
+///
+/// ```ignore
+/// let api = LiveKitApi::with_token_provider(host, |grants: TokenGrants| async move {
+///     let token = ask_my_server_for_a_token(grants.to_claims_json()?).await?;
+///     Ok::<_, TokenProviderError>(token)
+/// });
+/// ```
+#[async_trait]
+pub trait TokenProvider: Send + Sync {
+    async fn token(&self, grants: TokenGrants) -> Result<String, TokenProviderError>;
+}
+
+#[async_trait]
+impl<F, Fut> TokenProvider for F
+where
+    F: Fn(TokenGrants) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String, TokenProviderError>> + Send + 'static,
+{
+    async fn token(&self, grants: TokenGrants) -> Result<String, TokenProviderError> {
+        self(grants).await
+    }
+}
 
 // The two authentication modes are mutually exclusive, so they're distinct
 // variants rather than a struct where an invalid combination is representable.
@@ -72,6 +122,9 @@ pub(crate) enum ServiceBase {
     /// Send a caller-supplied token verbatim; grants are ignored (the caller,
     /// typically a browser client, signed it out of band).
     Token(String),
+    /// Ask a [`TokenProvider`] for the token of each request. For a process
+    /// that has no API secret.
+    Provider(Arc<dyn TokenProvider>),
 }
 
 impl Debug for ServiceBase {
@@ -82,6 +135,9 @@ impl Debug for ServiceBase {
                 f.debug_struct("ServiceBase").field("api_key", api_key).finish_non_exhaustive()
             }
             Self::Token(_) => f.debug_struct("ServiceBase").field("token", &"<redacted>").finish(),
+            Self::Provider(_) => {
+                f.debug_struct("ServiceBase").field("token_provider", &"<provider>").finish()
+            }
         }
     }
 }
@@ -95,13 +151,25 @@ impl ServiceBase {
         Self::Token(token.to_owned())
     }
 
-    pub fn auth_header(
+    pub fn with_token_provider(provider: Arc<dyn TokenProvider>) -> Self {
+        Self::Provider(provider)
+    }
+
+    pub async fn auth_header(
         &self,
         grants: VideoGrants,
         sip: Option<SIPGrants>,
-    ) -> Result<HeaderMap, AccessTokenError> {
+    ) -> ServiceResult<HeaderMap> {
         let token = match self {
             Self::Token(token) => token.clone(),
+            Self::Provider(provider) => {
+                let grants = TokenGrants {
+                    video: grants,
+                    sip: sip.unwrap_or_default(),
+                    ..Default::default()
+                };
+                provider.token(grants).await.map_err(ServiceError::TokenProvider)?
+            }
             Self::ApiKeySecret { api_key, api_secret } => {
                 let mut tok = AccessToken::with_api_key(api_key, api_secret).with_grants(grants);
                 if let Some(sip_grants) = sip {
@@ -112,8 +180,23 @@ impl ServiceBase {
         };
 
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+        headers.insert(AUTHORIZATION, self.bearer(&token)?);
         Ok(headers)
+    }
+
+    /// Builds the `Authorization` header value for a token.
+    ///
+    /// Fails if the token has a character that a header cannot hold, such as a newline. The
+    /// error is `TokenProvider` if a provider returned the token, and `InvalidToken` otherwise.
+    pub(crate) fn bearer(&self, token: &str) -> ServiceResult<HeaderValue> {
+        let mut bearer =
+            HeaderValue::from_str(&format!("Bearer {token}")).map_err(|error| match self {
+                Self::Provider(_) => ServiceError::TokenProvider(Box::new(error)),
+                _ => ServiceError::InvalidToken,
+            })?;
+        // Debug output of the header shows "Sensitive" instead of the token.
+        bearer.set_sensitive(true);
+        Ok(bearer)
     }
 }
 

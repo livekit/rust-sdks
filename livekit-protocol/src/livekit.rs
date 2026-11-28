@@ -3854,7 +3854,7 @@ pub mod signal_request {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof = "signal_response::Message", tags = "1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
+    #[prost(oneof = "signal_response::Message", tags = "1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 30, 31")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3948,6 +3948,9 @@ pub mod signal_response {
         /// Sent to data track subscribers to provide mapping from track SIDs to handles.
         #[prost(message, tag = "29")]
         DataTrackSubscriberHandles(super::DataTrackSubscriberHandles),
+        /// Sent to data track publisher to indicate a change in demand.
+        #[prost(message, tag = "32")]
+        DataTrackDemandUpdate(super::DataTrackDemandUpdate),
         /// Sent in response to `StoreDataBlobRequest`.
         #[prost(message, tag = "30")]
         StoreDataBlobResponse(super::StoreDataBlobResponse),
@@ -4074,6 +4077,15 @@ pub mod data_track_subscriber_handles {
         #[prost(string, tag = "3")]
         pub track_sid: ::prost::alloc::string::String,
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct DataTrackDemandUpdate {
+    /// Publisher handle of the track.
+    #[prost(uint32, tag = "1")]
+    pub pub_handle: u32,
+    /// Whether or not the track currently has any subscribers.
+    #[prost(bool, tag = "2")]
+    pub has_subscribers: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TrickleRequest {

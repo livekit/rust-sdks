@@ -15,15 +15,18 @@
 use std::time::Duration;
 
 use livekit_protocol::agent_db;
-use livekit_token::get_env_keys;
+use livekit_token::{get_env_keys, AgentDatabaseGrants};
 
 use super::{ServiceBase, ServiceResult};
-use crate::public_api::{self as api, call, next_cursor, opt, page_size, types, PROJECT};
+use crate::public_api::{
+    call, database_grants, database_read_grants, next_cursor, opt, page_size, types, PublicApi,
+    PROJECT,
+};
 
 /// Agent databases of the project.
 #[derive(Debug)]
 pub struct DatabaseClient {
-    client: api::Client,
+    api: PublicApi,
 }
 
 impl DatabaseClient {
@@ -51,12 +54,12 @@ impl DatabaseClient {
     /// Builds the client from an already-constructed HTTP client so the unified
     /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
     pub(crate) fn build(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Self {
-        Self { client: api::client(host, base, http) }
+        Self { api: PublicApi::new(host, base, http) }
     }
 
     /// Overrides the default per-request timeout (10s) for calls on this client.
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
-        self.client.inner.timeout = timeout;
+        self.api.timeout = timeout;
         self
     }
 
@@ -65,7 +68,11 @@ impl DatabaseClient {
         req: agent_db::CreateRequest,
     ) -> ServiceResult<agent_db::CreateResponse> {
         let body = types::DatabaseServiceCreateDatabaseBody { ttl: req.ttl };
-        let res = call(self.client.database_service_create_database(PROJECT, &body)).await?;
+        let client = self
+            .api
+            .client(database_grants(AgentDatabaseGrants { create: true, ..Default::default() }))
+            .await?;
+        let res = call(client.database_service_create_database(PROJECT, &body)).await?;
         Ok(agent_db::CreateResponse {
             database_id: res.database_id.unwrap_or_default(),
             expires_at: res.expires_at,
@@ -73,12 +80,17 @@ impl DatabaseClient {
     }
 
     pub async fn get(&self, database_id: &str) -> ServiceResult<agent_db::AgentDatabase> {
-        let res = call(self.client.database_service_get_database(PROJECT, database_id)).await?;
+        let client = self.api.client(database_read_grants(database_id)).await?;
+        let res = call(client.database_service_get_database(PROJECT, database_id)).await?;
         Ok(res.database.unwrap_or_default())
     }
 
     pub async fn list(&self, req: agent_db::ListRequest) -> ServiceResult<agent_db::ListResponse> {
-        let res = call(self.client.database_service_list_databases(
+        let client = self
+            .api
+            .client(database_grants(AgentDatabaseGrants { list: true, ..Default::default() }))
+            .await?;
+        let res = call(client.database_service_list_databases(
             PROJECT,
             opt(&req.page_token),
             page_size(req.page_size),
@@ -91,13 +103,22 @@ impl DatabaseClient {
     }
 
     pub async fn delete(&self, database_id: &str) -> ServiceResult<()> {
-        call(self.client.database_service_delete_database(PROJECT, database_id)).await?;
+        let client = self
+            .api
+            .client(database_grants(AgentDatabaseGrants {
+                database_ids: vec![database_id.to_owned()],
+                delete: true,
+                ..Default::default()
+            }))
+            .await?;
+        call(client.database_service_delete_database(PROJECT, database_id)).await?;
         Ok(())
     }
 
     /// A pre-authenticated download URL of a consistent snapshot of the database.
     pub async fn export(&self, database_id: &str) -> ServiceResult<agent_db::ExportResponse> {
-        let res = call(self.client.database_service_export_database(PROJECT, database_id)).await?;
+        let client = self.api.client(database_read_grants(database_id)).await?;
+        let res = call(client.database_service_export_database(PROJECT, database_id)).await?;
         Ok(agent_db::ExportResponse {
             download_url: res.download_url.unwrap_or_default(),
             expires_at: res.expires_at,

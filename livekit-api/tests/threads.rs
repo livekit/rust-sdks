@@ -48,7 +48,9 @@ async fn get_thread_request() {
         .expect("bearer token");
     let claims = Claims::from_unverified(token).unwrap();
     assert_eq!(claims.iss, "key");
-    assert!(claims.agent_thread.all);
+    // only the action and the thread of this call
+    assert!(claims.agent_thread.can_read("AT_1") && !claims.agent_thread.can_read("AT_2"));
+    assert!(!claims.agent_thread.all && !claims.agent_thread.can_delete("AT_1"));
 }
 
 #[tokio::test]

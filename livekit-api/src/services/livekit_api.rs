@@ -22,9 +22,10 @@ use super::ingress::IngressClient;
 use super::room::RoomClient;
 use super::sip::SIPClient;
 use super::threads::ThreadClient;
-use super::{ServiceBase, ServiceResult};
+use super::{ServiceBase, ServiceResult, TokenProvider};
 use crate::http_client;
 use livekit_token::get_env_keys;
+use std::sync::Arc;
 
 /// A single entry point to every LiveKit server API, exposing each service
 /// through an accessor (`room()`, `egress()`, `ingress()`, `sip()`,
@@ -33,7 +34,9 @@ use livekit_token::get_env_keys;
 /// Construct it with an API key and secret ([`with_api_key`](Self::with_api_key),
 /// or [`new`](Self::new) to read them from the environment) for backend use, or
 /// with a pre-signed token ([`with_token`](Self::with_token)) for client-side use
-/// where the API secret must not be exposed.
+/// where the API secret must not be exposed, or with a [`TokenProvider`]
+/// ([`with_token_provider`](Self::with_token_provider)) that supplies the token
+/// for each request.
 #[derive(Debug)]
 pub struct LiveKitApi {
     room: RoomClient,
@@ -86,6 +89,49 @@ impl LiveKitApi {
         // One HTTP client shared across every service (see `with_api_key`).
         let http = http_client::client();
         let base = || ServiceBase::with_token(token);
+        Self {
+            room: RoomClient::build(host, base(), http.clone()),
+            egress: EgressClient::build(host, base(), http.clone()),
+            ingress: IngressClient::build(host, base(), http.clone()),
+            sip: SIPClient::build(host, base(), http.clone()),
+            agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
+            connector: ConnectorClient::build(host, base(), http.clone()),
+            threads: ThreadClient::build(host, base(), http.clone()),
+            databases: DatabaseClient::build(host, base(), http),
+        }
+    }
+
+    /// Authenticates each request with a token from `provider`.
+    ///
+    /// Use this in a process that has no API secret, such as an agent worker in
+    /// token mode. Before each request, `provider` receives the grants that the
+    /// request needs and returns a token.
+    ///
+    /// # Limits with LiveKit Cloud job tokens
+    ///
+    /// When the provider gets its tokens from LiveKit Cloud as job tokens, Cloud refuses
+    /// some grants, and these calls fail. Use an API key and secret for them.
+    ///
+    /// - SIP trunks and dispatch rules: every create, update, list and delete call. They
+    ///   need `sip.admin`. Calls that need only `sip.call`, such as
+    ///   `create_sip_participant`, work.
+    /// - Databases: `create` and `list`. Calls on one database work.
+    /// - Threads: `update`, and `create` or `list` with no scope. They need
+    ///   `agentThread.all`. Calls on one thread, and `create` or `list` with a scope, work.
+    pub fn with_token_provider(host: &str, provider: impl TokenProvider + 'static) -> Self {
+        // One HTTP client shared across every service (see `with_api_key`).
+        Self::with_token_provider_and_client(host, provider, http_client::client())
+    }
+
+    /// Like [`with_token_provider`](Self::with_token_provider), but uses the supplied HTTP
+    /// client for every service, preserving its TLS and connection pool.
+    pub fn with_token_provider_and_client(
+        host: &str,
+        provider: impl TokenProvider + 'static,
+        http: http_client::Client,
+    ) -> Self {
+        let provider: Arc<dyn TokenProvider> = Arc::new(provider);
+        let base = || ServiceBase::with_token_provider(provider.clone());
         Self {
             room: RoomClient::build(host, base(), http.clone()),
             egress: EgressClient::build(host, base(), http.clone()),

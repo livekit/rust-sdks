@@ -360,6 +360,30 @@ impl Claims {
         let token = jsonwebtoken::dangerous::insecure_decode::<Claims>(token)?;
         Ok(token.claims)
     }
+
+    /// Returns the claims as unsigned JSON, to ask a LiveKit server to sign a token with them.
+    /// An agent worker sends this as `CreateJobTokenRequest.claims`.
+    ///
+    /// The JSON is the token payload with two differences:
+    /// - The identity is in `identity`, not `sub`.
+    /// - `exp`, `iss` and `nbf` are left out, because the server sets them.
+    ///
+    /// For example, identity `"agent"` with a room join grant gives
+    /// `{"identity":"agent","video":{"roomJoin":true,"room":"r"}}`.
+    ///
+    /// Returns an error if a claim cannot be written as JSON. One such claim is a room
+    /// configuration with an enum value that this SDK does not know.
+    pub fn to_claims_json(&self) -> Result<String, AccessTokenError> {
+        let mut claims = serde_json::to_value(self).map_err(jsonwebtoken::errors::Error::from)?;
+        let fields = claims.as_object_mut().expect("claims serialize to a JSON object");
+        for signed in ["exp", "iss", "nbf", "sub"] {
+            fields.remove(signed);
+        }
+        if !self.sub.is_empty() {
+            fields.insert("identity".to_owned(), self.sub.clone().into());
+        }
+        Ok(claims.to_string())
+    }
 }
 
 #[derive(Clone)]
@@ -767,6 +791,49 @@ mod tests {
         let parsed: Claims = serde_json::from_str(json).unwrap();
         assert_eq!(parsed, claims);
         assert_eq!(serde_json::to_string(&parsed).unwrap(), json);
+    }
+
+    #[test]
+    fn test_claims_json_carries_identity() {
+        let claims = Claims {
+            exp: 1,
+            iss: "k".into(),
+            nbf: 1,
+            sub: "agent-7".into(),
+            name: "Agent".into(),
+            kind: "agent".into(),
+            metadata: "m".into(),
+            attributes: [("a".to_owned(), "b".to_owned())].into(),
+            video: VideoGrants { room_join: true, room: "r".into(), ..Default::default() },
+            ..Default::default()
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&claims.to_claims_json().unwrap()).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "identity": "agent-7",
+                "name": "Agent",
+                "kind": "agent",
+                "metadata": "m",
+                "attributes": {"a": "b"},
+                "video": {"roomJoin": true, "room": "r"},
+            })
+        );
+        assert_eq!(Claims::default().to_claims_json().unwrap(), "{}");
+
+        // 9999 is not a known restart policy, so it cannot be written as JSON.
+        let unknown_enum = Claims {
+            room_config: Some(livekit_protocol::RoomConfiguration {
+                agents: vec![livekit_protocol::RoomAgentDispatch {
+                    restart_policy: 9999,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(matches!(unknown_enum.to_claims_json(), Err(super::AccessTokenError::Encoding(_))));
     }
 
     #[test]

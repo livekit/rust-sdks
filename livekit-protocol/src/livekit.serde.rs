@@ -20674,6 +20674,122 @@ impl<'de> serde::Deserialize<'de> for data_stream::Trailer {
         deserializer.deserialize_struct("livekit.DataStream.Trailer", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DataTrackDemandUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.pub_handle != 0 {
+            len += 1;
+        }
+        if self.has_subscribers {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DataTrackDemandUpdate", len)?;
+        if self.pub_handle != 0 {
+            struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
+        }
+        if self.has_subscribers {
+            struct_ser.serialize_field("hasSubscribers", &self.has_subscribers)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataTrackDemandUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "pub_handle",
+            "pubHandle",
+            "has_subscribers",
+            "hasSubscribers",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PubHandle,
+            HasSubscribers,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
+                            "hasSubscribers" | "has_subscribers" => Ok(GeneratedField::HasSubscribers),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataTrackDemandUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DataTrackDemandUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DataTrackDemandUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut pub_handle__ = None;
+                let mut has_subscribers__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::PubHandle => {
+                            if pub_handle__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pubHandle"));
+                            }
+                            pub_handle__ =
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::HasSubscribers => {
+                            if has_subscribers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hasSubscribers"));
+                            }
+                            has_subscribers__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DataTrackDemandUpdate {
+                    pub_handle: pub_handle__.unwrap_or_default(),
+                    has_subscribers: has_subscribers__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DataTrackDemandUpdate", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DataTrackExtensionId {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -64128,6 +64244,9 @@ impl serde::Serialize for SignalResponse {
                 signal_response::Message::DataTrackSubscriberHandles(v) => {
                     struct_ser.serialize_field("dataTrackSubscriberHandles", v)?;
                 }
+                signal_response::Message::DataTrackDemandUpdate(v) => {
+                    struct_ser.serialize_field("dataTrackDemandUpdate", v)?;
+                }
                 signal_response::Message::StoreDataBlobResponse(v) => {
                     struct_ser.serialize_field("storeDataBlobResponse", v)?;
                 }
@@ -64193,6 +64312,8 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             "unpublishDataTrackResponse",
             "data_track_subscriber_handles",
             "dataTrackSubscriberHandles",
+            "data_track_demand_update",
+            "dataTrackDemandUpdate",
             "store_data_blob_response",
             "storeDataBlobResponse",
             "get_data_blob_response",
@@ -64229,6 +64350,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             PublishDataTrackResponse,
             UnpublishDataTrackResponse,
             DataTrackSubscriberHandles,
+            DataTrackDemandUpdate,
             StoreDataBlobResponse,
             GetDataBlobResponse,
             __SkipField__,
@@ -64281,6 +64403,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                             "publishDataTrackResponse" | "publish_data_track_response" => Ok(GeneratedField::PublishDataTrackResponse),
                             "unpublishDataTrackResponse" | "unpublish_data_track_response" => Ok(GeneratedField::UnpublishDataTrackResponse),
                             "dataTrackSubscriberHandles" | "data_track_subscriber_handles" => Ok(GeneratedField::DataTrackSubscriberHandles),
+                            "dataTrackDemandUpdate" | "data_track_demand_update" => Ok(GeneratedField::DataTrackDemandUpdate),
                             "storeDataBlobResponse" | "store_data_blob_response" => Ok(GeneratedField::StoreDataBlobResponse),
                             "getDataBlobResponse" | "get_data_blob_response" => Ok(GeneratedField::GetDataBlobResponse),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -64497,6 +64620,13 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                                 return Err(serde::de::Error::duplicate_field("dataTrackSubscriberHandles"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::DataTrackSubscriberHandles)
+;
+                        }
+                        GeneratedField::DataTrackDemandUpdate => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dataTrackDemandUpdate"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::DataTrackDemandUpdate)
 ;
                         }
                         GeneratedField::StoreDataBlobResponse => {

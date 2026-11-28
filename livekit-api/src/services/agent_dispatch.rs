@@ -15,7 +15,7 @@
 use super::{twirp_client::TwirpClient, ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use http::header::HeaderMap;
 use livekit_protocol as proto;
-use livekit_token::{get_env_keys, AccessTokenError, VideoGrants};
+use livekit_token::{get_env_keys, VideoGrants};
 
 const SVC: &str = "AgentDispatchService";
 
@@ -89,7 +89,7 @@ impl AgentDispatchClient {
         req: proto::CreateAgentDispatchRequest,
     ) -> ServiceResult<proto::AgentDispatch> {
         const METHOD: &str = "CreateDispatch";
-        let headers = self.auth_headers(req.room.to_string())?;
+        let headers = self.auth_headers(req.room.to_string()).await?;
         Ok(self.client.request(SVC, METHOD, req, headers).await?)
     }
 
@@ -112,7 +112,7 @@ impl AgentDispatchClient {
             dispatch_id: dispatch_id.into(),
             room: room_name.into(),
         };
-        let headers = self.auth_headers(req.room.to_string())?;
+        let headers = self.auth_headers(req.room.to_string()).await?;
         Ok(self.client.request(SVC, METHOD, req, headers).await?)
     }
 
@@ -130,7 +130,7 @@ impl AgentDispatchClient {
     ) -> ServiceResult<Vec<proto::AgentDispatch>> {
         const METHOD: &str = "ListDispatch";
         let req = proto::ListAgentDispatchRequest { room: room_name.into(), ..Default::default() };
-        let headers = self.auth_headers(req.room.to_string())?;
+        let headers = self.auth_headers(req.room.to_string()).await?;
         let res: proto::ListAgentDispatchResponse =
             self.client.request(SVC, METHOD, req, headers).await?;
         Ok(res.agent_dispatches)
@@ -155,7 +155,7 @@ impl AgentDispatchClient {
             room: room_name.into(),
             dispatch_id: dispatch_id.into(),
         };
-        let headers = self.auth_headers(req.room.to_string())?;
+        let headers = self.auth_headers(req.room.to_string()).await?;
         let mut res: proto::ListAgentDispatchResponse =
             self.client.request(SVC, METHOD, req, headers).await?;
         Ok(res.agent_dispatches.pop())
@@ -164,7 +164,9 @@ impl AgentDispatchClient {
 
 impl AgentDispatchClient {
     /// Generates the auth header common to all dispatch request types.
-    fn auth_headers(&self, room: String) -> Result<HeaderMap, AccessTokenError> {
-        self.base.auth_header(VideoGrants { room, room_admin: true, ..Default::default() }, None)
+    async fn auth_headers(&self, room: String) -> ServiceResult<HeaderMap> {
+        self.base
+            .auth_header(VideoGrants { room, room_admin: true, ..Default::default() }, None)
+            .await
     }
 }

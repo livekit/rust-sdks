@@ -28,7 +28,9 @@ use progenitor_client::{ClientHooks, OperationInfo};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
 
-use crate::services::{ServerError, ServerErrorCode, ServiceBase, ServiceError, ServiceResult};
+use crate::services::{
+    ServerError, ServerErrorCode, ServiceBase, ServiceError, ServiceResult, TokenGrants,
+};
 
 /// The project id that names the project of the request's token.
 pub(crate) const PROJECT: &str = "p_";
@@ -56,105 +58,111 @@ pub fn public_api_url(project_url: &str) -> String {
     }
 }
 
-/// What the generated [`Client`] signs and times each request with.
+/// What the generated [`Client`] sends with each request: the token of the call and the timeout.
 #[derive(Clone, Debug)]
 pub struct Credentials {
+    bearer: HeaderValue,
+    timeout: Duration,
+}
+
+/// Makes a generated [`Client`] for each call, with a token for the grants of that call.
+#[derive(Debug)]
+pub(crate) struct PublicApi {
+    baseurl: String,
+    http: reqwest::Client,
     base: ServiceBase,
     pub(crate) timeout: Duration,
 }
 
-impl Credentials {
-    fn bearer(
-        &self,
-        info: &OperationInfo,
-        url: &reqwest::Url,
-    ) -> Result<String, livekit_token::AccessTokenError> {
+impl PublicApi {
+    pub(crate) fn new(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Self {
+        Self { baseurl: public_api_url(host), http, base, timeout: DEFAULT_TIMEOUT }
+    }
+
+    /// Gets the token for `grants`, then returns a client that sends it.
+    ///
+    /// The token is ready before the request starts, so its error is returned as it is.
+    /// For example, a token provider error stays [`ServiceError::TokenProvider`].
+    pub(crate) async fn client(&self, grants: TokenGrants) -> ServiceResult<Client> {
         let token = match &self.base {
             ServiceBase::Token(token) => token.clone(),
+            ServiceBase::Provider(provider) => {
+                provider.token(grants).await.map_err(ServiceError::TokenProvider)?
+            }
             ServiceBase::ApiKeySecret { api_key, api_secret } => {
-                let token = AccessToken::with_api_key(api_key, api_secret).with_ttl(TOKEN_TTL);
-                scoped(token, info.operation_id, url).to_jwt()?
+                AccessToken::with_api_key(api_key, api_secret)
+                    .with_ttl(TOKEN_TTL)
+                    .with_agent_thread_grants(grants.agent_thread)
+                    .with_agent_database_grants(grants.agent_database)
+                    .to_jwt()?
             }
         };
-        Ok(format!("Bearer {token}"))
+        // A token with a character that a header cannot hold (such as a newline) is an error.
+        let bearer = self.base.bearer(&token)?;
+        let credentials = Credentials { bearer, timeout: self.timeout };
+        Ok(Client::new_with_client(&self.baseurl, self.http.clone(), credentials))
     }
 }
 
-/// Grants only what the call needs: a database call reaches only the database it names.
-fn scoped(token: AccessToken, operation_id: &str, url: &reqwest::Url) -> AccessToken {
-    let database = |grants: AgentDatabaseGrants| AgentDatabaseGrants {
-        database_ids: vec![database_id(url)],
-        ..grants
-    };
-    match operation_id {
-        "database_service_create_database" => token
-            .with_agent_database_grants(AgentDatabaseGrants { create: true, ..Default::default() }),
-        "database_service_list_databases" => token
-            .with_agent_database_grants(AgentDatabaseGrants { list: true, ..Default::default() }),
-        "database_service_delete_database" => {
-            token.with_agent_database_grants(database(AgentDatabaseGrants {
-                delete: true,
-                ..Default::default()
-            }))
-        }
-        "database_service_get_database" | "database_service_export_database" => {
-            let id = database_id(url);
-            if id.starts_with("AT_") {
-                // a thread's database is read through its thread
-                token.with_agent_thread_grants(AgentThreadGrants {
-                    thread_ids: vec![id],
-                    sql: true,
-                    ..Default::default()
-                })
-            } else {
-                token.with_agent_database_grants(database(AgentDatabaseGrants {
-                    read: true,
-                    ..Default::default()
-                }))
-            }
-        }
-        _ => token.with_agent_thread_grants(AgentThreadGrants {
-            all: true,
-            list: true,
-            create: true,
-            write: true,
-            read: true,
-            delete: true,
+/// The grants of a call on one thread: `action` sets the one action, and only `thread_id` is named.
+///
+/// Example: `thread_grants("AT_1", |g| g.read = true)` asks for
+/// `{"read": true, "threadIds": ["AT_1"]}`.
+pub(crate) fn thread_grants(thread_id: &str, action: fn(&mut AgentThreadGrants)) -> TokenGrants {
+    let mut agent_thread =
+        AgentThreadGrants { thread_ids: vec![thread_id.to_owned()], ..Default::default() };
+    action(&mut agent_thread);
+    TokenGrants { agent_thread, ..Default::default() }
+}
+
+/// The grants of a call on the threads of one scope (create, list).
+///
+/// With no scope the call is on every scope of the project, and the server needs `all` for that.
+pub(crate) fn thread_scope_grants(scope: &str, action: fn(&mut AgentThreadGrants)) -> TokenGrants {
+    let mut agent_thread =
+        AgentThreadGrants { all: scope.is_empty(), scope: scope.to_owned(), ..Default::default() };
+    action(&mut agent_thread);
+    TokenGrants { agent_thread, ..Default::default() }
+}
+
+/// The grants to update a thread. The server lets only a project-wide grant do this.
+pub(crate) fn thread_update_grants() -> TokenGrants {
+    let agent_thread = AgentThreadGrants { all: true, write: true, ..Default::default() };
+    TokenGrants { agent_thread, ..Default::default() }
+}
+
+/// The grants of a database call. A call on one database names it in `database_ids`.
+pub(crate) fn database_grants(agent_database: AgentDatabaseGrants) -> TokenGrants {
+    TokenGrants { agent_database, ..Default::default() }
+}
+
+/// The grants to read one database. A thread's database (`AT_` id) is read through its thread.
+pub(crate) fn database_read_grants(database_id: &str) -> TokenGrants {
+    if database_id.starts_with("AT_") {
+        let agent_thread = AgentThreadGrants {
+            thread_ids: vec![database_id.to_owned()],
+            sql: true,
             ..Default::default()
-        }),
+        };
+        return TokenGrants { agent_thread, ..Default::default() };
     }
-}
-
-/// The database a `/databases/{id}` or `/databases/{id}:export` request names.
-fn database_id(url: &reqwest::Url) -> String {
-    let last = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or_default();
-    last.split(':').next().unwrap_or_default().to_owned()
+    database_grants(AgentDatabaseGrants {
+        database_ids: vec![database_id.to_owned()],
+        read: true,
+        ..Default::default()
+    })
 }
 
 impl ClientHooks<Credentials> for Client {
     async fn pre<E>(
         &self,
         request: &mut reqwest::Request,
-        info: &OperationInfo,
+        _info: &OperationInfo,
     ) -> Result<(), progenitor_client::Error<E>> {
-        let bearer = self
-            .inner
-            .bearer(info, request.url())
-            .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
-        let value = HeaderValue::from_str(&bearer)
-            .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
-        request.headers_mut().insert(AUTHORIZATION, value);
+        request.headers_mut().insert(AUTHORIZATION, self.inner.bearer.clone());
         *request.timeout_mut() = Some(self.inner.timeout);
         Ok(())
     }
-}
-
-pub(crate) fn client(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Client {
-    Client::new_with_client(
-        &public_api_url(host),
-        http,
-        Credentials { base, timeout: DEFAULT_TIMEOUT },
-    )
 }
 
 /// Maps a generated-client error onto the service errors every client returns.
@@ -229,32 +237,37 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use livekit_token::{AccessToken, Claims};
+    use super::{
+        database_read_grants, public_api_url, thread_grants, thread_scope_grants,
+        thread_update_grants,
+    };
 
-    use super::{public_api_url, scoped};
-
-    fn claims(operation_id: &str, path: &str) -> Claims {
-        let url = reqwest::Url::parse(&format!("https://x/v0/projects/p_/{path}")).unwrap();
-        let token = scoped(AccessToken::with_api_key("k", "s"), operation_id, &url);
-        Claims::from_unverified(&token.to_jwt().unwrap()).unwrap()
+    #[test]
+    fn database_reads_carry_only_their_grant() {
+        let c = database_read_grants("DB_a");
+        assert!(c.agent_database.can_read("DB_a") && !c.agent_database.can_read("DB_b"));
+        assert!(!c.agent_thread.can_read("DB_a"));
+        let c = database_read_grants("AT_t");
+        assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
+        assert!(!c.agent_database.can_read("AT_t"));
     }
 
     #[test]
-    fn database_calls_carry_only_their_grant() {
-        let c = claims("database_service_create_database", "databases");
-        assert!(c.agent_database.can_create() && !c.agent_database.can_list());
-        assert!(!c.agent_thread.can_list(""));
-        let c = claims("database_service_list_databases", "databases");
-        assert!(c.agent_database.can_list() && !c.agent_database.can_create());
-        let c = claims("database_service_get_database", "databases/DB_a");
-        assert!(c.agent_database.can_read("DB_a") && !c.agent_database.can_read("DB_b"));
-        let c = claims("database_service_export_database", "databases/AT_t:export");
-        assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
-        assert!(!c.agent_database.can_read("AT_t"));
-        let c = claims("database_service_delete_database", "databases/DB_a");
-        assert!(c.agent_database.can_delete("DB_a") && !c.agent_database.can_read("DB_a"));
-        let c = claims("thread_service_get_thread", "threads/AT_t");
-        assert!(c.agent_thread.can_read("AT_t") && !c.agent_database.can_list());
+    fn thread_calls_carry_only_their_grant() {
+        let t = thread_grants("AT_1", |g| g.read = true).agent_thread;
+        assert!(t.can_read("AT_1") && !t.can_read("AT_2"));
+        assert!(!t.all && !t.can_delete("AT_1") && !t.can_write("AT_1"));
+
+        let t = thread_scope_grants("support", |g| g.list = true).agent_thread;
+        assert!(t.can_list("support") && !t.can_list("sales") && !t.can_list(""));
+        assert!(!t.all && !t.can_create("support"));
+
+        // no scope: every scope of the project
+        let t = thread_scope_grants("", |g| g.create = true).agent_thread;
+        assert!(t.all && t.can_create("") && !t.can_list(""));
+
+        let t = thread_update_grants().agent_thread;
+        assert!(t.can_update() && !t.can_delete("AT_1") && !t.can_read("AT_1"));
     }
 
     #[test]
