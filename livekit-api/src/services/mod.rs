@@ -189,10 +189,14 @@ impl ServiceBase {
     /// Fails if the token has a character that a header cannot hold, such as a newline. The
     /// error is `TokenProvider` if a provider returned the token, and `InvalidToken` otherwise.
     pub(crate) fn bearer(&self, token: &str) -> ServiceResult<HeaderValue> {
-        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|error| match self {
-            Self::Provider(_) => ServiceError::TokenProvider(Box::new(error)),
-            _ => ServiceError::InvalidToken,
-        })
+        let mut bearer =
+            HeaderValue::from_str(&format!("Bearer {token}")).map_err(|error| match self {
+                Self::Provider(_) => ServiceError::TokenProvider(Box::new(error)),
+                _ => ServiceError::InvalidToken,
+            })?;
+        // Debug output of the header shows "Sensitive" instead of the token.
+        bearer.set_sensitive(true);
+        Ok(bearer)
     }
 }
 

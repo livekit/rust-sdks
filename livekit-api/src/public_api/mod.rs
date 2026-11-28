@@ -98,9 +98,7 @@ impl PublicApi {
             }
         };
         // A token with a character that a header cannot hold (such as a newline) is an error.
-        let mut bearer = self.base.bearer(&token)?;
-        // Debug output of the client shows "Sensitive" instead of the token.
-        bearer.set_sensitive(true);
+        let bearer = self.base.bearer(&token)?;
         let credentials = Credentials { bearer, timeout: self.timeout };
         Ok(Client::new_with_client(&self.baseurl, self.http.clone(), credentials))
     }

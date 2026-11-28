@@ -110,6 +110,13 @@ async fn a_fixed_token_that_is_no_header_value_is_not_a_provider_error() {
     }
 }
 
+#[test]
+fn debug_output_of_the_bearer_header_hides_the_token() {
+    let bearer = super::ServiceBase::with_token("secret-token").bearer("secret-token").unwrap();
+    assert!(bearer.is_sensitive());
+    assert!(!format!("{bearer:?}").contains("secret-token"));
+}
+
 #[tokio::test]
 async fn livekit_api_sends_the_providers_token_as_the_bearer() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
