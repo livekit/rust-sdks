@@ -15,9 +15,9 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
@@ -88,6 +88,7 @@ pub type TokenProviderError = Box<dyn std::error::Error + Send + Sync>;
 /// [`LiveKitApi`] calls [`token`](Self::token) before each request, with the grants that the
 /// request needs. The provider returns a token that carries those grants. It may cache tokens.
 ///
+/// To implement it on your own type, use [`async_trait`](https://docs.rs/async-trait).
 /// An async closure is a provider:
 ///
 /// ```ignore
@@ -96,23 +97,19 @@ pub type TokenProviderError = Box<dyn std::error::Error + Send + Sync>;
 ///     Ok::<_, TokenProviderError>(token)
 /// });
 /// ```
+#[async_trait]
 pub trait TokenProvider: Send + Sync {
-    fn token(
-        &self,
-        grants: TokenGrants,
-    ) -> Pin<Box<dyn Future<Output = Result<String, TokenProviderError>> + Send + '_>>;
+    async fn token(&self, grants: TokenGrants) -> Result<String, TokenProviderError>;
 }
 
+#[async_trait]
 impl<F, Fut> TokenProvider for F
 where
     F: Fn(TokenGrants) -> Fut + Send + Sync,
     Fut: Future<Output = Result<String, TokenProviderError>> + Send + 'static,
 {
-    fn token(
-        &self,
-        grants: TokenGrants,
-    ) -> Pin<Box<dyn Future<Output = Result<String, TokenProviderError>> + Send + '_>> {
-        Box::pin(self(grants))
+    async fn token(&self, grants: TokenGrants) -> Result<String, TokenProviderError> {
+        self(grants).await
     }
 }
 
