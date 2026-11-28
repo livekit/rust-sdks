@@ -106,6 +106,18 @@ impl LiveKitApi {
     /// Use this in a process that has no API secret, such as an agent worker in
     /// token mode. Before each request, `provider` receives the grants that the
     /// request needs and returns a token.
+    ///
+    /// # Limits with LiveKit Cloud job tokens
+    ///
+    /// When the provider gets its tokens from LiveKit Cloud as job tokens, Cloud refuses
+    /// some grants, and these calls fail. Use an API key and secret for them.
+    ///
+    /// - SIP trunks and dispatch rules: every create, update, list and delete call. They
+    ///   need `sip.admin`. Calls that need only `sip.call`, such as
+    ///   `create_sip_participant`, work.
+    /// - Databases: `create` and `list`. Calls on one database work.
+    /// - Threads: `update`, and `create` or `list` with no scope. They need
+    ///   `agentThread.all`. Calls on one thread, and `create` or `list` with a scope, work.
     pub fn with_token_provider(host: &str, provider: impl TokenProvider + 'static) -> Self {
         // One HTTP client shared across every service (see `with_api_key`).
         Self::with_token_provider_and_client(host, provider, http_client::client())
