@@ -41,9 +41,12 @@ mod utils;
 /// Internal error.
 mod error;
 
+/// Track priority.
+mod priority;
+
 /// Public APIs re-exported by client SDKs.
 pub mod api {
-    pub use crate::{error::*, frame::*, local::*, remote::*, schema::*, track::*};
+    pub use crate::{error::*, frame::*, local::*, priority::*, remote::*, schema::*, track::*};
 }
 
 /// Internal APIs used within client SDKs to power data tracks functionality.

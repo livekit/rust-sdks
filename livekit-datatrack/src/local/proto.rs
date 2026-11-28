@@ -22,6 +22,7 @@ use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
     packet::Handle,
+    priority::TrackPriority,
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
@@ -41,6 +42,7 @@ impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
             encryption,
             schema,
             frame_encoding,
+            priority: event.priority.map(|p| p.value().into()),
         }
     }
 }
@@ -83,6 +85,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
         let frame_encoding = msg.frame_encoding.map(Into::into);
+        let priority = msg.priority.map(TrackPriority::from_wire);
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
         let schema = msg.schema.map(|schema| schema.into());
 
@@ -93,6 +96,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             uses_e2ee,
             schema,
             frame_encoding,
+            priority,
         })
     }
 }
@@ -135,6 +139,7 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
             encryption,
             schema,
             frame_encoding,
+            priority: info.priority.map(|p| p.value().into()),
         }
     }
 }
@@ -164,11 +169,26 @@ mod tests {
             uses_e2ee: true,
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
         let request: proto::PublishDataTrackRequest = event.into();
         assert_eq!(request.pub_handle, 1);
         assert_eq!(request.name, "track");
         assert_eq!(request.encryption(), proto::encryption::Type::Gcm);
+    }
+
+    #[test]
+    fn test_from_publish_request_event_priority() {
+        let event = SfuPublishRequest {
+            handle: 1u32.try_into().unwrap(),
+            name: "track".into(),
+            uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
+            priority: Some(TrackPriority::HIGH),
+        };
+        let request: proto::PublishDataTrackRequest = event.into();
+        assert_eq!(request.priority, Some(64));
     }
 
     #[test]
@@ -192,6 +212,7 @@ mod tests {
                 }
                 .into(),
                 frame_encoding: Some(DataTrackFrameEncoding::Json.into()),
+                priority: None,
             }
             .into(),
         };
@@ -219,6 +240,7 @@ mod tests {
             encryption: proto::encryption::Type::None.into(),
             schema: None,
             frame_encoding: None,
+            priority: None,
         };
 
         let info: DataTrackInfo = base.clone().try_into().unwrap();

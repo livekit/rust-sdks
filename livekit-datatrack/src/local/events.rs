@@ -15,6 +15,7 @@
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, LocalDataTrack, PublishError},
     packet::Handle,
+    priority::TrackPriority,
     schema::{DataTrackFrameEncoding, DataTrackSchemaId},
 };
 use bytes::Bytes;
@@ -128,6 +129,7 @@ pub struct SfuPublishRequest {
     pub uses_e2ee: bool,
     pub schema: Option<DataTrackSchemaId>,
     pub frame_encoding: Option<DataTrackFrameEncoding>,
+    pub priority: Option<TrackPriority>,
 }
 
 /// Request sent to the SFU to unpublish a track.
