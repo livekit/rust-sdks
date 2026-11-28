@@ -980,8 +980,7 @@ int32_t MFH264EncoderImpl::ProcessEncodedFrame(std::vector<uint8_t>& packet) {
 
   bool is_idr = false;
   bool has_sps = false;
-  std::vector<H264::NaluIndex> nalu_indices =
-      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
+  std::vector<H264::NaluIndex> nalu_indices = H264::FindNaluIndices(packet);
   for (const H264::NaluIndex& index : nalu_indices) {
     const H264::NaluType nalu_type =
         H264::ParseNaluType(packet[index.payload_start_offset]);

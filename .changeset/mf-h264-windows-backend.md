@@ -1,5 +1,5 @@
 ---
-"webrtc-sys": minor
+webrtc-sys: patch
 ---
 
-Add Windows hardware H264 encode/decode via MediaFoundation (covers Intel QuickSync, AMD VCN and NVIDIA through the driver-registered MFTs; no new dependencies)
+Add Windows hardware H264 encode and decode backend via MediaFoundation.
