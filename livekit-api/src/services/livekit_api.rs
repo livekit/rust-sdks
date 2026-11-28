@@ -108,7 +108,16 @@ impl LiveKitApi {
     /// request needs and returns a token.
     pub fn with_token_provider(host: &str, provider: impl TokenProvider + 'static) -> Self {
         // One HTTP client shared across every service (see `with_api_key`).
-        let http = http_client::client();
+        Self::with_token_provider_and_client(host, provider, http_client::client())
+    }
+
+    /// Like [`with_token_provider`](Self::with_token_provider), but uses the supplied HTTP
+    /// client for every service, preserving its TLS and connection pool.
+    pub fn with_token_provider_and_client(
+        host: &str,
+        provider: impl TokenProvider + 'static,
+        http: http_client::Client,
+    ) -> Self {
         let provider: Arc<dyn TokenProvider> = Arc::new(provider);
         let base = || ServiceBase::with_token_provider(provider.clone());
         Self {
