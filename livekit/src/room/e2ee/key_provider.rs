@@ -13,9 +13,13 @@
 // limitations under the License.
 
 use libwebrtc::native::frame_cryptor as fc;
-use std::sync::{
-    atomic::{AtomicI32, Ordering},
-    Arc,
+use parking_lot::Mutex;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc, Weak,
+    },
 };
 
 use crate::id::ParticipantIdentity;
@@ -50,10 +54,27 @@ impl Default for KeyProviderOptions {
     }
 }
 
+/// Called after a key was set, with the participant it was set for or `None` for a shared key.
+/// It is not told the index: calls may arrive in another order than the keys were set in, so a
+/// listener asks for the index that is current when it runs.
+pub(crate) type KeySetListener = dyn Fn(Option<&ParticipantIdentity>) + Send + Sync;
+
+/// Which key each participant's media is to be encrypted with, and who wants to know.
+#[derive(Default)]
+struct KeyIndices {
+    /// The index of the key last set for each participant.
+    latest: HashMap<ParticipantIdentity, i32>,
+    /// The index of the shared key last set, 0 until one is.
+    shared: i32,
+    /// Owned by whoever subscribed; gone ones are dropped on the next key.
+    listeners: Vec<Weak<KeySetListener>>,
+}
+
 #[derive(Clone)]
 pub struct KeyProvider {
     pub(crate) handle: fc::KeyProvider,
     latest_key_index: Arc<AtomicI32>,
+    key_indices: Arc<Mutex<KeyIndices>>,
 }
 
 impl KeyProvider {
@@ -69,6 +90,7 @@ impl KeyProvider {
                 key_derivation_algorithm: options.key_derivation_algorithm,
             }),
             latest_key_index: Arc::new(AtomicI32::new(0)),
+            key_indices: Default::default(),
         }
     }
 
@@ -82,16 +104,33 @@ impl KeyProvider {
             key_derivation_algorithm: options.key_derivation_algorithm,
         });
         handle.set_shared_key(0, shared_key);
-        Self { handle, latest_key_index: Arc::new(AtomicI32::new(0)) }
+        Self {
+            handle,
+            latest_key_index: Arc::new(AtomicI32::new(0)),
+            key_indices: Default::default(),
+        }
     }
 
     pub fn key_ring_size(&self) -> i32 {
         self.handle.key_ring_size()
     }
 
+    /// Sets the shared key at `key_index`, which local tracks encrypt with from then on.
     pub fn set_shared_key(&self, shared_key: Vec<u8>, key_index: i32) -> bool {
-        if self.handle.set_shared_key(key_index, shared_key) {
-            self.latest_key_index.store(key_index, Ordering::Relaxed);
+        let set = {
+            // Held over both steps, so that the index kept is that of the key set last.
+            let mut key_indices = self.key_indices.lock();
+            let set = self.handle.set_shared_key(key_index, shared_key);
+            if set {
+                self.latest_key_index.store(key_index, Ordering::Relaxed);
+                // A shared key is everyone's: it supersedes the keys set per participant.
+                key_indices.latest.clear();
+                key_indices.shared = key_index;
+            }
+            set
+        };
+        if set {
+            self.notify_key_set(None);
             true
         } else {
             false
@@ -106,9 +145,23 @@ impl KeyProvider {
         self.handle.get_shared_key(key_index)
     }
 
+    /// Sets the key of a participant at `key_index`.
+    ///
+    /// For the local participant this is also the key its tracks encrypt with from then on,
+    /// as in the other LiveKit SDKs.
     pub fn set_key(&self, identity: &ParticipantIdentity, key_index: i32, key: Vec<u8>) -> bool {
-        if self.handle.set_key(identity.to_string(), key_index, key) {
-            self.latest_key_index.store(key_index, Ordering::Relaxed);
+        let set = {
+            // Held over both steps, so that the index kept is that of the key set last.
+            let mut key_indices = self.key_indices.lock();
+            let set = self.handle.set_key(identity.to_string(), key_index, key);
+            if set {
+                self.latest_key_index.store(key_index, Ordering::Relaxed);
+                key_indices.latest.insert(identity.clone(), key_index);
+            }
+            set
+        };
+        if set {
+            self.notify_key_set(Some(identity));
             true
         } else {
             false
@@ -130,6 +183,40 @@ impl KeyProvider {
     pub fn get_latest_key_index(&self) -> i32 {
         self.latest_key_index.load(Ordering::Relaxed)
     }
+
+    /// The index of the key a participant's media is to be encrypted with: that of the key
+    /// last set for it, or of the shared key last set if it has none of its own or a shared
+    /// key was set since. A key set for another participant makes no difference.
+    pub(crate) fn latest_key_index_for(&self, identity: &ParticipantIdentity) -> i32 {
+        let key_indices = self.key_indices.lock();
+        key_indices.latest.get(identity).copied().unwrap_or(key_indices.shared)
+    }
+
+    /// Has `listener` called whenever a key is set, for as long as the caller keeps it alive.
+    pub(crate) fn subscribe_key_set(&self, listener: &Arc<KeySetListener>) {
+        self.key_indices.lock().listeners.push(Arc::downgrade(listener));
+    }
+
+    /// Stops calling `listener`. Without this it would only be forgotten at the next key.
+    pub(crate) fn unsubscribe_key_set(&self, listener: &Arc<KeySetListener>) {
+        let listener = Arc::downgrade(listener);
+        self.key_indices
+            .lock()
+            .listeners
+            .retain(|other| other.strong_count() > 0 && !other.ptr_eq(&listener));
+    }
+
+    fn notify_key_set(&self, identity: Option<&ParticipantIdentity>) {
+        let listeners: Vec<_> = {
+            let mut key_indices = self.key_indices.lock();
+            key_indices.listeners.retain(|listener| listener.strong_count() > 0);
+            key_indices.listeners.iter().filter_map(Weak::upgrade).collect()
+        };
+        // Called without the lock, so that a listener may ask for an index.
+        for listener in listeners {
+            listener(identity);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +229,72 @@ mod tests {
         assert_eq!(options.key_ring_size, DEFAULT_KEY_RING_SIZE);
         assert_eq!(options.ratchet_window_size, DEFAULT_RATCHET_WINDOW_SIZE);
         assert_eq!(MAX_KEY_RING_SIZE, 255);
+    }
+
+    #[test]
+    fn latest_key_index_is_per_participant() {
+        let provider = KeyProvider::new(KeyProviderOptions::default());
+        let (local, remote) =
+            (ParticipantIdentity::from("local"), ParticipantIdentity::from("remote"));
+        assert!(provider.set_key(&local, 1, vec![1; 32]));
+        assert!(provider.set_key(&remote, 3, vec![2; 32]));
+        // A key of someone else does not change what we encrypt with.
+        assert_eq!(provider.latest_key_index_for(&local), 1);
+        assert_eq!(provider.latest_key_index_for(&remote), 3);
+        // Nor what a participant without a key of its own encrypts with.
+        assert_eq!(provider.latest_key_index_for(&ParticipantIdentity::from("other")), 0);
+    }
+
+    #[test]
+    fn shared_key_supersedes_participant_keys() {
+        // A provider with a shared key also takes keys per participant.
+        let provider = KeyProvider::with_shared_key(KeyProviderOptions::default(), vec![9; 32]);
+        let local = ParticipantIdentity::from("local");
+        // A key of someone else leaves us on the shared key.
+        assert!(provider.set_key(&ParticipantIdentity::from("remote"), 3, vec![7; 32]));
+        assert_eq!(provider.latest_key_index_for(&local), 0);
+        assert!(provider.set_key(&local, 1, vec![1; 32]));
+        assert!(provider.set_shared_key(vec![2; 32], 2));
+        assert_eq!(provider.latest_key_index_for(&local), 2);
+        // A key of its own after that counts again.
+        assert!(provider.set_key(&local, 4, vec![3; 32]));
+        assert_eq!(provider.latest_key_index_for(&local), 4);
+        // A key that could not be set changes nothing.
+        assert!(!provider.set_shared_key(vec![2; 32], -1));
+        assert!(!KeyProvider::new(KeyProviderOptions::default()).set_shared_key(vec![2; 32], 2));
+        assert_eq!(provider.latest_key_index_for(&local), 4);
+    }
+
+    #[test]
+    fn key_set_listeners_are_told_and_let_go() {
+        let provider = KeyProvider::new(KeyProviderOptions::default());
+        let local = ParticipantIdentity::from("local");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let listener: Arc<KeySetListener> = Arc::new({
+            // A listener may ask the provider for the current index.
+            let (seen, provider, local) = (seen.clone(), provider.clone(), local.clone());
+            move |identity: Option<&ParticipantIdentity>| {
+                seen.lock().push((identity.cloned(), provider.latest_key_index_for(&local)));
+            }
+        });
+        provider.subscribe_key_set(&listener);
+
+        assert!(provider.set_key(&local, 2, vec![1; 32]));
+        assert!(!provider.set_key(&local, -1, vec![1; 32]));
+        assert_eq!(*seen.lock(), [(Some(local.clone()), 2)]);
+
+        // One that unsubscribes is forgotten at once, others stay.
+        let other: Arc<KeySetListener> = Arc::new(|_| {});
+        provider.subscribe_key_set(&other);
+        provider.unsubscribe_key_set(&other);
+        assert_eq!(provider.key_indices.lock().listeners.len(), 1);
+
+        // The provider does not keep a listener alive, nor call one that is gone.
+        let weak = Arc::downgrade(&listener);
+        drop(listener);
+        assert!(weak.upgrade().is_none());
+        assert!(provider.set_key(&local, 3, vec![1; 32]));
+        assert_eq!(seen.lock().len(), 1);
+        assert!(provider.key_indices.lock().listeners.is_empty());
     }
 }
