@@ -18,13 +18,15 @@ use livekit_protocol::agent::{agent_task, agent_thread};
 use livekit_token::get_env_keys;
 
 use super::{ServiceBase, ServiceResult};
-use crate::public_api::{self as api, call, next_cursor, opt, page_size, types, PROJECT};
+use crate::public_api::{
+    call, next_cursor, opt, page_size, thread_grants, types, PublicApi, PROJECT,
+};
 
 /// Agent threads of the project: conversations whose chat items, tasks and
 /// database outlive any one session.
 #[derive(Debug)]
 pub struct ThreadClient {
-    client: api::Client,
+    api: PublicApi,
 }
 
 impl ThreadClient {
@@ -52,12 +54,12 @@ impl ThreadClient {
     /// Builds the client from an already-constructed HTTP client so the unified
     /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
     pub(crate) fn build(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Self {
-        Self { client: api::client(host, base, http) }
+        Self { api: PublicApi::new(host, base, http) }
     }
 
     /// Overrides the default per-request timeout (10s) for calls on this client.
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
-        self.client.inner.timeout = timeout;
+        self.api.timeout = timeout;
         self
     }
 
@@ -70,12 +72,14 @@ impl ThreadClient {
             idle_ttl: req.idle_ttl,
             scope: opt(&req.scope).map(str::to_owned),
         };
-        let res = call(self.client.thread_service_create_thread(PROJECT, &body)).await?;
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_create_thread(PROJECT, &body)).await?;
         Ok(res.thread.unwrap_or_default())
     }
 
     pub async fn get(&self, thread_id: &str) -> ServiceResult<agent_thread::Thread> {
-        let res = call(self.client.thread_service_get_thread(PROJECT, thread_id)).await?;
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_get_thread(PROJECT, thread_id)).await?;
         Ok(res.thread.unwrap_or_default())
     }
 
@@ -84,7 +88,8 @@ impl ThreadClient {
         &self,
         req: agent_thread::ListRequest,
     ) -> ServiceResult<agent_thread::ListResponse> {
-        let res = call(self.client.thread_service_list_threads(
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_list_threads(
             PROJECT,
             opt(&req.page_token),
             page_size(req.limit),
@@ -105,14 +110,15 @@ impl ThreadClient {
             attributes: req.attributes,
             idle_ttl: req.idle_ttl,
         };
-        let res =
-            call(self.client.thread_service_update_thread(PROJECT, &req.thread_id, &body)).await?;
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_update_thread(PROJECT, &req.thread_id, &body)).await?;
         Ok(res.thread.unwrap_or_default())
     }
 
     /// Deletes the thread and its database.
     pub async fn delete(&self, thread_id: &str) -> ServiceResult<()> {
-        call(self.client.thread_service_delete_thread(PROJECT, thread_id)).await?;
+        let client = self.api.client(thread_grants()).await?;
+        call(client.thread_service_delete_thread(PROJECT, thread_id)).await?;
         Ok(())
     }
 
@@ -130,7 +136,8 @@ impl ThreadClient {
             }
             _ => None,
         };
-        let res = call(self.client.thread_service_get_thread_items(
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_get_thread_items(
             PROJECT,
             &req.thread_id,
             opt(&req.agent),
@@ -151,7 +158,8 @@ impl ThreadClient {
         req: agent_task::GetTasksRequest,
     ) -> ServiceResult<agent_task::GetTasksResponse> {
         let status = req.status.and_then(|s| agent_task::Status::try_from(s).ok());
-        let res = call(self.client.thread_service_get_thread_tasks(
+        let client = self.api.client(thread_grants()).await?;
+        let res = call(client.thread_service_get_thread_tasks(
             PROJECT,
             &req.thread_id,
             opt(&req.page_token),

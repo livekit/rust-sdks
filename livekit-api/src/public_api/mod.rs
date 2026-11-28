@@ -20,7 +20,6 @@
 #[allow(clippy::all, dead_code, unused_mut, clippy::needless_lifetimes)]
 mod generated;
 
-use std::cell::Cell;
 use std::time::Duration;
 
 pub(crate) use generated::{types, Client};
@@ -59,20 +58,32 @@ pub fn public_api_url(project_url: &str) -> String {
     }
 }
 
-/// What the generated [`Client`] signs and times each request with.
+/// What the generated [`Client`] sends with each request: the token of the call and the timeout.
 #[derive(Clone, Debug)]
 pub struct Credentials {
+    bearer: HeaderValue,
+    timeout: Duration,
+}
+
+/// Makes a generated [`Client`] for each call, with a token for the grants of that call.
+#[derive(Debug)]
+pub(crate) struct PublicApi {
+    baseurl: String,
+    http: reqwest::Client,
     base: ServiceBase,
     pub(crate) timeout: Duration,
 }
 
-impl Credentials {
-    async fn bearer(
-        &self,
-        info: &OperationInfo,
-        url: &reqwest::Url,
-    ) -> Result<HeaderValue, ServiceError> {
-        let grants = scoped(info.operation_id, url);
+impl PublicApi {
+    pub(crate) fn new(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Self {
+        Self { baseurl: public_api_url(host), http, base, timeout: DEFAULT_TIMEOUT }
+    }
+
+    /// Gets the token for `grants`, then returns a client that sends it.
+    ///
+    /// The token is ready before the request starts, so its error is returned as it is.
+    /// For example, a token provider error stays [`ServiceError::TokenProvider`].
+    pub(crate) async fn client(&self, grants: TokenGrants) -> ServiceResult<Client> {
         let token = match &self.base {
             ServiceBase::Token(token) => token.clone(),
             ServiceBase::Provider(provider) => {
@@ -87,89 +98,60 @@ impl Credentials {
             }
         };
         // A token with a character that a header cannot hold (such as a newline) is an error.
-        self.base.bearer(&token)
+        let mut bearer = self.base.bearer(&token)?;
+        // Debug output of the client shows "Sensitive" instead of the token.
+        bearer.set_sensitive(true);
+        let credentials = Credentials { bearer, timeout: self.timeout };
+        Ok(Client::new_with_client(&self.baseurl, self.http.clone(), credentials))
     }
 }
 
-/// Grants only what the call needs: a database call reaches only the database it names.
-fn scoped(operation_id: &str, url: &reqwest::Url) -> TokenGrants {
-    let database = |grants: AgentDatabaseGrants| AgentDatabaseGrants {
-        database_ids: vec![database_id(url)],
-        ..grants
+/// The grants of every thread call.
+pub(crate) fn thread_grants() -> TokenGrants {
+    let agent_thread = AgentThreadGrants {
+        all: true,
+        list: true,
+        create: true,
+        write: true,
+        read: true,
+        delete: true,
+        ..Default::default()
     };
-    let with_database =
-        |agent_database: AgentDatabaseGrants| TokenGrants { agent_database, ..Default::default() };
-    let with_thread =
-        |agent_thread: AgentThreadGrants| TokenGrants { agent_thread, ..Default::default() };
-    match operation_id {
-        "database_service_create_database" => {
-            with_database(AgentDatabaseGrants { create: true, ..Default::default() })
-        }
-        "database_service_list_databases" => {
-            with_database(AgentDatabaseGrants { list: true, ..Default::default() })
-        }
-        "database_service_delete_database" => {
-            with_database(database(AgentDatabaseGrants { delete: true, ..Default::default() }))
-        }
-        "database_service_get_database" | "database_service_export_database" => {
-            let id = database_id(url);
-            if id.starts_with("AT_") {
-                // a thread's database is read through its thread
-                with_thread(AgentThreadGrants {
-                    thread_ids: vec![id],
-                    sql: true,
-                    ..Default::default()
-                })
-            } else {
-                with_database(database(AgentDatabaseGrants { read: true, ..Default::default() }))
-            }
-        }
-        _ => with_thread(AgentThreadGrants {
-            all: true,
-            list: true,
-            create: true,
-            write: true,
-            read: true,
-            delete: true,
-            ..Default::default()
-        }),
-    }
+    TokenGrants { agent_thread, ..Default::default() }
 }
 
-/// The database a `/databases/{id}` or `/databases/{id}:export` request names.
-fn database_id(url: &reqwest::Url) -> String {
-    let last = url.path_segments().and_then(|mut s| s.next_back()).unwrap_or_default();
-    last.split(':').next().unwrap_or_default().to_owned()
+/// The grants of a database call. A call on one database names it in `database_ids`.
+pub(crate) fn database_grants(agent_database: AgentDatabaseGrants) -> TokenGrants {
+    TokenGrants { agent_database, ..Default::default() }
+}
+
+/// The grants to read one database. A thread's database (`AT_` id) is read through its thread.
+pub(crate) fn database_read_grants(database_id: &str) -> TokenGrants {
+    if database_id.starts_with("AT_") {
+        let agent_thread = AgentThreadGrants {
+            thread_ids: vec![database_id.to_owned()],
+            sql: true,
+            ..Default::default()
+        };
+        return TokenGrants { agent_thread, ..Default::default() };
+    }
+    database_grants(AgentDatabaseGrants {
+        database_ids: vec![database_id.to_owned()],
+        read: true,
+        ..Default::default()
+    })
 }
 
 impl ClientHooks<Credentials> for Client {
     async fn pre<E>(
         &self,
         request: &mut reqwest::Request,
-        info: &OperationInfo,
+        _info: &OperationInfo,
     ) -> Result<(), progenitor_client::Error<E>> {
-        let bearer = match self.inner.bearer(info, request.url()).await {
-            Ok(bearer) => bearer,
-            Err(e) => {
-                let msg = e.to_string();
-                // This hook can only return a string, so the typed error would be lost.
-                // Store it here, and `call` returns it to the caller.
-                let _ = BEARER_ERROR.try_with(|slot| slot.set(Some(e)));
-                return Err(progenitor_client::Error::Custom(msg));
-            }
-        };
-        request.headers_mut().insert(AUTHORIZATION, bearer);
+        request.headers_mut().insert(AUTHORIZATION, self.inner.bearer.clone());
         *request.timeout_mut() = Some(self.inner.timeout);
         Ok(())
     }
-}
-
-pub(crate) fn client(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Client {
-    Client::new_with_client(
-        &public_api_url(host),
-        http,
-        Credentials { base, timeout: DEFAULT_TIMEOUT },
-    )
 }
 
 /// Maps a generated-client error onto the service errors every client returns.
@@ -217,31 +199,16 @@ pub(crate) async fn error(err: progenitor_client::Error<()>) -> ServiceError {
     ServiceError::Twirp(err)
 }
 
-tokio::task_local! {
-    /// The error from getting the bearer token for the current [`call`], if that step failed.
-    static BEARER_ERROR: Cell<Option<ServiceError>>;
-}
-
-/// Awaits a generated call and converts its error to a [`ServiceError`].
-///
-/// If the call failed because there was no bearer token, the original error is returned
-/// unchanged. For example, a token provider error stays [`ServiceError::TokenProvider`].
+/// Awaits a generated call, mapping its error.
 pub(crate) async fn call<T>(
     fut: impl std::future::Future<
         Output = Result<progenitor_client::ResponseValue<T>, progenitor_client::Error<()>>,
     >,
 ) -> ServiceResult<T> {
-    BEARER_ERROR
-        .scope(Cell::new(None), async {
-            match fut.await {
-                Ok(v) => Ok(v.into_inner()),
-                Err(e) => match BEARER_ERROR.with(Cell::take) {
-                    Some(bearer_error) => Err(bearer_error),
-                    None => Err(error(e).await),
-                },
-            }
-        })
-        .await
+    match fut.await {
+        Ok(v) => Ok(v.into_inner()),
+        Err(e) => Err(error(e).await),
+    }
 }
 
 /// An empty string or zero limit is unset.
@@ -259,30 +226,17 @@ pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>)
 
 #[cfg(test)]
 mod tests {
-    use livekit_token::Claims;
-
-    use super::{public_api_url, scoped};
-
-    fn claims(operation_id: &str, path: &str) -> Claims {
-        let url = reqwest::Url::parse(&format!("https://x/v0/projects/p_/{path}")).unwrap();
-        scoped(operation_id, &url)
-    }
+    use super::{database_read_grants, public_api_url, thread_grants};
 
     #[test]
-    fn database_calls_carry_only_their_grant() {
-        let c = claims("database_service_create_database", "databases");
-        assert!(c.agent_database.can_create() && !c.agent_database.can_list());
-        assert!(!c.agent_thread.can_list(""));
-        let c = claims("database_service_list_databases", "databases");
-        assert!(c.agent_database.can_list() && !c.agent_database.can_create());
-        let c = claims("database_service_get_database", "databases/DB_a");
+    fn database_reads_carry_only_their_grant() {
+        let c = database_read_grants("DB_a");
         assert!(c.agent_database.can_read("DB_a") && !c.agent_database.can_read("DB_b"));
-        let c = claims("database_service_export_database", "databases/AT_t:export");
+        assert!(!c.agent_thread.can_read("DB_a"));
+        let c = database_read_grants("AT_t");
         assert!(c.agent_thread.can_sql("AT_t") && !c.agent_thread.can_read("AT_t"));
         assert!(!c.agent_database.can_read("AT_t"));
-        let c = claims("database_service_delete_database", "databases/DB_a");
-        assert!(c.agent_database.can_delete("DB_a") && !c.agent_database.can_read("DB_a"));
-        let c = claims("thread_service_get_thread", "threads/AT_t");
+        let c = thread_grants();
         assert!(c.agent_thread.can_read("AT_t") && !c.agent_database.can_list());
     }
 
