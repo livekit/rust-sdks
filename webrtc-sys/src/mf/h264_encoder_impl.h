@@ -131,7 +131,7 @@ class MFH264EncoderImpl : public VideoEncoder {
   int need_input_credits_ = 0;
   std::deque<PendingFrameInfo> pending_frames_;
   PendingFrameInfo pending_output_info_;
-  int64_t frame_count_ = 0;
+  int64_t next_sample_time_100ns_ = 0;
   std::vector<uint8_t> sequence_header_;
   std::vector<uint8_t> packet_;
   std::string friendly_name_;

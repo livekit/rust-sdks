@@ -90,8 +90,13 @@ HRESULT MFH264DecoderImpl::SetupD3D() {
   }
   multithread->SetMultithreadProtected(TRUE);
 
+  const auto* mf = livekit_ffi::GetMfFunctions();
+  if (!mf) {
+    return E_FAIL;
+  }
+
   UINT reset_token = 0;
-  hr = MFCreateDXGIDeviceManager(&reset_token, &dxgi_manager_);
+  hr = mf->create_dxgi_device_manager(&reset_token, &dxgi_manager_);
   if (FAILED(hr)) {
     return hr;
   }
@@ -118,9 +123,11 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
     return false;
   }
 
+  Release();
   settings_ = settings;
 
   if (!livekit_ffi::EnsureComInitialized() || !livekit_ffi::EnsureMFStarted()) {
+    Release();
     return false;
   }
 
@@ -130,6 +137,7 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
   if (FAILED(hr)) {
     RTC_LOG(LS_ERROR) << "Failed to create inbox H264 decoder MFT: "
                       << HResultToString(hr);
+    Release();
     return false;
   }
 
@@ -140,6 +148,7 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
     input_ids[0] = 0;
     output_ids[0] = 0;
   } else if (FAILED(hr)) {
+    Release();
     return false;
   }
   input_stream_id_ = input_ids[0];
@@ -172,9 +181,16 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
     codec_api->SetValue(&CODECAPI_AVLowLatencyMode, &v);
   }
 
+  const auto* mf = livekit_ffi::GetMfFunctions();
+  if (!mf) {
+    Release();
+    return false;
+  }
+
   ComPtr<IMFMediaType> input_type;
-  hr = MFCreateMediaType(&input_type);
+  hr = mf->create_media_type(&input_type);
   if (FAILED(hr)) {
+    Release();
     return false;
   }
   input_type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
@@ -187,6 +203,7 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
   if (FAILED(hr)) {
     RTC_LOG(LS_ERROR) << "Decoder SetInputType failed: "
                       << HResultToString(hr);
+    Release();
     return false;
   }
 
@@ -194,6 +211,7 @@ bool MFH264DecoderImpl::Configure(const Settings& settings) {
   if (FAILED(hr)) {
     RTC_LOG(LS_ERROR) << "Decoder output negotiation failed: "
                       << HResultToString(hr);
+    Release();
     return false;
   }
 
@@ -238,10 +256,25 @@ HRESULT MFH264DecoderImpl::NegotiateOutputType() {
 
   // 1080p decodes as 1920x1088 coded size; the display aperture carries the
   // real dimensions.
-  has_aperture_ =
-      SUCCEEDED(current->GetBlob(MF_MT_MINIMUM_DISPLAY_APERTURE,
-                                 reinterpret_cast<UINT8*>(&display_aperture_),
-                                 sizeof(display_aperture_), nullptr));
+  MFVideoArea aperture = {};
+  has_aperture_ = false;
+  if (SUCCEEDED(current->GetBlob(MF_MT_MINIMUM_DISPLAY_APERTURE,
+                                 reinterpret_cast<UINT8*>(&aperture),
+                                 sizeof(aperture), nullptr))) {
+    if (aperture.OffsetX.value >= 0 && aperture.OffsetY.value >= 0 &&
+        aperture.Area.cx > 0 && aperture.Area.cy > 0 &&
+        static_cast<UINT32>(aperture.OffsetX.value) +
+                static_cast<UINT32>(aperture.Area.cx) <=
+            coded_width_ &&
+        static_cast<UINT32>(aperture.OffsetY.value) +
+                static_cast<UINT32>(aperture.Area.cy) <=
+            coded_height_) {
+      display_aperture_ = aperture;
+      has_aperture_ = true;
+    } else {
+      RTC_LOG(LS_WARNING) << "Ignoring out-of-bounds MF display aperture.";
+    }
+  }
 
   UINT32 stride = 0;
   if (SUCCEEDED(current->GetUINT32(MF_MT_DEFAULT_STRIDE, &stride)) &&
@@ -304,8 +337,13 @@ int32_t MFH264DecoderImpl::Decode(const EncodedImage& input_image,
     input_color_space_ = *input_image.ColorSpace();
   }
 
+  const auto* mf = livekit_ffi::GetMfFunctions();
+  if (!mf) {
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
   ComPtr<IMFMediaBuffer> buffer;
-  HRESULT hr = MFCreateMemoryBuffer(
+  HRESULT hr = mf->create_memory_buffer(
       static_cast<DWORD>(input_image.size()), &buffer);
   if (FAILED(hr)) {
     return WEBRTC_VIDEO_CODEC_ERROR;
@@ -320,7 +358,7 @@ int32_t MFH264DecoderImpl::Decode(const EncodedImage& input_image,
   buffer->SetCurrentLength(static_cast<DWORD>(input_image.size()));
 
   ComPtr<IMFSample> sample;
-  hr = MFCreateSample(&sample);
+  hr = mf->create_sample(&sample);
   if (FAILED(hr)) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
@@ -348,6 +386,7 @@ int32_t MFH264DecoderImpl::Decode(const EncodedImage& input_image,
 }
 
 int32_t MFH264DecoderImpl::DrainOutputs(std::optional<int> qp) {
+  int stream_change_retries = 0;
   for (;;) {
     MFT_OUTPUT_STREAM_INFO stream_info = {};
     HRESULT hr =
@@ -361,7 +400,11 @@ int32_t MFH264DecoderImpl::DrainOutputs(std::optional<int> qp) {
 
     ComPtr<IMFSample> allocated;
     if (!transform_allocates) {
-      hr = MFCreateSample(&allocated);
+      const auto* mf = livekit_ffi::GetMfFunctions();
+      if (!mf) {
+        return WEBRTC_VIDEO_CODEC_ERROR;
+      }
+      hr = mf->create_sample(&allocated);
       if (FAILED(hr)) {
         return WEBRTC_VIDEO_CODEC_ERROR;
       }
@@ -370,7 +413,7 @@ int32_t MFH264DecoderImpl::DrainOutputs(std::optional<int> qp) {
           stream_info.cbSize
               ? stream_info.cbSize
               : coded_width_ * coded_height_ * 3 / 2;
-      hr = MFCreateAlignedMemoryBuffer(
+      hr = mf->create_aligned_memory_buffer(
           size, stream_info.cbAlignment > 1 ? stream_info.cbAlignment - 1 : 0,
           &out_buffer);
       if (FAILED(hr)) {
@@ -392,6 +435,10 @@ int32_t MFH264DecoderImpl::DrainOutputs(std::optional<int> qp) {
       return WEBRTC_VIDEO_CODEC_OK;
     }
     if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+      if (++stream_change_retries > 2) {
+        RTC_LOG(LS_ERROR) << "Decoder output stream change did not settle.";
+        return WEBRTC_VIDEO_CODEC_ERROR;
+      }
       HRESULT nhr = NegotiateOutputType();
       if (FAILED(nhr)) {
         RTC_LOG(LS_ERROR) << "Decoder output renegotiation failed: "
@@ -415,6 +462,7 @@ int32_t MFH264DecoderImpl::DrainOutputs(std::optional<int> qp) {
     if (!sample) {
       continue;
     }
+    stream_change_retries = 0;
     int32_t ret = DeliverSample(sample.Get(), qp);
     if (ret != WEBRTC_VIDEO_CODEC_OK) {
       return ret;
@@ -437,6 +485,12 @@ int32_t MFH264DecoderImpl::DeliverSample(IMFSample* sample,
   // Crop offsets within the coded frame (1088-line 1080p etc.).
   const UINT32 crop_x = has_aperture_ ? display_aperture_.OffsetX.value : 0;
   const UINT32 crop_y = has_aperture_ ? display_aperture_.OffsetY.value : 0;
+  const UINT32 display_width =
+      has_aperture_ ? static_cast<UINT32>(display_aperture_.Area.cx)
+                    : coded_width_;
+  const UINT32 display_height =
+      has_aperture_ ? static_cast<UINT32>(display_aperture_.Area.cy)
+                    : coded_height_;
 
   ComPtr<IMFDXGIBuffer> dxgi_buffer;
   if (use_d3d_ && SUCCEEDED(buffer.As(&dxgi_buffer))) {
@@ -487,6 +541,12 @@ int32_t MFH264DecoderImpl::DeliverSample(IMFSample* sample,
     if (FAILED(hr)) {
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
+    if (crop_x + display_width > desc.Width ||
+        crop_y + display_height > desc.Height) {
+      d3d_context_->Unmap(staging_texture_.Get(), 0);
+      RTC_LOG(LS_ERROR) << "D3D11 texture smaller than display region.";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
     const uint8_t* base = static_cast<const uint8_t*>(mapped.pData);
     const uint8_t* data_y = base + crop_y * mapped.RowPitch + crop_x;
     const uint8_t* data_uv = base +
@@ -533,6 +593,14 @@ int32_t MFH264DecoderImpl::DeliverSample(IMFSample* sample,
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
   const UINT32 stride = default_stride_;
+  const size_t required_bytes =
+      static_cast<size_t>(stride) * coded_height_ * 3 / 2;
+  if (stride < coded_width_ || length < required_bytes) {
+    contiguous->Unlock();
+    RTC_LOG(LS_ERROR) << "Contiguous NV12 buffer too small (" << length
+                      << " < " << required_bytes << ").";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
   const uint8_t* data_y = data + crop_y * stride + crop_x;
   const uint8_t* data_uv = data + static_cast<size_t>(stride) * coded_height_ +
                            (crop_y / 2) * stride + crop_x;

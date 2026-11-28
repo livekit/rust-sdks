@@ -90,6 +90,9 @@ MFVideoDecoderFactory::MFVideoDecoderFactory() {
 MFVideoDecoderFactory::~MFVideoDecoderFactory() {}
 
 bool MFVideoDecoderFactory::IsSupported() {
+  if (livekit_ffi::IsMfDisabledByEnv()) {
+    return false;
+  }
   static const bool supported = [] {
     if (!ProbeDecodeSupport()) {
       return false;

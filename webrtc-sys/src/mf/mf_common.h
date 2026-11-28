@@ -33,6 +33,23 @@ namespace livekit_ffi {
 
 using Microsoft::WRL::ComPtr;
 
+struct MfFunctions {
+  decltype(&::MFStartup) startup = nullptr;
+  decltype(&::MFTEnumEx) mft_enum_ex = nullptr;
+  decltype(&::MFCreateMediaType) create_media_type = nullptr;
+  decltype(&::MFCreateSample) create_sample = nullptr;
+  decltype(&::MFCreateMemoryBuffer) create_memory_buffer = nullptr;
+  decltype(&::MFCreateAlignedMemoryBuffer) create_aligned_memory_buffer =
+      nullptr;
+  decltype(&::MFCreate2DMediaBuffer) create_2d_media_buffer = nullptr;
+  decltype(&::MFCreateDXGIDeviceManager) create_dxgi_device_manager = nullptr;
+};
+
+// Dynamically loads mfplat.dll from System32 and resolves the required MF
+// entry points. Returns nullptr on editions without Media Foundation (such as
+// Windows N without the Media Feature Pack) so binaries still load cleanly.
+const MfFunctions* GetMfFunctions();
+
 // Ensures COM is initialized (MTA) on the calling thread. webrtc invokes the
 // encoder/decoder on its own task-queue threads which are not guaranteed to
 // have called CoInitializeEx. The initialization is dropped automatically when
@@ -49,6 +66,9 @@ bool EnsureMFStarted();
 
 // Formats an HRESULT as "0x8007000E" for log output.
 std::string HResultToString(HRESULT hr);
+
+// Returns true when LK_DISABLE_MF is set to any non-empty value other than "0".
+bool IsMfDisabledByEnv();
 
 }  // namespace livekit_ffi
 

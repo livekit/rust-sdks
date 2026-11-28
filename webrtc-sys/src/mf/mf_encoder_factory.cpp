@@ -17,6 +17,8 @@
 #include "mf_encoder_factory.h"
 
 #include <memory>
+#include <optional>
+#include <utility>
 
 #include "api/video_codecs/h264_profile_level_id.h"
 #include "h264_encoder_impl.h"
@@ -57,15 +59,20 @@ ProbeTransform ActivateFirstHwEncoder() {
   if (!livekit_ffi::EnsureComInitialized() || !livekit_ffi::EnsureMFStarted()) {
     return result;
   }
+  const auto* mf = livekit_ffi::GetMfFunctions();
+  if (!mf) {
+    return result;
+  }
 
   MFT_REGISTER_TYPE_INFO input_info = {MFMediaType_Video, MFVideoFormat_NV12};
   MFT_REGISTER_TYPE_INFO output_info = {MFMediaType_Video, MFVideoFormat_H264};
 
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
-  HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
-                         MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
-                         &input_info, &output_info, &activates, &count);
+  HRESULT hr = mf->mft_enum_ex(
+      MFT_CATEGORY_VIDEO_ENCODER,
+      MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, &input_info,
+      &output_info, &activates, &count);
   if (FAILED(hr) || count == 0) {
     if (activates) {
       CoTaskMemFree(activates);
@@ -73,18 +80,33 @@ ProbeTransform ActivateFirstHwEncoder() {
     return result;
   }
 
-  result.activate = activates[0];
-  for (UINT32 i = 0; i < count; i++) {
+  for (UINT32 i = 0; i < count; ++i) {
+    ComPtr<IMFTransform> transform;
+    hr = activates[i]->ActivateObject(IID_PPV_ARGS(&transform));
+    if (FAILED(hr)) {
+      RTC_LOG(LS_WARNING) << "Hardware H264 encoder MFT failed to activate: "
+                          << HResultToString(hr);
+      continue;
+    }
+    ComPtr<ICodecAPI> codec_api;
+    hr = transform.As(&codec_api);
+    if (FAILED(hr)) {
+      RTC_LOG(LS_WARNING)
+          << "Hardware H264 encoder MFT does not expose ICodecAPI: "
+          << HResultToString(hr);
+      transform.Reset();
+      activates[i]->ShutdownObject();
+      continue;
+    }
+    result.activate = activates[i];
+    result.transform = std::move(transform);
+    break;
+  }
+
+  for (UINT32 i = 0; i < count; ++i) {
     activates[i]->Release();
   }
   CoTaskMemFree(activates);
-
-  hr = result.activate->ActivateObject(IID_PPV_ARGS(&result.transform));
-  if (FAILED(hr)) {
-    RTC_LOG(LS_WARNING) << "Hardware H264 encoder MFT failed to activate: "
-                        << HResultToString(hr);
-    result.transform.Reset();
-  }
   return result;
 }
 
@@ -121,9 +143,14 @@ H264Level ProbeMaxLevel(IMFTransform* transform) {
       {H264Level::kLevel4, eAVEncH264VLevel4, 1920, 1080},
   };
 
+  const auto* mf = livekit_ffi::GetMfFunctions();
+  if (!mf) {
+    return H264Level::kLevel3_1;
+  }
+
   for (const Candidate& candidate : candidates) {
     ComPtr<IMFMediaType> type;
-    if (FAILED(MFCreateMediaType(&type))) {
+    if (FAILED(mf->create_media_type(&type))) {
       break;
     }
     type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
@@ -148,11 +175,32 @@ H264Level ProbeMaxLevel(IMFTransform* transform) {
   return H264Level::kLevel3_1;
 }
 
+// Enumeration + activation can take tens of milliseconds; the answer cannot
+// change within the process lifetime, so probe once and reuse across
+// IsSupported() and the factory constructor.
+std::optional<H264Level> ProbeEncoderLevel() {
+  static const std::optional<H264Level> level =
+      []() -> std::optional<H264Level> {
+    ProbeTransform probe = ActivateFirstHwEncoder();
+    if (!probe) {
+      RTC_LOG(LS_WARNING)
+          << "No usable hardware H264 encoder MFT; MF encoding disabled.";
+      return std::nullopt;
+    }
+    RTC_LOG(LS_INFO) << "MediaFoundation hardware H264 encoder is available.";
+    return ProbeMaxLevel(probe.transform.Get());
+  }();
+  return level;
+}
+
 }  // namespace
 
 MFVideoEncoderFactory::MFVideoEncoderFactory() {
-  ProbeTransform probe = ActivateFirstHwEncoder();
-  if (!probe) {
+  if (livekit_ffi::IsMfDisabledByEnv()) {
+    return;
+  }
+  const std::optional<H264Level> level = ProbeEncoderLevel();
+  if (!level.has_value()) {
     return;
   }
 
@@ -160,27 +208,17 @@ MFVideoEncoderFactory::MFVideoEncoderFactory() {
   // advertise the level the hardware actually accepts so 1080p can be
   // negotiated. Baseline-family only for now, matching the software H264
   // default; High is a possible later addition.
-  const H264Level level = ProbeMaxLevel(probe.transform.Get());
   supported_formats_.push_back(CreateH264Format(
-      H264Profile::kProfileConstrainedBaseline, level, "1"));
+      H264Profile::kProfileConstrainedBaseline, *level, "1"));
 }
 
 MFVideoEncoderFactory::~MFVideoEncoderFactory() {}
 
 bool MFVideoEncoderFactory::IsSupported() {
-  // Enumeration + activation can take tens of milliseconds; the answer cannot
-  // change within the process lifetime, so probe once.
-  static const bool supported = [] {
-    ProbeTransform probe = ActivateFirstHwEncoder();
-    if (!probe) {
-      RTC_LOG(LS_WARNING)
-          << "No usable hardware H264 encoder MFT; MF encoding disabled.";
-      return false;
-    }
-    RTC_LOG(LS_INFO) << "MediaFoundation hardware H264 encoder is available.";
-    return true;
-  }();
-  return supported;
+  if (livekit_ffi::IsMfDisabledByEnv()) {
+    return false;
+  }
+  return ProbeEncoderLevel().has_value();
 }
 
 std::unique_ptr<VideoEncoder> MFVideoEncoderFactory::Create(

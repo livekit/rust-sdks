@@ -395,7 +395,6 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #endif
 
   AddJetsonFactory(factories_);
-  AddMfFactory(factories_);
 
   const PreferredHwEncoderConfig preferred_hw_encoder =
       GetPreferredHwEncoderConfig();
@@ -406,6 +405,8 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
     AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
     AddVaapiFactory(factories_, false);
   }
+
+  AddMfFactory(factories_);
 }
 
 std::vector<webrtc::SdpVideoFormat>

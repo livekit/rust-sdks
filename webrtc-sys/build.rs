@@ -153,11 +153,11 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=shcore");
 
             // Media Foundation hardware H264 (Intel QuickSync, AMD VCN,
-            // NVIDIA NVENC via the driver-registered MFT). All system
-            // libraries; no external dependencies.
-            println!("cargo:rustc-link-lib=dylib=mfplat");
+            // NVIDIA NVENC via the driver-registered MFT). mfplat.dll is
+            // loaded dynamically at runtime so Windows N editions without
+            // the Media Feature Pack still load and fall back to software;
+            // only static GUID libraries are linked here.
             println!("cargo:rustc-link-lib=dylib=mfuuid");
-            println!("cargo:rustc-link-lib=dylib=mf");
             println!("cargo:rustc-link-lib=dylib=dxguid");
 
             //let path = env::current_dir().unwrap();

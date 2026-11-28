@@ -25,6 +25,10 @@
 #include <codecapi.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
+#include <type_traits>
 
 #include "rtc_base/logging.h"
 
@@ -59,6 +63,50 @@ struct ThreadComInit {
 
 }  // namespace
 
+const MfFunctions* GetMfFunctions() {
+  static const MfFunctions* loaded = []() -> const MfFunctions* {
+    HMODULE mod =
+        LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!mod) {
+      RTC_LOG(LS_INFO)
+          << "mfplat.dll unavailable; MediaFoundation hardware video codec "
+             "disabled.";
+      return nullptr;
+    }
+
+    static MfFunctions funcs;
+    auto resolve = [&](auto& fn, const char* name) -> bool {
+      fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(
+          GetProcAddress(mod, name));
+      if (!fn) {
+        RTC_LOG(LS_WARNING) << "mfplat.dll missing export " << name
+                            << "; MediaFoundation hardware video codec "
+                               "disabled.";
+        return false;
+      }
+      return true;
+    };
+
+    if (!resolve(funcs.startup, "MFStartup") ||
+        !resolve(funcs.mft_enum_ex, "MFTEnumEx") ||
+        !resolve(funcs.create_media_type, "MFCreateMediaType") ||
+        !resolve(funcs.create_sample, "MFCreateSample") ||
+        !resolve(funcs.create_memory_buffer, "MFCreateMemoryBuffer") ||
+        !resolve(funcs.create_aligned_memory_buffer,
+                 "MFCreateAlignedMemoryBuffer") ||
+        !resolve(funcs.create_2d_media_buffer, "MFCreate2DMediaBuffer") ||
+        !resolve(funcs.create_dxgi_device_manager,
+                 "MFCreateDXGIDeviceManager")) {
+      FreeLibrary(mod);
+      return nullptr;
+    }
+
+    // Keep mfplat.dll pinned for the process lifetime while MF objects live.
+    return &funcs;
+  }();
+  return loaded;
+}
+
 bool EnsureComInitialized() {
   thread_local ThreadComInit init;
   return init.ok;
@@ -66,7 +114,11 @@ bool EnsureComInitialized() {
 
 bool EnsureMFStarted() {
   static bool ok = [] {
-    HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_LITE);
+    const MfFunctions* mf = GetMfFunctions();
+    if (!mf) {
+      return false;
+    }
+    HRESULT hr = mf->startup(MF_VERSION, MFSTARTUP_LITE);
     if (FAILED(hr)) {
       RTC_LOG(LS_ERROR) << "MFStartup failed: " << HResultToString(hr);
       return false;
@@ -80,6 +132,20 @@ std::string HResultToString(HRESULT hr) {
   char buf[16];
   std::snprintf(buf, sizeof(buf), "0x%08lX", static_cast<unsigned long>(hr));
   return buf;
+}
+
+bool IsMfDisabledByEnv() {
+  const char* val = std::getenv("LK_DISABLE_MF");
+  if (!val || val[0] == '\0' || std::strcmp(val, "0") == 0) {
+    return false;
+  }
+  static std::once_flag log_once;
+  std::call_once(log_once, [] {
+    RTC_LOG(LS_INFO)
+        << "MediaFoundation hardware video codec disabled because "
+           "LK_DISABLE_MF is set.";
+  });
+  return true;
 }
 
 }  // namespace livekit_ffi
